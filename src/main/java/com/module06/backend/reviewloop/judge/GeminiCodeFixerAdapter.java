@@ -87,8 +87,20 @@ public class GeminiCodeFixerAdapter implements CodeFixerPort {
     }
 
     private String parseFixedCode(String responseBody, String fallback) throws IOException {
-        JsonNode parts = mapper.readTree(responseBody)
-                .path("candidates").path(0).path("content").path("parts");
+        JsonNode candidate = mapper.readTree(responseBody).path("candidates").path(0);
+
+        // finishReason이 STOP이 아니면 응답이 잘렸거나(MAX_TOKENS) 차단된 것(SAFETY 등)이다.
+        // 이 어댑터는 '파일 전체'를 반환받으므로, 잘린 텍스트를 채택하면 파일이 깨진 채 디스크에 쓰인다.
+        // (VerifiedFixer의 컴파일 게이트가 결국 롤백하지만, 라운드·비용을 헛되이 쓰고
+        //  로그엔 '컴파일 실패'만 남아 원인이 응답 잘림인 걸 알 수 없다.)
+        String finishReason = candidate.path("finishReason").asText("");
+        if (!finishReason.isEmpty() && !"STOP".equals(finishReason)) {
+            System.out.println("[fixer] 응답이 정상 종료되지 않음(finishReason=" + finishReason
+                    + ") → 수정 폐기, 원본 유지");
+            return fallback;
+        }
+
+        JsonNode parts = candidate.path("content").path("parts");
         if (!parts.isArray() || parts.isEmpty()) {
             return fallback;
         }

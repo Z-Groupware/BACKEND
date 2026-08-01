@@ -123,8 +123,19 @@ public class GeminiJudgeAdapter implements LlmJudgePort {
     }
 
     private List<Finding> parseFindings(String responseBody) throws IOException {
-        JsonNode parts = mapper.readTree(responseBody)
-                .path("candidates").path(0).path("content").path("parts");
+        JsonNode candidate = mapper.readTree(responseBody).path("candidates").path(0);
+
+        // 판정이 정상 종료되지 않았는데(잘림·안전차단 등) 빈 findings를 돌려주면
+        // "지적 없음 = PASS"가 되어 게이트가 조용히 통과한다 — 게이트에서 가장 위험한 실패 방향이다.
+        // 판정 불가는 통과가 아니라 오류로 드러내야 사람이 알아챈다.
+        String finishReason = candidate.path("finishReason").asText("");
+        if (!finishReason.isEmpty() && !"STOP".equals(finishReason)) {
+            throw new IllegalStateException(
+                    "Gemini 판정이 정상 종료되지 않음(finishReason=" + finishReason
+                    + ") — 판정 불가를 PASS로 처리하지 않는다");
+        }
+
+        JsonNode parts = candidate.path("content").path("parts");
         if (!parts.isArray() || parts.isEmpty()) {
             return List.of();
         }
