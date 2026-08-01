@@ -27,7 +27,7 @@
 
 ### 신규 진입점 `AutoLoopRunner` (게이트용 `ReviewLoopRunner`와 분리 — 훅 순수성 유지)
 ```
-com.wanted.backend.reviewloop.judge.AutoLoopRunner#main
+com.module06.backend.reviewloop.judge.AutoLoopRunner#main
   --files-from <list>        변경 .java 목록(래퍼가 diff로 생성)
   --domain <X>               도메인 규칙 한정(선택)
   --max-files <N=5>          비용 방어 상한
@@ -54,7 +54,7 @@ tasks.register('reviewAutoFix', JavaExec) {
     group = 'review-loop'
     description = '자율 수정 루프 — 변경 Minor를 fix→검증→재판정 수렴까지(별도 worktree/브랜치 권장)'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.wanted.backend.reviewloop.judge.AutoLoopRunner'
+    mainClass = 'com.module06.backend.reviewloop.judge.AutoLoopRunner'
     jvmArgs reviewLoopUtf8Args
 }
 ```

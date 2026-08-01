@@ -85,7 +85,18 @@ public class AutoLoopOrchestrator {
             ReviewBudget fileBudget = new ReviewBudget(Math.min(roundsPerFile, remaining));
             CodeFixerPort fixer = new VerifiedFixer(baseFixer, verify, parent);
             AutoFixRunner runner = new AutoFixRunner(loop, fixer, fileBudget, audit, clock, model, parent);
-            AutoFixResult r = runner.run(fileName, original);
+            AutoFixResult r;
+            try {
+                r = runner.run(fileName, original);
+            } catch (RuntimeException | IOException e) {
+                // 판정·수정 중 예외(LLM API 오류 등) — AutoFixRunner가 라운드마다 디스크에 쓰므로
+                // 여기서 복원하지 않으면 중간 수정본이 작업트리에 남아 커밋에 섞인다.
+                Files.writeString(abs, original);
+                globalSpent += fileBudget.spent();
+                System.out.printf("[autoloop] %s → 예외로 중단, 원본 복원: %s%n", rel, e);
+                outcomes.add(new FileOutcome(rel.toString(), null, fileBudget.spent(), false, false));
+                continue;
+            }
             globalSpent += r.roundsUsed();
 
             JudgeDecision decision = r.finalVerdict() == null ? null : r.finalVerdict().decision();

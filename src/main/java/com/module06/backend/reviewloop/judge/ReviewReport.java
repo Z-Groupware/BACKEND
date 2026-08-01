@@ -1,5 +1,6 @@
 package com.module06.backend.reviewloop.judge;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
@@ -62,8 +63,14 @@ public final class ReviewReport {
         List<AuditRecord> rounds = new ArrayList<>();
         if (Files.exists(errorLog)) {
             for (String line : Files.readAllLines(errorLog)) {
-                if (!line.isBlank()) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                // 손상된 한 줄이 리포트 전체를 실패시키지 않도록 줄 단위로 건너뛴다(KnowledgeStore와 동일 정책).
+                try {
                     rounds.add(mapper.readValue(line, AuditRecord.class));
+                } catch (JsonProcessingException e) {
+                    System.out.println("[report] 손상된 줄 건너뜀(" + errorLog + "): " + e.getOriginalMessage());
                 }
             }
         }

@@ -1,5 +1,6 @@
 package com.module06.backend.reviewloop.judge;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
@@ -36,8 +37,15 @@ public class KnowledgeStore {
         }
         List<Lesson> out = new ArrayList<>();
         for (String line : Files.readAllLines(file)) {
-            if (!line.isBlank()) {
+            if (line.isBlank()) {
+                continue;
+            }
+            // 손상된 한 줄(강제종료로 인한 부분 쓰기·머지 충돌 마커 등)이 교훈 전체를 못 읽게 만들면 안 된다.
+            // lessons.jsonl은 팀이 공유·커밋하는 파일이라 충돌 위험이 특히 높다 → 줄 단위로 건너뛴다.
+            try {
                 out.add(mapper.readValue(line, Lesson.class));
+            } catch (JsonProcessingException e) {
+                System.out.println("[knowledge] 손상된 줄 건너뜀(" + file + "): " + e.getOriginalMessage());
             }
         }
         return out;

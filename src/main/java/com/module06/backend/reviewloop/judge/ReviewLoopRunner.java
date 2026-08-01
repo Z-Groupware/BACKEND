@@ -37,10 +37,12 @@ public final class ReviewLoopRunner {
         List<Path> targets = resolveTargets(filesFrom, path, max);
         if (targets == null) {
             System.out.println("사용법: --args=\"(--path <dir> | --files-from <list>) [--domain X] [--max N] [--gate]\"");
+            resetFindings(findingsOut);
             return;
         }
         if (targets.isEmpty()) {
             System.out.println("리뷰할 .java 파일이 없습니다 → 통과.");
+            resetFindings(findingsOut);
             return;   // exit 0
         }
 
@@ -48,6 +50,7 @@ public final class ReviewLoopRunner {
         if (!hasKey) {
             System.out.println("GEMINI_API_KEY 없음 → Gate 2(LLM 판정) 생략"
                     + (gate ? " · 게이트 통과 처리(Gate 1은 별도)" : ""));
+            resetFindings(findingsOut);
             return;   // exit 0 — 키 부재로 push를 막지 않는다
         }
 
@@ -121,6 +124,16 @@ public final class ReviewLoopRunner {
             System.out.println("[GATE] 차단 결정(미완성/Critical) 발견 → exit 1. "
                     + "Minor·score<80은 통과. 우회: git push --no-verify");
             System.exit(1);
+        }
+    }
+
+    /**
+     * 조기 종료 경로에서 findings 파일을 비운다 — 안 비우면 이전 실행의 findings가 남아
+     * scripts/review-fix.sh가 이미 처리된(또는 무관한) 낡은 지적으로 수정 요청서를 만든다.
+     */
+    private static void resetFindings(String findingsOut) throws IOException {
+        if (findingsOut != null) {
+            writeFindings(findingsOut, List.of());
         }
     }
 

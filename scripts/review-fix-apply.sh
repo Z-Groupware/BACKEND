@@ -48,7 +48,9 @@ n=0
     [ -z "$line" ] && continue
     n=$((n+1))
     rule="$(printf '%s' "$line" | grep -oE '\[[A-Z0-9_]+\]' | head -1 | tr -d '[]')"
-    mapfile -t opts < <(options_for "$rule")
+    # mapfile은 bash 4+ 전용 — macOS 기본 bash 3.2에서 훅이 깨진다. 이식성 있는 방식으로 채운다.
+    opts=()
+    while IFS= read -r o; do opts+=("$o"); done < <(options_for "$rule")
     echo "## $n. $line"
     echo
     echo "방안(1=추천):"

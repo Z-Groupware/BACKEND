@@ -26,7 +26,7 @@ if [ -z "${GEMINI_API_KEY:-}" ]; then
   echo "[domainScore] GEMINI_API_KEY 필요(판정용) — 없으면 점수가 산출되지 않는다"; exit 1
 fi
 
-DOMAIN_ROOT="src/main/java/com/wanted/backend/domain"
+DOMAIN_ROOT="src/main/java/com/module06/backend/domain"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 RAW_DIR="review-loop/logs/domain-scores/$RUN_ID"
 SCORE_DIR="review-loop/scores"

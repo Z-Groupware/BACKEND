@@ -7,7 +7,7 @@
 # 절차 상세: review-loop/DRIVER.md
 #
 # 사용: bash scripts/review-fix.sh --files-from <git-dir>/reviewloop-changed.txt
-#       bash scripts/review-fix.sh --path src/main/java/com/wanted/backend/domain/cart --domain cart
+#       bash scripts/review-fix.sh --path src/main/java/com/module06/backend/domain/meeting --domain meeting
 # 필요: GEMINI_API_KEY(판정용)
 set -u
 

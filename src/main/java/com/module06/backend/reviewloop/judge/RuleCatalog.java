@@ -210,11 +210,17 @@ public class RuleCatalog {
         return List.of();
     }
 
+    /**
+     * severity 파싱 — 조용히 MINOR로 폴백하지 않는다.
+     * 폴백하면 {@code CRITICAL} 오타(예: Critial)가 MINOR로 강등되어 "Critical은 항상 사람 승인"
+     * 안전장치를 우회하고, 자율 루프가 자동수정 대상으로 삼아버린다. 카탈로그 로드 자체를 실패시킨다.
+     */
     private static Severity parseSeverity(Object raw) {
         try {
             return Severity.valueOf(str(raw).trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            return Severity.MINOR;
+            throw new IllegalArgumentException(
+                    "rules.yaml: 알 수 없는 severity 값 '" + raw + "' — CRITICAL/MINOR만 허용", e);
         }
     }
 

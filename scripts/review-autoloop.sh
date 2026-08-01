@@ -35,7 +35,9 @@ cleanup() { git worktree remove --force "$WT" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 cd "$WT"
-CHANGED=".git/autoloop-changed.txt"
+# linked worktree에서 .git은 디렉터리가 아니라 '파일'이다(gitdir 포인터) → 그 아래에 쓰면 실패한다.
+# git이 알려주는 실제 gitdir 경로에 쓴다.
+CHANGED="$(git rev-parse --git-path autoloop-changed.txt)"
 git diff --name-only --diff-filter=ACMR "${CMP}...HEAD" | grep -E '\.java$' > "$CHANGED" || true
 N=$(wc -l < "$CHANGED" | tr -d ' ')
 echo "[autoloop] 변경 .java ${N}개"

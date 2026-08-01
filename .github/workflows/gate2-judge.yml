@@ -14,18 +14,22 @@ on:
     branches: [ main, develop ]
     types: [ opened, synchronize, reopened, ready_for_review ]
 
+# 워크플로 전역은 최소 권한(읽기)만. 쓰기 권한은 실제로 필요한 잡에서만 승격한다.
 permissions:
   contents: read
-  checks: write
-  pull-requests: write
 
 jobs:
   gate2-deterministic:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write        # 테스트 결과 게시(check-run)용 — 이 잡에만 필요
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # 러너에 git 자격증명을 남기지 않는다
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -71,6 +75,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false   # PR 코드를 실행하는 잡 — git 자격증명을 남기지 않는다
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -116,6 +121,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
