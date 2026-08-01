@@ -1,0 +1,28 @@
+name: Gate 1 · Semgrep (QUERY_002)
+
+# AI 코드 리뷰 루프 — Gate 1(정적 패턴) 중 Semgrep만. baseline-diff-only: 신규 @Query만 차단.
+# ArchUnit(아키텍처 규칙) 게이트는 컨벤션 담당 팀원이 ArchitectureRulesTest를 추가하면 별도 잡으로 붙인다.
+# 기존 사용처는 base 커밋 기준 baseline이라 통과하고, PR에서 새로 추가되는 @Query만 실패시킨다.
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
+
+jobs:
+  semgrep-query:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout (full history for baseline diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gate 1 — Semgrep QUERY_002 (신규 @Query만 차단)
+        run: >-
+          semgrep scan
+          --config review-loop/semgrep/query.yml
+          --baseline-commit ${{ github.event.pull_request.base.sha }}
+          --error

@@ -1,0 +1,73 @@
+package com.module06.backend.reviewloop.judge;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.nio.file.Path;
+
+/**
+ * 자동수정 루프 (아티팩트 §01 · Minor 한정) — 찾기→고치기→재리뷰를 budget까지 반복한다.
+ *
+ *   라운드마다: 코드를 디스크에 동기화 → 리뷰(Judge+Evidence+점수) → audit log
+ *   - PASS           → 종료(수정 완료)
+ *   - AWAITING_HUMAN → 종료(Critical은 자동수정 금지, 사람에게)
+ *   - NEEDS_REVISION → Fixer가 코드를 고치고 다음 라운드 (Minor만 자동수정)
+ *   - budget 소진    → 종료(무한 루프 없음), "AI가 해결 못함"으로 사람에게 이관
+ *
+ * 코드를 디스크에 써야 EvidenceValidator가 고친 코드의 file:line을 재검증한다.
+ */
+public class AutoFixRunner {
+
+    private final RoundReviewer reviewer;
+    private final CodeFixerPort fixer;
+    private final ReviewBudget budget;
+    private final AuditLogWriter auditLog;
+    private final Clock clock;
+    private final String model;
+    private final Path repoRoot;
+
+    public AutoFixRunner(RoundReviewer reviewer, CodeFixerPort fixer, ReviewBudget budget,
+                         AuditLogWriter auditLog, Clock clock, String model, Path repoRoot) {
+        this.reviewer = reviewer;
+        this.fixer = fixer;
+        this.budget = budget;
+        this.auditLog = auditLog;
+        this.clock = clock;
+        this.model = model;
+        this.repoRoot = repoRoot;
+    }
+
+    public AutoFixResult run(String filePath, String initialCode) throws IOException {
+        String code = initialCode;
+        JudgeVerdict verdict = null;
+
+        while (!budget.isExhausted()) {
+            budget.consume();
+            Files.writeString(repoRoot.resolve(filePath), code);   // 디스크 동기화 → Evidence가 현재 코드 검증
+            verdict = reviewer.review(filePath, code);
+
+            boolean budgetOut = budget.isExhausted();
+            auditLog.append(toRecord(verdict, !isTerminal(verdict) && budgetOut));
+
+            if (isTerminal(verdict)) {
+                return new AutoFixResult(code, verdict, budget.spent(), false);
+            }
+            if (budgetOut) {
+                return new AutoFixResult(code, verdict, budget.spent(), true);
+            }
+            // NEEDS_REVISION (Minor) → 자동수정 후 다음 라운드
+            code = fixer.fix(filePath, code, verdict.findings());
+        }
+        return new AutoFixResult(code, verdict, budget.spent(), true);
+    }
+
+    private boolean isTerminal(JudgeVerdict v) {
+        return v.decision() == JudgeDecision.PASS || v.decision() == JudgeDecision.AWAITING_HUMAN;
+    }
+
+    private AuditRecord toRecord(JudgeVerdict v, boolean terminatedByBudget) {
+        return new AuditRecord(LocalDateTime.now(clock).toString(), budget.spent(), model,
+                v.score(), v.hasCritical(), v.decision(), v.findings().size(), terminatedByBudget);
+    }
+}

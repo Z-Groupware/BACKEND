@@ -1,0 +1,154 @@
+# ============================================================================
+# 규칙 카탈로그 (SSOT) — v1.0
+# 줄글 팀 규칙 → ID + 집행(enforced_by) + severity + 근거.
+# Gate 1(결정론)·Gate 2(Judge)·점수 산출이 모두 이 파일을 단일 출처로 참조한다.
+#
+# status 의미 (정직하게 구분):
+#   verified_green : 이 레포에서 실제로 검증됨, 통과
+#   baseline       : 실제 위반이 있어 baseline으로 얼림(신규만 차단)
+#   claimed        : 카탈로그 주장값 — 아직 테스트로 미검증 (검증 필요)
+#   judge_pending  : LLM Judge 몫, Judge/Promptfoo 미구현
+# ============================================================================
+
+version: "1.0"
+
+meta:
+  gates:
+    gate1: "결정론 (ArchUnit·Semgrep·test) — 비용 0. 위반 시 severity 분기."
+    gate2: "LLM Judge (의미규칙만) — 정적분석이 원천적으로 못 잡는 것."
+  severity:
+    CRITICAL: "걸리면 무조건 사람 승인 (자동수정·머지 금지)"
+    MINOR: "자동수정 루트 허용 (≤3회)"
+  score:
+    formula: "100 - Σ(weight)  — LLM이 아니라 코드가 결정론으로 계산. acceptance는 가중치 제외."
+    pass_threshold: 80         # score >= 80 → PASS, 미만 → 재수정 (Critical은 점수 무관 사람 승인)
+    default_weight:            # 규칙별 weight 미지정 시 severity 기본 감점
+      CRITICAL: 40
+      MINOR: 10
+    judge_default_weight: 15   # 의미규칙(judge) 기본 감점
+
+rules:
+  # ── CRITICAL — 결제·보안·도메인 고정값 (걸리면 무조건 사람) ──────────────
+  - id: SEC_001
+    text: "인증코드 3분·인증완료 5분·JWT 30분/14일 고정값"
+    severity: CRITICAL
+    enforced_by: test
+    evidence: "application.yaml:84-85,125"
+    status: claimed        # 카탈로그 주장 — 검증 테스트 필요
+
+  - id: SEC_002
+    text: "로그인 5회 잠금 · 비번 재발급 3회 · 재사용 금지"
+    severity: CRITICAL
+    enforced_by: test
+    evidence: "Member.java:17 (MAX_LOGIN_FAIL_COUNT=5) / application.yaml:129"
+    test_ref: "MemberLoginLockTest"
+    status: verified_green   # ✅ '5회 잠금'만 검증. 재발급 3회·재사용 금지는 아직 미검증(별도)
+
+  - id: DOM_001
+    text: "구독료 = (수능일까지 일수) × 30,000원 공식 (수능일 2026-11-19, 롤오버로 0/음수 없음)"
+    severity: CRITICAL
+    enforced_by: test
+    evidence: "SubscriptionPricingPolicy.java:52"
+    test_ref: "SubscriptionPricingPolicyTest"
+    status: verified_green   # ✅ 공식·롤오버 단위 테스트 통과
+
+  - id: DOM_002
+    text: "도메인 파일 5MB · 영상 1GB 한도"
+    severity: CRITICAL
+    enforced_by: test
+    evidence: "application.yaml:134,142 / CourseCommandService:198"
+    status: claimed
+
+  - id: MIG_001
+    text: "스키마 변경은 마이그레이션으로만 · ddl-auto=validate (update 금지)"
+    severity: CRITICAL
+    enforced_by: [test, ci]
+    evidence: "application.yaml:31 / pr-ci.yml schema-validation 잡"
+    status: claimed        # CI 드리프트 게이트는 실재(pr-ci.yml), 규칙-테스트 매핑만 미확인
+
+  # ── 시범 기능(Q3): 퀴즈 문항 난이도 — Gate 1 전용, 코드 실독 검증 ──────────
+  - id: QDIFF_001
+    text: "API 등록 요청 난이도 필수·1~3, 범위 밖이면 400 (QDIFF_002 정답번호·보기수 포함)"
+    severity: MINOR
+    enforced_by: test
+    evidence: "InstructorQuizRequest.java:23-30"
+    test_ref: "InstructorQuizRequestValidationTest"
+    status: verified_green   # ✅ Bean Validation 단위 테스트 통과
+
+  - id: QDIFF_003
+    text: "도메인 create()·restore() 공통 검증: null 허용, 값 있으면 1~3 강제 (QDIFF_004 restore 차단 포함)"
+    severity: MINOR
+    enforced_by: test
+    evidence: "QuizQuestion.java:74-78"
+    test_ref: "QuizQuestionTest"
+    status: verified_green   # ✅ 도메인 단위 테스트 통과
+
+  - id: QDIFF_005
+    text: "difficulty TINYINT 매핑·저장 (schema-validation 통과)"
+    severity: MINOR
+    enforced_by: [test, ci]
+    evidence: "V3.5.1__add_difficulty_to_quiz_question.sql / QuizQuestionJpaEntity"
+    status: claimed          # @DataJpaTest 통합 테스트 필요 (이번 단위 테스트 범위 밖)
+
+  # ── MINOR — 클린아키텍처 (ArchUnit, 실측 완료) ──────────────────────────
+  - id: ARCH_001
+    text: "presentation(컨트롤러)은 domain.repository 직접호출 금지 → Service 경유"
+    severity: MINOR
+    enforced_by: archunit
+    archunit_ref: "ArchitectureRulesTest#presentationMustNotAccessRepositoryDirectly"
+    status: verified_green   # ✅ 실행 확인
+
+  - id: ARCH_002
+    text: "domain.model은 Spring·JPA 의존 금지 (순수 POJO)"
+    severity: MINOR
+    enforced_by: archunit
+    archunit_ref: "ArchitectureRulesTest#domainModelMustNotDependOnFramework"
+    status: verified_green   # ✅ 실행 확인
+
+  - id: ARCH_003
+    text: "application → infrastructure 직접 참조 금지 (포트-어댑터)"
+    severity: MINOR
+    enforced_by: archunit
+    archunit_ref: "ArchitectureRulesTest#applicationMustNotDependOnInfrastructure"
+    status: baseline         # ⚠️ 실제 위반 2곳 → archunit_store에 얼림, 신규만 차단
+    debt:
+      - "PostQueryService → community.infrastructure.cache.PostCountCache (PostQueryService.java:71)"
+      - "GetStudyStreakService → grass.infrastructure.config.GrassStreakProperties (GetStudyStreakService.java:31)"
+    debt_ticket: "TODO — 포트 도입 리팩터 (Minor)"
+
+  # ── MINOR — 코드 패턴 (Semgrep, baseline-diff-only) ─────────────────────
+  - id: QUERY_002
+    text: "신규 @Query(JPQL/native) 추가 금지 — 기존은 baseline, 신규 diff만 차단"
+    severity: MINOR
+    enforced_by: semgrep
+    evidence: "src/main/java @Query 20곳/16파일 (= baseline)"
+    semgrep_rule: "review-loop/semgrep/query.yml"
+    status: baseline   # CI에서 실행(로컬 python/semgrep 미설치로 여기선 미검증)
+
+  # ── Judge (LLM, 의미규칙 3개) — 정적분석이 못 잡는 것 ────────────────────
+  - id: CONV_001
+    text: "새 유틸 만들기 전 global 검색 — 중복 재발명 금지"
+    severity: MINOR
+    enforced_by: judge
+    anchor: "표준 유틸 앵커: ClockConfig(Clock 빈)·S3UrlPresigner"
+    status: judge_pending
+
+  - id: PERF_001
+    text: "N+1 금지 — 단일→fetch join / 다중→batch size / 집계→비정규화"
+    severity: MINOR
+    enforced_by: judge
+    anchor: "정답 앵커: QuizQueryService.java:177 (findByMemberIdAndQuizIdIn 배치 조회, 'N+1 방지' 주석)"
+    status: judge_pending
+
+  - id: ARCH_003a
+    text: "타 도메인 JpaEntity 읽기 참조 — 투영(read model)은 예외 허용"
+    severity: MINOR
+    enforced_by: judge       # ArchUnit로 후보 탐지 + 투영 예외 판단은 Judge
+    status: judge_pending
+
+# ── NOTE — 비채점 인지 항목 (카탈로그 16개 밖) ──────────────────────────────
+# Judge가 위반으로 오판하기 쉬운 의도적 결정. 감점 대상 아님. flag하면 오판으로 error_log에 기록.
+notes:
+  - id: NOTE_001
+    text: "비정규화 count 등 ADR로 승인된 의도적 성능 결정 — 되돌리지 말 것"
+    scored: false

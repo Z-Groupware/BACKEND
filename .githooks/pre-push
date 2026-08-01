@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# AI 코드 리뷰 루프 · pre-push 훅 (로컬 자동 트리거)
+#
+# push 직전에 "이번에 원격으로 나가는 변경 .java"만 골라 로컬 게이트를 돌린다. (순수 게이트 — 코드 안 고침)
+#   - Gate 1 (정적·결정론, 키 불필요): ArchUnit 실패 시 push 차단.
+#   - Gate 2 (LLM 판정, 변경 파일만):  차단 결정(미완성/Critical) 시 push 차단.
+#                                       Minor는 차단하지 않고 수정 요청서(<git-dir>/review-fix-request.md)만 남긴다.
+#                                       수정은 훅이 하지 않는다 — 드라이버(Claude Code)가 요청서를 읽어 처리(중첩 claude 금지).
+#                                       GEMINI_API_KEY 없으면 러너가 스스로 생략·통과. 절차: review-loop/DRIVER.md
+# 급할 때 우회: git push --no-verify  (서버 CI(Gate 3)는 우회 불가)
+#
+# 활성화(클론 후 1회): ./gradlew installReviewHooks   (= git config core.hooksPath .githooks)
+set -u
+
+# Gradle 런처 JVM을 UTF-8로 — Windows 콘솔 기본(cp949)이면 게이트 메시지 한글이 깨져
+# 차단 사유를 사람이 못 읽는다(자식 JVM은 build.gradle의 jvmArgs가 담당).
+export GRADLE_OPTS="${GRADLE_OPTS:-} -Dfile.encoding=UTF-8"
+
+ZERO="0000000000000000000000000000000000000000"
+# 기본 비교 기준 — develop이 있으면 develop, 없으면 main (신규 레포 방어).
+BASE_DEFAULT="$(git rev-parse --verify -q origin/develop >/dev/null 2>&1 && echo origin/develop || echo origin/main)"
+CHANGED="$(git rev-parse --git-dir)/reviewloop-changed.txt"
+: > "$CHANGED"
+
+# stdin(각 줄): <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue            # 브랜치 삭제 push는 스킵
+  if [ "$remote_sha" = "$ZERO" ]; then              # 신규 브랜치 → develop 기준 신규 커밋만
+    range_base="$(git merge-base "$BASE_DEFAULT" "$local_sha" 2>/dev/null || echo "")"
+  else
+    range_base="$remote_sha"
+  fi
+  if [ -n "$range_base" ]; then
+    git diff --name-only --diff-filter=ACMR "$range_base" "$local_sha"
+  else
+    git show --name-only --diff-filter=ACMR --format= "$local_sha"
+  fi
+done | grep -E '\.java$' | sort -u > "$CHANGED"
+
+if [ ! -s "$CHANGED" ]; then
+  echo "[review-loop] 변경된 .java 없음 → 통과"
+  exit 0
+fi
+echo "[review-loop] 변경 .java $(wc -l < "$CHANGED")개 검사..."
+
+# ── Gate 1 (정적·결정론) — 키 불필요. 실패 시 차단. (semgrep 등 풀 세트는 CI에서) ──
+# 아키텍처 규칙 테스트(컨벤션 담당 팀원 작업)가 아직 없으면 스킵 → 추가되면 자동 활성화.
+ARCH_TEST="com.module06.backend.architecture.ArchitectureRulesTest"
+if find src/test -name 'ArchitectureRulesTest.java' 2>/dev/null | grep -q .; then
+  echo "[review-loop] Gate 1 · ArchUnit ..."
+  if ! ./gradlew -q test --tests "$ARCH_TEST" --no-daemon; then
+    echo "[review-loop] ❌ Gate 1 실패 → push 중단 (우회: git push --no-verify)"
+    exit 1
+  fi
+else
+  echo "[review-loop] Gate 1 · ArchUnit 테스트 없음 → 스킵(컨벤션 팀원이 추가하면 자동 활성화)"
+fi
+
+# ── Gate 2 (LLM 판정) — 변경 파일만. Critical/미완성이면 차단, Minor는 findings 파일로 추출. ──
+echo "[review-loop] Gate 2 · LLM Judge (변경 파일만) ..."
+MINOR="$(git rev-parse --git-dir)/review-minor-findings.txt"
+: > "$MINOR"
+if ! ./gradlew -q reviewLoop --args="--files-from $CHANGED --gate --findings-out $MINOR" --no-daemon; then
+  echo "[review-loop] ❌ Gate 2 차단 결정(Critical/미완성) → push 중단 (우회: git push --no-verify)"
+  exit 1
+fi
+
+# ── Minor findings — 차단 아님(러너가 Critical/미완성만 차단). 훅은 코드를 안 고친다. ──
+# 수정 요청서만 만들고 통과시킨다. 수정·커밋·재push는 드라이버(Claude Code)가 대화 안에서 처리.
+if [ -s "$MINOR" ]; then
+  REQUEST="$(git rev-parse --git-dir)/review-fix-request.md"
+  bash "$(git rev-parse --show-toplevel)/scripts/review-fix-apply.sh" "$MINOR" "$REQUEST" || true
+  echo "[review-loop] ℹ️  Minor $(grep -c . "$MINOR")건 — push는 통과. 고치려면 Claude Code에게:"
+  echo "               \"$REQUEST 처리해\"  (방안 확정 → Edit 수정 → 커밋 → 재push · review-loop/DRIVER.md)"
+fi
+
+echo "[review-loop] ✅ 통과 → push 진행"
+exit 0
