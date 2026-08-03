@@ -42,7 +42,8 @@ jobs:
           platforms: linux/amd64
           tags: ${{ env.IMAGE }}:${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 캐시 export 실패가 배포를 막지 않도록 ignore-error=true (기본값 false)
+          cache-to: type=gha,mode=max,ignore-error=true
 
       - name: AWS 인증 (OIDC — 액세스 키 없음)
         uses: aws-actions/configure-aws-credentials@v4

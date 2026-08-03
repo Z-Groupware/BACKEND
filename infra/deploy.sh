@@ -31,6 +31,12 @@ if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
   exit 1
 fi
 IMAGE_TAG="$1"
+# 커밋 SHA 형식(7~40자리 hex)만 허용한다. latest·develop·임의 문자열을 넘기면
+# 커밋과 무관한 이미지가 배포될 수 있으므로 즉시 실패시킨다(운영=커밋 1:1 추적 보장).
+if ! printf '%s' "${IMAGE_TAG}" | grep -Eq '^[0-9a-f]{7,40}$'; then
+  echo "오류: 이미지 태그는 커밋 SHA(7~40자리 hex)여야 합니다: '${IMAGE_TAG}'" >&2
+  exit 1
+fi
 IMAGE="${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo "=== [1/4] 이미지 pull: ${IMAGE} ==="
