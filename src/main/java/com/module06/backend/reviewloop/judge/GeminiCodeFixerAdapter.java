@@ -40,10 +40,7 @@ public class GeminiCodeFixerAdapter implements CodeFixerPort {
     }
 
     public GeminiCodeFixerAdapter(String apiKey, String model) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("GEMINI_API_KEY 환경변수가 필요합니다.");
-        }
-        this.apiKey = apiKey;
+        this.apiKey = ApiKeys.require(apiKey, "GEMINI_API_KEY");
         this.model = model;
     }
 

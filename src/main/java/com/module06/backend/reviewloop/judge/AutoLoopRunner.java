@@ -49,8 +49,7 @@ public final class AutoLoopRunner {
             return;
         }
 
-        String key = System.getenv("GEMINI_API_KEY");
-        if (key == null || key.isBlank()) {
+        if (!ApiKeys.present(System.getenv("GEMINI_API_KEY"))) {
             System.out.println("[autoloop] GEMINI_API_KEY 없음 → 자율 루프 생략(판정·수정 불가)");
             return;
         }

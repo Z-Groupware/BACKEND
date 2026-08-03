@@ -23,13 +23,58 @@ import java.util.stream.Stream;
  *   --domain      해당 도메인 규칙만 적용(common + 도메인).
  *   --rules       규칙 카탈로그(기본 review-loop/rules.yaml).
  *   --gate        판정을 종료코드로 — 차단 결정(미완성/Critical)이 하나라도 있으면 exit 1.
+ *   --status-out  게이트 결과를 한 줄로 기록(기본 build/reviewloop-status.txt) — 아래 참조.
  *
  * 코어(ReviewLoop 등)는 도메인·트리거 무관 — 여기선 대상·규칙만 주입한다.
  * GEMINI_API_KEY가 없으면 Gate 2(LLM 판정)는 생략하고 통과 처리한다(로컬 게이트는 훅의 Gate 1이 담당).
+ *
+ * <h2>결과 신호 — "코드가 나쁨"과 "리뷰가 안 돌았음"은 다르다</h2>
+ * 예전에는 예외가 그대로 터져 나가 종료코드가 1이 됐고, 훅이 그것을 <b>"Critical 차단"으로 오보고</b>했다.
+ * 판정이 시작조차 못 한 것과 코드에 문제가 있는 것이 같은 메시지로 보였다 —
+ * 실제로 이 저장소에서 키 형식 오류가 그렇게 가려졌다(감사 로그 0건인데 아무도 몰랐다).
+ * 그래서 결과를 <b>상태 파일 한 줄</b>로 명시한다({@link #STATUS_OK}/{@link #STATUS_BLOCKED}/{@link #STATUS_ERROR}):
+ * <ul>
+ *   <li>{@code OK}      — 판정 완료(통과) 또는 대상·키 없음으로 생략. exit 0
+ *   <li>{@code BLOCKED} — 판정 완료 + 차단 결정(Critical/미완성). exit 1 ← <b>코드 판정</b>
+ *   <li>{@code ERROR}   — 판정 실패(LLM 오류·키 형식·네트워크 등). exit 2 ← <b>리뷰 미수행</b>
+ * </ul>
+ * gradle이 JavaExec의 종료코드를 1로 뭉개므로 <b>훅·CI는 종료코드가 아니라 이 파일로 구분</b>해야 한다.
+ * 파일이 비어 있으면 러너가 시작조차 못 한 것이다(컴파일 실패 등) — 그것도 '리뷰 미수행'이다.
  */
 public final class ReviewLoopRunner {
 
-    public static void main(String[] args) throws Exception {
+    /** 판정 완료·통과 또는 생략. */
+    static final String STATUS_OK = "OK";
+    /** 판정 완료 + 차단 결정 — 코드 판정 결과. */
+    static final String STATUS_BLOCKED = "BLOCKED";
+    /** 판정 자체가 실패 — 리뷰가 수행되지 않았다. 코드 판정이 아니다. */
+    static final String STATUS_ERROR = "ERROR";
+
+    private static final String DEFAULT_STATUS_OUT = "build/reviewloop-status.txt";
+
+    public static void main(String[] args) {
+        String statusOut = CliArgs.value(args, "--status-out", DEFAULT_STATUS_OUT);
+        try {
+            boolean blocked = run(args);
+            writeStatus(statusOut, blocked ? STATUS_BLOCKED : STATUS_OK);
+            if (blocked) {
+                System.out.println("[GATE] 차단 결정(미완성/Critical) 발견 → exit 1. "
+                        + "Minor·score<80은 통과. 우회: git push --no-verify");
+                System.exit(1);
+            }
+        } catch (Throwable t) {
+            // 판정 실패 = 리뷰 미수행. 코드 판정(BLOCKED)과 절대 섞이면 안 된다.
+            writeStatus(statusOut, STATUS_ERROR);
+            System.out.println("[GATE] ⚠️ 게이트 오류 — 리뷰가 수행되지 않았다(코드 판정 아님): "
+                    + t.getClass().getSimpleName() + ": " + t.getMessage());
+            System.out.println("[GATE] 흔한 원인: GEMINI_API_KEY 형식(개행·공백)·네트워크·API 쿼터. 아래 스택 참조.");
+            t.printStackTrace(System.err);
+            System.exit(2);
+        }
+    }
+
+    /** @return 차단 결정이 하나라도 있으면 true(--gate일 때만 의미). 판정 실패는 예외로 던진다. */
+    private static boolean run(String[] args) throws Exception {
         String filesFrom = CliArgs.value(args, "--files-from", null);
         String path = CliArgs.value(args, "--path", null);
         String domain = CliArgs.value(args, "--domain", null);
@@ -42,20 +87,19 @@ public final class ReviewLoopRunner {
         if (targets == null) {
             System.out.println("사용법: --args=\"(--path <dir> | --files-from <list>) [--domain X] [--max N] [--gate]\"");
             resetFindings(findingsOut);
-            return;
+            return false;
         }
         if (targets.isEmpty()) {
             System.out.println("리뷰할 .java 파일이 없습니다 → 통과.");
             resetFindings(findingsOut);
-            return;   // exit 0
+            return false;
         }
 
-        boolean hasKey = System.getenv("GEMINI_API_KEY") != null && !System.getenv("GEMINI_API_KEY").isBlank();
-        if (!hasKey) {
+        if (!ApiKeys.present(System.getenv("GEMINI_API_KEY"))) {
             System.out.println("GEMINI_API_KEY 없음 → Gate 2(LLM 판정) 생략"
                     + (gate ? " · 게이트 통과 처리(Gate 1은 별도)" : ""));
             resetFindings(findingsOut);
-            return;   // exit 0 — 키 부재로 push를 막지 않는다
+            return false;   // 키 부재로 push를 막지 않는다
         }
 
         RuleCatalog catalog = RuleCatalog.fromFile(Path.of(rulesPath));
@@ -123,10 +167,23 @@ public final class ReviewLoopRunner {
         System.out.println(report);
         Files.writeString(Path.of("build/reviewloop-run.txt"), report);
 
-        if (gate && blocked) {
-            System.out.println("[GATE] 차단 결정(미완성/Critical) 발견 → exit 1. "
-                    + "Minor·score<80은 통과. 우회: git push --no-verify");
-            System.exit(1);
+        return gate && blocked;
+    }
+
+    /**
+     * 게이트 결과를 한 줄로 기록한다 — 훅·CI가 "코드 판정"과 "리뷰 미수행"을 구분하는 유일한 신호.
+     * 기록 실패가 게이트를 망가뜨리면 안 되므로(신호가 목적이지 게이트가 아니다) 삼켜서 경고만 남긴다.
+     */
+    static void writeStatus(String statusOut, String status) {
+        try {
+            Path f = Path.of(statusOut);
+            if (f.getParent() != null) {
+                Files.createDirectories(f.getParent());
+            }
+            Files.writeString(f, status + "\n");
+        } catch (IOException | RuntimeException e) {
+            System.out.println("[GATE] 상태 파일 기록 실패(" + statusOut + "): " + e
+                    + " — 상태는 " + status);
         }
     }
 

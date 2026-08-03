@@ -114,4 +114,38 @@ class ReviewLoopRunnerTest {
         assertThatCode(() -> ReviewLoopRunner.evidenceFor(bare).isGrounded(at("A.java", 1)))
                 .doesNotThrowAnyException();
     }
+
+    // ── 게이트 상태 신호 — 훅이 "코드 판정(BLOCKED)"과 "리뷰 미수행(ERROR)"을 구분하는 유일한 근거 ──
+
+    @Test
+    @DisplayName("상태 파일은 부모 디렉터리가 없어도 기록된다")
+    void writesStatusCreatingParents() throws IOException {
+        Path out = dir.resolve("nope/deep/status.txt");
+
+        ReviewLoopRunner.writeStatus(out.toString(), ReviewLoopRunner.STATUS_BLOCKED);
+
+        // 훅은 공백·개행을 떼고 정확히 일치를 본다 → 값에 잡것이 섞이면 안 된다.
+        assertThat(Files.readString(out).trim()).isEqualTo("BLOCKED");
+    }
+
+    @Test
+    @DisplayName("세 상태는 서로 다른 값이다 (훅의 case 분기가 갈리는 근거)")
+    void statusValuesAreDistinct() {
+        assertThat(List.of(ReviewLoopRunner.STATUS_OK,
+                        ReviewLoopRunner.STATUS_BLOCKED,
+                        ReviewLoopRunner.STATUS_ERROR))
+                .containsExactly("OK", "BLOCKED", "ERROR")
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("상태 기록 실패는 예외를 던지지 않는다 — 신호 실패가 게이트를 망가뜨리면 안 된다")
+    void statusWriteFailureIsSwallowed() throws IOException {
+        // 파일을 부모로 지정 → createDirectories/writeString이 실패하는 경로
+        Path file = Files.writeString(dir.resolve("blocker"), "x");
+        Path impossible = file.resolve("child/status.txt");
+
+        assertThatCode(() -> ReviewLoopRunner.writeStatus(impossible.toString(),
+                ReviewLoopRunner.STATUS_ERROR)).doesNotThrowAnyException();
+    }
 }

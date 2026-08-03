@@ -81,8 +81,7 @@ public final class ReviewLoopCli {
     }
 
     private static boolean hasGeminiKey() {
-        String k = System.getenv("GEMINI_API_KEY");
-        return k != null && !k.isBlank();
+        return ApiKeys.present(System.getenv("GEMINI_API_KEY"));
     }
 
     private ReviewLoopCli() {
