@@ -55,8 +55,11 @@ aws ssm get-parameters-by-path \
 | while IFS=$'\t' read -r name value; do
     key="$(basename "${name}")"          # /z/prod/DB_PASSWORD -> DB_PASSWORD
     echo "${key}=${value}"
-  done > "${ENV_FILE}"
-  chmod 600 "${ENV_FILE}"
+ done > "${tmp_env}"
+
+chmod 600 "${tmp_env}"
+mv -f "${tmp_env}" "${ENV_FILE}"
+trap - EXIT
 
 echo "=== [2/4] 이미지 pull: ${SPRING_IMAGE} ==="
 docker compose -f "${COMPOSE_FILE}" pull spring
