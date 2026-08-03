@@ -7,7 +7,7 @@ package com.module06.backend.project.domain.policy;
 
     연결된 클래스
     - Project              : 검사 대상 태그의 소유 모델
-    - UpdateProjectService : 이 규칙을 호출하는 수정 유스케이스 (application.service, 미생성)
+    - UpdateProjectService : 이 규칙을 호출하는 수정 유스케이스 (application.service)
 */
 public class ProjectTagImmutablePolicy {
 }

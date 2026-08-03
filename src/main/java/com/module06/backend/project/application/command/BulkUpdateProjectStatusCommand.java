@@ -6,7 +6,7 @@ package com.module06.backend.project.application.command;
     전부 성공 또는 전부 실패(all-or-nothing) — 일부만 반영되면 보드와 DB가 어긋난다.
 
     연결된 클래스
-    - BulkUpdateProjectStatusRequest  : 이 명령으로 변환되는 요청 DTO (presentation, 미생성)
+    - BulkUpdateProjectStatusRequest  : 이 명령으로 변환되는 요청 DTO (presentation)
     - BulkUpdateProjectStatusUseCase  : 이 명령을 받는 기능 계약
     - BulkUpdateProjectStatusService  : 이 명령을 처리하는 구현체
     - ProjectStatus                   : 각 항목이 지정하는 상태 값

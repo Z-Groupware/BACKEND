@@ -10,7 +10,7 @@ import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
     - GetProjectDetailUseCase     : 구현하는 계약
     - ProjectRepository           : 프로젝트 조회
     - ProjectAttachmentRepository : 첨부파일 목록 조회
-    - ProjectDetailResponse       : 출력 DTO (presentation, 미생성)
+    - ProjectDetailResponse       : 출력 DTO (presentation)
 */
 public class GetProjectDetailService implements GetProjectDetailUseCase {
 }

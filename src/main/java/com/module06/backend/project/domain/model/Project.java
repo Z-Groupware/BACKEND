@@ -10,7 +10,7 @@ package com.module06.backend.project.domain.model;
     - ProjectAttachment        : 이 프로젝트에 달린 첨부파일 메타데이터
     - ProjectTagImmutablePolicy: 태그 변경 금지 규칙(FR-PJ-04)
     - ProjectRepository        : 저장소 계약
-    - ProjectJpaEntity         : 영속화 매핑 (infrastructure.persistence, 미생성)
+    - ProjectJpaEntity         : 영속화 매핑 (infrastructure.persistence)
 */
 public class Project {
 }

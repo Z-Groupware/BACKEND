@@ -7,8 +7,8 @@ package com.module06.backend.project.domain.model;
 
     연결된 클래스
     - Project                          : 이 값을 상태 필드로 보유
-    - BulkUpdateProjectStatusRequest   : 보드 저장 시 일괄 변경 요청 (presentation, 미생성)
-    - ProjectSummaryResponse           : 목록 응답의 상태 배지 (presentation, 미생성)
+    - BulkUpdateProjectStatusRequest   : 보드 저장 시 일괄 변경 요청 (presentation)
+    - ProjectSummaryResponse           : 목록 응답의 상태 배지 (presentation)
 */
 public enum ProjectStatus {
     TODO,

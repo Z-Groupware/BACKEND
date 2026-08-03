@@ -5,7 +5,7 @@ package com.module06.backend.project.application.command;
     태그는 담지 않는다 — 생성 후 불변(FR-PJ-04)이라 애초에 수정 경로에 태울 필요가 없다.
 
     연결된 클래스
-    - UpdateProjectRequest       : 이 명령으로 변환되는 요청 DTO (presentation, 미생성)
+    - UpdateProjectRequest       : 이 명령으로 변환되는 요청 DTO (presentation)
     - UpdateProjectUseCase       : 이 명령을 받는 기능 계약
     - UpdateProjectService       : 이 명령을 처리하는 구현체
     - ProjectTagImmutablePolicy  : 태그 제외 근거가 되는 도메인 규칙

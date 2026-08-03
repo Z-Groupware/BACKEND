@@ -8,8 +8,8 @@ package com.module06.backend.project.domain.model;
     연결된 클래스
     - Project                       : 소속 프로젝트 (project_id)
     - ProjectAttachmentRepository   : 저장소 계약
-    - ProjectAttachmentStoragePort  : storage 도메인 경계 (application.port, 미생성)
-    - ProjectAttachmentJpaEntity    : 영속화 매핑 (infrastructure.persistence, 미생성)
+    - ProjectAttachmentStoragePort  : storage 도메인 경계 (application.port)
+    - ProjectAttachmentJpaEntity    : 영속화 매핑 (infrastructure.persistence)
 */
 public class ProjectAttachment {
 }

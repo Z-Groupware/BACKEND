@@ -6,7 +6,7 @@ package com.module06.backend.project.application.command;
     이 시점에 비로소 project_attachment 레코드가 생긴다(발급만으로는 생기지 않는다).
 
     연결된 클래스
-    - ConfirmAttachmentRequest      : 이 명령으로 변환되는 요청 DTO (presentation, 미생성)
+    - ConfirmAttachmentRequest      : 이 명령으로 변환되는 요청 DTO (presentation)
     - ConfirmAttachmentUseCase      : 이 명령을 받는 기능 계약
     - ConfirmAttachmentService      : 이 명령을 처리하는 구현체
     - ProjectAttachment             : 확정 저장되는 도메인 모델

@@ -9,7 +9,7 @@ package com.module06.backend.project.application.port;
     연결된 클래스
     - IssueAttachmentUploadUrlService     : 업로드 URL 발급 호출
     - DeleteAttachmentService             : 오브젝트 삭제 호출
-    - ProjectAttachmentStorageStubAdapter : 임시 구현체 (infrastructure.storage, 미생성)
+    - ProjectAttachmentStorageStubAdapter : 임시 구현체 (infrastructure.storage)
     - ProjectAttachment                   : Port가 다루는 파일의 메타데이터 모델
 */
 public interface ProjectAttachmentStoragePort {

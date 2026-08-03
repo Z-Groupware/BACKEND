@@ -8,7 +8,7 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - GetProjectTimelineService    : 구현체
-    - ProjectTimelineItemResponse  : 출력 DTO (presentation, 미생성)
+    - ProjectTimelineItemResponse  : 출력 DTO (presentation)
     - action 도메인               : 팀 액션 데이터의 실제 소유자 (id 기준 조회)
 */
 public interface GetProjectTimelineUseCase {

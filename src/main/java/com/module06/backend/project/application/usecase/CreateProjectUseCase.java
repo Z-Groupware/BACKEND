@@ -7,7 +7,7 @@ package com.module06.backend.project.application.usecase;
     연결된 클래스
     - CreateProjectCommand : 입력
     - CreateProjectService : 구현체
-    - ProjectController    : 호출자 (presentation, 미생성)
+    - ProjectController    : 호출자 (presentation)
 */
 public interface CreateProjectUseCase {
 }

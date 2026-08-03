@@ -10,7 +10,7 @@ import com.module06.backend.project.application.usecase.GetProjectListUseCase;
     연결된 클래스
     - GetProjectListUseCase  : 구현하는 계약
     - ProjectRepository      : 조회
-    - ProjectSummaryResponse : 출력 DTO (presentation, 미생성)
+    - ProjectSummaryResponse : 출력 DTO (presentation)
 */
 public class GetProjectListService implements GetProjectListUseCase {
 }

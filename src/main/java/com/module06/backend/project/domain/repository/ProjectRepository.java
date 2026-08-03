@@ -6,9 +6,9 @@ package com.module06.backend.project.domain.repository;
 
     연결된 클래스
     - Project                     : 다루는 도메인 모델
-    - ProjectPersistenceAdapter   : 구현체 (infrastructure.persistence, 미생성)
-    - SpringDataProjectRepository : 어댑터가 위임하는 Spring Data 인터페이스 (미생성)
-    - application.service.*       : 이 계약을 주입받는 유스케이스 구현체들 (미생성)
+    - ProjectPersistenceAdapter   : 구현체 (infrastructure.persistence)
+    - SpringDataProjectRepository : 어댑터가 위임하는 Spring Data 인터페이스
+    - application.service.*       : 이 계약을 주입받는 유스케이스 구현체들
 */
 public interface ProjectRepository {
 }

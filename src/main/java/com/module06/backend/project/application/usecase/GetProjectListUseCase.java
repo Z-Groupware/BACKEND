@@ -7,8 +7,8 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - GetProjectListService  : 구현체
-    - ProjectSummaryResponse : 출력 DTO (presentation, 미생성)
-    - ProjectController      : 호출자 (presentation, 미생성)
+    - ProjectSummaryResponse : 출력 DTO (presentation)
+    - ProjectController      : 호출자 (presentation)
 */
 public interface GetProjectListUseCase {
 }

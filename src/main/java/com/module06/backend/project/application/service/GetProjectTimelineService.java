@@ -9,8 +9,8 @@ import com.module06.backend.project.application.usecase.GetProjectTimelineUseCas
 
     연결된 클래스
     - GetProjectTimelineUseCase   : 구현하는 계약
-    - ProjectTimelineItemResponse : 출력 DTO (presentation, 미생성)
-    - TeamReferenceEntity         : 부서명 조인 전용 (infrastructure.persistence, 미생성)
+    - ProjectTimelineItemResponse : 출력 DTO (presentation)
+    - TeamReferenceEntity         : 부서명 조인 전용 (infrastructure.persistence)
 */
 public class GetProjectTimelineService implements GetProjectTimelineUseCase {
 }

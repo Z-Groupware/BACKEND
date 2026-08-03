@@ -6,8 +6,8 @@ package com.module06.backend.project.domain.repository;
 
     연결된 클래스
     - ProjectAttachment                     : 다루는 도메인 모델
-    - ProjectAttachmentPersistenceAdapter   : 구현체 (infrastructure.persistence, 미생성)
-    - ProjectAttachmentStoragePort          : 파일 실체를 다루는 별도 경계 (application.port, 미생성)
+    - ProjectAttachmentPersistenceAdapter   : 구현체 (infrastructure.persistence)
+    - ProjectAttachmentStoragePort          : 파일 실체를 다루는 별도 경계 (application.port)
 */
 public interface ProjectAttachmentRepository {
 }
