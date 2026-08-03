@@ -61,12 +61,11 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
-// 로컬 비밀 설정을 빌드 산출물(jar·build/resources)에서 제외한다.
-// resources 아래 두는 이유는 IDE가 Spring 설정으로 인식하게 하려는 것뿐이고,
-// 그 대가로 jar에 실려 나갈 위험이 생긴다 — 여기서 끊는다.
-// 대신 클래스패스에 없으므로 application.yaml이 file: 경로로 직접 가리킨다.
+// 실수 방어 — 비밀 설정 파일은 프로젝트 루트에 두는 것이 규약이다(application.yaml 주석 참조).
+// 누가 실수로 src/main/resources 아래에 두더라도 jar에는 들어가지 않게 막는다.
+// ⚠️ 이건 부분 방어다: Dockerfile의 `COPY src`는 막지 못한다. 규약대로 루트에 두는 것이 유일한 해법이다.
 tasks.named('processResources') {
-	exclude 'application-secret.yaml'
+	exclude 'application-secret*.yml', 'application-secret*.yaml'
 }
 
 // ════════════════════════════════════════════════════════════════════════════

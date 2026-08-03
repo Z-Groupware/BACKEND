@@ -8,7 +8,7 @@ backend server
 bash scripts/review-verify.sh --with-test  # 컴파일 + 테스트 확인
 ```
 
-그리고 `src/main/resources/application-secret.yaml`에 로컬 DB 값을 채운다(커밋되지 않음 · 키는 SETUP.md §3).
+그리고 로컬 DB 값을 채운다 — `cp application-secret.yml.example application-secret.yml` (커밋되지 않음 · **루트에 둘 것** · 상세는 SETUP.md 3번).
 
 세팅 전체(키 등록·동작 확인·문제 해결): **[review-loop/SETUP.md](review-loop/SETUP.md)**
 

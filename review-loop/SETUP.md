@@ -62,26 +62,23 @@ printf '%s' "$GEMINI_API_KEY" | wc -c
 
 ## 3. 로컬 DB 설정
 
-`src/main/resources/application-secret.yaml`을 만들고 자기 값으로 채운다:
+템플릿을 **프로젝트 루트**에 복사해서 값을 채운다:
 
-```yaml
-DB_HOST: localhost
-DB_NAME: module06
-DB_USERNAME: <로컬 DB 계정>
-DB_PASSWORD: <로컬 DB 비밀번호>
-
-# 엔티티와 마이그레이션 불일치를 부팅 시점에 잡는다. 로컬 권장값 validate.
-JPA_DDL_AUTO: validate
+```bash
+cp application-secret.yml.example application-secret.yml
 ```
 
-- **커밋되지 않는다** — `.gitignore`에 있고, `processResources`가 빌드 산출물(jar)에서도 제외한다.
-- 키 이름은 운영과 같다. 운영은 SSM Parameter Store가 같은 이름의 환경변수를 주입한다(`infra/deploy.sh`)
-  → 이 파일은 로컬에서 그 자리를 채우는 것이고, 이름이 어긋나면 안 된다.
+- **`src/main/resources` 아래에 두지 말 것.** 거기 두면 `.gitignore`와 무관하게 `processResources`가 jar에
+  담고, `Dockerfile`의 `COPY src`로 **이미지에도 들어간다**(비밀값 유출). 규약은 루트다.
+- 키 이름은 운영과 같다. 운영은 이 파일 없이 SSM Parameter Store가 같은 이름의 환경변수를 주입하고
+  (`infra/deploy.sh`), **환경변수가 이 파일보다 우선한다.**
 - 필요한 키는 `application.yaml`의 `${...}` 자리를 보면 항상 확인할 수 있다(그게 유일한 진실).
+  현재: `DB_HOST` · `DB_NAME` · `DB_USERNAME` · `DB_PASSWORD` · `JPA_DDL_AUTO` · `FLYWAY_OUT_OF_ORDER`.
 
 > ⚠️ **`DB_URL`이라는 키는 없다.** `application.yaml`이 url을 직접 조립한다:
 > `jdbc:mysql://${DB_HOST}:3306/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8`
-> `DB_URL`을 넣어도 아무도 읽지 않아 `${DB_HOST}` 미해결로 부팅이 실패한다. host와 name으로 나눠 준다.
+> `DB_URL`만 넣으면 `${DB_HOST}`가 미해결로 남아 부팅이 실패한다(`Could not resolve placeholder 'DB_HOST'`).
+> 템플릿에 `DB_URL`만 있던 것을 이 브랜치에서 `DB_HOST`·`DB_NAME`으로 고쳤다.
 
 ## 4. 동작 확인
 
