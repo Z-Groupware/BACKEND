@@ -42,7 +42,7 @@ jobs:
       - name: AWS 인증 (OIDC — 액세스 키 없음)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # TODO: 인프라 확정되면 계정ID/역할명 교체
+          # 배포 Role ARN은 AWS_DEPLOY_ROLE_ARN Repository Variable에서 가져옴
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
