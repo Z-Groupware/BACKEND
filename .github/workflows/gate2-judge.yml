@@ -99,9 +99,11 @@ jobs:
       - name: 변경 .java 목록 추출 (훅의 diff 로직과 동일 기준)
         id: changed
         run: |
+          # architecture/fixture/ 제외 — 훅과 동일. ARCH 규칙 자기검증용 '의도적 위반' 픽스처라
+          # 영구히 위반 상태여야 하고, 판정에 넣으면 고칠 수 없는 Minor가 매 PR에 반복된다.
           git diff --name-only --diff-filter=ACMR \
             "${{ github.event.pull_request.base.sha }}" HEAD \
-            | grep -E '\.java$' > changed.txt || true
+            | grep -E '\.java$' | grep -v '/architecture/fixture/' > changed.txt || true
           echo "count=$(wc -l < changed.txt)" >> "$GITHUB_OUTPUT"
           echo "변경 .java $(wc -l < changed.txt)개:"
           cat changed.txt
