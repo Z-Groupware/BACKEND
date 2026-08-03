@@ -2,11 +2,14 @@ spring:
   application:
     name: backend
 
-  # 로컬 개발용 비밀값은 application-secret.yml 에 둔다(.gitignore 처리, 커밋 금지).
+  # 로컬 개발용 비밀값은 프로젝트 루트의 application-secret.yml 에 둔다(.gitignore 처리, 커밋 금지).
+  # ⚠️ classpath(src/main/resources) 가 아니라 외부 file: 경로다.
+  #    resources 에 두면 .gitignore 와 무관하게 processResources 가 jar 에 담고,
+  #    Dockerfile 의 COPY src 로 이미지에도 들어간다.
   # optional: 이므로 파일이 없어도 부팅에 실패하지 않는다 — 운영/스테이징은 파일 없이
   # SSM Parameter Store 가 주입한 환경변수를 쓰며, 환경변수가 이 파일보다 우선한다.
   config:
-    import: optional:classpath:application-secret.yml
+    import: optional:file:./application-secret.yml
 
   datasource:
     url: ${DB_URL}
