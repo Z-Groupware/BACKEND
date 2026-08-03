@@ -1,4 +1,4 @@
-package com.module06.backend.domain.project.domain.repository;
+package com.module06.backend.project.domain.repository;
 
 /* comment.
     프로젝트 저장소 계약. domain 계층이 선언하고 infrastructure가 구현한다(의존성 역전).

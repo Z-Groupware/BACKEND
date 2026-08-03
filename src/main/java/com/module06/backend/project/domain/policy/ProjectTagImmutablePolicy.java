@@ -1,4 +1,4 @@
-package com.module06.backend.domain.project.domain.policy;
+package com.module06.backend.project.domain.policy;
 
 /* comment.
     FR-PJ-04 — 프로젝트 태그 불변 규칙. 태그는 URL 식별자로 쓰이므로 생성 후 변경하면
