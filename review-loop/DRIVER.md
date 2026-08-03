@@ -82,9 +82,13 @@ bash scripts/review-verify.sh --with-test
 - 규칙 정확도 조회: `./gradlew reviewAccuracy` (오탐률 높은 규칙 = 프롬프트 개선 후보).
 - note에 특수문자(`—`·따옴표 등)가 있으면 `--note` 대신 `--note-file <UTF-8 경로>`로 — Windows argv 인코딩 깨짐 회피.
 
-> **이 단계를 건너뛰면 루프가 학습하지 않는다.** 읽기(프롬프트 주입)는 자동이지만 쓰기는 사람 손이라,
-> 기록을 빼먹으면 `lessons.jsonl`이 0건으로 남고 판정 품질이 영원히 제자리다(실제로 오래 0건이었다).
-> `reviewLoop`과 `reviewAccuracy`가 0건일 때 경고를 출력하니, 그 경고가 보이면 이 단계가 빠진 것이다.
+> **이 단계를 건너뛰면 루프가 학습하지 않는다.**
+> 교훈을 **읽는 쪽은 코드가 자동**으로 한다 — 판정마다 `lessons.jsonl`을 읽어 판정 프롬프트에 붙인다
+> (`ReviewLoopRunner:121` → `JudgePromptBuilder.buildPolicy`). 반면 **쓰는 쪽은 사람이 직접** `reviewLesson`을
+> 쳐야 한다(자동 적재는 revert 회수 하나뿐 · §아래).
+> 프롬프트로 넣어주는 관은 깔려 있는데 부어줄 물이 없는 구조라, 기록을 빼먹으면 `lessons.jsonl`이 0건으로
+> 남고 Judge는 매번 빈 교훈 목록을 받는다(실제로 오래 0건이었다). `reviewLoop`·`reviewAccuracy`가 0건일 때
+> 경고를 출력하니, 그 경고가 보이면 이 단계가 빠진 것이다.
 
 **커밋 직후 이력 기록** — 나중에 이 수정이 revert되면 자동으로 오탐을 잡아낼 수 있게 매핑을 남긴다:
 

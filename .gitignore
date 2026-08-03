@@ -34,7 +34,8 @@ out/
 .env.*
 !.env.example
 # 로컬 비밀 설정 — 운영은 SSM이 같은 이름의 환경변수를 주입하므로 이 파일은 로컬 전용이다.
-# 예시는 application-secret.yaml.example 로 공유한다(값 없음).
+# 필요한 키는 review-loop/SETUP.md §3, 그리고 application.yaml의 ${...} 자리가 알려준다.
+# 경로 고정 없음(basename 매칭) — resources 아래든 루트든 잡는다.
 application-secret.yaml
 .DS_Store
 

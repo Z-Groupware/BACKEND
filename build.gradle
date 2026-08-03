@@ -61,6 +61,14 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
+// 로컬 비밀 설정을 빌드 산출물(jar·build/resources)에서 제외한다.
+// resources 아래 두는 이유는 IDE가 Spring 설정으로 인식하게 하려는 것뿐이고,
+// 그 대가로 jar에 실려 나갈 위험이 생긴다 — 여기서 끊는다.
+// 대신 클래스패스에 없으므로 application.yaml이 file: 경로로 직접 가리킨다.
+tasks.named('processResources') {
+	exclude 'application-secret.yaml'
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // AI 코드 리뷰 루프 — 태스크. mainClass는 com.module06.backend.reviewloop.judge.*
 // 콘솔 한글 깨짐 방지 UTF-8 인자(Windows cp949 대비).

@@ -62,15 +62,26 @@ printf '%s' "$GEMINI_API_KEY" | wc -c
 
 ## 3. 로컬 DB 설정
 
-```bash
-cp application-secret.yaml.example application-secret.yaml
+`src/main/resources/application-secret.yaml`을 만들고 자기 값으로 채운다:
+
+```yaml
+DB_HOST: localhost
+DB_NAME: module06
+DB_USERNAME: <로컬 DB 계정>
+DB_PASSWORD: <로컬 DB 비밀번호>
+
+# 엔티티와 마이그레이션 불일치를 부팅 시점에 잡는다. 로컬 권장값 validate.
+JPA_DDL_AUTO: validate
 ```
 
-값을 채운다. 이 파일은 `.gitignore`에 있어 **커밋되지 않는다.**
-키 이름은 운영과 같다 — 운영은 SSM Parameter Store가 같은 이름의 환경변수를 주입한다(`infra/deploy.sh`).
+- **커밋되지 않는다** — `.gitignore`에 있고, `processResources`가 빌드 산출물(jar)에서도 제외한다.
+- 키 이름은 운영과 같다. 운영은 SSM Parameter Store가 같은 이름의 환경변수를 주입한다(`infra/deploy.sh`)
+  → 이 파일은 로컬에서 그 자리를 채우는 것이고, 이름이 어긋나면 안 된다.
+- 필요한 키는 `application.yaml`의 `${...}` 자리를 보면 항상 확인할 수 있다(그게 유일한 진실).
 
-> `DB_URL`이라는 키는 없다. `application.yaml`이 `${DB_HOST}`·`${DB_NAME}`으로 url을 조립한다
-> (포트·타임존·인코딩 포함). host와 name만 주면 된다.
+> ⚠️ **`DB_URL`이라는 키는 없다.** `application.yaml`이 url을 직접 조립한다:
+> `jdbc:mysql://${DB_HOST}:3306/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8`
+> `DB_URL`을 넣어도 아무도 읽지 않아 `${DB_HOST}` 미해결로 부팅이 실패한다. host와 name으로 나눠 준다.
 
 ## 4. 동작 확인
 
@@ -122,8 +133,16 @@ diff를 승인하거나 되돌릴 때 한 줄 기록한다. **요청서에 복�
 ./gradlew reviewAccuracy                                                                        # 규칙별 오탐률
 ```
 
-기록된 교훈은 **다음 판정 프롬프트에 자동 주입**된다 → 같은 오탐이 반복되지 않는다.
-읽기는 자동인데 쓰기는 사람 손이라, 여기서 빠지면 판정 품질이 영원히 제자리다.
+**왜 이걸 해야 하나** — 루프가 교훈을 쓰는 쪽과 읽는 쪽이 이렇게 나뉘어 있다:
+
+| 방향 | 누가 하나 | 무슨 일 |
+|---|---|---|
+| **읽기** | 코드가 자동 | 판정할 때마다 `lessons.jsonl`을 읽어 Gemini 프롬프트에 붙인다(`ReviewLoopRunner` → `JudgePromptBuilder`). 아무도 손대지 않아도 매번 일어난다. |
+| **쓰기** | **사람이 직접** | `reviewLesson` 명령을 쳐야 `lessons.jsonl`에 한 줄 쌓인다. 자동으로 쌓이는 경로는 revert 회수(아래) 하나뿐이다. |
+
+즉 **프롬프트에 넣어주는 관은 이미 깔려 있는데, 그 관에 부어줄 물이 없으면 아무 일도 안 일어난다.**
+실제로 이 저장소의 `lessons.jsonl`은 오랫동안 0건이었고, 그동안 Judge는 매번 "빈 교훈 목록"을 받아
+같은 오탐을 반복할 수밖에 없었다. 기록을 빼먹으면 판정 품질이 영원히 제자리다.
 
 ---
 

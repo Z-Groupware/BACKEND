@@ -4,10 +4,11 @@ backend server
 ## 처음 클론했다면
 
 ```bash
-./gradlew installReviewHooks                              # push 게이트 활성화 (필수)
-cp application-secret.yaml.example application-secret.yaml # 로컬 DB 값 채우기
-bash scripts/review-verify.sh --with-test                  # 컴파일 + 테스트 확인
+./gradlew installReviewHooks               # push 게이트 활성화 (필수)
+bash scripts/review-verify.sh --with-test  # 컴파일 + 테스트 확인
 ```
+
+그리고 `src/main/resources/application-secret.yaml`에 로컬 DB 값을 채운다(커밋되지 않음 · 키는 SETUP.md §3).
 
 세팅 전체(키 등록·동작 확인·문제 해결): **[review-loop/SETUP.md](review-loop/SETUP.md)**
 
