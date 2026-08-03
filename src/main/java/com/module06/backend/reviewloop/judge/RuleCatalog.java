@@ -78,6 +78,24 @@ public class RuleCatalog {
         return judgeRules;
     }
 
+    /**
+     * <b>Gate 2가 차단할 수 있게 만드는 규칙</b> — severity가 CRITICAL인 judge 규칙.
+     *
+     * <p>차단 결정은 두 가지뿐이다({@link ReviewLoopRunner#isBlocking}):
+     * {@code AWAITING_HUMAN}은 CRITICAL finding에서만 나오고, {@code INCOMPLETE}는
+     * {@code FindingSource.ACCEPTANCE} finding에서만 나온다(그 소스를 만드는 프로덕션 경로는 <b>아직 없다</b>).
+     * 게다가 {@link #normalize}가 LLM severity를 카탈로그 값으로 덮어쓰므로,
+     * <b>CRITICAL judge 규칙이 하나도 없으면 Gate 2는 구조적으로 어떤 코드도 차단할 수 없다</b>
+     * — 훅·CI가 "Critical/미완성이면 차단"이라고 말해도 그 경로에 도달할 수 없다.
+     *
+     * <p>이게 조용히 방치되면 "게이트가 지켜준다"는 착각이 생긴다. 그래서 러너가 이 개수를 매번 출력하고,
+     * {@code PrePushGatePolicyTest}가 실제 rules.yaml 기준으로 도달 가능성을 고정한다.
+     * 차단이 필요하면 rules.yaml에 {@code severity: CRITICAL} 규칙을 추가하면 된다(코드 수정 불필요).
+     */
+    public List<JudgeRule> blockingRules() {
+        return judgeRules.stream().filter(r -> r.severity() == Severity.CRITICAL).toList();
+    }
+
     public List<Note> notes() {
         return notes;
     }

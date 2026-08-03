@@ -268,6 +268,27 @@ P2 이후는 정리(clean-up) 성격이었다.
   - `--max 20` — 훅 기본값 5는 차단 게이트에서 "상한 초과분이 리뷰 없이 통과"하는 구멍이라 상향.
   - 비결정성 방어는 `RuleCatalog.normalize()`가 담당 — LLM이 뱉은 severity를 카탈로그 값으로 덮어쓰고
     없는 ruleId는 버리므로, **LLM 변덕으로 CRITICAL이 생겨 머지를 막는 일은 구조적으로 불가**하다.
+
+    > ⚠️ **뒤집으면 차단력이 0이다 (2026-08-03 확인).** 위 문장은 안전 속성으로만 서술됐지만,
+    > 같은 메커니즘 때문에 **Gate 2는 어떤 코드도 차단할 수 없다.** 확인한 체인:
+    > - rules.yaml의 judge 규칙 3개(`CONV_001`·`PERF_001`·`ARCH_003a`)가 **전부 `severity: MINOR`**
+    >   → `normalize()`가 severity를 카탈로그 값으로 덮으므로 CRITICAL finding 생성 불가
+    >   → `hasCritical` 항상 false → `AWAITING_HUMAN` **도달 불가**
+    > - `FindingSource.ACCEPTANCE` finding을 만드는 **프로덕션 코드가 없다**(JudgeScorer가 읽기만 함)
+    >   → `acceptanceUnmet` 항상 false → `INCOMPLETE` **도달 불가**
+    > - `isBlocking()` = `INCOMPLETE || AWAITING_HUMAN` → **항상 false**
+    >
+    > 즉 훅·이 문서·`gate2-review`가 약속하는 "Critical/미완성 차단"은 **실행될 수 없는 경로**이고,
+    > Gate 2의 실효는 **수정 요청서 생성(리포터)**이다. `PrePushGatePolicyTest`가 `isBlocking()`의
+    > *매핑만* 검사해서 초록이었던 것이 이걸 가렸다.
+    >
+    > **조치(완료)**: `RuleCatalog.blockingRules()` 신설 → 러너가 `--gate` 실행마다 "차단 가능(CRITICAL) N개"와
+    > 0개일 때 경고를 출력. `PrePushGatePolicyTest`에 **실제 rules.yaml 기준 도달 가능성** 테스트 추가
+    > (CRITICAL 규칙이 생기면 실패하며 문서 갱신을 요구). `FindingSource.ACCEPTANCE`에 미배선 명시.
+    >
+    > **남은 결정(팀)**: 진짜 차단이 필요한가. 필요하면 `rules.yaml`에 `severity: CRITICAL` 규칙을 추가하면
+    > 되고(P0-a 이후 가중치는 yaml SSOT라 코드 수정 불필요), 필요 없으면 "Gate 2 = 리포터"로 확정하고
+    > 차단은 Gate 1·semgrep 몫으로 둔다. **무엇이 머지를 막아야 하는지는 코드가 정할 문제가 아니다.**
   - 기존 스모크 테스트는 informational로 유지(어댑터·프롬프트 회귀 감시엔 여전히 유효).
 
   **남은 전제**: 이 차단이 강제되려면 GitHub **브랜치 보호 "Require status checks to pass"**가 켜져 있어야 한다.

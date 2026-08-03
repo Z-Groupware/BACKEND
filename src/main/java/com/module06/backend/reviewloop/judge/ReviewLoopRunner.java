@@ -120,14 +120,32 @@ public final class ReviewLoopRunner {
         // Learning Loop 읽기 끝 — 축적된 사람 교훈을 판정 프롬프트에 반영(없으면 빈 리스트).
         List<Lesson> lessons = new KnowledgeStore(ReviewLoopPaths.LESSONS).lessons();
 
+        List<RuleCatalog.JudgeRule> blockingRules = catalog.blockingRules();
+
         StringBuilder out = new StringBuilder();
         out.append("== 리뷰 루프 실행 ==\n");
         out.append("대상  : ").append(targets.size()).append("개 파일")
-           .append(gate ? " · 게이트 모드(차단 결정 시 exit 1)" : "").append('\n');
+           .append(gate ? " · 게이트 모드" : "").append('\n');
         out.append("도메인: ").append(domain == null ? "(전체 규칙)" : domain).append('\n');
-        out.append("규칙  : judge 규칙 ").append(catalog.judgeRules().size()).append("개\n");
-        if (!lessons.isEmpty()) {
+        out.append("규칙  : judge 규칙 ").append(catalog.judgeRules().size()).append("개")
+           .append(gate ? " · 차단 가능(CRITICAL) " + blockingRules.size() + "개" : "").append('\n');
+
+        // 학습 루프 — 0건이면 침묵하지 않는다. 읽기는 배선돼 있어도 쓸 게 없으면 루프가 닫히지 않는다.
+        if (lessons.isEmpty()) {
+            out.append("교훈  : 0건 — 학습 루프 미가동(판정 프롬프트에 반영할 사람 판정이 없다)\n");
+            out.append("        수락/되돌림을 결정할 때마다 기록할 것: ./gradlew reviewLesson"
+                    + " --args=\"--rule <RULE> --kind CONFIRMED|FALSE_POSITIVE --note '<근거>'\"\n");
+        } else {
             out.append("교훈  : 축적 ").append(lessons.size()).append("건 반영\n");
+        }
+
+        // 차단 게이트라고 문서에 써 있는데 실제로는 차단 경로에 도달할 수 없는 상태를 매 실행에 드러낸다.
+        if (gate && blockingRules.isEmpty()) {
+            out.append('\n');
+            out.append("⚠️ 이 카탈로그에는 CRITICAL judge 규칙이 0개 → Gate 2는 어떤 코드도 차단할 수 없다.\n");
+            out.append("   Minor는 정책상 통과이고, INCOMPLETE(미완성)는 acceptance 판정이 미배선이라 도달 불가다.\n");
+            out.append("   지금 Gate 2의 실효는 '수정 요청서 생성'(리포터)이다. 차단이 필요하면\n");
+            out.append("   rules.yaml에 severity: CRITICAL 규칙을 추가할 것 — 배경: review-loop/UNIFIED_DESIGN.md §8.\n");
         }
         out.append('\n');
 

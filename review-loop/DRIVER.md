@@ -78,8 +78,13 @@ bash scripts/review-verify.sh --with-test
 
 - 수정 **전에** 항목마다 방안을 묻지 않는다. 일괄 수정 후 **실제 diff를 보고** 판단하므로 사람의 판단 근거가 더 좋다.
 - 기록된 교훈은 다음 판정 프롬프트에 자동 주입된다(`JudgePromptBuilder`) — 같은 오탐이 반복되지 않는다.
+- **요청서에 항목별 복붙용 명령이 들어 있다**(규칙 ID가 채워진 상태). 안내문만 있으면 기록이 빠진다.
 - 규칙 정확도 조회: `./gradlew reviewAccuracy` (오탐률 높은 규칙 = 프롬프트 개선 후보).
 - note에 특수문자(`—`·따옴표 등)가 있으면 `--note` 대신 `--note-file <UTF-8 경로>`로 — Windows argv 인코딩 깨짐 회피.
+
+> **이 단계를 건너뛰면 루프가 학습하지 않는다.** 읽기(프롬프트 주입)는 자동이지만 쓰기는 사람 손이라,
+> 기록을 빼먹으면 `lessons.jsonl`이 0건으로 남고 판정 품질이 영원히 제자리다(실제로 오래 0건이었다).
+> `reviewLoop`과 `reviewAccuracy`가 0건일 때 경고를 출력하니, 그 경고가 보이면 이 단계가 빠진 것이다.
 
 ### 9 · 재push
 커밋 → `git push` 재시도 **전에** `./gradlew reviewBudget --args="--inc-total"`. `⚠️ 한도 초과`면 재push 말고 종료.
@@ -106,9 +111,34 @@ bash scripts/review-verify.sh --with-test
   |---|---|---|
   | `semgrep-query` (Gate 1) | PR 코드의 신규 `@Query` | ✅ |
   | `gate2-deterministic` | **루프 자신의** 채점·근거검증 로직 (PR 코드 아님) | ✅ |
-  | `gate2-review` | **PR 코드를 LLM 판정** — 훅과 동일한 `reviewLoop --gate` | ✅ Critical·미완성만 |
+  | `gate2-review` | **PR 코드를 LLM 판정** — 훅과 동일한 `reviewLoop --gate` | ⚠️ 아래 참조 |
   | `gate2-live-judge` | golden 씨앗 기준 어댑터 회귀(스모크, PR 코드 아님) | ❌ informational |
 
-  → `--no-verify`로 밀어도 **Critical/미완성은 PR에서 차단**된다. Minor는 로컬·CI 모두 차단하지 않는다(요청서만).
-  → 단, 이 차단이 실제로 강제되려면 **GitHub 브랜치 보호에서 "Require status checks to pass"가 켜져 있어야 한다.**
+  → Minor는 로컬·CI 모두 차단하지 않는다(요청서만).
+  → 단, 차단이 실제로 강제되려면 **GitHub 브랜치 보호에서 "Require status checks to pass"가 켜져 있어야 한다.**
     꺼져 있으면 빨간 체크로도 머지된다(저장소 Settings → Branches).
+
+### ⚠️ Gate 2는 현재 아무것도 차단하지 못한다 (알고 쓸 것)
+
+`--gate`는 `INCOMPLETE`·`AWAITING_HUMAN`에서만 차단하는데, 현 카탈로그에서 **둘 다 도달 불가**다:
+
+| 차단 결정 | 필요 조건 | 현재 상태 |
+|---|---|---|
+| `AWAITING_HUMAN` | CRITICAL finding | rules.yaml의 judge 규칙 3개가 **전부 MINOR**. `normalize()`가 LLM severity를 카탈로그 값으로 덮으므로 CRITICAL 생성 불가 |
+| `INCOMPLETE` | `FindingSource.ACCEPTANCE` finding | 그 소스를 만드는 **프로덕션 경로가 없다**(미배선) |
+
+→ **지금 Gate 2의 실효는 "수정 요청서 생성"(리포터)이다.** LLM 판정이 push·머지를 막아주리라 기대하지 말 것.
+러너가 `--gate` 실행마다 이 사실을 출력하고, `PrePushGatePolicyTest`가 도달 불가를 고정한다(CRITICAL 규칙이
+추가되면 테스트가 실패하며 이 문서 갱신을 요구한다). 차단이 필요하면 `rules.yaml`에 `severity: CRITICAL`
+규칙을 추가하면 된다 — 가중치는 P0-a 이후 yaml이 SSOT라 코드 수정이 필요 없다. 배경: [UNIFIED_DESIGN.md](UNIFIED_DESIGN.md) §8.
+
+### 게이트가 막았을 때 — 사유를 먼저 볼 것
+
+훅은 두 경우를 **다르게** 말한다. 섞어 읽으면 안 된다:
+
+| 훅 메시지 | 뜻 | 드라이버가 할 일 |
+|---|---|---|
+| `❌ Gate 2 차단 결정(Critical/미완성)` | **코드 판정** | 사람에게 보고. 임의 수정 금지 |
+| `❌ Gate 2 게이트 오류` / `실행 실패` | **리뷰가 수행되지 않았다** | 원인(키 형식·네트워크·컴파일) 해결 후 재시도. 코드 문제로 오해 금지 |
+
+`--no-verify`로 밀면 후자의 경우 **그 변경은 LLM 판정을 한 번도 받지 않고 나간다.**

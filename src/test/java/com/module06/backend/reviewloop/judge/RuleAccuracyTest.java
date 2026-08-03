@@ -96,9 +96,15 @@ class RuleAccuracyTest {
     }
 
     @Test
-    @DisplayName("판정이 없으면 빈 신호 메시지")
+    @DisplayName("판정이 0건이면 '학습 루프 미완결'을 알리고 기록 방법까지 준다")
     void emptyWhenNoLessons() {
         assertThat(RuleAccuracy.summarize(List.of())).isEmpty();
-        assertThat(RuleAccuracy.render(List.of())).contains("아직 신호 없음");
+
+        String out = RuleAccuracy.render(List.of());
+
+        // "신호 없음"으로만 끝내면 0건이 방치된다 — 무엇을 해야 하는지가 출력에 있어야 한다.
+        assertThat(out).contains("0건");
+        assertThat(out).contains("reviewLesson");
+        assertThat(out).contains("CONFIRMED").contains("FALSE_POSITIVE");
     }
 }

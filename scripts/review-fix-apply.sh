@@ -65,6 +65,14 @@ n=0
     echo "수정 방향(1=팀 규칙 기준 표준안):"
     i=1; for o in "${opts[@]}"; do echo "  $i) $o"; i=$((i+1)); done
     echo
+    # 학습 루프 쓰기 쪽 — 규칙 ID를 이미 알고 있으니 '복붙 가능한 명령'까지 만들어 준다.
+    # 안내문만 있으면 기록이 빠진다(실제로 lessons.jsonl이 0건이었다). 마찰을 없애는 게 유일한 방법.
+    if [ -n "$rule" ]; then
+      echo "diff 승인 시 교훈 기록(8번 단계 · 둘 중 하나):"
+      echo "  수락  ./gradlew reviewLesson --args=\"--rule $rule --kind CONFIRMED --note '무엇을 고쳤는지'\""
+      echo "  되돌림 ./gradlew reviewLesson --args=\"--rule $rule --kind FALSE_POSITIVE --note '왜 오탐인지'\""
+      echo
+    fi
   done < "$FINDINGS"
 } > "$REQUEST"
 

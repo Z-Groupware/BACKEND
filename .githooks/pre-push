@@ -4,6 +4,10 @@
 # push 직전에 "이번에 원격으로 나가는 변경 .java"만 골라 로컬 게이트를 돌린다. (순수 게이트 — 코드 안 고침)
 #   - Gate 1 (정적·결정론, 키 불필요): ArchUnit 실패 시 push 차단.
 #   - Gate 2 (LLM 판정, 변경 파일만):  차단 결정(미완성/Critical) 시 push 차단.
+#     ⚠️ 현재 카탈로그(rules.yaml)에는 CRITICAL judge 규칙이 0개이고 acceptance 판정이 미배선이라
+#        Gate 2의 차단 경로에는 도달할 수 없다 — 실효는 "수정 요청서 생성"(리포터)이다.
+#        러너가 매 실행에 이 사실을 출력한다. 차단이 필요하면 rules.yaml에 CRITICAL 규칙을 추가할 것.
+#        고정: PrePushGatePolicyTest · 배경: review-loop/UNIFIED_DESIGN.md §8
 #                                       Minor는 차단하지 않고 수정 요청서(<git-dir>/review-fix-request.md)만 남긴다.
 #                                       수정은 훅이 하지 않는다 — 드라이버(Claude Code)가 요청서를 읽어 처리(중첩 claude 금지).
 #                                       GEMINI_API_KEY 없으면 러너가 스스로 생략·통과. 절차: review-loop/DRIVER.md
