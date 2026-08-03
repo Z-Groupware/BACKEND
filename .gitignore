@@ -35,6 +35,14 @@ out/
 !.env.example
 .DS_Store
 
+# Secrets — 절대 커밋 금지. 실제 값은 로컬 application-secret.yml 에만 둔다.
+# (운영/스테이징은 SSM Parameter Store 에서 환경변수로 주입 — infra/deploy.sh)
+application-secret.yml
+application-secret.yaml
+application-*-secret.yml
+application-*-secret.yaml
+!application-secret.yml.example
+
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
