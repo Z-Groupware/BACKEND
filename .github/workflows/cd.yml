@@ -42,8 +42,8 @@ jobs:
       - name: AWS 인증 (OIDC — 액세스 키 없음)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # TODO: 인프라 확정되면 계정ID/역할명 교체
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/<DEPLOY_ROLE>
+          # 배포 Role ARN은 AWS_DEPLOY_ROLE_ARN Repository Variable에서 가져옴
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       # ALB 없음 → 롤링/드레이닝 로직 불필요. Spring EC2에 SSM으로 deploy.sh 호출만.
