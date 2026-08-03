@@ -40,3 +40,13 @@ spring:
     # 등록해 V1 을 건너뛰고, 깨진 스키마가 조용히 통과한다.
     # 실제 레거시 DB를 인계받는 경우에만 그 배포에 한해 켠다.
     baseline-on-migrate: false
+
+# Prometheus 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
