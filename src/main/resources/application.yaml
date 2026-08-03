@@ -20,6 +20,13 @@ spring:
       minimum-idle: 2
       connection-timeout: 30000
 
+  # ------------ Redis ---------------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+
   jpa:
     open-in-view: false
     hibernate:
