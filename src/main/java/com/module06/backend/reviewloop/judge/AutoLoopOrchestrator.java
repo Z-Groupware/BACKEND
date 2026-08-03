@@ -8,15 +8,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * P0 — 변경 파일들을 전역 budget 안에서 순회하는 자율 루프 오케스트레이터.
+ * 💤 <b>휴면(dormant)</b> — 무인 자율 수정 경로. 통합 설계(review-loop/UNIFIED_DESIGN.md §3.4)에서
+ * 기본 경로에서 내려왔다. 수정 주체는 드라이버(Claude Code)이고 판정은 {@link ReviewLoopRunner}가 맡는다.
+ * 삭제하지 않는 이유: 검증된 테스트 자산이 붙어 있고, 무인 모드(CI 자동수정 등)를 되살릴 여지를 남긴다.
+ * <p>되살릴 때의 조건: judge를 {@link ClaudeJudgeAdapter}로 교차시켜 <b>찾는 주체 ≠ 고치는 주체</b>를 지킬 것.
  *
- * 파일마다: ReviewLoop(판정) + VerifiedFixer(수정+컴파일검증) 로 {@link AutoFixRunner}를 돌린다.
+ * <p>변경 파일들을 전역 budget 안에서 순회한다. 파일마다:
+ * ReviewLoop(판정) + VerifiedFixer(수정+컴파일검증) 로 {@link AutoFixRunner}를 돌린다.
  *  - PASS로 수렴하고 코드가 바뀐 파일만 디스크에 남긴다(커밋 대상).
  *  - 미수렴(budget 소진)·Critical(AWAITING_HUMAN)·미완성(INCOMPLETE)은 원본을 복원하고 사람 인계로 표시.
  *    → 결정 C: 자율수정은 Minor(NEEDS_REVISION)만. Critical/미완성은 AutoFixRunner가 즉시 멈춘다.
  *
- * 경로 규약(ReviewLoopRunner와 동일): LLM에는 파일명만 주고, EvidenceValidator는 그 파일의 부모 디렉터리를
- * 기준으로 file:line 근거를 검증한다. AutoFixRunner·VerifiedFixer의 writeRoot도 그 부모 디렉터리다.
+ * <p>판정 전용 모드(구 dryRun)는 없다 — 판정은 {@code reviewLoop --files-from ...} 하나로 일원화됐다(P2).
+ * 이 클래스는 '수정'만 남는다.
+ *
+ * <p>경로 규약({@link ReviewLoopRunner#evidenceFor}와 동일): LLM에는 파일명만 주고, EvidenceValidator는
+ * 그 파일의 부모 디렉터리를 기준으로 file:line 근거를 검증한다.
+ * AutoFixRunner·VerifiedFixer의 writeRoot도 그 부모 디렉터리다.
  */
 public class AutoLoopOrchestrator {
 
@@ -53,8 +61,8 @@ public class AutoLoopOrchestrator {
         this.globalBudget = globalBudget;
     }
 
-    /** dryRun=true면 판정만(수정·디스크쓰기 없음). */
-    public List<FileOutcome> run(List<Path> targets, boolean dryRun) throws IOException {
+    /** 파일별 수정 루프. 판정만 보고 싶으면 이 클래스가 아니라 {@code reviewLoop --files-from ...}를 쓴다. */
+    public List<FileOutcome> run(List<Path> targets) throws IOException {
         List<FileOutcome> outcomes = new ArrayList<>();
         int globalSpent = 0;
 
@@ -64,16 +72,7 @@ public class AutoLoopOrchestrator {
             String fileName = abs.getFileName().toString();
             String original = Files.readString(abs);
 
-            EvidenceValidator ev = new EvidenceValidator(parent);
-            ReviewLoop loop = new ReviewLoop(judge, catalog, ev, scorer, lessons);
-
-            if (dryRun) {
-                JudgeVerdict v = loop.review(fileName, original);
-                System.out.printf("[autoloop:dry] %s → score %d · %s · findings %d%n",
-                        rel, v.score(), v.decision(), v.findings().size());
-                outcomes.add(new FileOutcome(rel.toString(), v.decision(), 1, false, false));
-                continue;
-            }
+            ReviewLoop loop = new ReviewLoop(judge, catalog, new EvidenceValidator(parent), scorer, lessons);
 
             int remaining = globalBudget - globalSpent;
             if (remaining <= 0) {

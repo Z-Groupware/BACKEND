@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AI 코드 리뷰 루프 · 공용 조각 — Minor findings를 "수정 요청서(방안 포함)"로 변환한다.
 # 예전엔 여기서 claude CLI를 직접 호출(중첩)했지만, 이제는 호출하지 않는다.
-# 드라이버(Claude Code)가 이 요청서를 읽어 사용자와 방안을 확정하고, 자기 Edit 도구로 수정한다.
+# 드라이버(Claude Code)가 이 요청서를 읽어 Edit 도구로 일괄 수정하고, 검증 후 diff를 사용자에게 제시한다.
 # review-fix.sh(수동)와 .githooks/pre-push(push 시)가 함께 쓴다(방안 카탈로그 중복 방지).
 #
 # 사용: bash scripts/review-fix-apply.sh <findings-file> [request-out]
@@ -17,7 +17,8 @@ if [ -z "$FINDINGS" ] || [ ! -s "$FINDINGS" ]; then
   echo "[reviewFix] 적용할 findings 없음 → 요청서 생성 안 함"; exit 0
 fi
 
-# ── 수정 방안 카탈로그(규칙기반) — 1번이 팀 규칙(CLAUDE.md/rules.yaml) 기준 추천안 ──
+# ── 수정 방안 카탈로그(규칙기반) — 1번이 팀 규칙(CLAUDE.md/rules.yaml) 기준 표준안 ──
+# 사전 질문용이 아니다(통합 설계 §5에서 사전 질문 폐지). 드라이버가 "어느 방향으로 고칠지" 참조하는 표준이다.
 options_for() {
   case "$1" in
     PERF_001)  printf '%s\n' \
@@ -35,13 +36,21 @@ options_for() {
   esac
 }
 
-# ── 요청서 작성 — 드라이버(Claude Code)가 읽고 사용자와 방안 확정 → Edit로 수정 ──
+# ── 요청서 작성 — 드라이버(Claude Code)가 읽고 Edit로 일괄 수정 → 검증 → diff 항목별 승인 ──
 n=0
 {
   echo "# 리뷰 루프 · Minor 수정 요청서"
   echo
-  echo "> 드라이버(Claude Code)용. 각 항목의 방안을 사용자와 채팅으로 확정한 뒤 **Edit 도구로만** 고친다."
-  echo "> 나열된 항목 외 리팩터·무관 변경 금지. 커밋·push는 사용자 승인 후(예산: AutoFix ≤3 · Total ≤6)."
+  echo "> 드라이버(Claude Code)용. 아래 항목을 **Edit 도구로만** 일괄 수정한다(사전 항목별 질문 없음)."
+  echo "> 나열된 항목 외 리팩터·무관 변경 금지."
+  echo ">"
+  echo "> 1. 예산: \`./gradlew reviewBudget --args=\"--inc-autofix\"\` (AutoFix ≤3 · Total ≤6)"
+  echo "> 2. 수정 후 검증: \`bash scripts/review-verify.sh\`  → 실패하면 로그 보고 재수정(예산 무소모)"
+  echo "> 3. 재판정 PASS 후 최종: \`bash scripts/review-verify.sh --with-test\`"
+  echo "> 4. \`git diff\`를 **항목별로 묶어** 제시 → 사용자 승인 → 그 자리에서 교훈 기록:"
+  echo ">    되돌림 → \`reviewLesson --kind FALSE_POSITIVE\` · 수락 → \`reviewLesson --kind CONFIRMED\`"
+  echo "> 5. 커밋 → \`reviewBudget --args=\"--inc-total\"\` → 재push"
+  echo ">"
   echo "> 절차 상세: review-loop/DRIVER.md"
   echo
   while IFS= read -r line; do
@@ -53,13 +62,12 @@ n=0
     while IFS= read -r o; do opts+=("$o"); done < <(options_for "$rule")
     echo "## $n. $line"
     echo
-    echo "방안(1=추천):"
+    echo "수정 방향(1=팀 규칙 기준 표준안):"
     i=1; for o in "${opts[@]}"; do echo "  $i) $o"; i=$((i+1)); done
-    echo "  s) 건너뛰기"
     echo
   done < "$FINDINGS"
 } > "$REQUEST"
 
 echo "[reviewFix] 수정 요청서 ${n}건 → $REQUEST"
-echo "[reviewFix] 다음: Claude Code에게 '이 요청서 처리해' — 방안 확정 후 Edit로 수정합니다."
+echo "[reviewFix] 다음: Claude Code에게 '이 요청서 처리해' — Edit 수정 → 검증 → diff 승인 순으로 진행합니다."
 exit 0

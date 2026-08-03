@@ -14,8 +14,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * CodeFixerPort의 Gemini 구현 — findings를 받아 코드를 고친 전체 코드를 반환한다(자동수정 루프의 '고치기' 역할).
- * Judge(찾기)와 분리. Minor만 이 경로로 자동수정되고, Critical은 AutoFixRunner가 애초에 fixer를 안 부른다.
+ * 💤 <b>휴면(dormant) · 기본 경로에서 제외</b> — {@link CodeFixerPort}의 Gemini 구현.
+ * findings를 받아 고친 전체 코드를 반환한다(무인 자동수정 루프의 '고치기' 역할).
+ *
+ * <p>통합 설계(review-loop/UNIFIED_DESIGN.md §3.4)에서 내려온 이유: 판정도 Gemini({@link GeminiJudgeAdapter})라
+ * <b>찾는 주체와 고치는 주체가 같아진다(자기 승인)</b>. 지금 고치기 주체는 드라이버(Claude Code)다.
+ * seam({@link CodeFixerPort})은 유지하되 이 구현은 무인 모드 재개 시에만 쓴다 —
+ * 그때는 judge를 {@link ClaudeJudgeAdapter}로 교차시켜야 불변식이 지켜진다.
+ *
+ * <p>Minor만 이 경로로 자동수정되고, Critical은 {@link AutoFixRunner}가 애초에 fixer를 안 부른다.
  */
 public class GeminiCodeFixerAdapter implements CodeFixerPort {
 

@@ -7,7 +7,11 @@ import java.time.LocalDateTime;
 import java.nio.file.Path;
 
 /**
- * 자동수정 루프 (아티팩트 §01 · Minor 한정) — 찾기→고치기→재리뷰를 budget까지 반복한다.
+ * 💤 <b>휴면(dormant)</b> — 무인 자동수정 루프. 통합 설계(review-loop/UNIFIED_DESIGN.md §3.4)에서
+ * 기본 경로에서 내려왔다. 수정 라운드의 주체는 드라이버(Claude Code)이고, 절차는 review-loop/DRIVER.md다.
+ * 테스트({@code AutoFixRunnerTest})가 붙은 검증 자산이라 삭제하지 않고 남긴다.
+ *
+ * <p>자동수정 루프 (아티팩트 §01 · Minor 한정) — 찾기→고치기→재리뷰를 budget까지 반복한다.
  *
  *   라운드마다: 코드를 디스크에 동기화 → 리뷰(Judge+Evidence+점수) → audit log
  *   - PASS           → 종료(수정 완료)

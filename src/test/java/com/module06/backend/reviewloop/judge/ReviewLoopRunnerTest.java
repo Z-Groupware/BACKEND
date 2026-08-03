@@ -14,13 +14,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * findings 출력 방어 검증 — 게이트가 자기 IO 오류로 push를 막으면 안 된다.
- * LLM·판정은 여기 필요 없다 — 파일 쓰기와 경로 포맷만 본다.
+ * findings 출력 방어 + 근거 검증 경로 규약.
+ * 게이트가 자기 IO 오류로 push를 막으면 안 되고, 실재하는 finding을 환각으로 버려서도 안 된다.
+ * LLM·판정은 여기 필요 없다 — 파일 쓰기·경로 포맷·EvidenceValidator 기준점만 본다.
  */
 class ReviewLoopRunnerTest {
 
     @TempDir
     Path dir;
+
+    private static Finding at(String file, int line) {
+        return new Finding("CONV_001", Severity.MINOR, "convention", "설명",
+                file, line, Confidence.HIGH);
+    }
 
     @Test
     @DisplayName("부모 디렉터리가 없어도 findings를 쓴다 (NoSuchFileException 금지)")
@@ -70,5 +76,42 @@ class ReviewLoopRunnerTest {
 
         assertThat(posix).isEqualTo("src/main/java/A.java");
         assertThat(posix).doesNotContain("\\");
+    }
+
+    // ── 경로 규약(P2 이식) — 근거 검증은 repo 루트가 아니라 '그 파일의 부모 디렉터리' 기준 ──
+
+    @Test
+    @DisplayName("깊은/worktree 경로에서도 파일명 기준 finding이 근거 있음으로 남는다")
+    void groundsFindingRelativeToFileParent() throws IOException {
+        // repo 루트 기준이라면 'A.java'는 루트에 없으니 환각으로 버려진다 — 부모 기준이라 살아야 한다.
+        Path nested = Files.createDirectories(dir.resolve("wt/src/main/java/pkg"));
+        Files.writeString(nested.resolve("A.java"), "class A {}\n");
+
+        EvidenceValidator ev = ReviewLoopRunner.evidenceFor(nested.resolve("A.java"));
+
+        assertThat(ev.isGrounded(at("A.java", 1))).isTrue();
+        assertThat(ev.isGrounded(at("A.java", 0))).isTrue();      // line<=0 = 파일 단위 지적
+    }
+
+    @Test
+    @DisplayName("실재하지 않는 파일·라인 초과는 여전히 환각으로 버린다")
+    void stillRejectsHallucinations() throws IOException {
+        Path nested = Files.createDirectories(dir.resolve("pkg"));
+        Files.writeString(nested.resolve("A.java"), "class A {}\n");   // 1줄
+
+        EvidenceValidator ev = ReviewLoopRunner.evidenceFor(nested.resolve("A.java"));
+
+        assertThat(ev.isGrounded(at("A.java", 2))).isFalse();     // 라인 수 초과
+        assertThat(ev.isGrounded(at("Ghost.java", 1))).isFalse(); // 없는 파일
+    }
+
+    @Test
+    @DisplayName("부모 없는 경로(파일명만)는 CWD 기준 — NPE 없이 동작한다")
+    void fallsBackToCwdWhenNoParent() {
+        Path bare = Path.of("A.java");
+        assertThat(bare.getParent()).isNull();
+
+        assertThatCode(() -> ReviewLoopRunner.evidenceFor(bare).isGrounded(at("A.java", 1)))
+                .doesNotThrowAnyException();
     }
 }

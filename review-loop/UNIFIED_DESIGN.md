@@ -53,7 +53,7 @@ Gemini fixer를 버리는 것**이다.
       │
       ├─① reviewLoop   --files-from --findings-out   → Gemini 판정 (찾기)
       ├─② Edit 수정                                   → 판정자와 독립 ✅
-      ├─③ reviewVerify --files-from                   → javac + test (검증)
+      ├─③ review-verify.sh [--with-test]             → javac + test (검증)
       ├─④ ①로 복귀 (PASS 또는 budget 소진까지)
       └─⑤ git diff 제시 → 사람 승인 → 커밋 → 재push
 ```
@@ -83,7 +83,8 @@ bash scripts/review-verify.sh --with-test  # 전체 테스트까지 — 커밋 �
    그 자체가 중첩 gradle(프로젝트 락)이다. 드라이버는 bash를 직접 실행하므로 태스크 래퍼가 불필요하다.
    `build.gradle`에 이유를 주석으로 남겼다.
 
-- `--with-test`는 `review-autoloop.sh:51`의 "커밋 직전 `./gradlew test` 1회" 정책을 승계한다.
+- `--with-test`는 구 `review-autoloop.sh`의 "커밋 직전 `./gradlew test` 1회" 정책을 승계한다
+  (P2에서 그 스크립트가 `review-session.sh`로 축소되며 해당 단계는 여기로 넘어왔다).
 - 실패 시 exit 1 + 로그 → **Claude Code가 롤백·재수정을 판단**(자동 롤백 아님. 맥락 보고 결정).
 - 검증 실패는 **예산을 소모하지 않는다** — 라운드가 아니라 같은 라운드 내 재시도다.
 
@@ -140,7 +141,7 @@ yaml은 15라 하는데 코드는 10을 주는 상태가 아무도 모르게 생
 | `VerifiedFixer` | 휴면 | 자동 롤백 불필요(3.1 참조) |
 | `AutoLoopRunner` / `AutoLoopOrchestrator` | 휴면 | 판정은 `ReviewLoopRunner`가 흡수 |
 | `CodeFixerPort` (인터페이스) | **유지** | seam은 남긴다 — 무인 모드 재개 시 필요 |
-| `CompileVerification` / `VerificationPort` | **승격** | `reviewVerify`가 재사용 |
+| `CompileVerification` / `VerificationPort` | 휴면 자율 경로 전용 | `reviewVerify`는 재사용하지 **않는다** — §3.1에서 전체 컴파일 채택(초안의 "승격"은 폐기) |
 
 **삭제하지 않고 휴면**시키는 이유: 테스트가 붙어 있고(`AutoFixRunnerTest` 등 검증된 자산), 무인 모드를
 되살릴 여지를 남긴다. 단 `reviewAutoFix` 태스크는 **기본 문서·워크플로에서 내린다.**
@@ -161,11 +162,11 @@ yaml은 15라 하는데 코드는 10을 주는 상태가 아무도 모르게 생
 2. 요청서           bash scripts/review-fix-apply.sh <minor> <request>
 3. 예산 확인        ./gradlew reviewBudget --args="--inc-autofix"     # ⚠️ 한도 초과면 종료·인계
 4. 수정             Claude Code — Edit 도구로만. 나열 항목 외 리팩터 금지
-5. 검증             ./gradlew reviewVerify --args="--files-from <changed>"     # ← 신규
+5. 검증             bash scripts/review-verify.sh                     # ← 신규(전체 컴파일)
                       실패 → 로그 보고 4로 (같은 라운드, 예산 소모 없음)
 6. 재판정           1로 복귀. PASS면 7, NEEDS_REVISION이면 3으로 (budget 내)
-7. 최종 검증        ./gradlew reviewVerify --args="--files-from <changed> --with-test"
-8. 승인·커밋        git diff 제시 → 사람 승인 → 커밋
+7. 최종 검증        bash scripts/review-verify.sh --with-test
+8. 승인·커밋        git diff 항목별 제시 → 사람 승인 → 교훈 기록(§5) → 커밋
 9. 재push           ./gradlew reviewBudget --args="--inc-total"  후 git push
 ```
 
@@ -179,8 +180,9 @@ yaml은 15라 하는데 코드는 10을 주는 상태가 아무도 모르게 생
 - 변경 파일이 많아 메인 트리를 깨끗이 두고 싶을 때
 - 실험적 수정을 버릴 가능성이 있을 때
 
-→ `scripts/review-autoloop.sh`를 `scripts/review-session.sh`로 개명·축소:
-**worktree 생성 + 브랜치 준비까지만** 하고, 루프 구동(`reviewAutoFix` 호출)은 제거한다.
+→ `scripts/review-autoloop.sh`를 `scripts/review-session.sh`로 개명·축소(✅ P2 완료):
+**worktree 생성 + 브랜치 준비 + 변경 `.java` 목록까지만** 하고, 루프 구동(`reviewAutoFix` 호출)·자동 커밋·`--push`는 제거했다.
+브랜치 접두사도 `autoloop/` → `review/`. LLM을 부르지 않으므로 `GEMINI_API_KEY`도 요구하지 않는다.
 
 ---
 
@@ -216,14 +218,24 @@ Minor가 여러 건이면 느리다. 통합 루프는:
 |---|---|---|---|
 | ~~**P0-a**~~ ✅ | 가중치 `rules.yaml` SSOT화 | `RuleCatalog.ScorePolicy`·`effectiveWeights()` + 두 러너 하드코딩 제거 + `RuleCatalogScoringTest` | 없음 · 현재 채점 결과 **무변경**(회귀 테스트로 고정) |
 | ~~**P0-b**~~ ✅ | 드라이버 검증 게이트 | `scripts/review-verify.sh` | 낮음 · 전체 컴파일이라 단일파일 javac보다 강함 |
-| **P1** | `DRIVER.md` 절차에 5·7번 편입 | 문서 갱신 | 없음 |
-| **P1** | 교훈 수집 지점 이동(§5) | `DRIVER.md` 갱신 | 낮음 |
-| **P2** | 판정 일원화 — `AutoLoopOrchestrator` 판정 역할 흡수 | `ReviewLoopRunner`에 부모경로 Evidence 이식 | 중 · 테스트 동반 |
-| **P2** | `review-autoloop.sh` → `review-session.sh` 축소 | 스크립트 개편 | 낮음 |
-| **P3** | 자율 계열 휴면 처리 · `reviewAutoFix` 문서에서 내림 | 문서·태스크 정리 | 낮음 |
+| ~~**P1**~~ ✅ | `DRIVER.md` 절차에 5·7번 편입 | `DRIVER.md` 0~9단계 재작성 + 역할표에 '검증' 행 | 없음 |
+| ~~**P1**~~ ✅ | 교훈 수집 지점 이동(§5) | `DRIVER.md` 8번 = 승인+교훈 동시(사전 항목별 질문 삭제) | 낮음 |
+| ~~**P2**~~ ✅ | 판정 일원화 — `AutoLoopOrchestrator` 판정 역할 흡수 | `ReviewLoopRunner.evidenceFor()` + 테스트 3케이스 · `AutoLoopOrchestrator.run(targets)` (dryRun 제거) · `--dry-run` 제거 | 중 · 테스트 동반 |
+| ~~**P2**~~ ✅ | `review-autoloop.sh` → `review-session.sh` 축소 | worktree+브랜치+변경목록만. `reviewAutoFix` 호출·자동커밋·`--push`·`test` 제거 | 낮음 |
+| ~~**P3**~~ ✅ | 자율 계열 휴면 처리 · `reviewAutoFix` 문서에서 내림 | 5개 클래스 휴면 javadoc · 태스크 group `review-loop-dormant` · `AUTOLOOP_DESIGN.md` SUPERSEDED 배너 | 낮음 |
 
-**P0만 해도 실익이 난다** — 채점이 정확해지고, 드라이버가 자기 수정을 검증할 수단이 생긴다.
-P2 이후는 정리(clean-up) 성격이라 급하지 않다.
+**P0만 해도 실익이 났다** — 채점이 정확해지고, 드라이버가 자기 수정을 검증할 수단이 생겼다.
+P2 이후는 정리(clean-up) 성격이었다.
+
+### 이행 중 발견한 초안-현실 차이 (수정 반영)
+
+1. **§4의 `./gradlew reviewVerify --args="--files-from <changed>"`는 존재하지 않는다.**
+   P0-b가 gradle 태스크를 **일부러 만들지 않기로** 결정했고(중첩 gradle), 검증은 파일 목록을 받지 않는다
+   (전체 컴파일이 목적이므로). → §4를 실제 명령 `bash scripts/review-verify.sh [--with-test]`로 고쳤다.
+2. **§3.4 표의 `CompileVerification` "승격"은 §3.1과 모순.** §3.1이 그 클래스를 쓰지 않기로 했으므로
+   실제 처분은 **휴면 자율 경로 전용**이다. → 표를 §3.1에 맞췄다.
+3. **부모 디렉터리 Evidence는 `ReviewLoopRunner`에 이미 있었다**(P0 이전부터). P2에서 한 일은
+   그 규약을 `evidenceFor()`로 뽑아 **왜 repo 루트가 아닌지** 주석으로 못박고 테스트로 고정한 것이다.
 
 ---
 

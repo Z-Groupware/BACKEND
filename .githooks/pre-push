@@ -71,7 +71,8 @@ if [ -s "$MINOR" ]; then
   REQUEST="$(git rev-parse --git-dir)/review-fix-request.md"
   bash "$(git rev-parse --show-toplevel)/scripts/review-fix-apply.sh" "$MINOR" "$REQUEST" || true
   echo "[review-loop] ℹ️  Minor $(grep -c . "$MINOR")건 — push는 통과. 고치려면 Claude Code에게:"
-  echo "               \"$REQUEST 처리해\"  (방안 확정 → Edit 수정 → 커밋 → 재push · review-loop/DRIVER.md)"
+  echo "               \"$REQUEST 처리해\"  (Edit 수정 → review-verify.sh 검증 → diff 승인 → 커밋 → 재push)"
+  echo "               절차 상세: review-loop/DRIVER.md"
 fi
 
 echo "[review-loop] ✅ 통과 → push 진행"

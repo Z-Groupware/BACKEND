@@ -9,7 +9,11 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * 범용 러너 — 두 가지 진입점으로 같은 루프 코어를 돌린다(재사용).
+ * ★ 판정(찾기) 단일 진입점 — 두 가지 트리거로 같은 루프 코어를 돌린다(재사용).
+ *
+ * 통합 설계(review-loop/UNIFIED_DESIGN.md) 이후 <b>저장소의 모든 LLM 판정은 이 러너를 지난다.</b>
+ * 자율 경로의 판정 전용 모드(구 {@code reviewAutoFix --dry-run})는 여기로 흡수됐다 — 판정기는 하나다.
+ * 수정은 이 러너가 하지 않는다(드라이버=Claude Code). 검증은 scripts/review-verify.sh.
  *
  *  1) 도메인 스캔(수동): ./gradlew reviewLoop --args="--path src/.../domain/cart --domain cart --max 3"
  *  2) 변경 파일 게이트(pre-push 훅): ./gradlew reviewLoop --args="--files-from build/changed.txt --gate"
@@ -88,8 +92,7 @@ public final class ReviewLoopRunner {
         List<String> minorFindings = new ArrayList<>();   // 자동수정 대상(Minor만) — Claude Code에 넘김
         for (Path f : targets) {
             String code = Files.readString(f);
-            Path parent = f.getParent() == null ? Path.of(".") : f.getParent();
-            ReviewLoop loop = new ReviewLoop(judge, catalog, new EvidenceValidator(parent), scorer, lessons);
+            ReviewLoop loop = new ReviewLoop(judge, catalog, evidenceFor(f), scorer, lessons);
             JudgeVerdict v = loop.review(f.getFileName().toString(), code);
 
             if (isBlocking(v.decision())) {
@@ -135,6 +138,19 @@ public final class ReviewLoopRunner {
         if (findingsOut != null) {
             writeFindings(findingsOut, List.of());
         }
+    }
+
+    /**
+     * 경로 규약 — LLM에는 파일명만 주고, 근거 검증은 <b>그 파일의 부모 디렉터리</b> 기준으로 한다.
+     * (통합 설계 P2: 휴면 전환된 {@link AutoLoopOrchestrator}와 같은 규약. 판정은 이 러너로 일원화.)
+     *
+     * <p>repo 루트 하나로 고정하면 worktree·임시 디렉터리·절대경로 목록에서 근거 검증이 어긋나
+     * 실재하는 finding이 환각으로 버려진다. 부모 기준이면 상대·절대 목록 모두에서 맞는다.
+     * 부모가 없는 경로(파일명만)는 CWD(".")를 기준으로 본다.
+     */
+    static EvidenceValidator evidenceFor(Path file) {
+        Path parent = file.getParent();
+        return new EvidenceValidator(parent == null ? Path.of(".") : parent);
     }
 
     /** 차단 결정 = 완료 하드게이트 미충족(INCOMPLETE) 또는 사람 승인 필요(AWAITING_HUMAN=Critical). */
