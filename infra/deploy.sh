@@ -18,7 +18,7 @@ set -euo pipefail
 DOCKER_USER="sungjinmo"                  # backend-ci.yml과 동일 (PR #8 기준)
 IMAGE_NAME="z-spring"
 REGION="ap-northeast-2"
-PARAM_PATH="/itta/spring/"               # SSM Parameter Store 경로 (SecureString 포함)
+PARAM_PATH="/z/prod/"               # SSM Parameter Store 경로 (SecureString 포함)
 CONTAINER="itta-spring"
 APP_PORT="8080"
 # -------------------------------------------------------
