@@ -114,7 +114,7 @@ tasks.register('reviewKnowledgeDemo', JavaExec) {
 
 tasks.register('reviewLesson', JavaExec) {
     group = 'review-loop'
-    description = '사람 판정을 교훈으로 기록 (--args="--rule X --kind FALSE_POSITIVE|MISSED --note ...")'
+    description = '사람 판정을 교훈으로 기록 (--args="--rule X --kind CONFIRMED|FALSE_POSITIVE|MISSED --note ...")'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.module06.backend.reviewloop.judge.ReviewLessonRecorder'
     jvmArgs reviewLoopUtf8Args
