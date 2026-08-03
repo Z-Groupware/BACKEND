@@ -139,13 +139,13 @@ public final class ReviewLoopRunner {
             out.append("교훈  : 축적 ").append(lessons.size()).append("건 반영\n");
         }
 
-        // 차단 게이트라고 문서에 써 있는데 실제로는 차단 경로에 도달할 수 없는 상태를 매 실행에 드러낸다.
-        if (gate && blockingRules.isEmpty()) {
-            out.append('\n');
-            out.append("⚠️ 이 카탈로그에는 CRITICAL judge 규칙이 0개 → Gate 2는 어떤 코드도 차단할 수 없다.\n");
-            out.append("   Minor는 정책상 통과이고, INCOMPLETE(미완성)는 acceptance 판정이 미배선이라 도달 불가다.\n");
-            out.append("   지금 Gate 2의 실효는 '수정 요청서 생성'(리포터)이다. 차단이 필요하면\n");
-            out.append("   rules.yaml에 severity: CRITICAL 규칙을 추가할 것 — 배경: review-loop/UNIFIED_DESIGN.md §8.\n");
+        // Gate 2의 역할을 매 실행에 명시한다 — "게이트가 지켜준다"는 착각이 생기지 않게.
+        // 정책(확정): Gate 2 = 리포터. 차단은 결정론 게이트(Gate 1 ArchUnit · semgrep) 몫이다.
+        // 나중에 CRITICAL judge 규칙이 추가되면 아래가 차단 가능 개수를 알려준다(문구가 저절로 맞는다).
+        if (gate) {
+            out.append(blockingRules.isEmpty()
+                    ? "역할  : 리포터 — 차단 규칙 0개. Gate 2는 push를 막지 않는다(차단은 Gate 1·semgrep · DRIVER.md)\n"
+                    : "역할  : 차단 게이트 — CRITICAL 규칙 " + blockingRules.size() + "개가 차단을 만들 수 있다\n");
         }
         out.append('\n');
 

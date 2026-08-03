@@ -3,8 +3,9 @@ name: Gate 2 · LLM Judge
 # AI 코드 리뷰 루프 — Gate 2(의미규칙 LLM 판정) 게이트.
 #  - gate2-deterministic : 키 불필요. 채점·근거검증(Evidence)·정규화 등 "코드가 판단"하는 결정론 로직 검증(하드 게이트).
 #                          ※ 루프 자신의 로직을 검증한다 — PR 코드를 리뷰하지 않는다.
-#  - gate2-review        : PR의 변경 .java를 실제로 LLM 판정하는 유일한 잡(하드 게이트).
-#                          로컬 pre-push 훅과 동일한 `reviewLoop --gate` → Critical/미완성만 차단.
+#  - gate2-review        : PR의 변경 .java를 실제로 LLM 판정하는 유일한 잡.
+#                          로컬 pre-push 훅과 동일한 `reviewLoop --gate`. ★ 정책상 리포터 — 머지를 막지 않는다
+#                          (차단 경로가 비어 있다 · 근거는 아래 잡 주석 · 정책은 review-loop/DRIVER.md).
 #  - gate2-live-judge    : golden 씨앗 기준 어댑터·프롬프트 회귀 감시(스모크). informational.
 #                          ※ 이것도 PR 코드를 리뷰하지 않는다 — 연동이 살아있는지만 본다.
 # fork PR엔 secret이 주입되지 않으며, 키가 비면 라이브 테스트는 @EnabledIf로 자동 skip된다.
@@ -60,13 +61,16 @@ jobs:
           files: build/test-results/test/*.xml
           check_name: "Gate 2 · 결정론 판정"
 
-  # PR 코드를 실제로 LLM 판정하는 유일한 잡(하드 게이트).
-  # 로컬 pre-push 훅과 같은 명령·같은 기준(--gate)을 쓴다 → Critical/미완성이면 차단, Minor는 통과.
+  # PR 코드를 실제로 LLM 판정하는 유일한 잡. 로컬 pre-push 훅과 같은 명령·같은 기준(--gate)을 쓴다.
   # 이 잡이 있어야 `git push --no-verify`로 로컬 훅을 건너뛴 코드도 머지 전에 판정을 받는다.
   #
-  # 비결정성 우려가 낮은 이유: RuleCatalog.normalize()가 LLM이 뱉은 severity를 카탈로그 값으로
-  # 덮어쓰고 카탈로그에 없는 ruleId는 버린다 → LLM 변덕으로 CRITICAL이 만들어질 수 없다.
-  # 점수 지터(Minor)는 --gate가 차단하지 않으므로 머지를 막지 않는다.
+  # ★ 정책상 리포터 — 머지를 막지 않는다(review-loop/DRIVER.md).
+  #   normalize()가 LLM severity를 카탈로그 값으로 덮으므로 CRITICAL finding이 만들어질 수 없고,
+  #   acceptance 판정은 미배선이라 INCOMPLETE도 도달 불가 → --gate의 차단 경로가 비어 있다.
+  #   즉 LLM 변덕으로 머지가 막히는 일은 구조적으로 없고, 동시에 LLM이 머지를 지켜주지도 않는다.
+  #   차단은 결정론 게이트(gate1-semgrep · gate2-deterministic) 몫이다.
+  #   단 스텝은 계속 실패할 수 있다 — '게이트 오류'(키·네트워크 등 리뷰 미수행)일 때다. 그건 고쳐야 한다.
+  #   정책이 뒤집히면(rules.yaml에 CRITICAL judge 규칙 추가) 이 잡이 자동으로 차단 게이트가 된다.
   gate2-review:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
@@ -103,7 +107,7 @@ jobs:
           cat changed.txt
       # fork PR엔 secret이 주입되지 않는다 → 러너가 "키 없음 → 생략·통과"로 exit 0 (머지를 막지 않음).
       # --max는 훅 기본값(5)보다 크게: 차단 게이트에서 상한 초과분이 리뷰 없이 통과하는 구멍을 줄인다.
-      - name: Gate 2 — PR 코드 판정 (Critical·미완성이면 차단)
+      - name: Gate 2 — PR 코드 LLM 판정 (리포터 · 차단은 결정론 게이트 몫)
         if: steps.changed.outputs.count != '0'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

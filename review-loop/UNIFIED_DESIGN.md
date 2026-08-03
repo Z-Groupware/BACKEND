@@ -251,8 +251,18 @@ P2 이후는 정리(clean-up) 성격이었다.
 
 ## 8. 별건 (통합과 무관하나 같이 인지)
 
-- **Gate 1이 현재 로컬에서 무력** — `ArchitectureRulesTest`가 없어 훅이 Gate 1을 스킵한다
-  (`.githooks/pre-push`가 존재를 검사해 자동 활성화하도록 이미 준비돼 있음). 컨벤션 담당이 추가하면 즉시 켜짐.
+- ~~**Gate 1이 현재 로컬에서 무력**~~ ✅ **해결(2026-08-03)** — `ArchitectureRulesTest` 작성 → 훅이 자동 활성화.
+  `archunit-junit5` 의존성 추가, ARCH_001~003을 rules.yaml의 `archunit_ref` 메서드명 그대로 집행.
+
+  **레이어 패키지가 아직 하나도 없는데 왜 지금 넣나**: 코드가 생긴 뒤에 규칙을 넣으면 이미 쌓인 위반을
+  예외 처리하며 시작해야 한다(= baseline 부채). rules.yaml ARCH_003 주석이 못박은 "부채 없이 위반 0에서
+  시작"은 **지금 넣어야만** 가능하다. `allowEmptyShould(true)`로 대상 0개인 동안 통과하고,
+  누가 그 패키지를 만드는 순간부터 강제된다.
+
+  **빈 통과의 함정을 같이 막았다** — "초록인데 아무것도 검사하지 않는 규칙"은 Gate 2가 차단 게이트로
+  문서화된 채 차단력이 0이었던 것과 같은 실패다. `ArchitectureRulesTest$RuleActuallyFires`가 의도적 위반
+  픽스처(`architecture/fixture/`)로 **네 규칙이 실제로 실패하는지** 검증한다. 규칙이 벙어리가 되면 깨진다.
+  픽스처는 테스트 소스이고 실게이트 임포터는 `DO_NOT_INCLUDE_TESTS`라 서로 간섭하지 않는다.
 - ~~**"Gate 3" 문서-현실 불일치**~~ ✅ **해결** — 진단이 처음 생각보다 심각했다.
   기존 CI는 **PR 코드를 LLM으로 리뷰하는 잡이 아예 없었다.** `gate2-live-judge`는
   `review-loop/golden/`의 **고정 씨앗 파일**로 어댑터 연동만 확인하는 스모크 테스트였고
@@ -286,12 +296,33 @@ P2 이후는 정리(clean-up) 성격이었다.
     > 0개일 때 경고를 출력. `PrePushGatePolicyTest`에 **실제 rules.yaml 기준 도달 가능성** 테스트 추가
     > (CRITICAL 규칙이 생기면 실패하며 문서 갱신을 요구). `FindingSource.ACCEPTANCE`에 미배선 명시.
     >
-    > **남은 결정(팀)**: 진짜 차단이 필요한가. 필요하면 `rules.yaml`에 `severity: CRITICAL` 규칙을 추가하면
-    > 되고(P0-a 이후 가중치는 yaml SSOT라 코드 수정 불필요), 필요 없으면 "Gate 2 = 리포터"로 확정하고
-    > 차단은 Gate 1·semgrep 몫으로 둔다. **무엇이 머지를 막아야 하는지는 코드가 정할 문제가 아니다.**
+    > **결정(2026-08-03) — ⓐ Gate 2 = 리포터로 확정.** 차단은 결정론 게이트(Gate 1 ArchUnit · semgrep) 몫이다.
+    > 근거: 팀 원칙("Minor는 push를 막지 않는다")과 일관되고, LLM 오탐 1건이 팀 전체 push를 막지 않는다.
+    > CRITICAL judge 규칙을 **새로 만들지 않았다** — 무엇이 머지를 막아야 하는지는 코드가 정할 문제가 아니다.
+    > 뒤집으려면 `rules.yaml`에 `severity: CRITICAL` judge 규칙을 추가하면 되고(가중치는 yaml SSOT라
+    > 코드 수정 불필요), 그러면 `PrePushGatePolicyTest`가 실패하며 문서 갱신을 요구한다.
+    > 훅·러너·DRIVER.md·CI 잡 이름을 리포터로 정합화했다.
   - 기존 스모크 테스트는 informational로 유지(어댑터·프롬프트 회귀 감시엔 여전히 유효).
 
   **남은 전제**: 이 차단이 강제되려면 GitHub **브랜치 보호 "Require status checks to pass"**가 켜져 있어야 한다.
   저장소 설정이라 코드에서 확인 불가 — 사람이 Settings → Branches에서 확인할 것.
-- **P4 교훈 자동 기록** — 커밋이 revert되거나 CI 실패 시 `FALSE_POSITIVE` 자동 기록(미구현).
-  §5로 수집 지점이 좋아지므로 우선순위는 내려간다.
+- ~~**P4 교훈 자동 기록**~~ ✅ **구현(2026-08-03) · 단 문안을 정정했다**
+
+  초안: "커밋이 revert되거나 **CI 실패 시** `FALSE_POSITIVE` 자동 기록".
+  **CI 실패 부분은 폐기했다** — CI 실패는 보통 *우리 수정이 틀렸다*는 신호이지 *Judge의 지적이
+  오탐이었다*는 신호가 아니다. 그걸로 오탐을 적재하면 잘못된 교훈이 판정 프롬프트에 주입돼
+  **Judge가 진짜 위반을 놓치기 시작한다** — 학습 루프가 스스로를 망가뜨리는 자기파괴 경로다.
+  근거가 확실한 **revert만** 쓴다(사람이 명시적으로 뒤집은 것).
+
+  구현하며 드러난 진짜 전제: **findings↔커밋 매핑이 없었다.** revert가 생겨도 어느 규칙이 오탐이었는지
+  특정할 수 없으니 자동 기록이 원리적으로 불가능했다. 그래서 두 조각으로 나눴다:
+  - `scripts/review-trail.sh` — 커밋 직후 `{커밋, 규칙, findings 수}`를 `logs/fix-trail.jsonl`에 남긴다(멱등).
+  - `scripts/review-lesson-from-revert.sh` — `This reverts commit <sha>` 표식을 추적해 trail과 맞춰
+    해당 규칙에 `FALSE_POSITIVE`를 적재. `--dry-run` 지원.
+
+  **멱등성 근거는 `lessons.jsonl` 자신**이다(note의 `[auto:revert <sha>→<sha>]` 토큰). 처음엔 로컬
+  `processed` 파일을 뒀는데, 그건 로컬인데 `lessons.jsonl`은 팀 공유라 **클론마다 같은 revert를 재기록해
+  오탐률의 분자를 부풀린다.** 공유 파일을 유일한 진실로 바꿨고, 덤으로 "기록 실패했는데 처리로 표시돼
+  학습 신호가 영구 유실되는" 경로도 사라졌다(실패한 규칙은 다음 실행이 자동 재시도).
+
+  한계(의도적): 손으로 되돌린 커밋은 `This reverts commit` 표식이 없어 잡히지 않는다 → 수동 기록.

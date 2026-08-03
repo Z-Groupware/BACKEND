@@ -10,7 +10,7 @@
 ## 역할 분리
 | 주체 | 하는 일 | 안 하는 일 |
 |---|---|---|
-| pre-push 훅 | Gate1(ArchUnit)·Gate2(LLM Judge) 판정. Critical/미완성이면 exit 1. Minor는 요청서만 남기고 통과. | 코드 수정·커밋·push·claude 호출 |
+| pre-push 훅 | Gate1(ArchUnit·**차단**)·Gate2(LLM Judge·**리포터**) 판정. Minor는 요청서만 남기고 통과. | 코드 수정·커밋·push·claude 호출 |
 | 드라이버(Claude Code) | 요청서를 읽어 Edit 수정 → 검증 → diff 제시 → 커밋 → 재push. 예산·교훈 기록 통제. | Critical/미완성 임의 수정 |
 | 검증(`review-verify.sh`) | `compileJava`+`compileTestJava`, 커밋 직전 `test`. **LLM 없음** — 컴파일러와 테스트만 판단. | 롤백·재수정 판단(드라이버가 맥락 보고 결정) |
 
@@ -86,6 +86,34 @@ bash scripts/review-verify.sh --with-test
 > 기록을 빼먹으면 `lessons.jsonl`이 0건으로 남고 판정 품질이 영원히 제자리다(실제로 오래 0건이었다).
 > `reviewLoop`과 `reviewAccuracy`가 0건일 때 경고를 출력하니, 그 경고가 보이면 이 단계가 빠진 것이다.
 
+**커밋 직후 이력 기록** — 나중에 이 수정이 revert되면 자동으로 오탐을 잡아낼 수 있게 매핑을 남긴다:
+
+```bash
+bash scripts/review-trail.sh <minor-findings-file>
+```
+
+`review-loop/logs/fix-trail.jsonl`에 `{커밋, 규칙, findings 수}`가 한 줄 추가된다(같은 커밋 재호출은 무해).
+이 매핑이 없으면 revert가 생겨도 **어느 규칙이 오탐이었는지 특정할 수 없다.**
+
+### 자동 오탐 회수 (revert 기반)
+
+누군가 리뷰 수정 커밋을 `git revert`하면 — 사람이 "이 지적의 수정은 하지 말았어야 했다"고 명시적으로
+뒤집은 것이므로 오탐의 근거가 된다. 주기적으로(또는 revert 직후) 돌린다:
+
+```bash
+bash scripts/review-lesson-from-revert.sh --dry-run
+```
+
+`--dry-run`으로 무엇이 기록될지 먼저 보고, 맞으면 플래그 없이 실행한다.
+멱등성 근거는 `lessons.jsonl` 자신이다(note의 `[auto:revert <sha>→<sha>]` 토큰) — 팀 공유 파일이라
+클론이 여러 개여도 같은 revert가 중복 기록되지 않는다.
+
+> **CI 실패는 근거로 쓰지 않는다.** 설계 초안(P4)은 "revert **또는 CI 실패** 시 자동 기록"이었지만,
+> CI 실패는 보통 *우리 수정이 틀렸다*는 신호이지 *Judge의 지적이 오탐이었다*는 신호가 아니다.
+> 그걸로 오탐을 적재하면 잘못된 교훈이 프롬프트에 주입돼 **Judge가 진짜 위반을 놓치기 시작한다** —
+> 학습 루프가 스스로를 망가뜨린다. 그래서 revert만 쓴다.
+> 손으로 되돌린 커밋(`This reverts commit` 표식 없음)은 잡히지 않는다 — 그건 수동 기록한다.
+
 ### 9 · 재push
 커밋 → `git push` 재시도 **전에** `./gradlew reviewBudget --args="--inc-total"`. `⚠️ 한도 초과`면 재push 말고 종료.
 
@@ -111,26 +139,31 @@ bash scripts/review-verify.sh --with-test
   |---|---|---|
   | `semgrep-query` (Gate 1) | PR 코드의 신규 `@Query` | ✅ |
   | `gate2-deterministic` | **루프 자신의** 채점·근거검증 로직 (PR 코드 아님) | ✅ |
-  | `gate2-review` | **PR 코드를 LLM 판정** — 훅과 동일한 `reviewLoop --gate` | ⚠️ 아래 참조 |
+  | `gate2-review` | **PR 코드를 LLM 판정** — 훅과 동일한 `reviewLoop --gate` | ❌ 리포터(아래 정책) |
   | `gate2-live-judge` | golden 씨앗 기준 어댑터 회귀(스모크, PR 코드 아님) | ❌ informational |
 
   → Minor는 로컬·CI 모두 차단하지 않는다(요청서만).
   → 단, 차단이 실제로 강제되려면 **GitHub 브랜치 보호에서 "Require status checks to pass"가 켜져 있어야 한다.**
     꺼져 있으면 빨간 체크로도 머지된다(저장소 Settings → Branches).
 
-### ⚠️ Gate 2는 현재 아무것도 차단하지 못한다 (알고 쓸 것)
+### 정책: Gate 2 = 리포터, 차단은 결정론 게이트 몫
 
-`--gate`는 `INCOMPLETE`·`AWAITING_HUMAN`에서만 차단하는데, 현 카탈로그에서 **둘 다 도달 불가**다:
+**확정(2026-08-03)**: LLM 판정은 **막지 않는다.** `push`·머지를 막는 건 결정론 게이트(Gate 1 ArchUnit ·
+semgrep)뿐이다. 이유는 두 가지다 — 팀 원칙("Minor는 push를 막지 않는다")과 일관되고, LLM 오탐 1건이
+팀 전체의 push를 막는 상황을 만들지 않는다.
+
+이건 선언이 아니라 **현재 코드의 실제 동작**이다. `--gate`는 `INCOMPLETE`·`AWAITING_HUMAN`에서만 차단하는데
+현 카탈로그에서 둘 다 도달 불가다:
 
 | 차단 결정 | 필요 조건 | 현재 상태 |
 |---|---|---|
-| `AWAITING_HUMAN` | CRITICAL finding | rules.yaml의 judge 규칙 3개가 **전부 MINOR**. `normalize()`가 LLM severity를 카탈로그 값으로 덮으므로 CRITICAL 생성 불가 |
+| `AWAITING_HUMAN` | CRITICAL finding | judge 규칙 3개가 **전부 MINOR**. `normalize()`가 LLM severity를 카탈로그 값으로 덮으므로 CRITICAL 생성 불가 |
 | `INCOMPLETE` | `FindingSource.ACCEPTANCE` finding | 그 소스를 만드는 **프로덕션 경로가 없다**(미배선) |
 
-→ **지금 Gate 2의 실효는 "수정 요청서 생성"(리포터)이다.** LLM 판정이 push·머지를 막아주리라 기대하지 말 것.
-러너가 `--gate` 실행마다 이 사실을 출력하고, `PrePushGatePolicyTest`가 도달 불가를 고정한다(CRITICAL 규칙이
-추가되면 테스트가 실패하며 이 문서 갱신을 요구한다). 차단이 필요하면 `rules.yaml`에 `severity: CRITICAL`
-규칙을 추가하면 된다 — 가중치는 P0-a 이후 yaml이 SSOT라 코드 수정이 필요 없다. 배경: [UNIFIED_DESIGN.md](UNIFIED_DESIGN.md) §8.
+러너가 `--gate` 실행마다 `역할 : 리포터 — 차단 규칙 0개`를 출력하고, `PrePushGatePolicyTest`가 도달 불가를
+고정한다. **정책을 뒤집으려면** `rules.yaml`에 `severity: CRITICAL` judge 규칙을 추가하면 된다(가중치는
+P0-a 이후 yaml이 SSOT라 코드 수정 불필요) — 그러면 그 테스트가 실패하며 이 문서 갱신을 요구한다.
+배경: [UNIFIED_DESIGN.md](UNIFIED_DESIGN.md) §8.
 
 ### 게이트가 막았을 때 — 사유를 먼저 볼 것
 

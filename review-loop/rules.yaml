@@ -29,26 +29,33 @@ meta:
 
 rules:
   # ── Gate 1 · 결정론 하드 게이트 (CodeRabbit이 '강제'하지 못하는 것) ─────────
+  # ARCH_001~003 집행 배선 완료(2026-08-03) — ArchitectureRulesTest 작성 → 훅이 Gate 1을 자동 활성화.
+  # ⚠️ 아직 대상 클래스가 0개다(presentation·domain·application·infrastructure 패키지 미생성).
+  #    allowEmptyShould(true)라 지금은 통과하고, 해당 패키지가 생기는 순간부터 강제된다
+  #    (= 아래 ARCH_003 주석의 "부채 없이 위반 0에서 시작"이 실현된 상태).
+  #    규칙이 벙어리가 아님은 ArchitectureRulesTest$RuleActuallyFires가 위반 픽스처로 증명한다.
+  #    ★ 레이어 패키지 이름을 바꾸려면 여기와 ArchitectureRulesTest의 상수를 '함께' 고칠 것 —
+  #      한쪽만 고치면 규칙이 조용히 아무것도 검사하지 않는 상태가 된다.
   - id: ARCH_001
     text: "presentation(컨트롤러)은 domain.repository 직접호출 금지 → Service 경유"
     severity: MINOR
     enforced_by: archunit
     archunit_ref: "ArchitectureRulesTest#presentationMustNotAccessRepositoryDirectly"
-    status: pending          # ArchitectureRulesTest 미작성(컨벤션 팀원) → 작성 시 자동 활성화
+    status: verified_green   # 테스트 존재 · 훅(Gate 1)에서 실행 · 현재 대상 0
 
   - id: ARCH_002
     text: "domain.model은 Spring·JPA 의존 금지 (순수 POJO)"
     severity: MINOR
     enforced_by: archunit
     archunit_ref: "ArchitectureRulesTest#domainModelMustNotDependOnFramework"
-    status: pending
+    status: verified_green
 
   - id: ARCH_003
     text: "application → infrastructure 직접 참조 금지 (포트-어댑터)"
     severity: MINOR
     enforced_by: archunit
     archunit_ref: "ArchitectureRulesTest#applicationMustNotDependOnInfrastructure"
-    status: pending          # 신규 레포 — 부채(baseline) 없이 위반 0에서 시작
+    status: verified_green   # 신규 레포 — 부채(baseline) 없이 위반 0에서 시작
 
   - id: QUERY_002
     text: "신규 @Query(JPQL/native) 추가 금지 — 파생 쿼리 메서드로 대체"

@@ -3,12 +3,12 @@
 #
 # push 직전에 "이번에 원격으로 나가는 변경 .java"만 골라 로컬 게이트를 돌린다. (순수 게이트 — 코드 안 고침)
 #   - Gate 1 (정적·결정론, 키 불필요): ArchUnit 실패 시 push 차단.
-#   - Gate 2 (LLM 판정, 변경 파일만):  차단 결정(미완성/Critical) 시 push 차단.
-#     ⚠️ 현재 카탈로그(rules.yaml)에는 CRITICAL judge 규칙이 0개이고 acceptance 판정이 미배선이라
-#        Gate 2의 차단 경로에는 도달할 수 없다 — 실효는 "수정 요청서 생성"(리포터)이다.
-#        러너가 매 실행에 이 사실을 출력한다. 차단이 필요하면 rules.yaml에 CRITICAL 규칙을 추가할 것.
-#        고정: PrePushGatePolicyTest · 배경: review-loop/UNIFIED_DESIGN.md §8
-#                                       Minor는 차단하지 않고 수정 요청서(<git-dir>/review-fix-request.md)만 남긴다.
+#   - Gate 2 (LLM 판정, 변경 파일만):  ★ 정책상 리포터 — push를 막지 않는다.
+#        현 카탈로그에 CRITICAL judge 규칙이 0개이고 acceptance 판정이 미배선이라 차단 경로에 도달할 수 없다.
+#        차단은 결정론 게이트(위 Gate 1 · CI semgrep) 몫이다. 러너가 매 실행에 역할을 출력한다.
+#        아래 BLOCKED 분기는 정책이 뒤집힐 때(CRITICAL 규칙 추가) 대비해 남겨 둔다.
+#        정책: review-loop/DRIVER.md · 고정: PrePushGatePolicyTest · 배경: UNIFIED_DESIGN.md §8
+#                                       Minor는 수정 요청서(<git-dir>/review-fix-request.md)만 남긴다.
 #                                       수정은 훅이 하지 않는다 — 드라이버(Claude Code)가 요청서를 읽어 처리(중첩 claude 금지).
 #                                       GEMINI_API_KEY 없으면 러너가 스스로 생략·통과. 절차: review-loop/DRIVER.md
 # 급할 때 우회: git push --no-verify  (서버 CI(Gate 3)는 우회 불가)
@@ -73,8 +73,12 @@ STATUS="$(git rev-parse --git-dir)/review-gate-status.txt"
 : > "$MINOR"
 : > "$STATUS"   # 반드시 비운다 — 안 비우면 이전 실행의 상태를 이번 결과로 오독한다
 
+# --max: CI(gate2-review)와 같은 20. 기본 5는 "변경 9개 중 4개가 리뷰 없이 통과"를 만들었고,
+# 로컬이 CI보다 느슨하면 로컬 통과가 아무것도 보장하지 못한다(같은 커밋을 CI가 더 많이 본다).
+# 비용은 파일당 LLM 1회(수초) — REVIEW_MAX_FILES로 조정 가능.
+REVIEW_MAX_FILES="${REVIEW_MAX_FILES:-20}"
 ./gradlew -q reviewLoop \
-  --args="--files-from $CHANGED --gate --findings-out $MINOR --status-out $STATUS" --no-daemon
+  --args="--files-from $CHANGED --gate --max $REVIEW_MAX_FILES --findings-out $MINOR --status-out $STATUS" --no-daemon
 GATE_EXIT=$?
 GATE_STATUS="$(tr -d ' \t\r\n' < "$STATUS" 2>/dev/null || true)"
 
