@@ -1,0 +1,22 @@
+name: z
+
+services:
+  spring:
+    image: "${SPRING_IMAGE:?SPRING_IMAGE is required}"
+    container_name: z-spring
+
+    env_file:
+      - path: "${RUNTIME_ENV_FILE:-./.env.runtime}"
+        format: raw
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    restart: unless-stopped
+    stop_grace_period: 40s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
