@@ -45,6 +45,8 @@ export RUNTIME_ENV_FILE="${ENV_FILE}"
 
 echo "=== [1/4] SSM Parameter Store에서 설정 로드: ${PARAM_PATH} ==="
 # --output text 는 컬럼을 TAB으로 구분 → IFS=TAB 으로 값 안의 공백 보존
+tmp_env="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
+trap 'rm -f -- "${tmp_env}"' EXIT
 aws ssm get-parameters-by-path \
   --path "${PARAM_PATH}" \
   --recursive \
@@ -56,6 +58,11 @@ aws ssm get-parameters-by-path \
     key="$(basename "${name}")"          # /z/prod/DB_PASSWORD -> DB_PASSWORD
     echo "${key}=${value}"
  done > "${tmp_env}"
+
+if [[ ! -s "${tmp_env}" ]]; then
+  echo "오류: Parameter Store에서 환경변수를 가져오지 못했습니다." >&2
+  exit 1
+fi
 
 chmod 600 "${tmp_env}"
 mv -f "${tmp_env}" "${ENV_FILE}"
