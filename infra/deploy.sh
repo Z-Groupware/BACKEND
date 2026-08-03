@@ -4,8 +4,9 @@
 #
 # 배치 위치: 이 파일을 각 Spring EC2의 /opt/itta/deploy.sh 에 미리 올려둔다.
 #           (프로비저닝 시 1회 배치 — CD 워크플로가 SSM으로 이걸 호출만 한다)
-# 호출 예시: sudo /opt/itta/deploy.sh <이미지태그>
-#           태그 생략 시 latest 사용.
+# 호출 예시: sudo /opt/itta/deploy.sh <이미지태그(커밋SHA)>
+#           태그는 필수다. CD는 latest 를 밀지 않으므로 생략 시 실패한다
+#           (낡은 latest 를 조용히 배포하는 사고 방지).
 #
 # 전제:
 #   - EC2에 docker 설치됨
@@ -23,7 +24,19 @@ CONTAINER="itta-spring"
 APP_PORT="8080"
 # -------------------------------------------------------
 
-IMAGE_TAG="${1:-latest}"
+# 이미지 태그(커밋 SHA)는 필수. 인자 없이 실행되면 어떤 버전을 띄우는지
+# 불명확해지므로 즉시 실패시킨다(CD가 latest 를 더 이상 push 하지 않기 때문).
+if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
+  echo "사용법: $(basename "$0") <이미지태그(커밋SHA)>" >&2
+  exit 1
+fi
+IMAGE_TAG="$1"
+# 커밋 SHA 형식(7~40자리 hex)만 허용한다. latest·develop·임의 문자열을 넘기면
+# 커밋과 무관한 이미지가 배포될 수 있으므로 즉시 실패시킨다(운영=커밋 1:1 추적 보장).
+if ! printf '%s' "${IMAGE_TAG}" | grep -Eq '^[0-9a-f]{7,40}$'; then
+  echo "오류: 이미지 태그는 커밋 SHA(7~40자리 hex)여야 합니다: '${IMAGE_TAG}'" >&2
+  exit 1
+fi
 IMAGE="${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo "=== [1/4] 이미지 pull: ${IMAGE} ==="
