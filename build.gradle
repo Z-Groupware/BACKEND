@@ -54,8 +54,103 @@ dependencies {
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
+
+	// ── AI 코드 리뷰 루프 (reviewloop.judge.*) 의존성 ──
+	// 순수 Java CLI라 Spring과 무관. jackson은 webmvc가, snakeyaml은 spring-boot가 끌어오지만 명시 고정.
+	implementation 'org.yaml:snakeyaml'                       // rules.yaml 파싱(RuleCatalog)
+	implementation 'com.anthropic:anthropic-java:2.34.0'      // Gate 2 Claude judge(선택 어댑터). Gemini만 쓰면 미사용
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'  // 루프 유닛테스트 JUnit Jupiter
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// AI 코드 리뷰 루프 — 태스크. mainClass는 com.module06.backend.reviewloop.judge.*
+// 콘솔 한글 깨짐 방지 UTF-8 인자(Windows cp949 대비). 절차: review-loop/DRIVER.md · AUTOLOOP_DESIGN.md
+// ════════════════════════════════════════════════════════════════════════════
+def reviewLoopUtf8Args = ['-Dfile.encoding=UTF-8',
+                          '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8',
+                          '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
+
+tasks.register('reviewCli', JavaExec) {
+    group = 'review-loop'
+    description = '사람 검토 게이트를 터미널에 표시(개발자 도구 표면)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.ReviewLoopCli'
+    jvmArgs reviewLoopUtf8Args
+}
+
+// 게이트/수동 리뷰 러너 (pre-push 훅이 --files-from --gate 로 호출)
+tasks.register('reviewLoop', JavaExec) {
+    group = 'review-loop'
+    description = '지정 경로/변경파일에 리뷰 루프 실행 (--args="--path <dir> | --files-from <list> [--gate]")'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.ReviewLoopRunner'
+    jvmArgs reviewLoopUtf8Args
+}
+
+// ★ 자율 수정 루프 (P0/P1) — 변경 Minor를 fix→검증→재판정 수렴까지. 별도 worktree/브랜치 권장.
+tasks.register('reviewAutoFix', JavaExec) {
+    group = 'review-loop'
+    description = '자율 수정 루프: fix→컴파일검증→재판정 (--args="--files-from <list> [--rounds-per-file 3] [--global-budget 6] [--dry-run]")'
+    // runtimeClasspath(컴파일된 sibling 클래스 = build/classes) + compileClasspath(lombok 등 compileOnly 포함).
+    // CompileVerification의 단일파일 javac가 @Getter 등 lombok을 ServiceLoader로 자동 실행하려면
+    // lombok jar가 실행 JVM classpath(java.class.path)에 있어야 한다. (compileOnly는 resolvable이 아니라 직접 못 씀)
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.main.compileClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.AutoLoopRunner'
+    jvmArgs reviewLoopUtf8Args
+}
+
+tasks.register('reviewKnowledgeDemo', JavaExec) {
+    group = 'review-loop'
+    description = '지식 축적 예시 생성(error_log·lessons·report.md) → review-loop/logs/demo/ (실제 기록 무영향)'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.KnowledgeArtifactsGenerator'
+    jvmArgs reviewLoopUtf8Args
+}
+
+tasks.register('reviewLesson', JavaExec) {
+    group = 'review-loop'
+    description = '사람 판정을 교훈으로 기록 (--args="--rule X --kind FALSE_POSITIVE|MISSED --note ...")'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.ReviewLessonRecorder'
+    jvmArgs reviewLoopUtf8Args
+}
+
+tasks.register('reviewAccuracy', JavaExec) {
+    group = 'review-loop'
+    description = '규칙별 오탐/누락 지목 횟수 집계 (교훈 기반 · 프롬프트 개선 후보 식별)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.RuleAccuracy'
+    jvmArgs reviewLoopUtf8Args
+}
+
+tasks.register('reviewBudget', JavaExec) {
+    group = 'review-loop'
+    description = '드라이버 루프 예산 증가·검사 (--args="--inc-autofix | --inc-total | --reset") · 초과 시 exit 1'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.DriverBudget'
+    jvmArgs reviewLoopUtf8Args
+    ignoreExitValue = true
+}
+
+tasks.register('installReviewHooks', Exec) {
+    group = 'review-loop'
+    description = 'pre-push 훅 활성화(git config core.hooksPath .githooks)'
+    commandLine 'git', 'config', 'core.hooksPath', '.githooks'
+    doLast { println 'pre-push 훅 활성화됨(.githooks). 우회 필요 시: git push --no-verify' }
+}
+
+tasks.register('reviewFix', Exec) {
+    group = 'review-loop'
+    description = 'Minor 수정 요청서 생성: Gemini 판정 → 방안 포함 요청서 (-Pargs="--path ... | --files-from ...")'
+    commandLine 'bash', 'scripts/review-fix.sh'
+    def a = (project.findProperty('args') ?: '').toString().trim()
+    if (a) { args(a.split(' ')) }
+}
+
+// reviewVerify는 gradle 태스크로 감싸지 않는다 — 태스크가 bash를 부르고 그 bash가 다시 ./gradlew를
+// 부르면 중첩 gradle(프로젝트 락)이다. 드라이버는 gradle 바깥에서 도므로 스크립트를 직접 부른다:
+//   bash scripts/review-verify.sh [--with-test]
