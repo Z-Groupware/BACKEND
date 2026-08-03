@@ -14,7 +14,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:none}   # 스키마 주인은 Flyway. validate 이상은 쓰지 않는다.
+      ddl-auto: ${JPA_DDL_AUTO:validate}   # 스키마 주인은 Flyway. validate 이상은 쓰지 않는다.
 
   # ── Flyway (담당자별 버전 영역 + out-of-order 협업) ──
   flyway:
