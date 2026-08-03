@@ -1,4 +1,4 @@
-package com.module06.backend.domain.project.domain.model;
+package com.module06.backend.project.domain.model;
 
 /* comment.
     프로젝트 애그리거트 루트. 태그·이름·기획(description)·색상·마감일·상태·지정 부서를 보유한다.

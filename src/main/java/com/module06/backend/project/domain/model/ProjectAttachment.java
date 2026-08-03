@@ -1,4 +1,4 @@
-package com.module06.backend.domain.project.domain.model;
+package com.module06.backend.project.domain.model;
 
 /* comment.
     프로젝트 첨부파일의 메타데이터(파일명·URL·크기·업로더 id). 바이너리는 보관하지 않는다.

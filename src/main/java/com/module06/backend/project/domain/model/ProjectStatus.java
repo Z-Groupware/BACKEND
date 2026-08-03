@@ -1,4 +1,4 @@
-package com.module06.backend.domain.project.domain.model;
+package com.module06.backend.project.domain.model;
 
 /* comment.
     프로젝트 진행 상태. DB project.status ENUM과 1:1로 대응한다.

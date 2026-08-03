@@ -1,4 +1,4 @@
-package com.module06.backend.domain.project.domain.repository;
+package com.module06.backend.project.domain.repository;
 
 /* comment.
     프로젝트 첨부파일 메타데이터 저장소 계약. domain이 선언하고 infrastructure가 구현한다.
