@@ -10,11 +10,11 @@
 
 - 초기 전체 스키마는 **`V1__init_schema.sql`** 하나에 담는다(baseline).
 - 이후 모든 신규 DB 변경은 **담당자별 V2.N.x 영역**에서 증분으로만 추가한다.
-- **baseline 처리 (확정값)**: 운영 DB에는 이미 초기 스키마가 적용돼 있을 수 있으므로 히스토리 어긋남을 막는다.
-  - `spring.flyway.baseline-on-migrate=true`
-  - `spring.flyway.baseline-version=1`
-  - 완전히 빈 DB → baseline 대상 아님 → `V1`이 그대로 실행되어 스키마 생성
-  - 기존 스키마가 있는 DB → `V1`을 baseline으로 등록(재실행 안 함) → `V2.x`부터 적용
+- **baseline 처리 (확정값): `spring.flyway.baseline-on-migrate=false`**
+  - 이 프로젝트에는 *마이그레이션 이력 없이 스키마만 존재하는* 레거시 DB가 없다. 모든 환경이 빈 DB에서 `V1`부터 시작한다.
+  - ⚠️ 켜두면 **테이블이 일부만 있는 DB를 "V1 완료"로 등록하고 `V1`을 건너뛴다.** Flyway는 기존 테이블이 `V1`과 일치하는지 검증하지 않으므로, 깨진 스키마가 조용히 통과한다.
+  - 실제 레거시 DB를 인계받는 경우에만, **스키마 대조(`SHOW CREATE TABLE` / schema diff) 후 승인**을 거쳐 그 배포에 한해 일시적으로 켠다.
+  - 로컬이 꼬였을 때 `flyway_schema_history`만 지우지 말 것 → **9번(DB 전체 drop/recreate)** 을 따른다.
 
 ---
 
@@ -51,13 +51,23 @@ Flyway는 적용 시 checksum을 `flyway_schema_history`에 저장하며, 적용
 
 ---
 
-## 5. Out-Of-Order 허용
+## 5. Out-Of-Order (개발만 허용)
 
-`spring.flyway.out-of-order=true`. 낮은 버전이 뒤늦게 병합돼도 순서에 끼워넣어 **1회만** 적용된다(같은 파일이 두 번 실행되지 않는다).
+`spring.flyway.out-of-order` — **개발 `true` / 운영 `false`** (`FLYWAY_OUT_OF_ORDER` 환경변수로 제어).
 
+이미 적용된 최신 버전보다 **낮은** 미적용 마이그레이션이 뒤늦게 들어와도 무시하지 않고 적용해 준다(꺼져 있으면 무시된다). 각 파일은 DB당 1회만 실행된다.
+
+**⚠️ 실행 순서를 재배치하는 기능이 아니다.** 이미 지나간 이력은 되돌리지 않으므로, 뒤늦게 온 낮은 버전은 **그 시점에**, 즉 더 높은 버전 뒤에 실행된다.
+
+```text
+적용 순서:  V2.1.1 → V2.2.1 → V2.1.2 (뒤늦게 병합, 지금 실행됨) → V2.3.1
+버전 순서:  V2.1.1 → V2.1.2 → V2.2.1 → V2.3.1                  ← 이렇게 되지 않는다
 ```
-V2.1.1 → V2.2.1 → V2.1.2 (뒤늦게 병합) → V2.3.1
-```
+
+> **그래서 지켜야 할 규칙: 낮은 버전 마이그레이션이 높은 버전의 변경에 의존하면 안 된다.**
+> 예) `V2.1.2`가 `V2.2.1`이 추가한 컬럼을 참조하면, 위 순서에서는 우연히 성공하지만
+> 빈 DB에 처음부터 적용할 때는 버전 순서대로 실행되므로 **실패한다.**
+> 새 컬럼을 참조하는 변경은 반드시 자기 버전보다 **낮은** 버전에만 의존하도록 작성한다.
 
 ## 6. DB 변경은 반드시 Migration으로
 
@@ -120,7 +130,16 @@ MySQL은 `CREATE/ALTER/DROP` DDL이 **암묵적 커밋**을 일으킨다 → 한
 
 - 운영 DB 기존 Migration 수정 금지 → 문제는 새 Migration으로 보완(긴급 수정도 파일로 남긴다).
 - 운영 반영 전 CI/스테이징에서 `flyway validate` + `flyway migrate` 확인.
-- **머지 순서 = 배포 순서** 강제. out-of-order는 개발 편의용이며, 운영에선 공용 테이블 순서 의존성이 깨지지 않도록 병합/배포 순서 정합성을 유지한다.
+- **머지 순서 = 배포 순서** 강제. out-of-order는 개발 편의용이다.
+- **운영 환경변수 (SSM Parameter Store `/itta/spring/`)** — 문서상의 원칙을 설정으로도 강제한다.
+
+  | 환경변수 | 운영 값 | 이유 |
+  | --- | --- | --- |
+  | `FLYWAY_OUT_OF_ORDER` | `false` | 머지 순서 = 배포 순서 강제. 낮은 버전이 뒤늦게 끼어드는 것을 차단 |
+  | `JPA_DDL_AUTO` | `validate` | 엔티티↔스키마 불일치 시 부팅 차단 |
+
+  > 설정하지 않으면 공통 기본값(`out-of-order=true`)이 운영에도 그대로 적용된다. **반드시 명시할 것.**
+  > `baseline-on-migrate`는 전 환경 `false`이며, 레거시 DB 인계 시에만 스키마 대조·승인 후 일시적으로 켠다(1번 참조).
 
 ---
 
@@ -133,7 +152,8 @@ MySQL은 `CREATE/ALTER/DROP` DDL이 **암묵적 커밋**을 일으킨다 → 한
 - [ ] 공용 테이블 변경 시 사전 공유
 - [ ] MySQL은 `IF NOT EXISTS` 컬럼 문법 불가 → 수동 DB 변경 자체를 금지
 - [ ] 1파일 1논리변경 (baseline V1만 예외)
-- [ ] baseline: baseline-on-migrate=true / baseline-version=1
-- [ ] 충돌 시 로컬 DB 재생성 우선 (V1 → V2.x)
+- [ ] 낮은 버전이 높은 버전의 변경에 의존하지 않게 작성 (out-of-order)
+- [ ] baseline-on-migrate=false 유지 (레거시 DB 인계 시에만 대조·승인 후 일시 허용)
+- [ ] 충돌 시 로컬 DB 전체 drop/recreate (히스토리 테이블만 지우지 않기)
 - [ ] 운영 반영 전 validate + migrate 검증
-- [ ] 머지 순서 = 배포 순서 유지
+- [ ] 머지 순서 = 배포 순서 유지 (운영 `FLYWAY_OUT_OF_ORDER=false`)
