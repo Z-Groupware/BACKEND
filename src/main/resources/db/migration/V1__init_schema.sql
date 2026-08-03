@@ -327,6 +327,16 @@ ALTER TABLE `subscription`           ADD CONSTRAINT `PK_SUBSCRIPTION`           
 ALTER TABLE `team`                   ADD CONSTRAINT `PK_TEAM`                   PRIMARY KEY (`id`);
 
 -- ---------------------------------------------------------------------
+-- Unique keys (로그인 식별자 — 애플리케이션 검사만으로는 동시 요청에서 중복이 뚫린다)
+-- ---------------------------------------------------------------------
+-- company.code = 로그인 1단계 키. 전역 유일해야 한다.
+ALTER TABLE `company` ADD CONSTRAINT `UK_COMPANY_CODE` UNIQUE (`code`);
+
+-- member.email = 로그인 아이디. "기업 내 유일"이므로 company_id 와의 복합 유일키다.
+-- (다른 기업에는 같은 이메일이 존재할 수 있다)
+ALTER TABLE `member` ADD CONSTRAINT `UK_MEMBER_COMPANY_EMAIL` UNIQUE (`company_id`, `email`);
+
+-- ---------------------------------------------------------------------
 -- AUTO_INCREMENT (단일 컬럼 `id` PK 전용)
 -- ---------------------------------------------------------------------
 -- ERD 원본에는 없으나, JPA @GeneratedValue(strategy = IDENTITY) 사용을 위해 부여한다.
