@@ -40,7 +40,7 @@ aws ssm get-parameters-by-path \
   --query "Parameters[].[Name,Value]" \
   --output text \
 | while IFS=$'\t' read -r name value; do
-    key="$(basename "${name}")"          # /itta/spring/DB_PASSWORD -> DB_PASSWORD
+    key="$(basename "${name}")"          # /z/prod/DB_PASSWORD -> DB_PASSWORD
     echo "${key}=${value}"
   done > "${ENV_FILE}"
 
