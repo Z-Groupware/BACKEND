@@ -2,6 +2,15 @@ spring:
   application:
     name: backend
 
+  # 로컬 개발용 비밀값은 프로젝트 루트의 application-secret.yml 에 둔다(.gitignore 처리, 커밋 금지).
+  # ⚠️ classpath(src/main/resources) 가 아니라 외부 file: 경로다.
+  #    resources 에 두면 .gitignore 와 무관하게 processResources 가 jar 에 담고,
+  #    Dockerfile 의 COPY src 로 이미지에도 들어간다.
+  # optional: 이므로 파일이 없어도 부팅에 실패하지 않는다 — 운영/스테이징은 파일 없이
+  # SSM Parameter Store 가 주입한 환경변수를 쓰며, 환경변수가 이 파일보다 우선한다.
+  config:
+    import: optional:file:./application-secret.yml
+
   datasource:
     url: jdbc:mysql://${DB_HOST}:3306/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
     username: ${DB_USERNAME}
@@ -14,4 +23,20 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:none}
+      ddl-auto: ${JPA_DDL_AUTO:validate}   # 스키마 주인은 Flyway. validate 이상은 쓰지 않는다.
+
+  # ── Flyway (담당자별 버전 영역 + out-of-order 협업) ──
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true     # checksum 불일치(=적용 파일 수정) 시 부팅 실패
+
+    # 개발 환경은 허용(담당자별 레인이 순서 무관하게 병합됨), 운영은 false 로 내린다.
+    # 운영은 "머지 순서 = 배포 순서"를 강제하므로 SSM 에 FLYWAY_OUT_OF_ORDER=false 를 둔다.
+    out-of-order: ${FLYWAY_OUT_OF_ORDER:true}
+
+    # baseline 은 끈다. 이 프로젝트에는 마이그레이션 이력 없이 스키마만 있는
+    # 레거시 DB가 존재하지 않는다. 켜두면 테이블이 일부만 있는 DB를 "V1 완료"로
+    # 등록해 V1 을 건너뛰고, 깨진 스키마가 조용히 통과한다.
+    # 실제 레거시 DB를 인계받는 경우에만 그 배포에 한해 켠다.
+    baseline-on-migrate: false
