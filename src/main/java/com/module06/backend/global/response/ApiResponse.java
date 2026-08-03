@@ -25,7 +25,7 @@ public class ApiResponse<T> {
         return new ApiResponse<>(HttpStatus.CREATED, message, data);
     }
 
-    public static ApiResponse<Void> successNoContent(String message) {
+    public static ApiResponse<Void> successWithoutData(String message) {
         return new ApiResponse<>(HttpStatus.OK, message, null);
     }
 }
