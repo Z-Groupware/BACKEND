@@ -35,7 +35,9 @@ public enum HandoverErrorCode implements ErrorCode {
     HO_REASSIGN_NOT_ALLOWED(HttpStatus.CONFLICT, "HO-019", "현재 상태에서는 인수인계 항목을 재배정할 수 없습니다."),
     HO_REJECT_NOT_ALLOWED(HttpStatus.CONFLICT, "HO-020", "현재 상태에서는 인수인계를 반려할 수 없습니다."),
     HO_ITEMS_NOT_FULLY_REASSIGNED(HttpStatus.CONFLICT, "HO-021", "필수 인수인계 항목이 모두 재배정되지 않았습니다."),
-    HO_CONFLICT(HttpStatus.CONFLICT, "HO-022", "인수인계 처리 중 충돌이 발생했습니다.");
+    HO_CONFLICT(HttpStatus.CONFLICT, "HO-022", "인수인계 처리 중 충돌이 발생했습니다."),
+    HO_LIST_SCOPE_REQUIRED(HttpStatus.BAD_REQUEST, "HO-023", "인수인계 목록 조회 범위가 필요합니다."),
+    HO_LIST_SCOPE_AMBIGUOUS(HttpStatus.BAD_REQUEST, "HO-024", "인수인계 목록 조회 범위는 하나만 지정할 수 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

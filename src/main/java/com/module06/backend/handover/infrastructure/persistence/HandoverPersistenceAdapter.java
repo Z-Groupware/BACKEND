@@ -52,6 +52,13 @@ public class HandoverPersistenceAdapter implements HandoverRepository {
     }
 
     @Override
+    public List<Handover> findByTeamId(Long teamId) {
+        return springDataHandoverRepository.findByTeamId(teamId).stream()
+                .map(HandoverJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
     public List<Handover> findByTeamIdAndStatus(Long teamId, HandoverStatus status) {
         return springDataHandoverRepository.findByTeamIdAndStatus(teamId, status).stream()
                 .map(HandoverJpaEntity::toDomain)
