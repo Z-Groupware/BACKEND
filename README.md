@@ -3,14 +3,19 @@ backend server
 
 ## 처음 클론했다면
 
+**로컬 세팅: [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)** — MySQL 계정 · secret 파일 · Redis · 부팅 확인까지 순서대로. 증상별 원인 표 포함.
+
+리뷰 루프(push 게이트)만 따로 켜려면:
+
 ```bash
 ./gradlew installReviewHooks               # push 게이트 활성화 (필수)
 bash scripts/review-verify.sh --with-test  # 컴파일 + 테스트 확인
 ```
 
-그리고 로컬 DB 값을 채운다 — `cp application-secret.yml.example application-secret.yml` (커밋되지 않음 · **루트에 둘 것** · 상세는 SETUP.md 3번).
+리뷰 루프 세팅 전체(키 등록·동작 확인·문제 해결): **[review-loop/SETUP.md](review-loop/SETUP.md)**
 
-세팅 전체(키 등록·동작 확인·문제 해결): **[review-loop/SETUP.md](review-loop/SETUP.md)**
+> 설정 파일(`application-secret.yml`·`.env`)은 위 [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)가 다룬다.
+> 두 문서 역할이 다르다 — `docs/LOCAL_SETUP.md`는 **앱을 띄우는 것**, `review-loop/SETUP.md`는 **push 게이트**.
 
 ## AI 코드 리뷰 루프
 

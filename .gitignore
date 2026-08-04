@@ -42,6 +42,10 @@ application-secret.yaml
 application-*-secret.yml
 application-*-secret.yaml
 !application-secret.yml.example
+# 비밀값 파일의 백업·사본이 새어나가는 것 방지(application-secret.yml.bak 등).
+# 실제로 커밋 직전까지 갔던 사고가 있었다 — .gitignore가 원본만 막고 .bak은 안 막았다.
+*.bak
+*.orig
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*

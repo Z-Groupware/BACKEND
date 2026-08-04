@@ -51,8 +51,9 @@ public class HandoverItemJpaEntity {
     @Column(name = "source_meeting_title_snap")
     private String sourceMeetingTitleSnap;
 
-    @Lob
-    @Column(name = "content_snap")
+    // V7.0 마이그레이션이 TEXT(65,535바이트)로 만든 컬럼. @Lob에 길이가 없으면 Hibernate가 기본 255로
+    // 보고 tinytext를 기대해 ddl-auto=validate가 부팅을 막는다. 길이를 명시해 TEXT로 맞춘다.
+    @Column(name = "content_snap", length = 65535)
     private String contentSnap;
 
     @Column(name = "reassign_required", nullable = false)

@@ -142,7 +142,7 @@ DDL은 실행 시 진행 중인 트랜잭션을 **암묵적으로 커밋**시킨
 - 운영 DB 기존 Migration 수정 금지 → 문제는 새 Migration으로 보완(긴급 수정도 파일로 남긴다).
 - 운영 반영 전 CI/스테이징에서 `flyway validate` + `flyway migrate` 확인.
 - **머지 순서 = 배포 순서** 강제. out-of-order는 개발 편의용이다.
-- **운영 환경변수 (SSM Parameter Store `/itta/spring/`)** — 문서상의 원칙을 설정으로도 강제한다.
+- **운영 환경변수 (SSM Parameter Store `/z/prod/`)** — 문서상의 원칙을 설정으로도 강제한다.
 
   | 환경변수 | 운영 값 | 이유 |
   | --- | --- | --- |

@@ -1,14 +1,7 @@
 package com.module06.backend.project.application.command;
 
 /* comment.
-    첨부파일 삭제 명령. 첨부파일 id와 요청자 id를 담는다.
-    프로젝트 자체의 삭제(D)는 스코프 아웃이지만, 첨부파일 삭제는 스코프 안이다.
-    메타데이터 삭제와 오브젝트 삭제 두 곳을 모두 정리해야 고아 파일이 남지 않는다.
-
-    연결된 클래스
-    - DeleteAttachmentUseCase       : 이 명령을 받는 기능 계약
-    - ProjectAttachmentService       : 이 명령을 처리하는 구현체
-    - ProjectAttachmentStoragePort  : 오브젝트 삭제를 위임하는 경계
+    첨부파일 삭제 명령. 삭제 권한은 업로더 본인만(2026-08-05 축소 결정, LEADER+는 JWT 이후).
 */
-public record DeleteAttachmentCommand() {
+public record DeleteAttachmentCommand(Long attachmentId, Long requesterId) {
 }
