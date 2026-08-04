@@ -8,7 +8,7 @@ package com.module06.backend.project.application.command;
     연결된 클래스
     - ConfirmAttachmentRequest      : 이 명령으로 변환되는 요청 DTO (presentation)
     - ConfirmAttachmentUseCase      : 이 명령을 받는 기능 계약
-    - ConfirmAttachmentService      : 이 명령을 처리하는 구현체
+    - ProjectAttachmentService      : 이 명령을 처리하는 구현체
     - ProjectAttachment             : 확정 저장되는 도메인 모델
 */
 public record ConfirmAttachmentCommand() {

@@ -7,7 +7,7 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - UpdateProjectCommand      : 입력
-    - UpdateProjectService      : 구현체
+    - ProjectService : 구현체
     - ProjectOwnerOnlyPolicy    : 권한 검사
     - ProjectTagImmutablePolicy : 태그 불변 검사
 */

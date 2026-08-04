@@ -6,7 +6,7 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - ConfirmAttachmentCommand      : 입력
-    - ConfirmAttachmentService      : 구현체
+    - ProjectAttachmentService : 구현체
     - ProjectAttachment             : 저장되는 도메인 모델
     - ProjectAttachmentRepository   : 저장소 계약
 */

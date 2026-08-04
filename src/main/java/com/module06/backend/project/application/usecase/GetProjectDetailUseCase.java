@@ -6,7 +6,7 @@ package com.module06.backend.project.application.usecase;
     첨부파일 목록이 이 응답 안에 인라인으로 실린다(FE 기획 탭에서 바로 다운로드 링크 노출).
 
     연결된 클래스
-    - GetProjectDetailService : 구현체
+    - ProjectService : 구현체
     - ProjectDetailResponse   : 출력 DTO (presentation)
     - ProjectController       : 호출자 (presentation)
 */

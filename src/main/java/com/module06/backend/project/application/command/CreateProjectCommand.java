@@ -8,7 +8,7 @@ package com.module06.backend.project.application.command;
     연결된 클래스
     - CreateProjectRequest : 이 명령으로 변환되는 요청 DTO (presentation)
     - CreateProjectUseCase : 이 명령을 받는 기능 계약
-    - CreateProjectService : 이 명령을 처리하는 구현체
+    - ProjectService : 이 명령을 처리하는 구현체
 */
 public record CreateProjectCommand() {
 }

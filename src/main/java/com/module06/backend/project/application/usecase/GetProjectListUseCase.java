@@ -6,7 +6,7 @@ package com.module06.backend.project.application.usecase;
     파생값은 DB 컬럼이 아니므로 이 유스케이스가 집계해서 만든다.
 
     연결된 클래스
-    - GetProjectListService  : 구현체
+    - ProjectService : 구현체
     - ProjectSummaryResponse : 출력 DTO (presentation)
     - ProjectController      : 호출자 (presentation)
 */

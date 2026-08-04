@@ -8,7 +8,7 @@ package com.module06.backend.project.application.command;
     연결된 클래스
     - IssueUploadUrlRequest            : 이 명령으로 변환되는 요청 DTO (presentation)
     - IssueAttachmentUploadUrlUseCase  : 이 명령을 받는 기능 계약
-    - IssueAttachmentUploadUrlService  : 이 명령을 처리하는 구현체
+    - ProjectAttachmentService  : 이 명령을 처리하는 구현체
     - ProjectAttachmentStoragePort     : URL 발급을 위임하는 경계
 */
 public record IssueAttachmentUploadUrlCommand() {
