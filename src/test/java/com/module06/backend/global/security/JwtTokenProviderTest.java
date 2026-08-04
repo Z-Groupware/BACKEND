@@ -1,0 +1,88 @@
+package com.module06.backend.global.security;
+
+import java.time.Duration;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import com.module06.backend.global.exception.BusinessException;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@DisplayName("JwtTokenProvider")
+class JwtTokenProviderTest {
+
+    private static final String SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    private JwtTokenProvider provider;
+
+    @BeforeEach
+    void setUp() {
+        provider = new JwtTokenProvider(new JwtProperties(
+                SECRET, Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14)));
+    }
+
+    @Test
+    @DisplayName("액세스 토큰을 발급하고 파싱하면 클레임 5개가 그대로 보존된다")
+    void accessTokenRoundTrip() {
+        AuthPrincipal issued = new AuthPrincipal(3L, 1L, "LEADER", true, 2L);
+
+        AuthPrincipal parsed = provider.parseAccessToken(provider.createAccessToken(issued));
+
+        assertThat(parsed).isEqualTo(issued);
+    }
+
+    @Test
+    @DisplayName("teamId 가 null 인 주체도 왕복에서 null 로 보존된다 — 온보딩 전 오너")
+    void accessTokenKeepsNullTeamId() {
+        AuthPrincipal owner = new AuthPrincipal(1L, 1L, "OWNER", false, null);
+
+        AuthPrincipal parsed = provider.parseAccessToken(provider.createAccessToken(owner));
+
+        assertThat(parsed.teamId()).isNull();
+        assertThat(parsed).isEqualTo(owner);
+    }
+
+    @Test
+    @DisplayName("리프레시 토큰은 memberId 와 jti 를 실어 왕복한다")
+    void refreshTokenRoundTrip() {
+        String token = provider.createRefreshToken(3L, "jti-abc", false);
+
+        JwtTokenProvider.RefreshClaims claims = provider.parseRefreshToken(token);
+
+        assertThat(claims.memberId()).isEqualTo(3L);
+        assertThat(claims.jti()).isEqualTo("jti-abc");
+    }
+
+    @Test
+    @DisplayName("다른 키로 서명된 토큰은 거부한다")
+    void rejectsForeignSignature() {
+        JwtTokenProvider other = new JwtTokenProvider(new JwtProperties(
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14)));
+        String foreign = other.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L));
+
+        assertThatThrownBy(() -> provider.parseAccessToken(foreign))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("만료된 토큰은 거부한다")
+    void rejectsExpiredToken() {
+        JwtTokenProvider expiring = new JwtTokenProvider(new JwtProperties(
+                SECRET, Duration.ofSeconds(-1), Duration.ofDays(1), Duration.ofDays(14)));
+        String expired = expiring.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L));
+
+        assertThatThrownBy(() -> provider.parseAccessToken(expired))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("keepSignedIn 이 리프레시 유효기간을 1일과 14일로 가른다")
+    void refreshTtlDependsOnKeepSignedIn() {
+        assertThat(provider.refreshTtl(false)).isEqualTo(Duration.ofDays(1));
+        assertThat(provider.refreshTtl(true)).isEqualTo(Duration.ofDays(14));
+    }
+}
