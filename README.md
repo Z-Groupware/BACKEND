@@ -3,6 +3,10 @@ backend server
 
 ## 처음 클론했다면
 
+**로컬 세팅: [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)** — MySQL 계정 · secret 파일 · Redis · 부팅 확인까지 순서대로. 증상별 원인 표 포함.
+
+리뷰 루프(push 게이트)만 따로 켜려면:
+
 ```bash
 ./gradlew installReviewHooks               # push 게이트 활성화 (필수)
 bash scripts/review-verify.sh --with-test  # 컴파일 + 테스트 확인
