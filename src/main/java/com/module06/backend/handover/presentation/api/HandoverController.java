@@ -7,11 +7,13 @@ import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.HandoverToSuccessorUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.presentation.api.dto.request.CreateHandoverRequest;
+import com.module06.backend.handover.presentation.api.dto.request.HandoverToSuccessorRequest;
 import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRequest;
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverPackageResponse;
@@ -45,6 +47,7 @@ public class HandoverController {
     private final RejectHandoverUseCase rejectHandoverUseCase;
     private final GetHandoverListUseCase getHandoverListUseCase;
     private final GetHandoverPackageUseCase getHandoverPackageUseCase;
+    private final HandoverToSuccessorUseCase handoverToSuccessorUseCase;
     private final OrgQueryPort orgQueryPort;
 
     public HandoverController(CreateHandoverUseCase createHandoverUseCase,
@@ -54,6 +57,7 @@ public class HandoverController {
                               RejectHandoverUseCase rejectHandoverUseCase,
                               GetHandoverListUseCase getHandoverListUseCase,
                               GetHandoverPackageUseCase getHandoverPackageUseCase,
+                              HandoverToSuccessorUseCase handoverToSuccessorUseCase,
                               OrgQueryPort orgQueryPort) {
         this.createHandoverUseCase = createHandoverUseCase;
         this.reassignHandoverItemUseCase = reassignHandoverItemUseCase;
@@ -62,6 +66,7 @@ public class HandoverController {
         this.rejectHandoverUseCase = rejectHandoverUseCase;
         this.getHandoverListUseCase = getHandoverListUseCase;
         this.getHandoverPackageUseCase = getHandoverPackageUseCase;
+        this.handoverToSuccessorUseCase = handoverToSuccessorUseCase;
         this.orgQueryPort = orgQueryPort;
     }
 
@@ -104,6 +109,15 @@ public class HandoverController {
                 request.toCommand(id, actionId, LocalDateTime.now())
         );
         return ApiResponse.success("Handover item reassigned.", HandoverResponse.from(handover));
+    }
+
+    @PostMapping("/{handoverId}/handover-to-successor")
+    public ApiResponse<HandoverResponse> handoverToSuccessor(
+            @PathVariable Long handoverId,
+            @Valid @RequestBody HandoverToSuccessorRequest request) {
+        Handover handover = handoverToSuccessorUseCase.handoverToSuccessor(
+                handoverId, request.successorId(), request.ownerId(), request.ownerName(), LocalDateTime.now());
+        return ApiResponse.success("Handover actions transferred to successor and finalized.", HandoverResponse.from(handover));
     }
 
     @PatchMapping("/{id}/complete")

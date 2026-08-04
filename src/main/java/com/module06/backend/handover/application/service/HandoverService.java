@@ -11,6 +11,7 @@ import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
+import com.module06.backend.handover.application.usecase.HandoverToSuccessorUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.global.exception.BusinessException;
@@ -33,7 +34,7 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class HandoverService implements CreateHandoverUseCase, ReassignHandoverItemUseCase,
-        CompleteHandoverUseCase, FinalizeHandoverUseCase, RejectHandoverUseCase {
+        CompleteHandoverUseCase, FinalizeHandoverUseCase, RejectHandoverUseCase, HandoverToSuccessorUseCase {
 
     private final HandoverRepository handoverRepository;
     private final ActionReassignPort actionReassignPort;
@@ -134,6 +135,26 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
         handover.reject(command.reason());
         memberStatusPort().restoreActive(handover.getWriterMemberId());
         return handoverRepository.save(handover);
+    }
+
+    @Override
+    public Handover handoverToSuccessor(Long handoverId, Long successorId, Long ownerId, String ownerName,
+                                        LocalDateTime at) {
+        if (successorId == null) {
+            throw new BusinessException(HandoverErrorCode.HO_BULK_REASSIGN_TARGET_REQUIRED);
+        }
+        Handover handover = findHandover(handoverId);
+        OrgQueryPort.MemberSnapshot successor = orgQueryPort().findMember(successorId);
+        // 1) 재배정 필요한 모든 항목을 후임 1명에게 일괄 이관 (SUBMITTED 상태에서만 허용 — 도메인이 가드).
+        handover.getItems().stream()
+                .filter(HandoverItem::isReassignRequired)
+                .forEach(item -> handover.reassignItem(item.getActionId(), successorId,
+                        successor.name(), successor.position(), at));
+        handoverRepository.save(handover);
+        // 2) 중간 완료(REASSIGNED)+실제 액션 재배정 → 3) 최종 승인(FINALIZED)+멤버상태/인사이트.
+        //    오너가 중간·최종 승인자를 겸임. 기존 complete/finalize 흐름을 그대로 재사용해 부수효과를 일관되게 유지한다.
+        complete(handoverId, ownerId, at);
+        return finalize(handoverId, ownerId, ownerName, at);
     }
 
     private List<HandoverItem> snapshotItems(CreateHandoverCommand command) {

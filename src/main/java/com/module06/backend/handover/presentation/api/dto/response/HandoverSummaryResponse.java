@@ -3,9 +3,7 @@ package com.module06.backend.handover.presentation.api.dto.response;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.model.HandoverType;
-
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 public record HandoverSummaryResponse(
         Long id,
@@ -15,8 +13,8 @@ public record HandoverSummaryResponse(
         Long teamId,
         HandoverType handoverType,
         HandoverStatus status,
-        LocalDateTime leaveStartAt,
-        LocalDateTime leaveEndAt,
+        LocalDate leaveStartAt,
+        LocalDate leaveEndAt,
         LocalDate lastWorkingDay,
         int itemCount,
         int reassignRequiredCount,

@@ -48,11 +48,7 @@ public record HandoverPackageResponse(
         }
     }
 
-    public record GapSummary(
-            int totalItems,
-            int incompleteCount,
-            int dueSoonCount
-    ) {
+    public record GapSummary(int totalItems, int incompleteCount, int dueSoonCount) {
 
         static GapSummary from(GetHandoverPackageUseCase.GapSummary gapSummary) {
             return new GapSummary(gapSummary.totalItems(), gapSummary.incompleteCount(), gapSummary.dueSoonCount());
@@ -80,11 +76,7 @@ public record HandoverPackageResponse(
         }
     }
 
-    public record ContextCard(
-            Long actionId,
-            String title,
-            String contentSnap
-    ) {
+    public record ContextCard(Long actionId, String title, String contentSnap) {
 
         static ContextCard from(GetHandoverPackageUseCase.ContextCard contextCard) {
             return new ContextCard(contextCard.actionId(), contextCard.title(), contextCard.contentSnap());
@@ -110,11 +102,7 @@ public record HandoverPackageResponse(
         }
     }
 
-    public record ReassigneeGroup(
-            Long reassigneeId,
-            String reassigneeName,
-            List<Item> items
-    ) {
+    public record ReassigneeGroup(Long reassigneeId, String reassigneeName, List<Item> items) {
 
         static ReassigneeGroup from(GetHandoverPackageUseCase.ReassigneeGroup reassigneeGroup) {
             return new ReassigneeGroup(

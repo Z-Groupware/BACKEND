@@ -42,8 +42,9 @@ class HandoverServiceTest {
     private static final Long TEAM = 10L;
     private static final Long TARGET = 2L;
     private static final Long LEADER = 9L;
-    private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
-    private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
+    private static final Long OWNER = 99L;
+    private static final LocalDate START = LocalDate.of(2026, 8, 10);
+    private static final LocalDate END = LocalDate.of(2026, 8, 20);
     private static final LocalDate LAST_WORKING_DAY = LocalDate.of(2026, 8, 31);
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 3, 12, 0);
 
@@ -241,6 +242,25 @@ class HandoverServiceTest {
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
         assertThat(saved.getRejectReason()).isEqualTo("needs more detail");
         verify(memberStatusPort).restoreActive(WRITER);
+    }
+
+    @Test
+    void handoverToSuccessorBulkReassignsAllItemsThenCompletesAndFinalizes() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager", LAST_WORKING_DAY,
+                List.of(item(100L), item(101L)));
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Staff"));
+        when(orgQueryPort.findMember(OWNER)).thenReturn(new OrgQueryPort.MemberSnapshot(OWNER, "Owner", "CEO"));
+
+        Handover saved = handoverService.handoverToSuccessor(HANDOVER_ID, TARGET, OWNER, "Owner", NOW);
+
+        assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
+        assertThat(saved.getItems()).extracting(HandoverItem::getReassigneeId).containsExactly(TARGET, TARGET);
+        assertThat(saved.getIntermediateApproverId()).isEqualTo(OWNER);
+        assertThat(saved.getFinalApproverId()).isEqualTo(OWNER);
+        verify(actionReassignPort).reassign(100L, WRITER, TARGET);
+        verify(actionReassignPort).reassign(101L, WRITER, TARGET);
+        verify(memberStatusPort).offboard(WRITER);
     }
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
