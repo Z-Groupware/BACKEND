@@ -6,6 +6,7 @@ import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
 import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
@@ -58,11 +59,15 @@ class HandoverServiceTest {
     @Mock
     private MemberStatusPort memberStatusPort;
 
+    @Mock
+    private FinalizeHandoverInsightsUseCase finalizeHandoverInsightsUseCase;
+
     private HandoverService handoverService;
 
     @BeforeEach
     void setUp() {
-        handoverService = new HandoverService(handoverRepository, actionReassignPort, orgQueryPort, memberStatusPort);
+        handoverService = new HandoverService(handoverRepository, actionReassignPort, orgQueryPort, memberStatusPort,
+                finalizeHandoverInsightsUseCase);
         lenient().when(handoverRepository.save(any(Handover.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -239,7 +244,7 @@ class HandoverServiceTest {
     }
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
-        return new ActionReassignPort.HandoverableAction(id, title, "PRJ", "TEAM", status,
+        return new ActionReassignPort.HandoverableAction(id, title, "PRJ", 700L, "TEAM", status,
                 LocalDate.of(2026, 8, 30), 500L + (id - 100L), "Meeting " + title, "Content " + title);
     }
 
