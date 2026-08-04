@@ -64,6 +64,25 @@ class AutoFixRunnerTest {
     }
 
     @Test
+    @DisplayName("미완성(INCOMPLETE)도 자동수정 안 하고 즉시 사람에게 (문서-코드 불일치 회귀)")
+    void incompleteStopsWithoutFixing() throws IOException {
+        // isTerminal()에 INCOMPLETE가 빠져 있어서 fixer로 흘러갔던 버그의 회귀 테스트.
+        // 문서(클래스 javadoc·UNIFIED_DESIGN 결정 C)는 "미완성은 사람 인계"라고 하는데
+        // 코드는 자동수정하고 있었다 — CodeRabbit이 PR #18에서 지적.
+        AtomicInteger fixCalls = new AtomicInteger();
+        CodeFixerPort fixer = (f, c, findings) -> { fixCalls.incrementAndGet(); return "SHOULD NOT HAPPEN"; };
+
+        AutoFixResult result = runner((f, c) -> verdict(JudgeDecision.INCOMPLETE), fixer, new ReviewBudget())
+                .run("Half.java", "CODE");
+
+        assertThat(result.roundsUsed()).isEqualTo(1);
+        assertThat(result.finalVerdict().decision()).isEqualTo(JudgeDecision.INCOMPLETE);
+        assertThat(result.terminatedByBudget()).isFalse();
+        assertThat(fixCalls.get()).isZero();          // fixer 호출 안 됨
+        assertThat(result.finalCode()).isEqualTo("CODE");   // 원본 그대로
+    }
+
+    @Test
     @DisplayName("계속 고쳐도 NEEDS_REVISION이면 budget(6)에서 종료 → 사람 이관")
     void neverConvergesTerminatesByBudget() throws IOException {
         AutoFixResult result = runner(

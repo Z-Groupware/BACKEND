@@ -2,7 +2,7 @@
 # AI 코드 리뷰 루프 · reviewFix — Minor "수정 요청서" 생성 (판정=Gemini · 수정=Claude Code 드라이버)
 #
 # 흐름: ① Gemini 판정으로 Minor findings 추출 → ② 방안 포함 수정 요청서 생성
-#       → ③ Claude Code(드라이버)가 요청서를 읽어 사용자와 방안 확정 후 Edit로 수정·커밋·push
+#       → ③ Claude Code(드라이버)가 Edit로 수정 → review-verify.sh 검증 → diff 승인 → 커밋·push
 # 이 스크립트는 코드를 직접 고치지 않는다(중첩 claude 없음). Critical/미완성은 항상 사람.
 # 절차 상세: review-loop/DRIVER.md
 #
@@ -41,5 +41,5 @@ echo "[reviewFix] ② 방안 포함 수정 요청서 생성"
 bash "$DIR/review-fix-apply.sh" "$FINDINGS" "$REQUEST"
 
 echo "[reviewFix] ③ 다음 단계 — Claude Code(드라이버)에게 맡기세요:"
-echo "      \"$REQUEST 처리해\"  → 방안 확정 → Edit 수정 → diff 확인 → 커밋 → 재push"
+echo "      \"$REQUEST 처리해\"  → Edit 수정 → review-verify.sh → 재판정 → diff 승인·교훈 → 커밋 → 재push"
 echo "      (예산: AutoFix ≤3 · Total ≤6 · Critical/미완성은 사람 · 상세: review-loop/DRIVER.md)"

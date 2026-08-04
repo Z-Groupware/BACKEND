@@ -52,15 +52,27 @@ dependencies {
 	implementation 'org.yaml:snakeyaml'                       // rules.yaml 파싱(RuleCatalog)
 	implementation 'com.anthropic:anthropic-java:2.34.0'      // Gate 2 Claude judge(선택 어댑터). Gemini만 쓰면 미사용
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'  // 루프 유닛테스트 JUnit Jupiter
+	// Gate 1(결정론 하드 게이트) — ARCH_001~003을 ArchitectureRulesTest가 집행한다.
+	// pre-push 훅이 그 테스트의 존재를 검사해 자동 활성화하므로, 이 의존성이 곧 Gate 1의 스위치다.
+	testImplementation 'com.tngtech.archunit:archunit-junit5:1.3.0'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
 }
 
+// 실수 방어 — 비밀 설정 파일은 프로젝트 루트에 두는 것이 규약이다(application.yaml 주석 참조).
+// 누가 실수로 src/main/resources 아래에 두더라도 jar에는 들어가지 않게 막는다.
+// ⚠️ 이건 부분 방어다: Dockerfile의 `COPY src`는 막지 못한다. 규약대로 루트에 두는 것이 유일한 해법이다.
+tasks.named('processResources') {
+	exclude 'application-secret*.yml', 'application-secret*.yaml'
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // AI 코드 리뷰 루프 — 태스크. mainClass는 com.module06.backend.reviewloop.judge.*
-// 콘솔 한글 깨짐 방지 UTF-8 인자(Windows cp949 대비). 절차: review-loop/DRIVER.md · AUTOLOOP_DESIGN.md
+// 콘솔 한글 깨짐 방지 UTF-8 인자(Windows cp949 대비).
+// 절차: review-loop/DRIVER.md (드라이버 루프) · 설계: review-loop/UNIFIED_DESIGN.md
+// group='review-loop-dormant'인 태스크는 휴면(기본 경로 아님) — UNIFIED_DESIGN §3.4
 // ════════════════════════════════════════════════════════════════════════════
 def reviewLoopUtf8Args = ['-Dfile.encoding=UTF-8',
                           '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8',
@@ -83,10 +95,14 @@ tasks.register('reviewLoop', JavaExec) {
     jvmArgs reviewLoopUtf8Args
 }
 
-// ★ 자율 수정 루프 (P0/P1) — 변경 Minor를 fix→검증→재판정 수렴까지. 별도 worktree/브랜치 권장.
+// 💤 휴면 — 무인 자율 수정 루프. 통합 설계(review-loop/UNIFIED_DESIGN.md §3.4)에서 기본 경로에서 내렸다.
+// 이유: judge·fixer가 모두 Gemini라 자기 승인이다. 기본 절차는 review-loop/DRIVER.md의 드라이버 루프
+//       (판정=reviewLoop · 수정=Claude Code Edit · 검증=scripts/review-verify.sh).
+// 되살릴 때는 judge를 ClaudeJudgeAdapter로 교차시켜 '찾는 주체 ≠ 고치는 주체'를 지킬 것.
+// 판정만 필요하면 이 태스크가 아니라 reviewLoop을 쓴다(P2 판정 일원화 · 구 --dry-run 제거).
 tasks.register('reviewAutoFix', JavaExec) {
-    group = 'review-loop'
-    description = '자율 수정 루프: fix→컴파일검증→재판정 (--args="--files-from <list> [--rounds-per-file 3] [--global-budget 6] [--dry-run]")'
+    group = 'review-loop-dormant'
+    description = '[휴면·기본경로 아님] 무인 자율 수정 루프 (--args="--files-from <list> [--rounds-per-file 3] [--global-budget 6]")'
     // runtimeClasspath(컴파일된 sibling 클래스 = build/classes) + compileClasspath(lombok 등 compileOnly 포함).
     // CompileVerification의 단일파일 javac가 @Getter 등 lombok을 ServiceLoader로 자동 실행하려면
     // lombok jar가 실행 JVM classpath(java.class.path)에 있어야 한다. (compileOnly는 resolvable이 아니라 직접 못 씀)
@@ -105,7 +121,7 @@ tasks.register('reviewKnowledgeDemo', JavaExec) {
 
 tasks.register('reviewLesson', JavaExec) {
     group = 'review-loop'
-    description = '사람 판정을 교훈으로 기록 (--args="--rule X --kind FALSE_POSITIVE|MISSED --note ...")'
+    description = '사람 판정을 교훈으로 기록 (--args="--rule X --kind CONFIRMED|FALSE_POSITIVE|MISSED --note ...")'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.module06.backend.reviewloop.judge.ReviewLessonRecorder'
     jvmArgs reviewLoopUtf8Args
@@ -145,4 +161,5 @@ tasks.register('reviewFix', Exec) {
 
 // reviewVerify는 gradle 태스크로 감싸지 않는다 — 태스크가 bash를 부르고 그 bash가 다시 ./gradlew를
 // 부르면 중첩 gradle(프로젝트 락)이다. 드라이버는 gradle 바깥에서 도므로 스크립트를 직접 부른다:
-//   bash scripts/review-verify.sh [--with-test]
+//   bash scripts/review-verify.sh [--with-test]      # 검증(컴파일 / 커밋 직전 테스트)
+//   bash scripts/review-session.sh                   # (선택) 격리 worktree+브랜치 준비

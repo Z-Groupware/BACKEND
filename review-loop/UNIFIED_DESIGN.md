@@ -53,7 +53,7 @@ Gemini fixer를 버리는 것**이다.
       │
       ├─① reviewLoop   --files-from --findings-out   → Gemini 판정 (찾기)
       ├─② Edit 수정                                   → 판정자와 독립 ✅
-      ├─③ reviewVerify --files-from                   → javac + test (검증)
+      ├─③ review-verify.sh [--with-test]             → javac + test (검증)
       ├─④ ①로 복귀 (PASS 또는 budget 소진까지)
       └─⑤ git diff 제시 → 사람 승인 → 커밋 → 재push
 ```
@@ -83,7 +83,8 @@ bash scripts/review-verify.sh --with-test  # 전체 테스트까지 — 커밋 �
    그 자체가 중첩 gradle(프로젝트 락)이다. 드라이버는 bash를 직접 실행하므로 태스크 래퍼가 불필요하다.
    `build.gradle`에 이유를 주석으로 남겼다.
 
-- `--with-test`는 `review-autoloop.sh:51`의 "커밋 직전 `./gradlew test` 1회" 정책을 승계한다.
+- `--with-test`는 구 `review-autoloop.sh`의 "커밋 직전 `./gradlew test` 1회" 정책을 승계한다
+  (P2에서 그 스크립트가 `review-session.sh`로 축소되며 해당 단계는 여기로 넘어왔다).
 - 실패 시 exit 1 + 로그 → **Claude Code가 롤백·재수정을 판단**(자동 롤백 아님. 맥락 보고 결정).
 - 검증 실패는 **예산을 소모하지 않는다** — 라운드가 아니라 같은 라운드 내 재시도다.
 
@@ -140,7 +141,7 @@ yaml은 15라 하는데 코드는 10을 주는 상태가 아무도 모르게 생
 | `VerifiedFixer` | 휴면 | 자동 롤백 불필요(3.1 참조) |
 | `AutoLoopRunner` / `AutoLoopOrchestrator` | 휴면 | 판정은 `ReviewLoopRunner`가 흡수 |
 | `CodeFixerPort` (인터페이스) | **유지** | seam은 남긴다 — 무인 모드 재개 시 필요 |
-| `CompileVerification` / `VerificationPort` | **승격** | `reviewVerify`가 재사용 |
+| `CompileVerification` / `VerificationPort` | 휴면 자율 경로 전용 | `reviewVerify`는 재사용하지 **않는다** — §3.1에서 전체 컴파일 채택(초안의 "승격"은 폐기) |
 
 **삭제하지 않고 휴면**시키는 이유: 테스트가 붙어 있고(`AutoFixRunnerTest` 등 검증된 자산), 무인 모드를
 되살릴 여지를 남긴다. 단 `reviewAutoFix` 태스크는 **기본 문서·워크플로에서 내린다.**
@@ -161,11 +162,11 @@ yaml은 15라 하는데 코드는 10을 주는 상태가 아무도 모르게 생
 2. 요청서           bash scripts/review-fix-apply.sh <minor> <request>
 3. 예산 확인        ./gradlew reviewBudget --args="--inc-autofix"     # ⚠️ 한도 초과면 종료·인계
 4. 수정             Claude Code — Edit 도구로만. 나열 항목 외 리팩터 금지
-5. 검증             ./gradlew reviewVerify --args="--files-from <changed>"     # ← 신규
+5. 검증             bash scripts/review-verify.sh                     # ← 신규(전체 컴파일)
                       실패 → 로그 보고 4로 (같은 라운드, 예산 소모 없음)
 6. 재판정           1로 복귀. PASS면 7, NEEDS_REVISION이면 3으로 (budget 내)
-7. 최종 검증        ./gradlew reviewVerify --args="--files-from <changed> --with-test"
-8. 승인·커밋        git diff 제시 → 사람 승인 → 커밋
+7. 최종 검증        bash scripts/review-verify.sh --with-test
+8. 승인·커밋        git diff 항목별 제시 → 사람 승인 → 교훈 기록(§5) → 커밋
 9. 재push           ./gradlew reviewBudget --args="--inc-total"  후 git push
 ```
 
@@ -179,8 +180,9 @@ yaml은 15라 하는데 코드는 10을 주는 상태가 아무도 모르게 생
 - 변경 파일이 많아 메인 트리를 깨끗이 두고 싶을 때
 - 실험적 수정을 버릴 가능성이 있을 때
 
-→ `scripts/review-autoloop.sh`를 `scripts/review-session.sh`로 개명·축소:
-**worktree 생성 + 브랜치 준비까지만** 하고, 루프 구동(`reviewAutoFix` 호출)은 제거한다.
+→ `scripts/review-autoloop.sh`를 `scripts/review-session.sh`로 개명·축소(✅ P2 완료):
+**worktree 생성 + 브랜치 준비 + 변경 `.java` 목록까지만** 하고, 루프 구동(`reviewAutoFix` 호출)·자동 커밋·`--push`는 제거했다.
+브랜치 접두사도 `autoloop/` → `review/`. LLM을 부르지 않으므로 `GEMINI_API_KEY`도 요구하지 않는다.
 
 ---
 
@@ -216,14 +218,24 @@ Minor가 여러 건이면 느리다. 통합 루프는:
 |---|---|---|---|
 | ~~**P0-a**~~ ✅ | 가중치 `rules.yaml` SSOT화 | `RuleCatalog.ScorePolicy`·`effectiveWeights()` + 두 러너 하드코딩 제거 + `RuleCatalogScoringTest` | 없음 · 현재 채점 결과 **무변경**(회귀 테스트로 고정) |
 | ~~**P0-b**~~ ✅ | 드라이버 검증 게이트 | `scripts/review-verify.sh` | 낮음 · 전체 컴파일이라 단일파일 javac보다 강함 |
-| **P1** | `DRIVER.md` 절차에 5·7번 편입 | 문서 갱신 | 없음 |
-| **P1** | 교훈 수집 지점 이동(§5) | `DRIVER.md` 갱신 | 낮음 |
-| **P2** | 판정 일원화 — `AutoLoopOrchestrator` 판정 역할 흡수 | `ReviewLoopRunner`에 부모경로 Evidence 이식 | 중 · 테스트 동반 |
-| **P2** | `review-autoloop.sh` → `review-session.sh` 축소 | 스크립트 개편 | 낮음 |
-| **P3** | 자율 계열 휴면 처리 · `reviewAutoFix` 문서에서 내림 | 문서·태스크 정리 | 낮음 |
+| ~~**P1**~~ ✅ | `DRIVER.md` 절차에 5·7번 편입 | `DRIVER.md` 0~9단계 재작성 + 역할표에 '검증' 행 | 없음 |
+| ~~**P1**~~ ✅ | 교훈 수집 지점 이동(§5) | `DRIVER.md` 8번 = 승인+교훈 동시(사전 항목별 질문 삭제) | 낮음 |
+| ~~**P2**~~ ✅ | 판정 일원화 — `AutoLoopOrchestrator` 판정 역할 흡수 | `ReviewLoopRunner.evidenceFor()` + 테스트 3케이스 · `AutoLoopOrchestrator.run(targets)` (dryRun 제거) · `--dry-run` 제거 | 중 · 테스트 동반 |
+| ~~**P2**~~ ✅ | `review-autoloop.sh` → `review-session.sh` 축소 | worktree+브랜치+변경목록만. `reviewAutoFix` 호출·자동커밋·`--push`·`test` 제거 | 낮음 |
+| ~~**P3**~~ ✅ | 자율 계열 휴면 처리 · `reviewAutoFix` 문서에서 내림 | 5개 클래스 휴면 javadoc · 태스크 group `review-loop-dormant` · `AUTOLOOP_DESIGN.md` SUPERSEDED 배너 | 낮음 |
 
-**P0만 해도 실익이 난다** — 채점이 정확해지고, 드라이버가 자기 수정을 검증할 수단이 생긴다.
-P2 이후는 정리(clean-up) 성격이라 급하지 않다.
+**P0만 해도 실익이 났다** — 채점이 정확해지고, 드라이버가 자기 수정을 검증할 수단이 생겼다.
+P2 이후는 정리(clean-up) 성격이었다.
+
+### 이행 중 발견한 초안-현실 차이 (수정 반영)
+
+1. **§4의 `./gradlew reviewVerify --args="--files-from <changed>"`는 존재하지 않는다.**
+   P0-b가 gradle 태스크를 **일부러 만들지 않기로** 결정했고(중첩 gradle), 검증은 파일 목록을 받지 않는다
+   (전체 컴파일이 목적이므로). → §4를 실제 명령 `bash scripts/review-verify.sh [--with-test]`로 고쳤다.
+2. **§3.4 표의 `CompileVerification` "승격"은 §3.1과 모순.** §3.1이 그 클래스를 쓰지 않기로 했으므로
+   실제 처분은 **휴면 자율 경로 전용**이다. → 표를 §3.1에 맞췄다.
+3. **부모 디렉터리 Evidence는 `ReviewLoopRunner`에 이미 있었다**(P0 이전부터). P2에서 한 일은
+   그 규약을 `evidenceFor()`로 뽑아 **왜 repo 루트가 아닌지** 주석으로 못박고 테스트로 고정한 것이다.
 
 ---
 
@@ -239,8 +251,18 @@ P2 이후는 정리(clean-up) 성격이라 급하지 않다.
 
 ## 8. 별건 (통합과 무관하나 같이 인지)
 
-- **Gate 1이 현재 로컬에서 무력** — `ArchitectureRulesTest`가 없어 훅이 Gate 1을 스킵한다
-  (`.githooks/pre-push`가 존재를 검사해 자동 활성화하도록 이미 준비돼 있음). 컨벤션 담당이 추가하면 즉시 켜짐.
+- ~~**Gate 1이 현재 로컬에서 무력**~~ ✅ **해결(2026-08-03)** — `ArchitectureRulesTest` 작성 → 훅이 자동 활성화.
+  `archunit-junit5` 의존성 추가, ARCH_001~003을 rules.yaml의 `archunit_ref` 메서드명 그대로 집행.
+
+  **레이어 패키지가 아직 하나도 없는데 왜 지금 넣나**: 코드가 생긴 뒤에 규칙을 넣으면 이미 쌓인 위반을
+  예외 처리하며 시작해야 한다(= baseline 부채). rules.yaml ARCH_003 주석이 못박은 "부채 없이 위반 0에서
+  시작"은 **지금 넣어야만** 가능하다. `allowEmptyShould(true)`로 대상 0개인 동안 통과하고,
+  누가 그 패키지를 만드는 순간부터 강제된다.
+
+  **빈 통과의 함정을 같이 막았다** — "초록인데 아무것도 검사하지 않는 규칙"은 Gate 2가 차단 게이트로
+  문서화된 채 차단력이 0이었던 것과 같은 실패다. `ArchitectureRulesTest$RuleActuallyFires`가 의도적 위반
+  픽스처(`architecture/fixture/`)로 **네 규칙이 실제로 실패하는지** 검증한다. 규칙이 벙어리가 되면 깨진다.
+  픽스처는 테스트 소스이고 실게이트 임포터는 `DO_NOT_INCLUDE_TESTS`라 서로 간섭하지 않는다.
 - ~~**"Gate 3" 문서-현실 불일치**~~ ✅ **해결** — 진단이 처음 생각보다 심각했다.
   기존 CI는 **PR 코드를 LLM으로 리뷰하는 잡이 아예 없었다.** `gate2-live-judge`는
   `review-loop/golden/`의 **고정 씨앗 파일**로 어댑터 연동만 확인하는 스모크 테스트였고
@@ -256,9 +278,57 @@ P2 이후는 정리(clean-up) 성격이라 급하지 않다.
   - `--max 20` — 훅 기본값 5는 차단 게이트에서 "상한 초과분이 리뷰 없이 통과"하는 구멍이라 상향.
   - 비결정성 방어는 `RuleCatalog.normalize()`가 담당 — LLM이 뱉은 severity를 카탈로그 값으로 덮어쓰고
     없는 ruleId는 버리므로, **LLM 변덕으로 CRITICAL이 생겨 머지를 막는 일은 구조적으로 불가**하다.
+
+    > ⚠️ **뒤집으면 차단력이 0이다 (2026-08-03 확인).** 위 문장은 안전 속성으로만 서술됐지만,
+    > 같은 메커니즘 때문에 **Gate 2는 어떤 코드도 차단할 수 없다.** 확인한 체인:
+    > - rules.yaml의 judge 규칙 3개(`CONV_001`·`PERF_001`·`ARCH_003a`)가 **전부 `severity: MINOR`**
+    >   → `normalize()`가 severity를 카탈로그 값으로 덮으므로 CRITICAL finding 생성 불가
+    >   → `hasCritical` 항상 false → `AWAITING_HUMAN` **도달 불가**
+    > - `FindingSource.ACCEPTANCE` finding을 만드는 **프로덕션 코드가 없다**(JudgeScorer가 읽기만 함)
+    >   → `acceptanceUnmet` 항상 false → `INCOMPLETE` **도달 불가**
+    > - `isBlocking()` = `INCOMPLETE || AWAITING_HUMAN` → **항상 false**
+    >
+    > 즉 훅·이 문서·`gate2-review`가 약속하는 "Critical/미완성 차단"은 **실행될 수 없는 경로**이고,
+    > Gate 2의 실효는 **수정 요청서 생성(리포터)**이다. `PrePushGatePolicyTest`가 `isBlocking()`의
+    > *매핑만* 검사해서 초록이었던 것이 이걸 가렸다.
+    >
+    > **조치(완료)**: `RuleCatalog.blockingRules()` 신설 → 러너가 `--gate` 실행마다 "차단 가능(CRITICAL) N개"와
+    > 0개일 때 경고를 출력. `PrePushGatePolicyTest`에 **실제 rules.yaml 기준 도달 가능성** 테스트 추가
+    > (CRITICAL 규칙이 생기면 실패하며 문서 갱신을 요구). `FindingSource.ACCEPTANCE`에 미배선 명시.
+    >
+    > **결정(2026-08-03) — ⓐ Gate 2 = 리포터로 확정.** 차단은 결정론 게이트(Gate 1 ArchUnit · semgrep) 몫이다.
+    > 근거: 팀 원칙("Minor는 push를 막지 않는다")과 일관되고, LLM 오탐 1건이 팀 전체 push를 막지 않는다.
+    > CRITICAL judge 규칙을 **새로 만들지 않았다** — 무엇이 머지를 막아야 하는지는 코드가 정할 문제가 아니다.
+    > 뒤집으려면 `rules.yaml`에 `severity: CRITICAL` judge 규칙을 추가하면 되고(가중치는 yaml SSOT라
+    > 코드 수정 불필요), 그러면 `PrePushGatePolicyTest`가 실패하며 문서 갱신을 요구한다.
+    > 훅·러너·DRIVER.md·CI 잡 이름을 리포터로 정합화했다.
   - 기존 스모크 테스트는 informational로 유지(어댑터·프롬프트 회귀 감시엔 여전히 유효).
 
   **남은 전제**: 이 차단이 강제되려면 GitHub **브랜치 보호 "Require status checks to pass"**가 켜져 있어야 한다.
   저장소 설정이라 코드에서 확인 불가 — 사람이 Settings → Branches에서 확인할 것.
-- **P4 교훈 자동 기록** — 커밋이 revert되거나 CI 실패 시 `FALSE_POSITIVE` 자동 기록(미구현).
-  §5로 수집 지점이 좋아지므로 우선순위는 내려간다.
+- ~~**P4 교훈 자동 기록**~~ ✅ **구현(2026-08-03) · 단 문안을 정정했다**
+
+  초안: "커밋이 revert되거나 **CI 실패 시** `FALSE_POSITIVE` 자동 기록".
+  **CI 실패 부분은 폐기했다** — CI 실패는 보통 *우리 수정이 틀렸다*는 신호이지 *Judge의 지적이
+  오탐이었다*는 신호가 아니다. 그걸로 오탐을 적재하면 잘못된 교훈이 판정 프롬프트에 주입돼
+  **Judge가 진짜 위반을 놓치기 시작한다** — 학습 루프가 스스로를 망가뜨리는 자기파괴 경로다.
+  근거가 확실한 **revert만** 쓴다(사람이 명시적으로 뒤집은 것).
+
+  구현하며 드러난 진짜 전제: **findings↔커밋 매핑이 없었다.** revert가 생겨도 어느 규칙이 오탐이었는지
+  특정할 수 없으니 자동 기록이 원리적으로 불가능했다. 그래서 두 조각으로 나눴다:
+  - `scripts/review-trail.sh` — 커밋 직후 `{커밋, 규칙, findings 수}`를 `logs/fix-trail.jsonl`에 남긴다(멱등).
+  - `scripts/review-lesson-from-revert.sh` — `This reverts commit <sha>` 표식을 추적해 trail과 맞춰
+    오탐 **후보를 보고**한다. 기록은 `--apply` + revert 커밋의 확인 트레일러(`Review-Lesson: FALSE_POSITIVE`)가
+    둘 다 있을 때만.
+
+  **자동 기록을 기본에서 뺀 이유(PR #18 리뷰 반영)**: revert도 CI 실패와 같은 약점이 있다 —
+  지적은 옳았는데 **수정 구현이 회귀를 내서** revert하는 경우가 있고, 그때 오탐으로 적재하면 유효한 규칙이
+  프롬프트에서 억제된다. 한 커밋이 여러 규칙을 고쳤으면 그 규칙 전부가 함께 찍힌다.
+  revert는 "오탐일 수 있다"는 강한 힌트일 뿐 확정 근거가 아니므로, **사람의 명시적 확인을 요구**한다.
+
+  **멱등성 근거는 `lessons.jsonl` 자신**이다(note의 `[auto:revert <sha>→<sha>]` 토큰). 처음엔 로컬
+  `processed` 파일을 뒀는데, 그건 로컬인데 `lessons.jsonl`은 팀 공유라 **클론마다 같은 revert를 재기록해
+  오탐률의 분자를 부풀린다.** 공유 파일을 유일한 진실로 바꿨고, 덤으로 "기록 실패했는데 처리로 표시돼
+  학습 신호가 영구 유실되는" 경로도 사라졌다(실패한 규칙은 다음 실행이 자동 재시도).
+
+  한계(의도적): 손으로 되돌린 커밋은 `This reverts commit` 표식이 없어 잡히지 않는다 → 수동 기록.
