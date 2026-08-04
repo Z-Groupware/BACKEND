@@ -3,7 +3,11 @@ package com.module06.backend.migration;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.orm.jpa.persistenceunit.ManagedClassNameFilter;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MySQLContainer;
@@ -23,6 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  */
 @Tag("migration")
 @Testcontainers
+@Import(MigrationSchemaValidationTest.ExcludeArchitectureFixtureEntities.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class MigrationSchemaValidationTest {
 
@@ -43,5 +48,19 @@ class MigrationSchemaValidationTest {
     @Test
     void migratesAndMatchesEntities() {
         // 의도적으로 비어 있다 — 실패는 컨텍스트 로딩 단계(BeanCreationException)에서 난다.
+    }
+
+    /**
+     * {@code architecture.fixture}는 ArchitectureRulesTest의 ARCH_002 자체검증용 {@code @Entity}
+     * 픽스처(FrameworkBoundModel)를 담고 있다 — 실제 테이블이 없는데 {@code @SpringBootTest}의
+     * 기본 엔티티 스캔(앱 base package 하위 전체)에 걸려 관리 대상이 되면서 validate가 깨졌다.
+     * ArchUnit은 바이트코드를 직접 읽어 이 컨텍스트와 무관하므로, 여기서만 안전하게 제외한다.
+     */
+    @TestConfiguration
+    static class ExcludeArchitectureFixtureEntities {
+        @Bean
+        ManagedClassNameFilter managedClassNameFilter() {
+            return className -> !className.startsWith("com.module06.backend.architecture.fixture");
+        }
     }
 }
