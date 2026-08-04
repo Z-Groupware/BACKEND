@@ -21,10 +21,16 @@ MySQL을 새로 설치하면 `root`만 있다. 애플리케이션이 쓰는 계�
 
 ```sql
 CREATE USER IF NOT EXISTS 'module06'@'localhost' IDENTIFIED BY '본인이_정할_비밀번호';
+-- ⚠️ CREATE USER IF NOT EXISTS 는 계정이 이미 있으면 비밀번호를 바꾸지 않는다(조용히 넘어간다).
+--    그래서 ALTER USER 를 함께 실행한다 — 신규·기존 계정 모두 같은 비밀번호가 된다.
+--    이게 없으면 "계정은 만들었는데 Access denied"가 계속 난다.
+ALTER USER 'module06'@'localhost' IDENTIFIED BY '본인이_정할_비밀번호';
 CREATE DATABASE IF NOT EXISTS module06 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 GRANT ALL PRIVILEGES ON module06.* TO 'module06'@'localhost';
 FLUSH PRIVILEGES;
 ```
+
+> 위 두 곳의 비밀번호는 같은 값이어야 하고, 3번에서 `application-secret.yml`의 `DB_PASSWORD`에도 같은 값을 넣는다.
 
 > 테이블은 만들지 않는다. **스키마의 주인은 Flyway**이고, 애플리케이션이 뜰 때 마이그레이션이 적용된다.
 > 상세: [DB_MIGRATION_RULES.md](DB_MIGRATION_RULES.md)
@@ -82,7 +88,7 @@ IntelliJ에서 `BackendApplication`을 실행하거나:
 
 성공하면 이렇게 보인다:
 
-```
+```text
 Migrating schema `module06` to version "1 - init schema"
 ...
 Successfully applied N migrations to schema `module06`
