@@ -3,6 +3,7 @@ package com.module06.backend.reviewloop.judge;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,12 +79,20 @@ public final class ReviewLoopRunner {
         }
     }
 
+    /** 진입점 기본 배선 — 시계는 여기서 한 번 만들어 아래로 넘긴다. */
+    static String run(String[] args) throws Exception {   // 테스트가 상태 분류를 직접 검증한다
+        return run(args, Clock.systemUTC());
+    }
+
     /**
+     * @param clock 감사 로그 타임스탬프의 출처. 형제 러너({@link ReviewRunner}·{@link AutoFixRunner})와 같은 규약 —
+     *              시각을 주입받아야 기록을 고정할 수 있고, CONV_001(표준 유틸 우회 금지)도 지켜진다.
+     *              맨몸 {@code LocalDateTime.now()}를 쓰다가 이 루프 자신의 Gate 2에 걸려 고친 자리다.
      * @return {@link #STATUS_OK}/{@link #STATUS_BLOCKED}/{@link #STATUS_ERROR}.
      *         판정 도중의 실패는 예외로 던진다(main이 ERROR로 분류) — 여기서 ERROR를 직접 반환하는 건
      *         예외가 아닌 '리뷰 미수행' 경로(사용법 오류)뿐이다.
      */
-    static String run(String[] args) throws Exception {   // 테스트가 상태 분류를 직접 검증한다
+    static String run(String[] args, Clock clock) throws Exception {
         String filesFrom = CliArgs.value(args, "--files-from", null);
         String path = CliArgs.value(args, "--path", null);
         String domain = CliArgs.value(args, "--domain", null);
@@ -183,7 +192,7 @@ public final class ReviewLoopRunner {
                             + " [" + fd.ruleId() + "] " + fd.description());
                 }
             }
-            audit.append(new AuditRecord(LocalDateTime.now().toString(), ++round, "gemini",
+            audit.append(new AuditRecord(LocalDateTime.now(clock).toString(), ++round, "gemini",
                     v.score(), v.hasCritical(), v.decision(), v.findings().size(), false));
         }
         out.append("\n감사 로그: ").append(ReviewLoopPaths.AUDIT_LOG).append(" (누적)\n");

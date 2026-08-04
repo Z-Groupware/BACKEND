@@ -113,9 +113,14 @@ fi
 if [ -s "$MINOR" ]; then
   REQUEST="$(git rev-parse --git-dir)/review-fix-request.md"
   bash "$(git rev-parse --show-toplevel)/scripts/review-fix-apply.sh" "$MINOR" "$REQUEST" || true
-  echo "[review-loop] ℹ️  Minor $(grep -c . "$MINOR")건 — push는 통과. 고치려면 Claude Code에게:"
-  echo "               \"$REQUEST 처리해\"  (Edit 수정 → review-verify.sh 검증 → diff 승인 → 커밋 → 재push)"
-  echo "               절차 상세: review-loop/DRIVER.md"
+  N_MINOR="$(grep -c . "$MINOR")"
+  echo "[review-loop] ℹ️  Minor ${N_MINOR}건 — push는 통과. 무엇을 지적했는지:"
+  # 건수만 알리면 사람이 파일을 열어봐야 한다 → 내용을 바로 찍는다.
+  # 한 줄 형식이 'path:line [RULE] 설명'이라 그대로 읽힌다. 20건까지만(그 이상은 요청서로).
+  nl -w2 -s'. ' "$MINOR" | head -20 | sed 's/^/               /'
+  [ "$N_MINOR" -gt 20 ] && echo "               … 나머지 $((N_MINOR - 20))건은 요청서 참조"
+  echo "[review-loop] 고치려면 Claude Code에게: \"$REQUEST 처리해\""
+  echo "               (Edit 수정 → review-verify.sh 검증 → diff 승인 → 커밋 → 재push · review-loop/DRIVER.md)"
 fi
 
 echo "[review-loop] ✅ 통과 → push 진행"
