@@ -1,6 +1,7 @@
 package com.module06.backend.project.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -11,4 +12,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SpringDataProjectAttachmentRepository extends JpaRepository<ProjectAttachmentJpaEntity, Long> {
 
     List<ProjectAttachmentJpaEntity> findAllByProjectId(Long projectId);
+
+    Optional<ProjectAttachmentJpaEntity> findByProjectIdAndFileUrl(Long projectId, String fileUrl);
 }

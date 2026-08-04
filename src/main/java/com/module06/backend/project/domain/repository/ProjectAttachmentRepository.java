@@ -17,5 +17,7 @@ public interface ProjectAttachmentRepository {
 
     List<ProjectAttachment> findAllByProjectId(Long projectId);
 
+    Optional<ProjectAttachment> findByProjectIdAndFileUrl(Long projectId, String fileUrl);
+
     void deleteById(Long id);
 }

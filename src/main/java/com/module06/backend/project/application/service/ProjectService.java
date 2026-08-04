@@ -10,6 +10,7 @@ import com.module06.backend.project.application.command.BulkUpdateProjectStatusC
 import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
+import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
@@ -42,6 +43,7 @@ public class ProjectService implements
     private final ProjectRepository projectRepository;
     private final ProjectAttachmentRepository projectAttachmentRepository;
     private final ProjectOwnerOnlyPolicy projectOwnerOnlyPolicy;
+    private final ProjectTeamOwnershipPolicy projectTeamOwnershipPolicy;
 
     @Override
     @Transactional
@@ -49,6 +51,8 @@ public class ProjectService implements
         if (projectRepository.existsByTag(command.tag())) {
             throw new BusinessException(ProjectErrorCode.PROJECT_TAG_DUPLICATE);
         }
+
+        projectTeamOwnershipPolicy.check(command.teamIds(), command.companyId());
 
         Project project = Project.create(
                 command.companyId(),
@@ -88,6 +92,7 @@ public class ProjectService implements
                 .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
 
         projectOwnerOnlyPolicy.check(project, command.requesterId());
+        projectTeamOwnershipPolicy.check(command.teamIds(), project.getCompanyId());
 
         project.update(command.name(), command.description(), command.color(), command.dueDate(), command.teamIds());
 

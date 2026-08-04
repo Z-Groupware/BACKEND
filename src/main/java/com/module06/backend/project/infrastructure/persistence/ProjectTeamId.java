@@ -3,12 +3,14 @@ package com.module06.backend.project.infrastructure.persistence;
 import java.io.Serializable;
 import java.util.Objects;
 
+import jakarta.persistence.Embeddable;
 import lombok.Getter;
 
 /* comment.
     project_team 복합 PK(project_id, team_id). JPA @EmbeddedId 대상.
 */
 @Getter
+@Embeddable
 public class ProjectTeamId implements Serializable {
 
     private Long projectId;

@@ -46,6 +46,11 @@ public class ProjectAttachmentPersistenceAdapter implements ProjectAttachmentRep
     }
 
     @Override
+    public Optional<ProjectAttachment> findByProjectIdAndFileUrl(Long projectId, String fileUrl) {
+        return springDataProjectAttachmentRepository.findByProjectIdAndFileUrl(projectId, fileUrl).map(this::toDomain);
+    }
+
+    @Override
     public void deleteById(Long id) {
         springDataProjectAttachmentRepository.deleteById(id);
     }

@@ -48,15 +48,17 @@ public class ProjectAttachmentService implements
     @Override
     @Transactional
     public ProjectAttachment confirm(ConfirmAttachmentCommand command) {
-        ProjectAttachment attachment = ProjectAttachment.create(
-                command.projectId(),
-                command.fileName(),
-                command.fileUrl(),
-                command.fileSize(),
-                command.uploadedBy()
-        );
-
-        return projectAttachmentRepository.save(attachment);
+        return projectAttachmentRepository.findByProjectIdAndFileUrl(command.projectId(), command.fileUrl())
+                .orElseGet(() -> {
+                    ProjectAttachment attachment = ProjectAttachment.create(
+                            command.projectId(),
+                            command.fileName(),
+                            command.fileUrl(),
+                            command.fileSize(),
+                            command.uploadedBy()
+                    );
+                    return projectAttachmentRepository.save(attachment);
+                });
     }
 
     @Override
