@@ -68,8 +68,8 @@ chmod 600 "${tmp_env}"
 mv -f "${tmp_env}" "${ENV_FILE}"
 trap - EXIT
 
-echo "=== [2/4] 이미지 pull: ${SPRING_IMAGE} ==="
-docker compose -f "${COMPOSE_FILE}" pull spring
+echo "=== [2/4] Spring·Redis 이미지 pull: ${SPRING_IMAGE} ==="
+docker compose -f "${COMPOSE_FILE}" pull spring redis
 
 echo "=== [3/4] 컨테이너 교체 ==="
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans spring
