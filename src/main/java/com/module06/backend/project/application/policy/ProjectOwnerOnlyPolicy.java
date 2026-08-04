@@ -8,7 +8,7 @@ package com.module06.backend.project.application.policy;
 
     연결된 클래스
     - ProjectService   : 생성·수정 시 호출
-    - ProjectErrorCode : 위반 시 던질 에러 코드 (미생성)
+    - ProjectErrorCode : 위반 시 던질 에러 코드 (project.exception)
 */
 public class ProjectOwnerOnlyPolicy {
 }

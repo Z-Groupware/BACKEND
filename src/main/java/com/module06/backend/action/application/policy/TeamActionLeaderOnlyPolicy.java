@@ -8,7 +8,7 @@ package com.module06.backend.action.application.policy;
 
     연결된 클래스
     - TeamActionService : 팀 액션 상태 변경(단건·벌크) 시 호출
-    - ActionErrorCode   : 위반 시 던질 에러 코드 (미생성)
+    - ActionErrorCode   : 위반 시 던질 에러 코드 (action.exception)
 */
 public class TeamActionLeaderOnlyPolicy {
 }
