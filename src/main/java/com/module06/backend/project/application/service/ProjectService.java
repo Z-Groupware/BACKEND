@@ -6,7 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
 import com.module06.backend.project.application.command.CreateProjectCommand;
+import com.module06.backend.project.application.command.UpdateProjectCommand;
+import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
@@ -14,6 +17,8 @@ import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
 import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.domain.model.ProjectAttachment;
+import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
@@ -35,6 +40,8 @@ public class ProjectService implements
         GetProjectTimelineUseCase {
 
     private final ProjectRepository projectRepository;
+    private final ProjectAttachmentRepository projectAttachmentRepository;
+    private final ProjectOwnerOnlyPolicy projectOwnerOnlyPolicy;
 
     @Override
     @Transactional
@@ -61,5 +68,45 @@ public class ProjectService implements
     @Transactional(readOnly = true)
     public List<Project> list(Long companyId) {
         return projectRepository.findAllByCompanyId(companyId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectDetailResult getDetail(Long projectId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        List<ProjectAttachment> attachments = projectAttachmentRepository.findAllByProjectId(projectId);
+
+        return new ProjectDetailResult(project, attachments);
+    }
+
+    @Override
+    @Transactional
+    public Project update(UpdateProjectCommand command) {
+        Project project = projectRepository.findById(command.projectId())
+                .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        projectOwnerOnlyPolicy.check(project, command.requesterId());
+
+        project.update(command.name(), command.description(), command.color(), command.dueDate(), command.teamIds());
+
+        return projectRepository.save(project);
+    }
+
+    @Override
+    @Transactional
+    public void bulkUpdateStatus(BulkUpdateProjectStatusCommand command) {
+        List<Project> projects = command.items().stream()
+                .map(item -> {
+                    Project project = projectRepository.findById(item.projectId())
+                            .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
+                    projectOwnerOnlyPolicy.check(project, command.requesterId());
+                    project.changeStatus(item.status());
+                    return project;
+                })
+                .toList();
+
+        projects.forEach(projectRepository::save);
     }
 }
