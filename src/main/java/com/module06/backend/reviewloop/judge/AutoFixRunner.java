@@ -7,7 +7,11 @@ import java.time.LocalDateTime;
 import java.nio.file.Path;
 
 /**
- * 자동수정 루프 (아티팩트 §01 · Minor 한정) — 찾기→고치기→재리뷰를 budget까지 반복한다.
+ * 💤 <b>휴면(dormant)</b> — 무인 자동수정 루프. 통합 설계(review-loop/UNIFIED_DESIGN.md §3.4)에서
+ * 기본 경로에서 내려왔다. 수정 라운드의 주체는 드라이버(Claude Code)이고, 절차는 review-loop/DRIVER.md다.
+ * 테스트({@code AutoFixRunnerTest})가 붙은 검증 자산이라 삭제하지 않고 남긴다.
+ *
+ * <p>자동수정 루프 (아티팩트 §01 · Minor 한정) — 찾기→고치기→재리뷰를 budget까지 반복한다.
  *
  *   라운드마다: 코드를 디스크에 동기화 → 리뷰(Judge+Evidence+점수) → audit log
  *   - PASS           → 종료(수정 완료)
@@ -62,8 +66,20 @@ public class AutoFixRunner {
         return new AutoFixResult(code, verdict, budget.spent(), true);
     }
 
+    /**
+     * 루프를 멈추는 결정 — 자동수정을 시도하지 않고 그 자리에서 끝낸다.
+     *
+     * <p>{@code INCOMPLETE}가 여기 포함돼야 한다. 빠져 있으면 아래로 흘러 {@code fixer.fix()}가 불리는데,
+     * 그건 "미완성은 사람 인계"라는 정책(클래스 javadoc·AutoLoopOrchestrator·UNIFIED_DESIGN 결정 C)과
+     * 정면으로 어긋난다. <b>문서는 금지한다고 하는데 코드는 하고 있던 상태였다.</b>
+     *
+     * <p>CRITICAL은 별도 가드가 필요 없다 — {@link JudgeScorer}가 {@code hasCritical}을 점수 분기보다
+     * 먼저 보고 {@code AWAITING_HUMAN}으로 라우팅하므로, {@code NEEDS_REVISION} 판정에는 CRITICAL이 섞일 수 없다.
+     */
     private boolean isTerminal(JudgeVerdict v) {
-        return v.decision() == JudgeDecision.PASS || v.decision() == JudgeDecision.AWAITING_HUMAN;
+        return v.decision() == JudgeDecision.PASS
+                || v.decision() == JudgeDecision.AWAITING_HUMAN
+                || v.decision() == JudgeDecision.INCOMPLETE;
     }
 
     private AuditRecord toRecord(JudgeVerdict v, boolean terminatedByBudget) {

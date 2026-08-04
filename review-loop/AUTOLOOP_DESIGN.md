@@ -1,4 +1,18 @@
-# 리뷰 루프 · 자율 복원 설계 (AUTOLOOP)
+# 리뷰 루프 · 자율 복원 설계 (AUTOLOOP) — 💤 휴면 · SUPERSEDED
+
+> **이 설계는 [UNIFIED_DESIGN.md](UNIFIED_DESIGN.md)로 대체됐다(P3, 2026-08-03).**
+> 무인 자율 수정 경로는 **자기 승인**(judge·fixer 모두 Gemini)이라 기본 경로에서 내려왔다.
+> **지금 쓰는 절차는 [DRIVER.md](DRIVER.md)의 통합 드라이버 루프**다 —
+> 판정=Gemini · 수정=Claude Code · 검증=`scripts/review-verify.sh`.
+>
+> 이 문서는 **무인 모드를 되살릴 때의 참조**로만 남긴다. 되살릴 조건: judge를 `ClaudeJudgeAdapter`로
+> 교차시켜 *찾는 주체 ≠ 고치는 주체*를 지킬 것(P3 항목이 이미 그 얘기다).
+>
+> **현행과 다른 부분** — 아래 본문은 당시 그대로다:
+> - `scripts/review-autoloop.sh` → **없다.** `scripts/review-session.sh`(worktree·브랜치 준비만)로 축소됐다.
+> - `--dry-run`(판정 전용) → **제거.** 판정은 `reviewLoop --files-from ...` 하나로 일원화(UNIFIED §3.2).
+> - 커밋 직전 `./gradlew test` → `bash scripts/review-verify.sh --with-test`가 승계.
+> - `reviewAutoFix` 태스크는 group `review-loop-dormant`.
 
 `DRIVER.md`(사람 드라이버 게이트)와 **공존**하는 자율 수정 루프. 게이트 훅은 그대로 순수 게이트로 두고,
 자율 루프는 **명시 트리거 · 별도 worktree/브랜치**에서만 돈다.

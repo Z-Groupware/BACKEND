@@ -53,7 +53,18 @@ public final class RuleAccuracy {
     /** 사람이 읽는 표. */
     static String render(List<Stat> stats) {
         if (stats.isEmpty()) {
-            return "규칙 정확도: 축적된 판정 없음 — 아직 신호 없음.\n";
+            // "신호 없음"으로 끝내면 학습 루프가 열린 채 방치된다 — 실제로 오래 0건이었다.
+            // 교훈을 읽어 프롬프트에 넣는 쪽은 자동인데 기록하는 쪽은 사람 손이라, 여기서 그걸 알려준다.
+            return """
+                   규칙 정확도: 축적된 판정 0건 — ⚠️ 학습 루프가 닫히지 않았다.
+
+                   판정할 때마다 코드가 lessons.jsonl을 읽어 프롬프트에 붙인다(자동).
+                   그런데 그 파일을 채우는 건 사람이다 — 0건이면 Judge는 매번 빈 교훈을 받는다.
+                   diff를 승인·되돌릴 때마다 기록할 것 — 수정 요청서에 복붙용 명령이 들어 있다:
+                     ./gradlew reviewLesson --args="--rule <RULE> --kind CONFIRMED      --note '무엇을 고쳤는지'"
+                     ./gradlew reviewLesson --args="--rule <RULE> --kind FALSE_POSITIVE --note '왜 오탐인지'"
+                   절차: review-loop/DRIVER.md 8번 단계
+                   """;
         }
         StringBuilder sb = new StringBuilder();
         sb.append("규칙 정확도 (사람 판정 기반 · 오탐 많은 순)\n");

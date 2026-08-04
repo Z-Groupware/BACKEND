@@ -66,10 +66,7 @@ public class GeminiJudgeAdapter implements LlmJudgePort {
     }
 
     public GeminiJudgeAdapter(String apiKey, String model) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("GEMINI_API_KEY 환경변수가 필요합니다.");
-        }
-        this.apiKey = apiKey;
+        this.apiKey = ApiKeys.require(apiKey, "GEMINI_API_KEY");   // 개행 제거 — 헤더 값에 개행이 있으면 JDK가 거부
         this.model = model;
     }
 

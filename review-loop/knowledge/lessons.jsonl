@@ -1,0 +1,1 @@
+{"timestamp":"2026-08-04T10:43:52.175210300","ruleId":"CONV_001","kind":"CONFIRMED","humanNote":"ReviewLoopRunner가 감사 로그 타임스탬프에 맨몸 LocalDateTime.now()를 썼다. 형제 러너(ReviewRunner·AutoFixRunner)는 Clock을 주입받는데 통합 후 주 경로가 된 이 러너만 빠져 있었다 → run(args, clock) 오버로드로 주입. 루프가 자기 규칙 위반을 자기 Gate 2로 잡은 건."}
