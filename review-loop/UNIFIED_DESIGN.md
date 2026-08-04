@@ -318,7 +318,13 @@ P2 이후는 정리(clean-up) 성격이었다.
   특정할 수 없으니 자동 기록이 원리적으로 불가능했다. 그래서 두 조각으로 나눴다:
   - `scripts/review-trail.sh` — 커밋 직후 `{커밋, 규칙, findings 수}`를 `logs/fix-trail.jsonl`에 남긴다(멱등).
   - `scripts/review-lesson-from-revert.sh` — `This reverts commit <sha>` 표식을 추적해 trail과 맞춰
-    해당 규칙에 `FALSE_POSITIVE`를 적재. `--dry-run` 지원.
+    오탐 **후보를 보고**한다. 기록은 `--apply` + revert 커밋의 확인 트레일러(`Review-Lesson: FALSE_POSITIVE`)가
+    둘 다 있을 때만.
+
+  **자동 기록을 기본에서 뺀 이유(PR #18 리뷰 반영)**: revert도 CI 실패와 같은 약점이 있다 —
+  지적은 옳았는데 **수정 구현이 회귀를 내서** revert하는 경우가 있고, 그때 오탐으로 적재하면 유효한 규칙이
+  프롬프트에서 억제된다. 한 커밋이 여러 규칙을 고쳤으면 그 규칙 전부가 함께 찍힌다.
+  revert는 "오탐일 수 있다"는 강한 힌트일 뿐 확정 근거가 아니므로, **사람의 명시적 확인을 요구**한다.
 
   **멱등성 근거는 `lessons.jsonl` 자신**이다(note의 `[auto:revert <sha>→<sha>]` 토큰). 처음엔 로컬
   `processed` 파일을 뒀는데, 그건 로컬인데 `lessons.jsonl`은 팀 공유라 **클론마다 같은 revert를 재기록해

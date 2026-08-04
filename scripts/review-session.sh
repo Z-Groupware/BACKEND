@@ -21,7 +21,13 @@ ROOT="$(git rev-parse --show-toplevel)" || exit 1
 CMP=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base) CMP="${2:-}"; shift 2 ;;
+    --base)
+      # 값이 없으면 shift 2가 실패하고 $#가 그대로 남아 while이 영원히 돈다(set -e가 없으므로).
+      # 값 존재를 먼저 확인하고 끊는다.
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        echo "[session] --base 에 ref 값이 필요합니다  (예: --base origin/develop)"; exit 2
+      fi
+      CMP="$2"; shift 2 ;;
     *) echo "[session] 알 수 없는 인자: $1  (사용: bash scripts/review-session.sh [--base <ref>])"; exit 2 ;;
   esac
 done

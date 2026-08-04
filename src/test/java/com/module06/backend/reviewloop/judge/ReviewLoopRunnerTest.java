@@ -139,6 +139,29 @@ class ReviewLoopRunnerTest {
     }
 
     @Test
+    @DisplayName("대상 지정 없는 CLI 사용법 오류는 ERROR — OK로 통과시키면 안 된다")
+    void usageErrorIsErrorNotOk() throws Exception {
+        // --path도 --files-from도 없으면 판정이 아예 수행되지 않는다. 이걸 OK로 기록하면
+        // 훅·CI 인자 구성이 바뀌었을 때 '판정 안 하고 초록'이 되어, 이 러너가 막으려는 실패가 재발한다.
+        // (CodeRabbit이 PR #18에서 지적 — 실제로 OK를 반환하고 있었다)
+        String status = ReviewLoopRunner.run(new String[]{"--gate",
+                "--status-out", dir.resolve("status.txt").toString()});
+
+        assertThat(status).isEqualTo(ReviewLoopRunner.STATUS_ERROR);
+    }
+
+    @Test
+    @DisplayName("목록 파일이 없거나 리뷰할 .java가 없으면 OK — 사용법 오류와 구분한다")
+    void nothingToReviewIsOk() throws Exception {
+        Path emptyList = Files.writeString(dir.resolve("changed.txt"), "");
+
+        String status = ReviewLoopRunner.run(new String[]{"--gate", "--files-from", emptyList.toString(),
+                "--status-out", dir.resolve("status2.txt").toString()});
+
+        assertThat(status).isEqualTo(ReviewLoopRunner.STATUS_OK);
+    }
+
+    @Test
     @DisplayName("상태 기록 실패는 예외를 던지지 않는다 — 신호 실패가 게이트를 망가뜨리면 안 된다")
     void statusWriteFailureIsSwallowed() throws IOException {
         // 파일을 부모로 지정 → createDirectories/writeString이 실패하는 경로

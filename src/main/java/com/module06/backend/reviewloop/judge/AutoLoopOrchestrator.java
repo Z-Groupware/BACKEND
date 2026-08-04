@@ -61,13 +61,36 @@ public class AutoLoopOrchestrator {
         this.globalBudget = globalBudget;
     }
 
+    /**
+     * 대상이 저장소 안의 정규 파일인지 확인하고 실제 경로를 돌려준다. 아니면 null.
+     *
+     * <p>대상 목록은 {@code --files-from}으로 들어오는 외부 입력이다. 절대경로·{@code ..}·심볼릭 링크가
+     * 섞이면 {@code repoRoot.resolve(rel)}이 저장소 밖을 가리킬 수 있고, 이 경로는 그대로
+     * {@link VerifiedFixer}(디스크 쓰기)와 {@link AutoFixRunner}에 넘어간다 —
+     * <b>즉 저장소 밖 파일을 읽고 덮어쓸 수 있다.</b> 링크까지 풀어(toRealPath) 경계를 확인한다.
+     */
+    private Path insideRepo(Path rel) {
+        try {
+            Path root = repoRoot.toRealPath();
+            Path abs = root.resolve(rel).toRealPath();
+            return (abs.startsWith(root) && Files.isRegularFile(abs)) ? abs : null;
+        } catch (IOException e) {
+            return null;   // 존재하지 않거나 해석 불가 → 거부(조용히 진행하지 않는다)
+        }
+    }
+
     /** 파일별 수정 루프. 판정만 보고 싶으면 이 클래스가 아니라 {@code reviewLoop --files-from ...}를 쓴다. */
     public List<FileOutcome> run(List<Path> targets) throws IOException {
         List<FileOutcome> outcomes = new ArrayList<>();
         int globalSpent = 0;
 
         for (Path rel : targets) {
-            Path abs = repoRoot.resolve(rel);
+            Path abs = insideRepo(rel);
+            if (abs == null) {
+                System.out.println("[autoloop] 저장소 밖을 가리키는 대상 → 거부: " + rel);
+                outcomes.add(new FileOutcome(rel.toString(), null, 0, false, false));
+                continue;
+            }
             Path parent = abs.getParent() == null ? repoRoot : abs.getParent();
             String fileName = abs.getFileName().toString();
             String original = Files.readString(abs);

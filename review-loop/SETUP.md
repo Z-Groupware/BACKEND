@@ -171,7 +171,7 @@ diff를 승인하거나 되돌릴 때 한 줄 기록한다. **요청서에 복�
 | `./gradlew reviewBudget --args="--reset"` | 새 작업 시작 시 예산 초기화 |
 | `bash scripts/review-session.sh` | (선택) 격리 worktree 준비 — 변경이 클 때 |
 | `bash scripts/review-trail.sh <findings>` | 커밋 직후 수정 이력 기록(revert 자동 회수의 전제) |
-| `bash scripts/review-lesson-from-revert.sh --dry-run` | revert된 수정 → 오탐 자동 회수 |
+| `bash scripts/review-lesson-from-revert.sh` | revert된 수정 → 오탐 후보 보고(기록은 `--apply` + 확인 트레일러) |
 
 `./gradlew tasks --group review-loop`로 전체 목록을 볼 수 있다.
 `review-loop-dormant` 그룹은 휴면(무인 자율 수정) — 기본 경로가 아니다.

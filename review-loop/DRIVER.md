@@ -101,22 +101,35 @@ bash scripts/review-trail.sh <minor-findings-file>
 
 ### 자동 오탐 회수 (revert 기반)
 
-누군가 리뷰 수정 커밋을 `git revert`하면 — 사람이 "이 지적의 수정은 하지 말았어야 했다"고 명시적으로
-뒤집은 것이므로 오탐의 근거가 된다. 주기적으로(또는 revert 직후) 돌린다:
+리뷰 수정 커밋이 `git revert`되면 그 지적이 오탐이었을 **가능성**이 생긴다. 주기적으로(또는 revert 직후) 돌린다:
 
 ```bash
-bash scripts/review-lesson-from-revert.sh --dry-run
+bash scripts/review-lesson-from-revert.sh
 ```
 
-`--dry-run`으로 무엇이 기록될지 먼저 보고, 맞으면 플래그 없이 실행한다.
+기본은 **후보 보고**다 — 아무것도 기록하지 않고 대상과 복붙용 명령만 출력한다.
+
+**왜 자동 기록이 기본이 아닌가**: revert 이유가 *"지적이 틀렸다"*인지 *"수정 구현이 회귀를 냈다"*인지는
+사람만 안다. 후자인데 오탐으로 적재하면 **유효한 규칙이 프롬프트에서 억제된다.** 한 커밋이 여러 규칙을
+고쳤으면 그 규칙 전부가 함께 찍힌다(CodeRabbit 지적 · PR #18).
+
+정말 오탐이었다면 **revert 커밋 메시지에 확인 트레일러를 남기고** `--apply`로 돌린다:
+
+```
+Review-Lesson: FALSE_POSITIVE
+```
+
+```bash
+bash scripts/review-lesson-from-revert.sh --apply
+```
+
+트레일러가 없는 revert는 `--apply`에서도 기록되지 않고 후보로만 보고된다.
 멱등성 근거는 `lessons.jsonl` 자신이다(note의 `[auto:revert <sha>→<sha>]` 토큰) — 팀 공유 파일이라
 클론이 여러 개여도 같은 revert가 중복 기록되지 않는다.
 
-> **CI 실패는 근거로 쓰지 않는다.** 설계 초안(P4)은 "revert **또는 CI 실패** 시 자동 기록"이었지만,
-> CI 실패는 보통 *우리 수정이 틀렸다*는 신호이지 *Judge의 지적이 오탐이었다*는 신호가 아니다.
-> 그걸로 오탐을 적재하면 잘못된 교훈이 프롬프트에 주입돼 **Judge가 진짜 위반을 놓치기 시작한다** —
-> 학습 루프가 스스로를 망가뜨린다. 그래서 revert만 쓴다.
-> 손으로 되돌린 커밋(`This reverts commit` 표식 없음)은 잡히지 않는다 — 그건 수동 기록한다.
+> **CI 실패는 근거로 아예 쓰지 않는다.** 설계 초안(P4)은 "revert **또는 CI 실패** 시 자동 기록"이었지만,
+> CI 실패는 보통 *우리 수정이 틀렸다*는 신호다. revert보다도 근거가 약해서 폐기했다.
+> 손으로 되돌린 커밋(`This reverts commit` 표식 없음)도 잡히지 않는다 — 그건 수동 기록한다.
 
 ### 9 · 재push
 커밋 → `git push` 재시도 **전에** `./gradlew reviewBudget --args="--inc-total"`. `⚠️ 한도 초과`면 재push 말고 종료.

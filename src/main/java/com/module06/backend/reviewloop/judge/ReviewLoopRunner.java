@@ -55,12 +55,17 @@ public final class ReviewLoopRunner {
     public static void main(String[] args) {
         String statusOut = CliArgs.value(args, "--status-out", DEFAULT_STATUS_OUT);
         try {
-            boolean blocked = run(args);
-            writeStatus(statusOut, blocked ? STATUS_BLOCKED : STATUS_OK);
-            if (blocked) {
+            String status = run(args);
+            writeStatus(statusOut, status);
+            if (STATUS_BLOCKED.equals(status)) {
                 System.out.println("[GATE] 차단 결정(미완성/Critical) 발견 → exit 1. "
                         + "Minor·score<80은 통과. 우회: git push --no-verify");
                 System.exit(1);
+            }
+            if (STATUS_ERROR.equals(status)) {
+                // 예외 없이 ERROR가 나오는 경로(=사용법 오류). 스택은 없으니 찍지 않는다.
+                System.out.println("[GATE] ⚠️ 게이트 오류 — 리뷰가 수행되지 않았다(코드 판정 아님) → exit 2.");
+                System.exit(2);
             }
         } catch (Throwable t) {
             // 판정 실패 = 리뷰 미수행. 코드 판정(BLOCKED)과 절대 섞이면 안 된다.
@@ -73,8 +78,12 @@ public final class ReviewLoopRunner {
         }
     }
 
-    /** @return 차단 결정이 하나라도 있으면 true(--gate일 때만 의미). 판정 실패는 예외로 던진다. */
-    private static boolean run(String[] args) throws Exception {
+    /**
+     * @return {@link #STATUS_OK}/{@link #STATUS_BLOCKED}/{@link #STATUS_ERROR}.
+     *         판정 도중의 실패는 예외로 던진다(main이 ERROR로 분류) — 여기서 ERROR를 직접 반환하는 건
+     *         예외가 아닌 '리뷰 미수행' 경로(사용법 오류)뿐이다.
+     */
+    static String run(String[] args) throws Exception {   // 테스트가 상태 분류를 직접 검증한다
         String filesFrom = CliArgs.value(args, "--files-from", null);
         String path = CliArgs.value(args, "--path", null);
         String domain = CliArgs.value(args, "--domain", null);
@@ -85,21 +94,24 @@ public final class ReviewLoopRunner {
 
         List<Path> targets = resolveTargets(filesFrom, path, max);
         if (targets == null) {
+            // 대상 지정이 없다 = CLI 사용법 오류. 이건 '통과'가 아니라 '리뷰 미수행'이다 —
+            // OK로 기록하면 훅·CI 인자 구성이 바뀌었을 때 판정을 안 하고도 초록이 된다(이 러너가 막으려는 바로 그 실패).
             System.out.println("사용법: --args=\"(--path <dir> | --files-from <list>) [--domain X] [--max N] [--gate]\"");
             resetFindings(findingsOut);
-            return false;
+            return STATUS_ERROR;
         }
         if (targets.isEmpty()) {
+            // 목록은 정상인데 리뷰할 .java가 없다 = 판정할 것이 없음. 통과가 맞다(사용법 오류와 다르다).
             System.out.println("리뷰할 .java 파일이 없습니다 → 통과.");
             resetFindings(findingsOut);
-            return false;
+            return STATUS_OK;
         }
 
         if (!ApiKeys.present(System.getenv("GEMINI_API_KEY"))) {
             System.out.println("GEMINI_API_KEY 없음 → Gate 2(LLM 판정) 생략"
                     + (gate ? " · 게이트 통과 처리(Gate 1은 별도)" : ""));
             resetFindings(findingsOut);
-            return false;   // 키 부재로 push를 막지 않는다
+            return STATUS_OK;   // 키 부재로 push를 막지 않는다(의도된 정책)
         }
 
         RuleCatalog catalog = RuleCatalog.fromFile(Path.of(rulesPath));
@@ -185,7 +197,7 @@ public final class ReviewLoopRunner {
         System.out.println(report);
         Files.writeString(Path.of("build/reviewloop-run.txt"), report);
 
-        return gate && blocked;
+        return (gate && blocked) ? STATUS_BLOCKED : STATUS_OK;
     }
 
     /**

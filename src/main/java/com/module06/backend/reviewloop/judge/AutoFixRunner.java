@@ -66,8 +66,20 @@ public class AutoFixRunner {
         return new AutoFixResult(code, verdict, budget.spent(), true);
     }
 
+    /**
+     * 루프를 멈추는 결정 — 자동수정을 시도하지 않고 그 자리에서 끝낸다.
+     *
+     * <p>{@code INCOMPLETE}가 여기 포함돼야 한다. 빠져 있으면 아래로 흘러 {@code fixer.fix()}가 불리는데,
+     * 그건 "미완성은 사람 인계"라는 정책(클래스 javadoc·AutoLoopOrchestrator·UNIFIED_DESIGN 결정 C)과
+     * 정면으로 어긋난다. <b>문서는 금지한다고 하는데 코드는 하고 있던 상태였다.</b>
+     *
+     * <p>CRITICAL은 별도 가드가 필요 없다 — {@link JudgeScorer}가 {@code hasCritical}을 점수 분기보다
+     * 먼저 보고 {@code AWAITING_HUMAN}으로 라우팅하므로, {@code NEEDS_REVISION} 판정에는 CRITICAL이 섞일 수 없다.
+     */
     private boolean isTerminal(JudgeVerdict v) {
-        return v.decision() == JudgeDecision.PASS || v.decision() == JudgeDecision.AWAITING_HUMAN;
+        return v.decision() == JudgeDecision.PASS
+                || v.decision() == JudgeDecision.AWAITING_HUMAN
+                || v.decision() == JudgeDecision.INCOMPLETE;
     }
 
     private AuditRecord toRecord(JudgeVerdict v, boolean terminatedByBudget) {
