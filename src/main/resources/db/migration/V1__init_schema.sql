@@ -71,14 +71,10 @@ CREATE TABLE `summary_job` (
     `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `handover_item` (
-    `id`                   BIGINT   NOT NULL,
-    `handover_id`          BIGINT   NOT NULL,
-    `action_id`            BIGINT   NOT NULL,
-    `successor_member_id`  BIGINT   NULL COMMENT 'DnD 로 지정된 인수자',
-    `created_at`           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- NOTE: handover / handover_item / handover_approval 테이블은 baseline에서 제외한다.
+--   이들은 E(인수인계) 도메인 소유이며 담당자 레인(V7.x)에서 단독으로 정의·진화한다.
+--   baseline이 옛 ERD 추측 설계로 이 테이블을 선점하면 V7.0 재설계와 CREATE 충돌이 나므로,
+--   소유권을 V7.x로 넘겨 여기서는 만들지 않는다. (2026-08-04, 박종준 확정)
 
 CREATE TABLE `member` (
     `id`                    BIGINT       NOT NULL,
@@ -222,31 +218,7 @@ CREATE TABLE `meeting_topic` (
     `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `handover_approval` (
-    `id`                  BIGINT       NOT NULL,
-    `handover_id`         BIGINT       NOT NULL,
-    `approver_member_id`  BIGINT       NOT NULL,
-    `approval_type`       ENUM('MID', 'FINAL') NOT NULL COMMENT 'MID=리더 중간 / FINAL=오너·어드민 최종',
-    `result`              ENUM('APPROVED', 'REJECTED') NOT NULL,
-    `comment`             VARCHAR(500) NULL,
-    `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE `handover` (
-    `id`                BIGINT       NOT NULL,
-    `company_id`        BIGINT       NOT NULL COMMENT '테넌트 스코프용 의도적 반정규화',
-    `member_id`         BIGINT       NOT NULL COMMENT '작성자 (인수인계 대상자)',
-    `type`              ENUM('LEAVE', 'OFFBOARDING') NOT NULL COMMENT 'LEAVE=휴직 / OFFBOARDING=오프보딩',
-    `status`            ENUM('SUBMITTED', 'MID_APPROVED', 'FINAL_APPROVED', 'REJECTED') NOT NULL DEFAULT 'SUBMITTED',
-    `leave_start_date`  DATE         NULL COMMENT 'LEAVE 전용',
-    `leave_end_date`    DATE         NULL COMMENT 'LEAVE 전용',
-    `last_working_date` DATE         NULL COMMENT 'OFFBOARDING 전용',
-    `reason`            VARCHAR(500) NULL,
-    `memo`              TEXT         NULL,
-    `created_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- handover / handover_approval 테이블: 위 NOTE 참조 — E 도메인(V7.x) 소유라 baseline에서 제외.
 
 CREATE TABLE `sub_team` (
     `id`         BIGINT      NOT NULL,
@@ -305,7 +277,6 @@ ALTER TABLE `transcript_chunk`       ADD CONSTRAINT `PK_TRANSCRIPT_CHUNK`       
 ALTER TABLE `meeting`                ADD CONSTRAINT `PK_MEETING`                PRIMARY KEY (`id`);
 ALTER TABLE `project`                ADD CONSTRAINT `PK_PROJECT`                PRIMARY KEY (`id`);
 ALTER TABLE `summary_job`            ADD CONSTRAINT `PK_SUMMARY_JOB`            PRIMARY KEY (`id`);
-ALTER TABLE `handover_item`          ADD CONSTRAINT `PK_HANDOVER_ITEM`          PRIMARY KEY (`id`);
 ALTER TABLE `member`                 ADD CONSTRAINT `PK_MEMBER`                 PRIMARY KEY (`id`);
 ALTER TABLE `meeting_attendee`       ADD CONSTRAINT `PK_MEETING_ATTENDEE`       PRIMARY KEY (`meeting_id`, `member_id`);
 ALTER TABLE `notice`                 ADD CONSTRAINT `PK_NOTICE`                 PRIMARY KEY (`id`);
@@ -318,8 +289,6 @@ ALTER TABLE `project_team`           ADD CONSTRAINT `PK_PROJECT_TEAM`           
 ALTER TABLE `payment_method`         ADD CONSTRAINT `PK_PAYMENT_METHOD`         PRIMARY KEY (`id`);
 ALTER TABLE `job_position`           ADD CONSTRAINT `PK_JOB_POSITION`           PRIMARY KEY (`id`);
 ALTER TABLE `meeting_topic`          ADD CONSTRAINT `PK_MEETING_TOPIC`          PRIMARY KEY (`id`);
-ALTER TABLE `handover_approval`      ADD CONSTRAINT `PK_HANDOVER_APPROVAL`      PRIMARY KEY (`id`);
-ALTER TABLE `handover`               ADD CONSTRAINT `PK_HANDOVER`               PRIMARY KEY (`id`);
 ALTER TABLE `sub_team`               ADD CONSTRAINT `PK_SUB_TEAM`               PRIMARY KEY (`id`);
 ALTER TABLE `action_checklist_item`  ADD CONSTRAINT `PK_ACTION_CHECKLIST_ITEM`  PRIMARY KEY (`id`);
 ALTER TABLE `notification`           ADD CONSTRAINT `PK_NOTIFICATION`           PRIMARY KEY (`id`);
@@ -349,7 +318,6 @@ ALTER TABLE `transcript_chunk`      MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `meeting`               MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `project`               MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `summary_job`           MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
-ALTER TABLE `handover_item`         MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `member`                MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `notice`                MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `meeting_room`          MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
@@ -360,8 +328,6 @@ ALTER TABLE `action`                MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `payment_method`        MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `job_position`          MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `meeting_topic`         MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
-ALTER TABLE `handover_approval`     MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
-ALTER TABLE `handover`              MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `sub_team`              MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `action_checklist_item` MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
 ALTER TABLE `notification`          MODIFY `id` BIGINT NOT NULL AUTO_INCREMENT;
