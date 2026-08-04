@@ -27,7 +27,7 @@ build/
 # IntelliJ IDEA
 .idea/
 *.iml
-out/
+/out/
 
 # Local environment and OS files
 .env
