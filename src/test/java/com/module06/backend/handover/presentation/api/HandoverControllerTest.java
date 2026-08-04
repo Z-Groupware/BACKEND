@@ -8,12 +8,16 @@ import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.model.HandoverType;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +26,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -71,6 +71,9 @@ class HandoverControllerTest {
 
     @MockitoBean
     private GetHandoverListUseCase getHandoverListUseCase;
+
+    @MockitoBean
+    private GetHandoverPackageUseCase getHandoverPackageUseCase;
 
     @MockitoBean
     private OrgQueryPort orgQueryPort;
@@ -188,9 +191,37 @@ class HandoverControllerTest {
         assertThat(captor.getValue().writerMemberId()).isNull();
     }
 
+    @Test
+    void getPackageMapsReferenceDateAndReturnsPackage() throws Exception {
+        when(getHandoverPackageUseCase.getPackage(eq(HANDOVER_ID), eq(LocalDate.of(2026, 8, 4))))
+                .thenReturn(packageResult());
+
+        mockMvc.perform(get("/api/handovers/{handoverId}", HANDOVER_ID)
+                        .param("referenceDate", "2026-08-04"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.basicInfo.writerName").value("Kim"))
+                .andExpect(jsonPath("$.data.items[0].actionId").value(ACTION));
+
+        verify(getHandoverPackageUseCase).getPackage(HANDOVER_ID, LocalDate.of(2026, 8, 4));
+    }
+
     private static GetHandoverListUseCase.HandoverSummary summary() {
         return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
                 HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0);
+    }
+
+    private static GetHandoverPackageUseCase.HandoverPackage packageResult() {
+        GetHandoverPackageUseCase.Item item = new GetHandoverPackageUseCase.Item(
+                ACTION, "Action", "TODO", LocalDate.of(2026, 8, 30), "PRJ", "Meeting");
+        return new GetHandoverPackageUseCase.HandoverPackage(
+                new GetHandoverPackageUseCase.BasicInfo("Kim", "Manager", TEAM, HandoverType.VACATION, START, END, null),
+                new GetHandoverPackageUseCase.GapSummary(1, 1, 0),
+                List.of(item),
+                List.of(new GetHandoverPackageUseCase.ContextCard(ACTION, "Action", "Content")),
+                List.of(new GetHandoverPackageUseCase.MeetingHistory(
+                        500L, LocalDate.of(2026, 8, 1), List.of("Kim"), "Decision", "Actions")),
+                List.of(new GetHandoverPackageUseCase.ReassigneeGroup(null, "미배정", List.of(item)))
+        );
     }
 
     private static Handover submitted() {
