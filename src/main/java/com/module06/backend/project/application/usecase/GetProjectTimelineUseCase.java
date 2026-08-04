@@ -7,7 +7,7 @@ package com.module06.backend.project.application.usecase;
     '지연' 배지는 마감일 기준 파생값이라 여기서 계산한다.
 
     연결된 클래스
-    - GetProjectTimelineService    : 구현체
+    - ProjectService : 구현체
     - ProjectTimelineItemResponse  : 출력 DTO (presentation)
     - action 도메인               : 팀 액션 데이터의 실제 소유자 (id 기준 조회)
 */

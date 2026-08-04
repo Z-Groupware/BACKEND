@@ -8,7 +8,7 @@ package com.module06.backend.project.application.command;
     연결된 클래스
     - BulkUpdateProjectStatusRequest  : 이 명령으로 변환되는 요청 DTO (presentation)
     - BulkUpdateProjectStatusUseCase  : 이 명령을 받는 기능 계약
-    - BulkUpdateProjectStatusService  : 이 명령을 처리하는 구현체
+    - ProjectService  : 이 명령을 처리하는 구현체
     - ProjectStatus                   : 각 항목이 지정하는 상태 값
 */
 public record BulkUpdateProjectStatusCommand() {

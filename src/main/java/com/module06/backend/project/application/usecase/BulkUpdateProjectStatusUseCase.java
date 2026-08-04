@@ -7,7 +7,7 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - BulkUpdateProjectStatusCommand : 입력
-    - BulkUpdateProjectStatusService : 구현체
+    - ProjectService : 구현체
     - ProjectStatus                  : 지정 가능한 상태 값
 */
 public interface BulkUpdateProjectStatusUseCase {

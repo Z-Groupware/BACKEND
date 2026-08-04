@@ -7,8 +7,7 @@ package com.module06.backend.project.application.port;
     F가 실제 S3 어댑터를 낼 때까지 로컬 stub으로 개발을 진행한다(F 병목 회피).
 
     연결된 클래스
-    - IssueAttachmentUploadUrlService     : 업로드 URL 발급 호출
-    - DeleteAttachmentService             : 오브젝트 삭제 호출
+    - ProjectAttachmentService             : 업로드 URL 발급·오브젝트 삭제 호출
     - ProjectAttachmentStorageStubAdapter : 임시 구현체 (infrastructure.storage)
     - ProjectAttachment                   : Port가 다루는 파일의 메타데이터 모델
 */

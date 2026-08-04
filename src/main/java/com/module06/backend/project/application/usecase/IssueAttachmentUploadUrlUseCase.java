@@ -7,7 +7,7 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - IssueAttachmentUploadUrlCommand : 입력
-    - IssueAttachmentUploadUrlService : 구현체
+    - ProjectAttachmentService : 구현체
     - ProjectAttachmentStoragePort    : 발급 위임 경계
     - ConfirmAttachmentUseCase        : 업로드 완료 후 이어지는 다음 단계
 */

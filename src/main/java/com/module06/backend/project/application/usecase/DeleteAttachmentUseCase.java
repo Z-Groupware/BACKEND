@@ -6,7 +6,7 @@ package com.module06.backend.project.application.usecase;
 
     연결된 클래스
     - DeleteAttachmentCommand       : 입력
-    - DeleteAttachmentService       : 구현체
+    - ProjectAttachmentService : 구현체
     - ProjectAttachmentRepository   : 메타데이터 삭제
     - ProjectAttachmentStoragePort  : 오브젝트 삭제 위임
 */

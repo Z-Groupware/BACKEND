@@ -7,7 +7,7 @@ package com.module06.backend.project.application.command;
 
     연결된 클래스
     - DeleteAttachmentUseCase       : 이 명령을 받는 기능 계약
-    - DeleteAttachmentService       : 이 명령을 처리하는 구현체
+    - ProjectAttachmentService       : 이 명령을 처리하는 구현체
     - ProjectAttachmentStoragePort  : 오브젝트 삭제를 위임하는 경계
 */
 public record DeleteAttachmentCommand() {
