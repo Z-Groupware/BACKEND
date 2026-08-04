@@ -1,12 +1,14 @@
 package com.module06.backend.project.infrastructure.persistence;
 
-/* comment.
-    project_attachment 테이블용 Spring Data JPA 인터페이스. 구현 시 JpaRepository를 상속한다.
-    프로젝트 상세 조회에서 첨부파일 목록을 함께 읽으므로 project_id 기준 조회가 주 경로다.
+import java.util.List;
 
-    연결된 클래스
-    - ProjectAttachmentJpaEntity          : 다루는 엔티티
-    - ProjectAttachmentPersistenceAdapter : 이 인터페이스에 위임하는 어댑터
+import org.springframework.data.jpa.repository.JpaRepository;
+
+/* comment.
+    project_attachment 테이블용 Spring Data JPA 인터페이스. 상세조회 시 project_id
+    기준으로 목록을 함께 읽는 게 주 경로다.
 */
-public interface SpringDataProjectAttachmentRepository {
+public interface SpringDataProjectAttachmentRepository extends JpaRepository<ProjectAttachmentJpaEntity, Long> {
+
+    List<ProjectAttachmentJpaEntity> findAllByProjectId(Long projectId);
 }
