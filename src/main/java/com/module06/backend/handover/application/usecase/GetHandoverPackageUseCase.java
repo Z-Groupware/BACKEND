@@ -3,7 +3,6 @@ package com.module06.backend.handover.application.usecase;
 import com.module06.backend.handover.domain.model.HandoverType;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 
 public interface GetHandoverPackageUseCase {
@@ -25,8 +24,8 @@ public interface GetHandoverPackageUseCase {
             String writerPosition,
             Long teamId,
             HandoverType absenceType,
-            LocalDateTime startDate,
-            LocalDateTime returnDate,
+            LocalDate startDate,
+            LocalDate returnDate,
             LocalDate lastWorkingDay
     ) {
     }

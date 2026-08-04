@@ -15,8 +15,8 @@ public class Handover {
     private final Long teamId;
     private final HandoverType handoverType;
     private HandoverStatus status;
-    private final LocalDateTime leaveStartAt;
-    private final LocalDateTime leaveEndAt;
+    private final LocalDate leaveStartAt;
+    private final LocalDate leaveEndAt;
     private final LocalDate lastWorkingDay;
     private final String writerNameSnap;
     private final String writerPositionSnap;
@@ -31,7 +31,7 @@ public class Handover {
     private final List<HandoverItem> items;
 
     private Handover(Long id, Long writerMemberId, Long teamId, HandoverType handoverType,
-                     HandoverStatus status, LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
+                     HandoverStatus status, LocalDate leaveStartAt, LocalDate leaveEndAt,
                      LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
                      Long intermediateApproverId, String intermediateApproverNameSnap,
                      LocalDateTime intermediateApprovedAt, String rejectReason, LocalDateTime finalizedAt,
@@ -70,8 +70,8 @@ public class Handover {
     }
 
     public static Handover createVacation(Long writerMemberId, Long teamId, String writerNameSnap,
-                                          String writerPositionSnap, LocalDateTime leaveStartAt,
-                                          LocalDateTime leaveEndAt, List<HandoverItem> items) {
+                                          String writerPositionSnap, LocalDate leaveStartAt,
+                                          LocalDate leaveEndAt, List<HandoverItem> items) {
         return new Handover(null, writerMemberId, teamId, HandoverType.VACATION, HandoverStatus.SUBMITTED,
                 leaveStartAt, leaveEndAt, null, writerNameSnap, writerPositionSnap,
                 null, null, null, null, null, null, null, null, items);
@@ -86,7 +86,7 @@ public class Handover {
     }
 
     public static Handover restore(Long id, Long writerMemberId, Long teamId, HandoverType handoverType,
-                                   HandoverStatus status, LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
+                                   HandoverStatus status, LocalDate leaveStartAt, LocalDate leaveEndAt,
                                    LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
                                    Long intermediateApproverId, String intermediateApproverNameSnap,
                                    LocalDateTime intermediateApprovedAt, String rejectReason,
@@ -205,8 +205,8 @@ public class Handover {
     public Long getTeamId() { return teamId; }
     public HandoverType getHandoverType() { return handoverType; }
     public HandoverStatus getStatus() { return status; }
-    public LocalDateTime getLeaveStartAt() { return leaveStartAt; }
-    public LocalDateTime getLeaveEndAt() { return leaveEndAt; }
+    public LocalDate getLeaveStartAt() { return leaveStartAt; }
+    public LocalDate getLeaveEndAt() { return leaveEndAt; }
     public LocalDate getLastWorkingDay() { return lastWorkingDay; }
     public String getWriterNameSnap() { return writerNameSnap; }
     public String getWriterPositionSnap() { return writerPositionSnap; }

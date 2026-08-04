@@ -3,7 +3,6 @@ package com.module06.backend.handover.presentation.api.response;
 import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
 import com.module06.backend.handover.domain.model.HandoverType;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 
 public record HandoverPackageResponse(
@@ -31,8 +30,8 @@ public record HandoverPackageResponse(
             String writerPosition,
             Long teamId,
             HandoverType absenceType,
-            LocalDateTime startDate,
-            LocalDateTime returnDate,
+            LocalDate startDate,
+            LocalDate returnDate,
             LocalDate lastWorkingDay
     ) {
 

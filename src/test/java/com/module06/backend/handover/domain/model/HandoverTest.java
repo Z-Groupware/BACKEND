@@ -14,8 +14,8 @@ class HandoverTest {
     private static final Long WRITER = 1L;
     private static final Long TEAM = 10L;
     private static final Long TARGET = 2L;
-    private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
-    private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
+    private static final LocalDate START = LocalDate.of(2026, 8, 10);
+    private static final LocalDate END = LocalDate.of(2026, 8, 20);
     private static final LocalDate LAST_WORKING_DAY = LocalDate.of(2026, 8, 31);
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 3, 12, 0);
 

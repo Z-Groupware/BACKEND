@@ -46,10 +46,10 @@ public class HandoverJpaEntity {
     private HandoverStatus status;
 
     @Column(name = "leave_start_at")
-    private LocalDateTime leaveStartAt;
+    private LocalDate leaveStartAt;
 
     @Column(name = "leave_end_at")
-    private LocalDateTime leaveEndAt;
+    private LocalDate leaveEndAt;
 
     @Column(name = "last_working_day")
     private LocalDate lastWorkingDay;
