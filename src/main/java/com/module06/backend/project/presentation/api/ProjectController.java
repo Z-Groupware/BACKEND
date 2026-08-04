@@ -1,22 +1,64 @@
 package com.module06.backend.project.presentation.api;
 
-/* comment.
-    FR-PJ-01,02,03,05,06 — 프로젝트 본체 API 진입점. base path = /api/projects.
-    담당 엔드포인트
-    - POST   /api/projects                        생성 (OWNER)
-    - GET    /api/projects                        목록 조회 (전 구성원)
-    - GET    /api/projects/{projectId}            상세(기획 탭) 조회 (전 구성원)
-    - GET    /api/projects/{projectId}/timeline    타임라인 탭 조회 (전 구성원)
-    - PATCH  /api/projects/{projectId}            수정 (OWNER)
-    - PATCH  /api/projects/status/bulk            보드 상태 일괄 변경 (OWNER)
-    응답은 ApiResponse, 예외는 BusinessException으로만 낸다 — 개별 try-catch 금지(0절 4항).
+import java.util.List;
 
-    연결된 클래스
-    - CreateProjectUseCase · GetProjectListUseCase · GetProjectDetailUseCase ·
-      GetProjectTimelineUseCase · UpdateProjectUseCase · BulkUpdateProjectStatusUseCase : 호출 대상
-    - CreateProjectRequest · UpdateProjectRequest · BulkUpdateProjectStatusRequest      : 입력 DTO
-    - ProjectSummaryResponse · ProjectDetailResponse · ProjectTimelineItemResponse      : 출력 DTO
-    - ApiResponse                                                                       : 성공 응답 래퍼
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.project.application.command.CreateProjectCommand;
+import com.module06.backend.project.application.usecase.CreateProjectUseCase;
+import com.module06.backend.project.application.usecase.GetProjectListUseCase;
+import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.presentation.api.request.CreateProjectRequest;
+import com.module06.backend.project.presentation.api.response.ProjectSummaryResponse;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+
+/* comment.
+    FR-PJ-01,02 — 프로젝트 생성·목록조회 엔드포인트. 나머지(상세·수정·벌크·타임라인)는 다음 차례.
 */
+@RestController
+@RequestMapping("/api/projects")
+@RequiredArgsConstructor
 public class ProjectController {
+
+    private final CreateProjectUseCase createProjectUseCase;
+    private final GetProjectListUseCase getProjectListUseCase;
+
+    @PostMapping
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<ProjectSummaryResponse> create(
+            @RequestHeader("X-Company-Id") Long companyId,
+            @RequestHeader("X-Member-Id") Long memberId,
+            @Valid @RequestBody CreateProjectRequest request
+    ) {
+        Project project = createProjectUseCase.create(new CreateProjectCommand(
+                companyId,
+                memberId,
+                request.tag(),
+                request.name(),
+                request.description(),
+                request.color(),
+                request.dueDate(),
+                request.teamIds()
+        ));
+
+        return ApiResponse.created("프로젝트를 생성했습니다.", ProjectSummaryResponse.from(project));
+    }
+
+    @GetMapping
+    public ApiResponse<List<ProjectSummaryResponse>> list(@RequestHeader("X-Company-Id") Long companyId) {
+        List<ProjectSummaryResponse> response = getProjectListUseCase.list(companyId).stream()
+                .map(ProjectSummaryResponse::from)
+                .toList();
+
+        return ApiResponse.success("프로젝트 목록을 조회했습니다.", response);
+    }
 }
