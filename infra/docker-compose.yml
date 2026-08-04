@@ -39,15 +39,35 @@ services:
 
     command:
       - sh
-      - -c
-      - >
-        exec redis-server
-        --appendonly yes
-        --appendfsync everysec
-        --requirepass "$${REDIS_PASSWORD}"
+      - -ec
+      - |
+        : "$${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+
+        case "$${REDIS_PASSWORD}" in
+          *[!0-9a-f]*)
+            echo "REDIS_PASSWORD must be lowercase hexadecimal" >&2
+            exit 1
+            ;;
+        esac
+
+        if [ "$${#REDIS_PASSWORD}" -ne 64 ]; then
+          echo "REDIS_PASSWORD must be 64 characters" >&2
+          exit 1
+        fi
+
+        umask 077
+        printf 'appendonly yes\nappendfsync everysec\nrequirepass %s\n' \
+          "$${REDIS_PASSWORD}" > /run/redis-config/redis.conf
+
+        chown redis:redis /run/redis-config/redis.conf
+        exec /usr/local/bin/docker-entrypoint.sh \
+          redis-server /run/redis-config/redis.conf
 
     volumes:
       - redis-data:/data
+
+    tmpfs:
+      - /run/redis-config
 
     restart: unless-stopped
     mem_limit: 256m
