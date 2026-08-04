@@ -56,7 +56,7 @@ services:
         fi
 
         umask 077
-        printf 'appendonly yes\nappendfsync everysec\nrequirepass %s\n' \
+        printf 'appendonly yes\nappendfsync everysec\nmaxmemory 128mb\nmaxmemory-policy noeviction\nrequirepass %s\n' \
           "$${REDIS_PASSWORD}" > /run/redis-config/redis.conf
 
         chown redis:redis /run/redis-config/redis.conf
