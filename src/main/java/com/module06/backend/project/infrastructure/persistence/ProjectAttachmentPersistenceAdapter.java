@@ -1,17 +1,34 @@
 package com.module06.backend.project.infrastructure.persistence;
 
+import java.util.List;
+import java.util.Optional;
+
+import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 
 /* comment.
-    domain의 ProjectAttachmentRepository 계약을 JPA로 구현하는 어댑터.
-    메타데이터만 다룬다 — 실제 오브젝트 조작은 ProjectAttachmentStoragePort의 몫이다.
-    이 둘을 헷갈리면 "DB는 지웠는데 파일은 남는" 고아 상태가 생긴다.
-
-    연결된 클래스
-    - ProjectAttachmentRepository            : 구현하는 도메인 계약
-    - SpringDataProjectAttachmentRepository  : 실제 쿼리 위임 대상
-    - ProjectAttachmentJpaEntity             : 변환 대상 엔티티
-    - ProjectAttachment                      : 변환 결과 도메인 모델
+    domain의 ProjectAttachmentRepository 계약을 JPA로 구현하는 어댑터. 실제 구현은
+    infrastructure 계층 차례에 채운다 — 지금은 domain 계층 컴파일을 지키기 위한 임시 스텁이다.
 */
 public class ProjectAttachmentPersistenceAdapter implements ProjectAttachmentRepository {
+
+    @Override
+    public ProjectAttachment save(ProjectAttachment attachment) {
+        throw new UnsupportedOperationException("TODO: infra 계층에서 구현");
+    }
+
+    @Override
+    public Optional<ProjectAttachment> findById(Long id) {
+        throw new UnsupportedOperationException("TODO: infra 계층에서 구현");
+    }
+
+    @Override
+    public List<ProjectAttachment> findAllByProjectId(Long projectId) {
+        throw new UnsupportedOperationException("TODO: infra 계층에서 구현");
+    }
+
+    @Override
+    public void deleteById(Long id) {
+        throw new UnsupportedOperationException("TODO: infra 계층에서 구현");
+    }
 }
