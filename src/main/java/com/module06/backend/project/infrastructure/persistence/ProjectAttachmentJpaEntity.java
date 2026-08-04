@@ -1,16 +1,65 @@
 package com.module06.backend.project.infrastructure.persistence;
 
-/* comment.
-    project_attachment 테이블 JPA 매핑. 도메인 모델 ProjectAttachment와 1:1로 변환된다.
-    매핑 대상 컬럼: id·project_id·file_name·file_url·file_size·uploaded_by·created_at·updated_at.
-    파일 바이너리는 담지 않는다 — file_url은 storage(F)가 관리하는 오브젝트 참조다.
-    uploaded_by는 member 엔티티를 물지 않고 id 값으로만 둔다(0절 1항).
+import java.time.LocalDateTime;
 
-    연결된 클래스
-    - ProjectAttachment                     : 변환 대상 도메인 모델
-    - SpringDataProjectAttachmentRepository  : 이 엔티티를 다루는 Spring Data 인터페이스
-    - ProjectAttachmentPersistenceAdapter    : 도메인 ↔ 엔티티 변환 담당
-    - MemberReferenceEntity                  : 업로더 이름 조인 시 함께 읽는 참조 엔티티
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+/* comment.
+    project_attachment 테이블 JPA 매핑. ProjectJpaEntity와 마찬가지로 JPA 연관관계를
+    맺지 않는다 — project_id는 순수 값으로만 들고 있다.
 */
+@Entity
+@Table(name = "project_attachment")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProjectAttachmentJpaEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "project_id", nullable = false)
+    private Long projectId;
+
+    @Column(name = "file_name", nullable = false, length = 255)
+    private String fileName;
+
+    @Column(name = "file_url", nullable = false, length = 1024)
+    private String fileUrl;
+
+    @Column(name = "file_size", nullable = false)
+    private long fileSize;
+
+    @Column(name = "uploaded_by")
+    private Long uploadedBy;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @Builder
+    private ProjectAttachmentJpaEntity(Long id, Long projectId, String fileName, String fileUrl, long fileSize, Long uploadedBy) {
+        this.id = id;
+        this.projectId = projectId;
+        this.fileName = fileName;
+        this.fileUrl = fileUrl;
+        this.fileSize = fileSize;
+        this.uploadedBy = uploadedBy;
+    }
 }

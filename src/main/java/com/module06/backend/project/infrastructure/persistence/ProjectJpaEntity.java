@@ -1,20 +1,98 @@
 package com.module06.backend.project.infrastructure.persistence;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import com.module06.backend.project.domain.model.ProjectStatus;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
 /* comment.
-    project 테이블 JPA 매핑. 도메인 모델 Project와 1:1로 변환된다.
-    매핑 대상 컬럼: id·company_id·tag·name·description·color·status·due_date·created_by·
-    deleted_at·created_at·updated_at (V1__init_schema.sql 기준).
-    다른 도메인 엔티티를 @ManyToOne으로 물지 않는다 — company_id·created_by는 id 값으로만 둔다(0절 1항).
-    스키마 주인은 Flyway이므로 ddl-auto는 validate 이상으로 올리지 않는다.
-
-    미결: 지정 부서 목록(project_team 조인 테이블)을 @ElementCollection으로 이 엔티티에 붙일지,
-    별도 엔티티로 뺄지 결정 필요. project_team은 (project_id, team_id) 복합 PK이고 C 소유다.
-
-    연결된 클래스
-    - Project                     : 변환 대상 도메인 모델
-    - SpringDataProjectRepository  : 이 엔티티를 다루는 Spring Data 인터페이스
-    - ProjectPersistenceAdapter    : 도메인 ↔ 엔티티 변환 담당
-    - TeamReferenceEntity          : 부서명 조인 시 함께 읽는 참조 엔티티
+    project 테이블 JPA 매핑. project_team(지정 부서)은 별도 ProjectTeamJpaEntity로 관리하며
+    이 엔티티와 JPA 연관관계를 맺지 않는다 — 어댑터가 두 저장소를 수동으로 조율한다.
 */
+@Entity
+@Table(name = "project")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProjectJpaEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "company_id", nullable = false)
+    private Long companyId;
+
+    @Column(name = "tag", nullable = false, length = 30)
+    private String tag;
+
+    @Column(name = "name", nullable = false, length = 150)
+    private String name;
+
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "color", nullable = false, length = 7)
+    private String color;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private ProjectStatus status;
+
+    @Column(name = "due_date", nullable = false)
+    private LocalDate dueDate;
+
+    @Column(name = "created_by")
+    private Long createdBy;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @Builder
+    private ProjectJpaEntity(
+            Long id,
+            Long companyId,
+            String tag,
+            String name,
+            String description,
+            String color,
+            ProjectStatus status,
+            LocalDate dueDate,
+            Long createdBy,
+            LocalDateTime deletedAt
+    ) {
+        this.id = id;
+        this.companyId = companyId;
+        this.tag = tag;
+        this.name = name;
+        this.description = description;
+        this.color = color;
+        this.status = status;
+        this.dueDate = dueDate;
+        this.createdBy = createdBy;
+        this.deletedAt = deletedAt;
+    }
 }

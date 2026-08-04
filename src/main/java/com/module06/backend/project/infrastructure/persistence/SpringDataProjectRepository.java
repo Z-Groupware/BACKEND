@@ -1,13 +1,16 @@
 package com.module06.backend.project.infrastructure.persistence;
 
-/* comment.
-    project 테이블용 Spring Data JPA 인터페이스. 구현 시 JpaRepository를 상속한다.
-    도메인 계층은 이 인터페이스를 모른다 — 어댑터만 안다.
-    목록·타임라인 조회는 N+1이 터지기 쉬운 지점이라 fetch join / projection을 검토해야 한다.
+import java.util.List;
 
-    연결된 클래스
-    - ProjectJpaEntity          : 다루는 엔티티
-    - ProjectPersistenceAdapter : 이 인터페이스에 위임하는 어댑터
+import org.springframework.data.jpa.repository.JpaRepository;
+
+/* comment.
+    project 테이블용 Spring Data JPA 인터페이스. 목록·타임라인 조회는 N+1 취약 지점이라
+    필요해지면 fetch join/projection을 나중에 추가한다.
 */
-public interface SpringDataProjectRepository {
+public interface SpringDataProjectRepository extends JpaRepository<ProjectJpaEntity, Long> {
+
+    boolean existsByTag(String tag);
+
+    List<ProjectJpaEntity> findAllByCompanyId(Long companyId);
 }

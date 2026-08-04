@@ -1,19 +1,33 @@
 package com.module06.backend.project.infrastructure.storage;
 
+import java.util.UUID;
+
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
 
 /* comment.
-    ProjectAttachmentStoragePort의 임시 구현체. storage(F, 김현지)가 실제 S3 어댑터를
-    낼 때까지 C의 개발을 막지 않기 위한 스텁이다(F는 A 캡처·F 인프라·k6 삼중 부담이라 병목 위험).
-    동작: 가짜 업로드 URL을 만들어 돌려주고, 삭제는 성공으로 처리한다. 실제 파일 이동은 없다.
-
-    ⚠️ 이 클래스는 F의 구현이 들어오면 제거 대상이다. 로컬·테스트 프로파일에만 활성화하고
-    운영 프로파일에 실려 나가지 않게 해야 한다 — 아니면 파일이 저장된 줄 알고 넘어간다.
-
-    연결된 클래스
-    - ProjectAttachmentStoragePort    : 구현하는 계약
-    - IssueAttachmentUploadUrlService : 이 스텁을 호출하는 유스케이스
-    - DeleteAttachmentService         : 이 스텁을 호출하는 유스케이스
+    ProjectAttachmentStoragePort 임시 구현체. F의 S3 어댑터가 들어오면 제거 대상 — 그래서
+    @Profile("!prod")로 운영에서만 확실히 안 뜨게 막는다(로컬 프로파일 이름이 아직 미확정이라
+    허용목록이 아니라 차단목록 방식으로 감).
+    실제 파일 이동 없음: 가짜 URL 문자열을 만들어 돌려주고, 삭제는 항상 성공 처리한다.
 */
+@Component
+@Profile("!prod")
 public class ProjectAttachmentStorageStubAdapter implements ProjectAttachmentStoragePort {
+
+    @Override
+    public IssuedUploadUrl issueUploadUrl(String fileName, long fileSize) {
+        String key = UUID.randomUUID() + "-" + fileName;
+        return new IssuedUploadUrl(
+                "https://stub-storage.local/upload/" + key,
+                "https://stub-storage.local/files/" + key
+        );
+    }
+
+    @Override
+    public void deleteObject(String fileUrl) {
+        // 스텁이라 아무것도 안 함 — 실제 F 어댑터가 붙으면 여기서 진짜 삭제 호출
+    }
 }
