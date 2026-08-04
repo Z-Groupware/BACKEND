@@ -1,0 +1,1 @@
+ALTER TABLE handover_item ADD COLUMN reassign_required BOOLEAN NOT NULL DEFAULT TRUE;
