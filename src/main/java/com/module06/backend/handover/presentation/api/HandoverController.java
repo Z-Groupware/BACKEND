@@ -4,19 +4,25 @@ import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.HandoverToSuccessorUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
+import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.presentation.api.request.CompleteHandoverRequest;
 import com.module06.backend.handover.presentation.api.request.CreateHandoverRequest;
 import com.module06.backend.handover.presentation.api.request.FinalizeHandoverRequest;
+import com.module06.backend.handover.presentation.api.request.HandoverToSuccessorRequest;
 import com.module06.backend.handover.presentation.api.request.ReassignItemRequest;
 import com.module06.backend.handover.presentation.api.request.RejectHandoverRequest;
 import com.module06.backend.handover.presentation.api.response.HandoverPackageResponse;
 import com.module06.backend.handover.presentation.api.response.HandoverResponse;
+import com.module06.backend.handover.presentation.api.response.HandoverSummaryResponse;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +44,8 @@ import org.springframework.web.bind.annotation.RestController;
     - POST  /api/handovers/{handoverId}/finalize                 최종 승인
     - POST  /api/handovers/{handoverId}/reject                   반려
     - GET   /api/handovers/{handoverId}                          인계서 패키지 조회
+    - GET   /api/handovers?writerMemberId=&teamId=&status=       관리 목록 조회(사원 본인/팀장 팀 스코프)
+    - POST  /api/handovers/{handoverId}/handover-to-successor    오너 일괄 이관+최종승인(팀장급)
     응답은 ApiResponse, 예외는 BusinessException으로만 낸다 — 개별 try-catch 금지.
 
     연결된 클래스
@@ -58,19 +66,48 @@ public class HandoverController {
     private final FinalizeHandoverUseCase finalizeHandoverUseCase;
     private final RejectHandoverUseCase rejectHandoverUseCase;
     private final GetHandoverPackageUseCase getHandoverPackageUseCase;
+    private final GetHandoverListUseCase getHandoverListUseCase;
+    private final HandoverToSuccessorUseCase handoverToSuccessorUseCase;
 
     public HandoverController(CreateHandoverUseCase createHandoverUseCase,
                               ReassignHandoverItemUseCase reassignHandoverItemUseCase,
                               CompleteHandoverUseCase completeHandoverUseCase,
                               FinalizeHandoverUseCase finalizeHandoverUseCase,
                               RejectHandoverUseCase rejectHandoverUseCase,
-                              GetHandoverPackageUseCase getHandoverPackageUseCase) {
+                              GetHandoverPackageUseCase getHandoverPackageUseCase,
+                              GetHandoverListUseCase getHandoverListUseCase,
+                              HandoverToSuccessorUseCase handoverToSuccessorUseCase) {
         this.createHandoverUseCase = createHandoverUseCase;
         this.reassignHandoverItemUseCase = reassignHandoverItemUseCase;
         this.completeHandoverUseCase = completeHandoverUseCase;
         this.finalizeHandoverUseCase = finalizeHandoverUseCase;
         this.rejectHandoverUseCase = rejectHandoverUseCase;
         this.getHandoverPackageUseCase = getHandoverPackageUseCase;
+        this.getHandoverListUseCase = getHandoverListUseCase;
+        this.handoverToSuccessorUseCase = handoverToSuccessorUseCase;
+    }
+
+    @GetMapping
+    public ApiResponse<List<HandoverSummaryResponse>> list(
+            @RequestParam(required = false) Long writerMemberId,
+            @RequestParam(required = false) Long teamId,
+            @RequestParam(required = false) HandoverStatus status) {
+        // TODO: auth(B) 도입 후 writerMemberId/teamId를 JWT 스코프로 대체·검증.
+        List<HandoverSummaryResponse> response = getHandoverListUseCase.list(
+                        new GetHandoverListUseCase.HandoverListQuery(writerMemberId, teamId, status)).stream()
+                .map(HandoverSummaryResponse::from)
+                .toList();
+        return ApiResponse.success("인수인계 목록을 조회했습니다.", response);
+    }
+
+    @PostMapping("/{handoverId}/handover-to-successor")
+    public ApiResponse<HandoverResponse> handoverToSuccessor(
+            @PathVariable Long handoverId,
+            @Valid @RequestBody HandoverToSuccessorRequest request) {
+        // TODO: auth(B) 도입 후 owner 권한 검증.
+        HandoverResponse response = HandoverResponse.from(handoverToSuccessorUseCase.handoverToSuccessor(
+                handoverId, request.successorId(), request.ownerId(), request.ownerName(), LocalDateTime.now()));
+        return ApiResponse.success("인계 액션을 후임에게 일괄 이관하고 최종 승인했습니다.", response);
     }
 
     @PostMapping

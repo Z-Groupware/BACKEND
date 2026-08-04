@@ -7,7 +7,9 @@ import com.module06.backend.global.exception.GlobalExceptionHandler;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.HandoverToSuccessorUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
@@ -44,6 +46,8 @@ class HandoverControllerTest {
     private FinalizeHandoverUseCase finalizeHandoverUseCase;
     private RejectHandoverUseCase rejectHandoverUseCase;
     private GetHandoverPackageUseCase getHandoverPackageUseCase;
+    private GetHandoverListUseCase getHandoverListUseCase;
+    private HandoverToSuccessorUseCase handoverToSuccessorUseCase;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -54,6 +58,8 @@ class HandoverControllerTest {
         finalizeHandoverUseCase = mock(FinalizeHandoverUseCase.class);
         rejectHandoverUseCase = mock(RejectHandoverUseCase.class);
         getHandoverPackageUseCase = mock(GetHandoverPackageUseCase.class);
+        getHandoverListUseCase = mock(GetHandoverListUseCase.class);
+        handoverToSuccessorUseCase = mock(HandoverToSuccessorUseCase.class);
 
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
@@ -63,7 +69,9 @@ class HandoverControllerTest {
                         completeHandoverUseCase,
                         finalizeHandoverUseCase,
                         rejectHandoverUseCase,
-                        getHandoverPackageUseCase
+                        getHandoverPackageUseCase,
+                        getHandoverListUseCase,
+                        handoverToSuccessorUseCase
                 ))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
@@ -74,15 +82,15 @@ class HandoverControllerTest {
     void createReturnsCreatedApiResponse() throws Exception {
         when(createHandoverUseCase.create(any())).thenReturn(Handover.restore(
                 1000L, 1L, 10L, HandoverType.VACATION, HandoverStatus.SUBMITTED,
-                LocalDateTime.of(2026, 8, 10, 9, 0),
-                LocalDateTime.of(2026, 8, 20, 18, 0),
+                LocalDate.of(2026, 8, 10),
+                LocalDate.of(2026, 8, 20),
                 null, "Kim", "Manager", null, null, null, null,
                 null, null, null, 0L, List.of()
         ));
         CreateHandoverRequest request = new CreateHandoverRequest(
                 1L, 10L, HandoverType.VACATION,
-                LocalDateTime.of(2026, 8, 10, 9, 0),
-                LocalDateTime.of(2026, 8, 20, 18, 0),
+                LocalDate.of(2026, 8, 10),
+                LocalDate.of(2026, 8, 20),
                 null, List.of(100L)
         );
 
@@ -167,8 +175,8 @@ class HandoverControllerTest {
                 .thenReturn(new GetHandoverPackageUseCase.HandoverPackage(
                         new GetHandoverPackageUseCase.BasicInfo(
                                 "Kim", "Manager", 10L, HandoverType.VACATION,
-                                LocalDateTime.of(2026, 8, 10, 9, 0),
-                                LocalDateTime.of(2026, 8, 20, 18, 0),
+                                LocalDate.of(2026, 8, 10),
+                                LocalDate.of(2026, 8, 20),
                                 null
                         ),
                         new GetHandoverPackageUseCase.GapSummary(1, 1, 1),
@@ -219,8 +227,8 @@ class HandoverControllerTest {
     private static Handover submittedHandover() {
         return Handover.restore(
                 1000L, 1L, 10L, HandoverType.VACATION, HandoverStatus.SUBMITTED,
-                LocalDateTime.of(2026, 8, 10, 9, 0),
-                LocalDateTime.of(2026, 8, 20, 18, 0),
+                LocalDate.of(2026, 8, 10),
+                LocalDate.of(2026, 8, 20),
                 null, "Kim", "Manager", null, null, null, null,
                 null, null, null, 0L, List.of()
         );
@@ -229,8 +237,8 @@ class HandoverControllerTest {
     private static Handover reassignedHandover() {
         return Handover.restore(
                 1000L, 1L, 10L, HandoverType.VACATION, HandoverStatus.REASSIGNED,
-                LocalDateTime.of(2026, 8, 10, 9, 0),
-                LocalDateTime.of(2026, 8, 20, 18, 0),
+                LocalDate.of(2026, 8, 10),
+                LocalDate.of(2026, 8, 20),
                 null, "Kim", "Manager", 9L, "Leader", LocalDateTime.of(2026, 8, 4, 9, 0), null,
                 null, null, null, 1L, List.of()
         );
@@ -239,8 +247,8 @@ class HandoverControllerTest {
     private static Handover finalizedHandover() {
         return Handover.restore(
                 1000L, 1L, 10L, HandoverType.VACATION, HandoverStatus.FINALIZED,
-                LocalDateTime.of(2026, 8, 10, 9, 0),
-                LocalDateTime.of(2026, 8, 20, 18, 0),
+                LocalDate.of(2026, 8, 10),
+                LocalDate.of(2026, 8, 20),
                 null, "Kim", "Manager", 9L, "Leader", LocalDateTime.of(2026, 8, 4, 9, 0), null,
                 LocalDateTime.of(2026, 8, 5, 9, 0), 99L, "Owner", 2L, List.of()
         );
@@ -249,8 +257,8 @@ class HandoverControllerTest {
     private static Handover rejectedHandover() {
         return Handover.restore(
                 1000L, 1L, 10L, HandoverType.VACATION, HandoverStatus.REJECTED,
-                LocalDateTime.of(2026, 8, 10, 9, 0),
-                LocalDateTime.of(2026, 8, 20, 18, 0),
+                LocalDate.of(2026, 8, 10),
+                LocalDate.of(2026, 8, 20),
                 null, "Kim", "Manager", null, null, null, "needs detail",
                 null, null, null, 1L, List.of()
         );
