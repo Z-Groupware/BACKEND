@@ -2,6 +2,7 @@ package com.module06.backend.meetingroom.domain.model;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 
 import lombok.Getter;
 
@@ -11,11 +12,13 @@ import lombok.Getter;
  * ROOM-01에서는 회사별 활성 회의실 목록을 조회할 때 사용하며,
  * 다른 도메인의 엔티티를 직접 참조하지 않고 회사 식별자만 값으로 보관한다.
  * deletedAt이 null이면 사용할 수 있는 회의실이고, 값이 존재하면 비활성화된 회의실이다.
+ * ROOM-02에서는 자신의 이용 가능 시간을 30분 슬롯으로 분할하는 책임까지 갖는다.
  *
  * 연결된 클래스
  * - MeetingRoomRepository: 회의실 조회를 위한 도메인 저장소 계약
  * - MeetingRoomService: ROOM-01 조회 유스케이스 구현체
  * - MeetingRoomSummary: API 응답에 필요한 값만 전달하는 애플리케이션 결과 객체
+ * - SlotGrid: 이용 가능 시간을 30분 슬롯으로 분할하는 도메인 규칙
  */
 @Getter
 public class MeetingRoom {
@@ -85,5 +88,16 @@ public class MeetingRoom {
     public boolean isActive() {
         /* 소프트 삭제 시각의 존재 여부를 회의실 활성 상태로 해석한다. */
         return deletedAt == null;
+    }
+
+    /*
+     * 이 회의실의 하루 예약 그리드를 구성하는 슬롯 시작 시각을 계산한다.
+     * 이용 가능 시간 밖의 슬롯은 만들지 않으므로, ROOM-02 응답에는 예약할 수 있는 칸만 담긴다.
+     *
+     * @return 이용 가능 시간을 30분으로 분할한 슬롯 시작 시각 목록
+     */
+    public List<LocalTime> slotStartTimes() {
+        /* 슬롯 길이와 분할 규칙은 회의 개설과 공유하는 기준이므로 도메인 규칙에 위임한다. */
+        return SlotGrid.slotStarts(availableFrom, availableTo);
     }
 }

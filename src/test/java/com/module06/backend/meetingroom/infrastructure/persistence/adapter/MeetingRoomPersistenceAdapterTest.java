@@ -1,10 +1,11 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomRepository;
 
 /*
  * ROOM-01의 실제 JPA 조회 조건과 영속성 어댑터 변환을 검증하는 통합 테스트다.
@@ -90,6 +93,42 @@ class MeetingRoomPersistenceAdapterTest {
 
         /* Repository 계약에 따라 null이 아닌 빈 목록이 반환되는지 확인한다. */
         assertThat(result).isEmpty();
+    }
+
+    /*
+     * 식별자와 회사가 모두 일치하는 활성 회의실만 단건 조회되는지 검증한다(ROOM-02 회의실 필터).
+     */
+    @Test
+    @DisplayName("식별자와 회사가 일치하는 활성 회의실을 단건 조회한다")
+    void findsActiveMeetingRoomByIdAndCompanyId() {
+        /* 회사 10의 활성 회의실을 저장하고 생성된 식별자를 확보한다. */
+        MeetingRoomJpaEntity saved = springDataMeetingRoomRepository.save(meetingRoom(10L, "대회의실", null));
+
+        /* 같은 회사로 조회하면 회의실이 반환돼야 한다. */
+        Optional<MeetingRoom> result = meetingRoomRepository.findActiveById(10L, saved.getId());
+
+        /* 조회된 회의실의 정보가 저장한 값과 일치하는지 확인한다. */
+        assertThat(result).isPresent();
+        assertThat(result.get().getName()).isEqualTo("대회의실");
+        assertThat(result.get().isActive()).isTrue();
+
+        /* 다른 회사로 같은 식별자를 조회하면 존재 여부가 드러나지 않도록 결과가 비어야 한다. */
+        assertThat(meetingRoomRepository.findActiveById(20L, saved.getId())).isEmpty();
+    }
+
+    /*
+     * 비활성화된 회의실이 단건 조회에서 제외되는지 검증한다.
+     */
+    @Test
+    @DisplayName("비활성화된 회의실은 단건 조회에서 제외한다")
+    void excludesDeletedMeetingRoomFromSingleLookup() {
+        /* 비활성화 시각이 기록된 회의실을 저장한다. */
+        MeetingRoomJpaEntity saved = springDataMeetingRoomRepository.save(
+                meetingRoom(10L, "폐쇄 회의실", LocalDateTime.of(2026, 8, 4, 9, 0))
+        );
+
+        /* 활성 회의실만 조회 대상이므로 결과가 비어야 한다. */
+        assertThat(meetingRoomRepository.findActiveById(10L, saved.getId())).isEmpty();
     }
 
     /*

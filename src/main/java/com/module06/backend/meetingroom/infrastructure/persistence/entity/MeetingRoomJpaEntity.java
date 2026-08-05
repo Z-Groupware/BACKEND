@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.entity;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -73,7 +73,7 @@ public class MeetingRoomJpaEntity {
      * @param availableTo 이용 가능 종료 시각
      * @param deletedAt 비활성화 시각
      */
-    MeetingRoomJpaEntity(
+    public MeetingRoomJpaEntity(
             Long id,
             Long companyId,
             String name,

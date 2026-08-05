@@ -1,6 +1,7 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
@@ -8,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomRepository;
 
 /*
  * MeetingRoomRepository 도메인 계약을 JPA로 구현하는 아웃바운드 어댑터다.
@@ -36,6 +39,21 @@ public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository {
                 .stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    /*
+     * 특정 회사에 속한 활성 회의실 하나를 도메인 모델로 반환한다.
+     *
+     * @param companyId 조회할 회사 식별자
+     * @param meetingRoomId 조회할 회의실 식별자
+     * @return 조건을 만족하는 활성 회의실 도메인 모델, 없으면 빈 Optional
+     */
+    @Override
+    public Optional<MeetingRoom> findActiveById(Long companyId, Long meetingRoomId) {
+        /* 회사와 활성 조건을 만족하는 회의실만 도메인 모델로 변환해 상위 계층에 전달한다. */
+        return springDataMeetingRoomRepository
+                .findByIdAndCompanyIdAndDeletedAtIsNull(meetingRoomId, companyId)
+                .map(this::toDomain);
     }
 
     /*

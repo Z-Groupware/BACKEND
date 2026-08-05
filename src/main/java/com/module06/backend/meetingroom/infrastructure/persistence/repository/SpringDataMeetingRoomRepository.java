@@ -1,8 +1,11 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
 
 /*
  * meeting_room 테이블 조회를 수행하는 Spring Data JPA 저장소다.
@@ -20,4 +23,14 @@ public interface SpringDataMeetingRoomRepository extends JpaRepository<MeetingRo
      * @return 정렬된 활성 회의실 영속성 엔티티 목록
      */
     List<MeetingRoomJpaEntity> findAllByCompanyIdAndDeletedAtIsNullOrderByNameAscIdAsc(Long companyId);
+
+    /*
+     * 식별자와 회사가 모두 일치하고 삭제 시각이 없는 회의실을 조회한다.
+     * 회사 조건을 쿼리에 함께 넣어 조회 단계에서 다른 회사의 회의실이 걸러지게 한다.
+     *
+     * @param id 조회할 회의실 식별자
+     * @param companyId 조회할 회사 식별자
+     * @return 조건을 만족하는 활성 회의실 영속성 엔티티, 없으면 빈 Optional
+     */
+    Optional<MeetingRoomJpaEntity> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
 }
