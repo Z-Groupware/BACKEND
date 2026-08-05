@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,10 @@ class MeetingQueryPersistenceAdapterTest {
     @Autowired
     private SpringDataMeetingReservationSlotRepository springDataMeetingReservationSlotRepository;
 
+    /* MEET-09 잠금 조회가 실제 영속성 컨텍스트에 적용한 잠금 모드를 확인한다. */
+    @Autowired
+    private EntityManager entityManager;
+
     /* 테스트마다 자식 슬롯·참석자·안건을 먼저 지운 뒤 회의 데이터를 초기화한다. */
     @BeforeEach
     void clearMeetingData() {
@@ -86,6 +93,27 @@ class MeetingQueryPersistenceAdapterTest {
 
         /* 같은 식별자라도 다른 회사로 조회하면 존재 여부가 드러나지 않아야 한다. */
         assertThat(meetingQueryRepository.findMeeting(20L, meeting.getId())).isEmpty();
+    }
+
+    /* MEET-09가 기존 명단을 읽기 전에 회의 행에 쓰기 잠금을 획득하는지 검증한다. */
+    @Test
+    @DisplayName("참석자 교체 조회는 회의 행을 비관적 쓰기 잠금으로 선점한다")
+    void locksMeetingRowBeforeReplacingAttendees() {
+        /* 잠금 대상이 될 회사 10의 회의를 저장하고 INSERT를 데이터베이스에 반영한다. */
+        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(
+                meeting(10L, 12L, "참석자 교체 회의", LocalDateTime.of(2026, 8, 6, 14, 0))
+        );
+
+        /* 저장 시 관리되던 엔티티를 비워 잠금 조회가 데이터베이스를 실제로 거치게 한다. */
+        entityManager.clear();
+
+        /* MEET-09 전용 파생 쿼리로 같은 회사의 회의 행을 잠가 조회한다. */
+        MeetingJpaEntity lockedMeeting = springDataMeetingRepository
+                .findLockedByIdAndCompanyId(savedMeeting.getId(), 10L)
+                .orElseThrow();
+
+        /* 현재 트랜잭션이 대상 회의 엔티티에 PESSIMISTIC_WRITE 잠금을 보유해야 한다. */
+        assertThat(entityManager.getLockMode(lockedMeeting)).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
     }
 
     /* 프로젝트 회의가 시작 시각 순으로 안정적으로 조회되는지 검증한다. */
@@ -184,6 +212,9 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(result)
                 .extracting(MeetingQueryRepository.MeetingTopicSnapshot::type)
                 .containsExactly(MeetingTopicType.MAIN, MeetingTopicType.SUB);
+        /* 안건 식별자가 계층 복원용으로 손실 없이 전달돼야 한다. */
+        assertThat(result)
+                .allSatisfy(snapshot -> assertThat(snapshot.topicId()).isNotNull());
     }
 
     /* MEET-03 후보 조회가 참석자·회사·종료 시각·정렬·limit 규칙을 지키는지 검증한다. */

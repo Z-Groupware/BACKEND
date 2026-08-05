@@ -17,4 +17,8 @@ public interface ProjectRepository {
     boolean existsByTag(String tag);
 
     List<Project> findAllByCompanyId(Long companyId);
+
+    boolean existsActiveByCompanyIdAndId(Long companyId, Long id);
+
+    List<Project> findAllByCompanyIdAndIdIn(Long companyId, List<Long> ids);
 }

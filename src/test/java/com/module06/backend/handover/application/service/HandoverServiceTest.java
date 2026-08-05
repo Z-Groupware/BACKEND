@@ -1,11 +1,13 @@
 package com.module06.backend.handover.application.service;
 
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
+import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
 import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -58,11 +61,15 @@ class HandoverServiceTest {
     @Mock
     private MemberStatusPort memberStatusPort;
 
+    @Mock
+    private FinalizeHandoverInsightsUseCase finalizeHandoverInsightsUseCase;
+
     private HandoverService handoverService;
 
     @BeforeEach
     void setUp() {
-        handoverService = new HandoverService(handoverRepository, actionReassignPort, orgQueryPort, memberStatusPort);
+        handoverService = new HandoverService(handoverRepository, actionReassignPort, orgQueryPort, memberStatusPort,
+                finalizeHandoverInsightsUseCase);
         lenient().when(handoverRepository.save(any(Handover.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -212,6 +219,7 @@ class HandoverServiceTest {
         assertThat(saved.getFinalApproverNameSnap()).isEqualTo("Park");
         verify(memberStatusPort).toVacation(WRITER);
         verify(memberStatusPort, never()).offboard(WRITER);
+        verifyNoInteractions(finalizeHandoverInsightsUseCase);
     }
 
     @Test
@@ -224,6 +232,8 @@ class HandoverServiceTest {
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         verify(memberStatusPort).offboard(WRITER);
         verify(memberStatusPort, never()).toVacation(WRITER);
+        verify(finalizeHandoverInsightsUseCase)
+                .finalizeInsights(new FinalizeHandoverInsightsCommand(HANDOVER_ID, WRITER));
     }
 
     @Test
@@ -239,7 +249,7 @@ class HandoverServiceTest {
     }
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
-        return new ActionReassignPort.HandoverableAction(id, title, "PRJ", "TEAM", status,
+        return new ActionReassignPort.HandoverableAction(id, title, "PRJ", 700L, "TEAM", status,
                 LocalDate.of(2026, 8, 30), 500L + (id - 100L), "Meeting " + title, "Content " + title);
     }
 
