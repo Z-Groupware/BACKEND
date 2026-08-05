@@ -162,6 +162,60 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("없는 기업 코드에도 비밀번호를 검증한다 — 건너뛰면 응답 시간만으로 실패 이유가 갈린다")
+    void verifiesPasswordEvenWhenCompanyIsAbsent() {
+        CountingEncoder counting = new CountingEncoder();
+        AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
+                port(member(Role.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
+
+        assertLoginFailed(service, PASSWORD);
+
+        assertThat(counting.matchCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("없는 이메일에도 비밀번호를 검증한다 — 기업 코드를 아는 사람이 이메일을 열거할 수 있다")
+    void verifiesPasswordEvenWhenEmailIsAbsent() {
+        CountingEncoder counting = new CountingEncoder();
+        AuthService service = new AuthService(repository(), (companyId, email) -> Optional.empty(),
+                new RecordingStore(), tokenProvider, counting);
+
+        assertLoginFailed(service, PASSWORD);
+
+        assertThat(counting.matchCalls).isEqualTo(1);
+    }
+
+    /*
+     * 호출 횟수만 세면 부족하다. 더미로 아무 문자열을 넘기면 BCryptPasswordEncoder 는 형식을 보고
+     * 즉시 false 를 반환해서(경고만 찍는다) 시간이 전혀 맞지 않는데, 횟수 검사만으로는 통과한다.
+     */
+    @Test
+    @DisplayName("구성원이 없을 때 넘기는 더미도 진짜 BCrypt 해시다 — 가짜 문자열이면 즉시 반환돼 시간이 안 맞는다")
+    void absentMemberHashIsRealBcrypt() {
+        CountingEncoder counting = new CountingEncoder();
+        AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
+                port(member(Role.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
+
+        assertLoginFailed(service, PASSWORD);
+
+        assertThat(counting.lastEncodedPassword)
+                .as("BCrypt 해시 형식이어야 검증 비용이 실제 해시와 같아진다")
+                .matches("^\\$2[aby]\\$\\d{2}\\$.{53}$");
+    }
+
+    @Test
+    @DisplayName("비밀번호가 맞아도 검증은 한 번만 한다 — 성공 경로가 느려지면 그것도 신호가 된다")
+    void verifiesPasswordExactlyOnceOnSuccess() {
+        CountingEncoder counting = new CountingEncoder();
+        AuthService service = new AuthService(repository(), port(memberWith(counting)),
+                new RecordingStore(), tokenProvider, counting);
+
+        service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
+
+        assertThat(counting.matchCalls).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("로그인 실패는 갱신표에 아무것도 올리지 않는다")
     void failedLoginSavesNothing() {
         RecordingStore store = new RecordingStore();
@@ -195,8 +249,32 @@ class AuthServiceTest {
         return new MemberCredentials(3L, 1L, encoder.encode(PASSWORD), role, isAdmin, 2L, false);
     }
 
+    /** 해시를 세는 인코더로 만들어야 matchCalls 가 setUp 의 encode 까지 세지 않는다. */
+    private MemberCredentials memberWith(PasswordEncoder with) {
+        return new MemberCredentials(3L, 1L, with.encode(PASSWORD), Role.MEMBER, false, 2L, false);
+    }
+
     private MemberCredentials resignedMember() {
         return new MemberCredentials(3L, 1L, encoder.encode(PASSWORD), Role.MEMBER, false, 2L, true);
+    }
+
+    /** 실제 BCrypt 를 그대로 쓰면서 matches 호출만 기록한다 — 검증 비용을 흉내내지 않는다. */
+    private static final class CountingEncoder implements PasswordEncoder {
+        private final PasswordEncoder delegate = new BCryptPasswordEncoder();
+        private int matchCalls;
+        private String lastEncodedPassword;
+
+        @Override
+        public String encode(CharSequence rawPassword) {
+            return delegate.encode(rawPassword);
+        }
+
+        @Override
+        public boolean matches(CharSequence rawPassword, String encodedPassword) {
+            matchCalls++;
+            lastEncodedPassword = encodedPassword;
+            return delegate.matches(rawPassword, encodedPassword);
+        }
     }
 
     private static final class RecordingRepository implements CompanyRepository {
