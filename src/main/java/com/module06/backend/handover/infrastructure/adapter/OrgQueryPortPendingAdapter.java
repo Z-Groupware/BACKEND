@@ -23,6 +23,11 @@ public class OrgQueryPortPendingAdapter implements OrgQueryPort {
         throw pending("OrgQueryPort#findReassignCandidates");
     }
 
+    @Override
+    public List<MemberSummary> findMembers(List<Long> memberIds) {
+        throw pending("OrgQueryPort#findMembers");
+    }
+
     private UnsupportedOperationException pending(String method) {
         return new UnsupportedOperationException(
                 method + " pending implementation; waiting for B(org/auth) domain wiring; this is not a silent fallback."

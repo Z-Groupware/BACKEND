@@ -113,6 +113,29 @@ class MeetingPersistenceAdapterTest {
         assertThat(springDataMeetingReservationSlotRepository.count()).isEqualTo(2L);
     }
 
+    /* 기존 참석자와 목표 참석자의 추가·삭제 차이가 같은 트랜잭션에서 반영되는지 검증한다. */
+    @Test
+    @DisplayName("참석자 명단을 삭제·유지·추가 차이로 원자적으로 교체한다")
+    void replacesMeetingAttendeesAtomically() {
+        /* 기존 명단 3·7·11을 가진 회의를 먼저 커밋한다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
+                meeting("명단 교체 회의", List.of(3L, 7L, 11L))
+        ));
+
+        /* 7번을 제거하고 15번을 추가한 목표 명단으로 전체 교체한다. */
+        transaction.executeWithoutResult(status -> meetingRepository.replaceAttendees(
+                savedMeeting.getId(),
+                List.of(3L, 11L, 15L)
+        ));
+
+        /* 유지된 구성원과 새 구성원만 남고 제거 대상은 즉시 사라져야 한다. */
+        assertThat(springDataMeetingAttendeeRepository
+                .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
+                .extracting(attendee -> attendee.getMemberId())
+                .containsExactly(3L, 11L, 15L);
+    }
+
     /* 테스트 제목과 참석자로 같은 회의실·시간의 신규 회의를 생성한다. */
     private Meeting meeting(String title, List<Long> attendees) {
         /* 영속성 검증에 필요한 모든 필드를 정상값으로 채운다. */

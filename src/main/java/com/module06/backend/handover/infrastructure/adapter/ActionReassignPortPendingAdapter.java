@@ -19,6 +19,16 @@ public class ActionReassignPortPendingAdapter implements ActionReassignPort {
         throw pending("ActionReassignPort#reassign");
     }
 
+    @Override
+    public List<HandoverableAction> findHandoverableActions(Long memberId) {
+        throw pending("ActionReassignPort#findHandoverableActions(memberId)");
+    }
+
+    @Override
+    public List<TeamActionForDeparture> findTeamActionsForDeparture(Long memberId) {
+        throw pending("ActionReassignPort#findTeamActionsForDeparture");
+    }
+
     private UnsupportedOperationException pending(String method) {
         return new UnsupportedOperationException(
                 method + " pending implementation; waiting for C(action) domain wiring; this is not a silent fallback."

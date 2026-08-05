@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
@@ -30,7 +31,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
  */
 @Component
 @RequiredArgsConstructor
-public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository {
+public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository, MeetingLockRepository {
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
@@ -49,6 +50,17 @@ public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository {
     public Optional<MeetingSnapshot> findMeeting(Long companyId, Long meetingId) {
         /* 회의가 없거나 타 회사 소속이면 빈 결과를 그대로 반환한다. */
         return springDataMeetingRepository.findByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> toMeetingSnapshot(
+                        meeting,
+                        findAttendeeMemberIds(meeting.getId())
+                ));
+    }
+
+    /* 대상 회의 행을 비관적으로 잠근 뒤 잠금 획득 시점의 참석자 명단을 조회한다. */
+    @Override
+    public Optional<MeetingSnapshot> findMeetingForUpdate(Long companyId, Long meetingId) {
+        /* 같은 회의의 다른 명단 교체 트랜잭션이 끝날 때까지 기다린 뒤 최신 회의 행을 읽는다. */
+        return springDataMeetingRepository.findLockedByIdAndCompanyId(meetingId, companyId)
                 .map(meeting -> toMeetingSnapshot(
                         meeting,
                         findAttendeeMemberIds(meeting.getId())
@@ -284,9 +296,11 @@ public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository {
 
     /* 회의 안건 엔티티를 E 배치 계약에 필요한 읽기 모델로 변환한다. */
     private MeetingTopicSnapshot toMeetingTopicSnapshot(MeetingTopicJpaEntity topic) {
-        /* 회의 식별자, MAIN·SUB 유형, 내용, 표시 순서만 경계 밖으로 전달한다. */
+        /* 회의 식별자, 안건·부모 안건 식별자, MAIN·SUB 유형, 내용, 표시 순서를 경계 밖으로 전달한다. */
         return new MeetingTopicSnapshot(
                 topic.getMeetingId(),
+                topic.getId(),
+                topic.getParentTopicId(),
                 topic.getTopicType(),
                 topic.getContent(),
                 topic.getSortOrder()
