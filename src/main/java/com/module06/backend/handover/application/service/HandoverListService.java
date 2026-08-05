@@ -11,6 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/*
+    #1 인수인계서 관리 목록 조회 read model.
+    스코프(writerMemberId | teamId) 정확히 하나 + 선택 status 필터. 상태 필터는 in-memory로 처리한다.
+    (팀 스코프는 findByTeamId로 전 상태를 가져온 뒤 필요 시 status로 좁힌다.)
+*/
 @Service
 @Transactional(readOnly = true)
 public class HandoverListService implements GetHandoverListUseCase {

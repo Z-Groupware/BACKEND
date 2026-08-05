@@ -6,16 +6,24 @@ import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.HandoverToSuccessorUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.presentation.api.dto.request.CreateHandoverRequest;
+import com.module06.backend.handover.presentation.api.dto.request.HandoverToSuccessorRequest;
 import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRequest;
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
+import com.module06.backend.handover.presentation.api.dto.response.HandoverPackageResponse;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverResponse;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverSummaryResponse;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,9 +36,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/handovers")
 public class HandoverController {
@@ -41,6 +46,8 @@ public class HandoverController {
     private final FinalizeHandoverUseCase finalizeHandoverUseCase;
     private final RejectHandoverUseCase rejectHandoverUseCase;
     private final GetHandoverListUseCase getHandoverListUseCase;
+    private final GetHandoverPackageUseCase getHandoverPackageUseCase;
+    private final HandoverToSuccessorUseCase handoverToSuccessorUseCase;
     private final OrgQueryPort orgQueryPort;
 
     public HandoverController(CreateHandoverUseCase createHandoverUseCase,
@@ -49,6 +56,8 @@ public class HandoverController {
                               FinalizeHandoverUseCase finalizeHandoverUseCase,
                               RejectHandoverUseCase rejectHandoverUseCase,
                               GetHandoverListUseCase getHandoverListUseCase,
+                              GetHandoverPackageUseCase getHandoverPackageUseCase,
+                              HandoverToSuccessorUseCase handoverToSuccessorUseCase,
                               OrgQueryPort orgQueryPort) {
         this.createHandoverUseCase = createHandoverUseCase;
         this.reassignHandoverItemUseCase = reassignHandoverItemUseCase;
@@ -56,6 +65,8 @@ public class HandoverController {
         this.finalizeHandoverUseCase = finalizeHandoverUseCase;
         this.rejectHandoverUseCase = rejectHandoverUseCase;
         this.getHandoverListUseCase = getHandoverListUseCase;
+        this.getHandoverPackageUseCase = getHandoverPackageUseCase;
+        this.handoverToSuccessorUseCase = handoverToSuccessorUseCase;
         this.orgQueryPort = orgQueryPort;
     }
 
@@ -79,6 +90,17 @@ public class HandoverController {
         return ApiResponse.created("Handover created.", HandoverResponse.from(handover));
     }
 
+    @GetMapping("/{handoverId}")
+    public ApiResponse<HandoverPackageResponse> getPackage(
+            @PathVariable Long handoverId,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate referenceDate) {
+        LocalDate effectiveReferenceDate = referenceDate == null ? LocalDate.now() : referenceDate;
+        HandoverPackageResponse response = HandoverPackageResponse.from(
+                getHandoverPackageUseCase.getPackage(handoverId, effectiveReferenceDate));
+        return ApiResponse.success("인수인계 패키지를 조회했습니다.", response);
+    }
+
     @PatchMapping("/{id}/items/{actionId}/reassign")
     public ApiResponse<HandoverResponse> reassignItem(@PathVariable Long id,
                                                       @PathVariable Long actionId,
@@ -87,6 +109,15 @@ public class HandoverController {
                 request.toCommand(id, actionId, LocalDateTime.now())
         );
         return ApiResponse.success("Handover item reassigned.", HandoverResponse.from(handover));
+    }
+
+    @PostMapping("/{handoverId}/handover-to-successor")
+    public ApiResponse<HandoverResponse> handoverToSuccessor(
+            @PathVariable Long handoverId,
+            @Valid @RequestBody HandoverToSuccessorRequest request) {
+        Handover handover = handoverToSuccessorUseCase.handoverToSuccessor(
+                handoverId, request.successorId(), request.ownerId(), request.ownerName(), LocalDateTime.now());
+        return ApiResponse.success("Handover actions transferred to successor and finalized.", HandoverResponse.from(handover));
     }
 
     @PatchMapping("/{id}/complete")

@@ -8,12 +8,17 @@ import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.HandoverToSuccessorUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.model.HandoverType;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +27,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(HandoverController.class)
-@AutoConfigureMockMvc(addFilters = false) // 순수 매핑 슬라이스 검증 — 시큐리티 필터(CSRF/인증) 비활성화. 인증은 B(auth) 배선 후 별도 테스트.
+@AutoConfigureMockMvc(addFilters = false) // Pure mapping slice; auth wiring belongs to B(auth) integration tests.
 class HandoverControllerTest {
 
     private static final Long HANDOVER_ID = 1000L;
@@ -48,8 +49,8 @@ class HandoverControllerTest {
     private static final Long ACTION = 100L;
     private static final Long TARGET = 2L;
     private static final Long APPROVER = 9L;
-    private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
-    private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
+    private static final LocalDate START = LocalDate.of(2026, 8, 10);
+    private static final LocalDate END = LocalDate.of(2026, 8, 20);
 
     @Autowired
     private MockMvc mockMvc;
@@ -73,6 +74,12 @@ class HandoverControllerTest {
     private GetHandoverListUseCase getHandoverListUseCase;
 
     @MockitoBean
+    private GetHandoverPackageUseCase getHandoverPackageUseCase;
+
+    @MockitoBean
+    private HandoverToSuccessorUseCase handoverToSuccessorUseCase;
+
+    @MockitoBean
     private OrgQueryPort orgQueryPort;
 
     @Test
@@ -86,8 +93,8 @@ class HandoverControllerTest {
                                   "writerMemberId": 1,
                                   "teamId": 10,
                                   "handoverType": "VACATION",
-                                  "leaveStartAt": "2026-08-10T09:00:00",
-                                  "leaveEndAt": "2026-08-20T18:00:00",
+                                  "leaveStartAt": "2026-08-10",
+                                  "leaveEndAt": "2026-08-20",
                                   "selectedActionIds": [100]
                                 }
                                 """))
@@ -188,9 +195,59 @@ class HandoverControllerTest {
         assertThat(captor.getValue().writerMemberId()).isNull();
     }
 
+    @Test
+    void getPackageMapsReferenceDateAndReturnsPackage() throws Exception {
+        when(getHandoverPackageUseCase.getPackage(eq(HANDOVER_ID), eq(LocalDate.of(2026, 8, 4))))
+                .thenReturn(packageResult());
+
+        mockMvc.perform(get("/api/handovers/{handoverId}", HANDOVER_ID)
+                        .param("referenceDate", "2026-08-04"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.basicInfo.writerName").value("Kim"))
+                .andExpect(jsonPath("$.data.items[0].actionId").value(ACTION));
+
+        verify(getHandoverPackageUseCase).getPackage(HANDOVER_ID, LocalDate.of(2026, 8, 4));
+    }
+
+    @Test
+    void handoverToSuccessorMapsBodyAndPathToUseCase() throws Exception {
+        when(handoverToSuccessorUseCase.handoverToSuccessor(
+                eq(HANDOVER_ID), eq(TARGET), eq(APPROVER), eq("Owner"), any(LocalDateTime.class)))
+                .thenReturn(finalized());
+
+        mockMvc.perform(post("/api/handovers/{handoverId}/handover-to-successor", HANDOVER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "successorId": 2,
+                                  "ownerId": 9,
+                                  "ownerName": "Owner"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FINALIZED"));
+
+        verify(handoverToSuccessorUseCase).handoverToSuccessor(
+                eq(HANDOVER_ID), eq(TARGET), eq(APPROVER), eq("Owner"), any(LocalDateTime.class));
+    }
+
     private static GetHandoverListUseCase.HandoverSummary summary() {
         return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
                 HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0);
+    }
+
+    private static GetHandoverPackageUseCase.HandoverPackage packageResult() {
+        GetHandoverPackageUseCase.Item item = new GetHandoverPackageUseCase.Item(
+                ACTION, "Action", "TODO", LocalDate.of(2026, 8, 30), "PRJ", "Meeting");
+        return new GetHandoverPackageUseCase.HandoverPackage(
+                new GetHandoverPackageUseCase.BasicInfo("Kim", "Manager", TEAM, HandoverType.VACATION, START, END, null),
+                new GetHandoverPackageUseCase.GapSummary(1, 1, 0),
+                List.of(item),
+                List.of(new GetHandoverPackageUseCase.ContextCard(ACTION, "Action", "Content")),
+                List.of(new GetHandoverPackageUseCase.MeetingHistory(
+                        500L, LocalDate.of(2026, 8, 1), List.of("Kim"), "Decision", "Actions")),
+                List.of(new GetHandoverPackageUseCase.ReassigneeGroup(null, "Unassigned", List.of(item)))
+        );
     }
 
     private static Handover submitted() {
