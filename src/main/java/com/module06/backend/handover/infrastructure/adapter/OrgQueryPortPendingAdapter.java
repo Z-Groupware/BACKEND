@@ -19,6 +19,11 @@ public class OrgQueryPortPendingAdapter implements OrgQueryPort {
     }
 
     @Override
+    public List<Long> findMemberIdsByCompany(Long companyId) {
+        throw pending("OrgQueryPort#findMemberIdsByCompany");
+    }
+
+    @Override
     public List<ReassignCandidate> findReassignCandidates(Long teamId, Long excludeMemberId) {
         throw pending("OrgQueryPort#findReassignCandidates");
     }

@@ -1,6 +1,7 @@
 package com.module06.backend.handover.presentation.api;
 
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
@@ -18,6 +19,7 @@ import com.module06.backend.handover.presentation.api.dto.response.HandoverSumma
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -60,17 +62,31 @@ public class HandoverController {
         this.orgQueryPort = orgQueryPort;
     }
 
+    /*
+     * 조회 범위는 클라이언트 파라미터가 아니라 토큰에서 서버측으로 결정한다. 예전엔 writerMemberId/teamId를
+     * 쿼리파라미터로 받아, 남의 사번/팀을 적으면 그 사람의 인수인계를 볼 수 있는 구멍이 있었다.
+     * 규칙: 멤버→본인, 리더→자기 팀, 오너·어드민→회사 전체. status만 클라이언트 필터로 남긴다.
+     */
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<HandoverSummaryResponse>> list(
-            @RequestParam(required = false) Long writerMemberId,
-            @RequestParam(required = false) Long teamId,
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
             @RequestParam(required = false) HandoverStatus status) {
-        // TODO: auth(B) 도입 후 writerMemberId/teamId를 JWT 스코프로 대체·검증.
         List<HandoverSummaryResponse> data = getHandoverListUseCase
-                .list(new GetHandoverListUseCase.HandoverListQuery(writerMemberId, teamId, status)).stream()
+                .list(scopeFor(principal, status)).stream()
                 .map(HandoverSummaryResponse::from)
                 .toList();
         return ApiResponse.success("인수인계 목록을 조회했습니다.", data);
+    }
+
+    private GetHandoverListUseCase.HandoverListQuery scopeFor(AuthPrincipal principal, HandoverStatus status) {
+        if (principal.isAdmin() || "OWNER".equals(principal.role())) {
+            return GetHandoverListUseCase.HandoverListQuery.company(principal.companyId(), status);
+        }
+        if ("LEADER".equals(principal.role())) {
+            return GetHandoverListUseCase.HandoverListQuery.team(principal.teamId(), status);
+        }
+        return GetHandoverListUseCase.HandoverListQuery.self(principal.memberId(), status);
     }
 
     @PostMapping

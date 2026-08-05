@@ -8,6 +8,7 @@ import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,6 +48,13 @@ public class HandoverPersistenceAdapter implements HandoverRepository {
     @Override
     public List<Handover> findByWriterMemberId(Long writerMemberId) {
         return springDataHandoverRepository.findByWriterMemberId(writerMemberId).stream()
+                .map(HandoverJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<Handover> findByWriterMemberIdIn(Collection<Long> writerMemberIds) {
+        return springDataHandoverRepository.findByWriterMemberIdIn(writerMemberIds).stream()
                 .map(HandoverJpaEntity::toDomain)
                 .toList();
     }
