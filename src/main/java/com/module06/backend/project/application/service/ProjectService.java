@@ -11,6 +11,7 @@ import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
 import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
+import com.module06.backend.project.application.port.ProjectQueryPort;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
@@ -38,7 +39,8 @@ public class ProjectService implements
         GetProjectListUseCase,
         GetProjectDetailUseCase,
         BulkUpdateProjectStatusUseCase,
-        GetProjectTimelineUseCase {
+        GetProjectTimelineUseCase,
+        ProjectQueryPort {
 
     private final ProjectRepository projectRepository;
     private final ProjectAttachmentRepository projectAttachmentRepository;
@@ -113,5 +115,21 @@ public class ProjectService implements
                 .toList();
 
         projects.forEach(projectRepository::save);
+    }
+
+    // meeting(D)이 회의 개설 시 프로젝트가 활성 상태로 존재하는지 확인한다.
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsActiveProject(Long companyId, Long projectId) {
+        return projectRepository.existsActiveByCompanyIdAndId(companyId, projectId);
+    }
+
+    // meeting(D)이 예정 회의 목록에 표시할 프로젝트 정보를 배치 조회한다(soft-delete 포함).
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProjectSummary> findProjects(Long companyId, List<Long> projectIds) {
+        return projectRepository.findAllByCompanyIdAndIdIn(companyId, projectIds).stream()
+                .map(project -> new ProjectSummary(project.getId(), project.getTag(), project.getName(), project.getColor()))
+                .toList();
     }
 }

@@ -12,5 +12,11 @@ public interface SpringDataProjectRepository extends JpaRepository<ProjectJpaEnt
 
     boolean existsByTag(String tag);
 
-    List<ProjectJpaEntity> findAllByCompanyId(Long companyId);
+    // 기존 findAllByCompanyId는 deletedAt 필터가 빠진 버그였음 — 이름 바꿔서 명시적으로 고침
+    List<ProjectJpaEntity> findAllByCompanyIdAndDeletedAtIsNull(Long companyId);
+
+    boolean existsByCompanyIdAndIdAndDeletedAtIsNull(Long companyId, Long id);
+
+    // soft-delete 포함 배치조회 — 과거 회의가 참조하는 프로젝트 표시 유지용
+    List<ProjectJpaEntity> findAllByCompanyIdAndIdIn(Long companyId, List<Long> ids);
 }
