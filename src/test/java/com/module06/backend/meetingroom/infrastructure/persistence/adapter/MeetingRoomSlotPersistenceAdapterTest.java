@@ -12,11 +12,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
 import com.module06.backend.meetingroom.domain.model.ReservedSlot;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomSlotRepository;
-import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingReferenceEntity;
 import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomSlotJpaEntity;
-import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingReferenceRepository;
 import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomSlotRepository;
 
 /*
@@ -34,9 +35,9 @@ class MeetingRoomSlotPersistenceAdapterTest {
     @Autowired
     private SpringDataMeetingRoomSlotRepository springDataMeetingRoomSlotRepository;
 
-    /* 슬롯이 가리킬 회의 데이터를 준비할 읽기 전용 참조 저장소다. */
+    /* 슬롯이 가리킬 완전한 회의 데이터를 준비하고 초기화하는 기술 저장소다. */
     @Autowired
-    private SpringDataMeetingReferenceRepository springDataMeetingReferenceRepository;
+    private SpringDataMeetingRepository springDataMeetingRepository;
 
     /* application 계층이 실제로 사용하는 슬롯 도메인 저장소 계약이다. */
     @Autowired
@@ -49,7 +50,7 @@ class MeetingRoomSlotPersistenceAdapterTest {
     void clearSlots() {
         /* 슬롯이 회의를 참조하므로 슬롯을 먼저 삭제한다. */
         springDataMeetingRoomSlotRepository.deleteAll();
-        springDataMeetingReferenceRepository.deleteAll();
+        springDataMeetingRepository.deleteAll();
     }
 
     /*
@@ -59,14 +60,22 @@ class MeetingRoomSlotPersistenceAdapterTest {
     @DisplayName("요청 회의실의 당일 슬롯만 회의 제목과 함께 조회한다")
     void findsSlotsOfRequestedRoomsAndDay() {
         /* 같은 회사의 회의 두 건을 저장한다. */
-        springDataMeetingReferenceRepository.save(new MeetingReferenceEntity(91L, 10L, "온보딩 킥오프"));
-        springDataMeetingReferenceRepository.save(new MeetingReferenceEntity(94L, 10L, "주간 회의"));
+        MeetingJpaEntity firstMeeting = springDataMeetingRepository.save(meeting(10L, "온보딩 킥오프"));
+        MeetingJpaEntity secondMeeting = springDataMeetingRepository.save(meeting(10L, "주간 회의"));
 
         /* 조회 대상 회의실의 당일 슬롯, 다음 날 슬롯, 조회 대상이 아닌 회의실의 슬롯을 저장한다. */
-        springDataMeetingRoomSlotRepository.save(slot(2L, LocalDateTime.of(2026, 8, 4, 14, 0), 91L));
-        springDataMeetingRoomSlotRepository.save(slot(2L, LocalDateTime.of(2026, 8, 4, 14, 30), 91L));
-        springDataMeetingRoomSlotRepository.save(slot(2L, LocalDateTime.of(2026, 8, 5, 9, 0), 94L));
-        springDataMeetingRoomSlotRepository.save(slot(3L, LocalDateTime.of(2026, 8, 4, 9, 0), 94L));
+        springDataMeetingRoomSlotRepository.save(
+                slot(2L, LocalDateTime.of(2026, 8, 4, 14, 0), firstMeeting.getId())
+        );
+        springDataMeetingRoomSlotRepository.save(
+                slot(2L, LocalDateTime.of(2026, 8, 4, 14, 30), firstMeeting.getId())
+        );
+        springDataMeetingRoomSlotRepository.save(
+                slot(2L, LocalDateTime.of(2026, 8, 5, 9, 0), secondMeeting.getId())
+        );
+        springDataMeetingRoomSlotRepository.save(
+                slot(3L, LocalDateTime.of(2026, 8, 4, 9, 0), secondMeeting.getId())
+        );
 
         /* 2번 회의실의 8월 4일 하루 범위를 조회한다. */
         List<ReservedSlot> result = meetingRoomSlotRepository.findReservedSlots(
@@ -88,7 +97,7 @@ class MeetingRoomSlotPersistenceAdapterTest {
                 .containsOnly("온보딩 킥오프");
         assertThat(result)
                 .extracting(ReservedSlot::meetingId)
-                .containsOnly(91L);
+                .containsOnly(firstMeeting.getId());
     }
 
     /*
@@ -98,12 +107,16 @@ class MeetingRoomSlotPersistenceAdapterTest {
     @DisplayName("다른 회사 회의의 슬롯은 조회 결과에서 제외한다")
     void excludesSlotsOfOtherCompanyMeetings() {
         /* 요청 회사와 다른 회사의 회의를 각각 저장한다. */
-        springDataMeetingReferenceRepository.save(new MeetingReferenceEntity(91L, 10L, "우리 회사 회의"));
-        springDataMeetingReferenceRepository.save(new MeetingReferenceEntity(92L, 20L, "다른 회사 회의"));
+        MeetingJpaEntity ownCompanyMeeting = springDataMeetingRepository.save(meeting(10L, "우리 회사 회의"));
+        MeetingJpaEntity otherCompanyMeeting = springDataMeetingRepository.save(meeting(20L, "다른 회사 회의"));
 
         /* 같은 회의실 번호에 두 회사의 회의 슬롯이 각각 존재하는 상황을 만든다. */
-        springDataMeetingRoomSlotRepository.save(slot(2L, LocalDateTime.of(2026, 8, 4, 9, 0), 91L));
-        springDataMeetingRoomSlotRepository.save(slot(2L, LocalDateTime.of(2026, 8, 4, 9, 30), 92L));
+        springDataMeetingRoomSlotRepository.save(
+                slot(2L, LocalDateTime.of(2026, 8, 4, 9, 0), ownCompanyMeeting.getId())
+        );
+        springDataMeetingRoomSlotRepository.save(
+                slot(2L, LocalDateTime.of(2026, 8, 4, 9, 30), otherCompanyMeeting.getId())
+        );
 
         /* 회사 식별자 10으로 조회한다. */
         List<ReservedSlot> result = meetingRoomSlotRepository.findReservedSlots(
@@ -116,7 +129,7 @@ class MeetingRoomSlotPersistenceAdapterTest {
         /* 다른 회사 회의의 예약 정보가 현황판에 섞이지 않아야 한다. */
         assertThat(result)
                 .extracting(ReservedSlot::meetingId)
-                .containsExactly(91L);
+                .containsExactly(ownCompanyMeeting.getId());
     }
 
     /*
@@ -148,5 +161,26 @@ class MeetingRoomSlotPersistenceAdapterTest {
     private MeetingRoomSlotJpaEntity slot(Long meetingRoomId, LocalDateTime slotStart, Long meetingId) {
         /* 복합 PK 구성 값과 점유 회의만 지정하고 생성 시각은 데이터베이스에 맡긴다. */
         return new MeetingRoomSlotJpaEntity(meetingRoomId, slotStart, meetingId);
+    }
+
+    /* ROOM-02 조회 테스트가 참조할 수 있도록 필수 컬럼을 모두 가진 회의 엔티티를 만든다. */
+    private MeetingJpaEntity meeting(Long companyId, String title) {
+        /* 운영 코드와 같은 회의 애그리거트를 거쳐 읽기 전용 참조가 조회할 실제 행을 생성한다. */
+        Meeting meeting = Meeting.create(
+                companyId,
+                12L,
+                100L,
+                2L,
+                3L,
+                title,
+                LocalDateTime.of(2026, 8, 4, 9, 0),
+                LocalDateTime.of(2026, 8, 4, 10, 0),
+                false,
+                null,
+                List.of(3L)
+        );
+
+        /* meeting 테이블의 NOT NULL 계약을 만족하는 완전한 영속성 엔티티로 변환한다. */
+        return MeetingJpaEntity.from(meeting);
     }
 }
