@@ -3,6 +3,7 @@ package com.module06.backend.identity.auth.presentation.api;
 import jakarta.validation.Valid;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,8 +16,10 @@ import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
 import com.module06.backend.identity.auth.presentation.api.dto.request.LoginRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.ReissueTokenRequest;
+import com.module06.backend.identity.auth.presentation.api.dto.response.MyProfileResponse;
 import com.module06.backend.identity.auth.presentation.api.dto.response.ReissuedTokenResponse;
 import com.module06.backend.identity.auth.presentation.api.dto.response.TokenResponse;
+import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,6 +34,7 @@ public class AuthController {
     private final LoginUseCase loginUseCase;
     private final ReissueTokenUseCase reissueTokenUseCase;
     private final LogoutUseCase logoutUseCase;
+    private final GetMyProfileUseCase getMyProfileUseCase;
 
     @Operation(summary = "로그인", description = "로그인 2단계. 기업 코드·이메일·비밀번호로 토큰을 발급합니다.")
     @PostMapping("/login")
@@ -58,5 +62,12 @@ public class AuthController {
     public ApiResponse<Void> logout(@AuthenticationPrincipal AuthPrincipal me) {
         logoutUseCase.logout(me.memberId());
         return ApiResponse.successWithoutData("로그아웃되었습니다");
+    }
+
+    @Operation(summary = "내 정보", description = "프론트 부트스트랩. 사이드바 메뉴 구성의 기준입니다.")
+    @GetMapping("/me")
+    public ApiResponse<MyProfileResponse> me(@AuthenticationPrincipal AuthPrincipal me) {
+        MyProfileResponse response = MyProfileResponse.from(getMyProfileUseCase.get(me.memberId()));
+        return ApiResponse.success("내 정보를 조회했습니다", response);
     }
 }
