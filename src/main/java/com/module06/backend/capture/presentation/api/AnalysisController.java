@@ -15,13 +15,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
+import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
+import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
 import com.module06.backend.global.response.ApiResponse;
 
 /*
- * 회의 분석 REST API 진입점이다(ANLZ-01 · CAP-06).
+ * 회의 분석 REST API 진입점이다(ANLZ-01 · CAP-06 · ANLZ-03).
  *
  * companyId 는 URL·쿼리로 받지 않고 인증 principal 에서만 꺼낸다 — 다른 회사의 회의를
  * 임의로 요청할 수 없게 하는 것이 목적이다(회의실 도메인과 같은 규약).
@@ -38,6 +40,7 @@ public class AnalysisController {
 
     private final RunAnalysisUseCase runAnalysisUseCase;
     private final GetProcessingStatusUseCase getProcessingStatusUseCase;
+    private final GetSummaryUseCase getSummaryUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -79,5 +82,22 @@ public class AnalysisController {
                 "처리 상태를 조회했습니다.",
                 ProcessingStatusResponse.from(
                         getProcessingStatusUseCase.getProcessingStatus(companyId, meetingId)));
+    }
+
+    /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */
+    @Operation(
+            summary = "회의 요약 조회 (ANLZ-03)",
+            description = "주제별 결정·논의·블로커와 각 항목의 근거 발화를 함께 조회한다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping("/summary")
+    public ApiResponse<MeetingSummaryResponse> getSummary(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long meetingId
+    ) {
+        return ApiResponse.success(
+                "회의 요약을 조회했습니다.",
+                MeetingSummaryResponse.from(getSummaryUseCase.getSummary(companyId, meetingId)));
     }
 }

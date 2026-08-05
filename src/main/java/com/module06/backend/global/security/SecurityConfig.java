@@ -63,6 +63,7 @@ public class SecurityConfig {
                         // companyId 추출에서 NPE(500)가 난다. 인증 실패는 401 이어야 한다.
                         .requestMatchers(HttpMethod.POST, "/api/meetings/*/analysis").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/meetings/*/processing-status").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/summary").authenticated()
 
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
