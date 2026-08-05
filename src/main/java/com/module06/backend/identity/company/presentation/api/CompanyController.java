@@ -1,6 +1,5 @@
 package com.module06.backend.identity.company.presentation.api;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,10 +27,9 @@ public class CompanyController {
 
     @Operation(summary = "기업코드 조회", description = "로그인 1단계. 기업 코드로 회사 이름을 확인합니다.")
     @PostMapping("/lookup")
-    public ApiResponse<CompanyLookupResponse> lookup(@Valid @RequestBody CompanyLookupRequest request,
-                                                     HttpServletRequest servletRequest) {
+    public ApiResponse<CompanyLookupResponse> lookup(@Valid @RequestBody CompanyLookupRequest request) {
         CompanyLookupResponse response = CompanyLookupResponse.from(
-                lookupCompanyUseCase.lookup(request.code(), servletRequest.getRemoteAddr()));
+                lookupCompanyUseCase.lookup(request.code()));
         return ApiResponse.success("기업 정보를 확인했습니다", response);
     }
 }

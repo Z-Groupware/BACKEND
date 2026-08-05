@@ -4,5 +4,5 @@ import com.module06.backend.identity.company.domain.model.Company;
 
 public interface LookupCompanyUseCase {
 
-    Company lookup(String rawCode, String clientIp);
+    Company lookup(String rawCode);
 }
