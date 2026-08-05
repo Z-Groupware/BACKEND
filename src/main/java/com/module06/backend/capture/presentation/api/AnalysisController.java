@@ -2,6 +2,7 @@ package com.module06.backend.capture.presentation.api;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,12 +14,14 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
+import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
 import com.module06.backend.global.response.ApiResponse;
 
 /*
- * 회의 분석 REST API 진입점이다(ANLZ-01).
+ * 회의 분석 REST API 진입점이다(ANLZ-01 · CAP-06).
  *
  * companyId 는 URL·쿼리로 받지 않고 인증 principal 에서만 꺼낸다 — 다른 회사의 회의를
  * 임의로 요청할 수 없게 하는 것이 목적이다(회의실 도메인과 같은 규약).
@@ -34,6 +37,7 @@ import com.module06.backend.global.response.ApiResponse;
 public class AnalysisController {
 
     private final RunAnalysisUseCase runAnalysisUseCase;
+    private final GetProcessingStatusUseCase getProcessingStatusUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -57,5 +61,23 @@ public class AnalysisController {
         return ApiResponse.success(
                 "분석을 실행했습니다.",
                 AnalysisRunResponse.from(runAnalysisUseCase.run(companyId, meetingId, force)));
+    }
+
+    /* CAP-06 · AI 처리 상태 조회. 사용자가 "어디까지 됐는지"를 보는 유일한 경로다. */
+    @Operation(
+            summary = "AI 처리 상태 조회 (CAP-06)",
+            description = "계층별 실행 상태와 누적 토큰을 조회한다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping("/processing-status")
+    public ApiResponse<ProcessingStatusResponse> getProcessingStatus(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long meetingId
+    ) {
+        return ApiResponse.success(
+                "처리 상태를 조회했습니다.",
+                ProcessingStatusResponse.from(
+                        getProcessingStatusUseCase.getProcessingStatus(companyId, meetingId)));
     }
 }

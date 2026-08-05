@@ -62,6 +62,7 @@ public class SecurityConfig {
                         // @PreAuthorize 만으로는 익명 요청이 principal 없이 들어와
                         // companyId 추출에서 NPE(500)가 난다. 인증 실패는 401 이어야 한다.
                         .requestMatchers(HttpMethod.POST, "/api/meetings/*/analysis").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/processing-status").authenticated()
 
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
