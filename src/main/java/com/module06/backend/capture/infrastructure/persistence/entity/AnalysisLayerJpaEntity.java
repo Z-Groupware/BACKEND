@@ -88,10 +88,30 @@ public class AnalysisLayerJpaEntity {
     }
 
     /*
-     * 재실행 시 RUNNING 전이와 이전 메타데이터 초기화는 **조건부 UPDATE 한 문장**으로 한다
-     * (SpringDataAnalysisLayerRepository#tryTransitionToRunning). 조회→검사→저장으로 나누면
-     * 두 실행이 같은 상태를 읽고 둘 다 잠근 것으로 판단해 토큰이 두 배가 된다.
+     * 재실행 — RUNNING 으로 되돌리고 시도 횟수를 올린다.
      *
+     * 이전 실행의 메타데이터를 **전부 지운다.** 남겨 두면 이번 시도가 모델을 부르기도 전에
+     * 실패했을 때 지난 실행의 모델·프롬프트 버전이 이번 것으로 읽힌다.
+     *
+     * ⚠ tokensIn/Out 은 지우지 않는다. 재시도로 태운 토큰도 실제로 나간 비용이라 0 으로
+     *   되돌리면 QLTY-03 이 실패한 시도의 비용을 잃는다 — 그래서 아래 markDone·markFailed 는
+     *   덮어쓰지 않고 누적한다.
+     *
+     * 이 메서드는 쓰기 잠금을 걸고 읽은 엔티티에만 호출된다
+     * (SpringDataAnalysisLayerRepository#findWithLockByMeetingIdAndLayer).
+     */
+    public void restart(LocalDateTime now) {
+        this.status = LayerStatus.RUNNING;
+        this.attemptCount += 1;
+        this.startedAt = now;
+        this.finishedAt = null;
+        this.errorCode = null;
+        this.errorMessage = null;
+        this.modelName = null;
+        this.promptVersion = null;
+    }
+
+    /*
      * 토큰은 시도마다 **누적한다.** 실패한 시도에 쓴 토큰도 실제로 나간 비용이라,
      * 덮어쓰면 QLTY-03 이 그만큼 싸게 본다.
      */

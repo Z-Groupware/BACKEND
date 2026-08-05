@@ -24,7 +24,7 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
     @Override
     @Transactional(readOnly = true)
     public List<Utterance> findByMeetingOrderByOffset(long meetingId) {
-        return repository.findByMeetingOrderedByOffset(meetingId).stream()
+        return repository.findByMeetingId(meetingId, SpringDataTranscriptChunkRepository.ORDER).stream()
                 .map(chunk -> new Utterance(
                         chunk.getId(),
                         chunk.getSpeakerMemberId(),
