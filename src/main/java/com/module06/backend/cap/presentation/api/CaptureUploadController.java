@@ -11,10 +11,10 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,10 +41,10 @@ public class CaptureUploadController {
     @PostMapping("/presign")
     public ApiResponse<PresignedPartsResponse> presign(
             @Parameter(description = "회의 ID") @PathVariable Long meetingId,
-            @Parameter(description = "TEMP: 인증 배선 전까지 직접 입력하는 요청자 member id", example = "7")
-            @RequestHeader("X-Member-Id") Long memberId,
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @Valid @RequestBody PresignPartsRequest request) {
-        // TEMP: B(auth) 배선 전까지 헤더 브리지. SecurityContext로 교체 예정.
+        // 요청자는 헤더가 아니라 JWT principal에서 꺼낸다 — 남의 id로 녹음자 배정·업로드하는 것을 원천 차단.
+        // (엔드포인트는 SecurityConfig에서 authenticated()로 보호됨 — 토큰 없으면 401)
         IssuePartUploadUrlsUseCase.Result result =
                 issuePartUploadUrlsUseCase.issuePartUploadUrls(request.toCommand(meetingId, memberId));
         return ApiResponse.success("presigned URL 발급이 완료되었습니다.", PresignedPartsResponse.from(result));
@@ -60,10 +60,9 @@ public class CaptureUploadController {
     public ApiResponse<Void> complete(
             @Parameter(description = "회의 ID") @PathVariable Long meetingId,
             @Parameter(description = "청크 순번(세그먼트 내)") @PathVariable int seq,
-            @Parameter(description = "TEMP: 인증 배선 전까지 직접 입력하는 요청자 member id", example = "7")
-            @RequestHeader("X-Member-Id") Long memberId,
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @Valid @RequestBody CompletePartRequest request) {
-        // TEMP: B(auth) 배선 전까지 헤더 브리지. SecurityContext로 교체 예정.
+        // 요청자는 JWT principal에서 꺼낸다(위 presign과 동일 원칙).
         completePartUploadUseCase.completePartUpload(request.toCommand(meetingId, memberId, seq));
         return ApiResponse.accepted("청크 업로드가 기록되었습니다.", null);
     }
