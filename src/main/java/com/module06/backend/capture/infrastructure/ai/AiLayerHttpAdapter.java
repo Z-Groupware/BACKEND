@@ -7,6 +7,8 @@ import java.util.Objects;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.converter.HttpMessageConversionException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -123,10 +125,14 @@ public class AiLayerHttpAdapter implements AiLayerPort {
             return response;
         } catch (AiLayerException e) {
             throw e;
+        } catch (HttpMessageConversionException | RestClientResponseException e) {
+            // 본문을 읽었는데 우리 DTO 로 안 바뀐다 = Python 과 우리 계약이 어긋났다.
+            // 재시도하면 같은 응답을 또 파싱하려 하므로 낫지 않고, 계층당 3회면 토큰이 3배다.
+            // (같은 이유로 review-loop 의 ProviderAvailability 도 직렬화 실패를 재시도에서 뺐다.)
+            throw new AiLayerException("AI_LAYER_CONTRACT_MISMATCH",
+                    clip(path + " 응답을 해석할 수 없습니다: " + e.getClass().getSimpleName()), false, e);
         } catch (RuntimeException e) {
             // 연결 실패·타임아웃. 제공자·네트워크 문제이므로 재시도 가능으로 분류한다.
-            // 본문 파싱 실패도 여기 걸리는데 그건 계약 불일치이고 재시도로 낫지 않는다 —
-            // 다만 둘을 여기서 가르려면 예외 타입에 기대야 해서, 안전한 쪽(재시도 가능)으로 둔다.
             // 계층은 3회 후 FAILED 로 멈추므로 무한히 도는 경로는 아니다.
             throw new AiLayerException("AI_LAYER_UNREACHABLE",
                     clip(path + " 호출 실패: " + e.getClass().getSimpleName()), true, e);
@@ -226,11 +232,16 @@ public class AiLayerHttpAdapter implements AiLayerPort {
     }
 
     private LayerRun toLayerRun(UsageDto usage, String model, String promptVersion) {
-        // usage 가 없으면 0 으로 둔다. 다만 그건 정상이 아니다 — 명세상 선택 항목이 아니고,
-        // 0 이 쌓이면 QLTY-03 의 비용 기준선이 실제보다 싸게 보인다.
+        // usage 가 없으면 실패로 둔다. 0 으로 채워 성공시키면 **비용 기준선이 조용히 틀어진다** —
+        // 토큰을 쓴 호출이 0 으로 기록되고, QLTY-03 은 실제보다 싼 숫자를 보여주며,
+        // 그 숫자로 특화 모델 전환의 손익분기점을 계산하게 된다. 경고 로그는 아무도 안 본다.
+        //
+        // 명세상 usage 는 선택 항목이 아니고 Python 의 LayerMeta 가 항상 채운다. 비어 있다면
+        // 계약이 깨진 것이므로 재시도해도 같다 → 영구 실패.
         if (usage == null) {
-            log.warn("계층 응답에 usage 가 없다 — 비용 집계가 과소된다. model={}", model);
-            return new LayerRun(0, 0, model, promptVersion);
+            throw new AiLayerException("USAGE_MISSING",
+                    "계층 응답에 usage 가 없습니다(model=" + model + "). 비용 집계가 불가능하므로 실패로 둡니다.",
+                    false);
         }
         return new LayerRun(usage.in(), usage.out(), model, promptVersion);
     }

@@ -18,7 +18,15 @@ public final class AiLayerDtos {
     private AiLayerDtos() {
     }
 
-    /* 계층에 넘기는 발화. transcript_chunk.offset_ms → startOffsetMs 매핑이 여기서 끝난다. */
+    /*
+     * 계층에 넘기는 발화. transcript_chunk.offset_ms → startMs 매핑이 여기서 끝난다.
+     *
+     * ⚠ 필드명이 startMs 인 것은 의도다. Python 의 app/schemas/common.py Utterance 가
+     * start_ms 이고 CamelModel(alias_generator=to_camel) 이 "startMs" 로 노출한다.
+     * 그리고 그 모델은 extra="forbid" 라 **모르는 필드를 422 로 거절한다** — startOffsetMs 로
+     * 바꾸면 L2·L3 요청이 그 자리에서 깨진다. (DB 컬럼명 offset_ms 와도, API 표면의
+     * startOffsetMs 와도 다른 세 번째 이름이라 헷갈리기 쉬워 여기 적어 둔다.)
+     */
     public record UtteranceDto(Long utteranceId, Long speakerId, Integer startMs, String text) {
     }
 

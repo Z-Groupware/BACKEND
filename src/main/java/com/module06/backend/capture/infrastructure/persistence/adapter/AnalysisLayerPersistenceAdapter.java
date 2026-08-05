@@ -49,19 +49,23 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean tryLock(long meetingId, LayerName layer) {
         LocalDateTime now = LocalDateTime.now(clock);
-        Optional<AnalysisLayerJpaEntity> existing =
-                repository.findByMeetingIdAndLayer(meetingId, layer.wireValue());
 
-        if (existing.isPresent()) {
-            AnalysisLayerJpaEntity entity = existing.get();
-            if (entity.getStatus() == LayerStatus.RUNNING) {
-                return false;   // 다른 실행이 잡고 있다. 오류가 아니라 중복이 걸러진 것이다.
-            }
-            // DONE 이어도 다시 잠근다. ANLZ-01 강제 재실행이 그 경로이고, 그때는 앞 결과를
-            // 덮는 것이 의도다. "이미 완료" 판정은 유스케이스가 하지 이 어댑터가 하지 않는다.
-            entity.restart(now);
-            repository.save(entity);
+        /*
+         * 기존 행이면 조건부 UPDATE 한 문장으로 전이시킨다. 조회→검사→저장으로 나누면
+         * 두 실행이 같은 "RUNNING 아님"을 읽고 둘 다 잠근 것으로 판단해, 같은 계층을
+         * 두 번 돌려 토큰이 그대로 두 배가 된다. 조건을 WHERE 로 내려 DB 가 직렬화한다.
+         *
+         * DONE 이어도 잠근다. ANLZ-01 강제 재실행이 그 경로이고, "이미 완료" 판정은
+         * 유스케이스가 하지 이 어댑터가 하지 않는다.
+         */
+        int updated = repository.tryTransitionToRunning(
+                meetingId, layer.wireValue(), LayerStatus.RUNNING, now);
+        if (updated == 1) {
             return true;
+        }
+        if (repository.findByMeetingIdAndLayer(meetingId, layer.wireValue()).isPresent()) {
+            // 행은 있는데 갱신되지 않았다 = 이미 RUNNING 이다. 오류가 아니라 중복이 걸러진 것이다.
+            return false;
         }
 
         try {
@@ -88,10 +92,11 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage) {
+    public void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage,
+                           LayerRun spent) {
         repository.findByMeetingIdAndLayer(meetingId, layer.wireValue())
                 .ifPresent(entity -> {
-                    entity.markFailed(errorCode, errorMessage, LocalDateTime.now(clock));
+                    entity.markFailed(errorCode, errorMessage, spent, LocalDateTime.now(clock));
                     repository.save(entity);
                 });
     }
