@@ -72,7 +72,7 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     public MeetingSummaryView getSummary(long companyId, long meetingId) {
         // 분석 전이면 빈 요약을 지어내지 않고 404 다. 빈 결과를 200 으로 돌려주면
         // 화면이 "요약할 내용이 없는 회의"로 읽고, 분석이 안 돌았다는 사실이 사라진다.
-        return meetingSummaryRepository.findByMeeting(meetingId)
+        return meetingSummaryRepository.findByMeeting(companyId, meetingId)
                 .orElseThrow(() -> new BusinessException(CaptureErrorCode.SUMMARY_NOT_FOUND));
     }
 

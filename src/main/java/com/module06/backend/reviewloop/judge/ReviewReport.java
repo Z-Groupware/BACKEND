@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -108,6 +109,32 @@ public final class ReviewReport {
             }
         }
         List<Lesson> lessons = Files.exists(lessonsLog) ? new KnowledgeStore(lessonsLog).lessons() : List.of();
-        return render(records, lessons);
+        return render(normalize(records), lessons);
+    }
+
+    /*
+     * 중복을 지우고 시각순으로 세운다.
+     *
+     * error_log.jsonl 은 append-only 이고 .gitattributes 가 merge=union 으로 머지한다. 두 브랜치가
+     * 각각 게이트를 돌린 뒤 머지되면 **같은 줄이 둘 남을 수 있고, 줄 순서도 시간순이 아니다**
+     * (union 은 "내 쪽 먼저, 상대 쪽 나중"으로 붙일 뿐 timestamp 를 보지 않는다).
+     *
+     * 그대로 집계하면 "리뷰 없이 나간 건수"가 부풀려진다 — 게이트를 감시하려고 만든 숫자가
+     * 실제보다 나쁘게 나오면 사람이 그 숫자를 믿지 않게 되고, 그때부터 지표가 죽는다.
+     *
+     * 중복 판정은 **레코드 값 전체**로 한다. AuditRecord 는 record 라 컴포넌트 단위 equals 를
+     * 갖고, timestamp 가 마이크로초까지 있어 서로 다른 실행이 같은 값이 될 수 없다.
+     * 별도 id 필드를 넣지 않은 이유는 이미 기록된 줄에는 그 필드가 없어서다 — 새 필드로
+     * 중복을 판정하면 과거 줄이 전부 "id 없음"으로 뭉쳐진다.
+     *
+     * 정렬은 ISO-8601 문자열 비교로 충분하다(같은 포맷·같은 시간대이므로 사전순 = 시간순).
+     * timestamp 가 없는 줄은 맨 뒤로 보낸다 — 손상된 줄을 시각 0 으로 보면 리포트 앞머리를 차지한다.
+     */
+    private static List<AuditRecord> normalize(List<AuditRecord> records) {
+        return records.stream()
+                .distinct()
+                .sorted(Comparator.comparing(AuditRecord::timestamp,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
     }
 }
