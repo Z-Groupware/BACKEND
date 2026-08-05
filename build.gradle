@@ -43,6 +43,10 @@ dependencies {
 
 	implementation 'org.flywaydb:flyway-mysql'
 
+	// databind는 webmvc가 끌어오나 jsr310 datatype은 별도라 명시 고정(팀 컨벤션).
+	// 인수인계 인사이트 스냅샷(JSON payload) 직렬화에 JavaTimeModule 필요.
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 
@@ -86,6 +90,21 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform {
 		excludeTags 'migration'
+	}
+}
+
+// 실패·건너뜀의 "이유"를 CI 로그에 남긴다.
+// Gradle 기본값은 실패한 테스트를 "IllegalStateException at Xxx.java:32" 한 줄로만 찍어서
+// 예외 메시지가 사라진다. 실제로 gate2-live-judge 가 5건 실패했는데 HTTP 상태코드가 로그에
+// 없어서 키 문제인지 쿼터인지 모델 id 인지 판별할 수 없었다(2026-08-05).
+// skipped 도 함께 찍는다 — 라이브 판정이 왜 건너뛰어졌는지가 그 사유에 담긴다.
+tasks.withType(Test).configureEach {
+	testLogging {
+		events 'failed', 'skipped'
+		exceptionFormat = 'full'
+		showExceptions = true
+		showCauses = true
+		showStackTraces = true
 	}
 }
 

@@ -59,6 +59,13 @@ public class SecurityConfig {
 
                         // CAP 청크 업로드(presign/complete)
                         .requestMatchers(HttpMethod.POST, "/api/meetings/*/parts/**").authenticated()
+                        // ── 캡처 파이프라인(도메인 A) ──
+                        // 체인이 anyRequest().permitAll() 로 끝나므로 여기 등록하지 않으면
+                        // @PreAuthorize 만으로는 익명 요청이 principal 없이 들어와
+                        // companyId 추출에서 NPE(500)가 난다. 인증 실패는 401 이어야 한다.
+                        .requestMatchers(HttpMethod.POST, "/api/meetings/*/analysis").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/processing-status").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/summary").authenticated()
 
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
