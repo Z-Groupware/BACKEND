@@ -1,6 +1,7 @@
 package com.module06.backend.handover.application.service;
 
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
+import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
@@ -31,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -217,6 +219,7 @@ class HandoverServiceTest {
         assertThat(saved.getFinalApproverNameSnap()).isEqualTo("Park");
         verify(memberStatusPort).toVacation(WRITER);
         verify(memberStatusPort, never()).offboard(WRITER);
+        verifyNoInteractions(finalizeHandoverInsightsUseCase);
     }
 
     @Test
@@ -229,6 +232,8 @@ class HandoverServiceTest {
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         verify(memberStatusPort).offboard(WRITER);
         verify(memberStatusPort, never()).toVacation(WRITER);
+        verify(finalizeHandoverInsightsUseCase)
+                .finalizeInsights(new FinalizeHandoverInsightsCommand(HANDOVER_ID, WRITER));
     }
 
     @Test

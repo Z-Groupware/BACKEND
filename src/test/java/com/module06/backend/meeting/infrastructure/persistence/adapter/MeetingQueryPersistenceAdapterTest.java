@@ -184,6 +184,9 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(result)
                 .extracting(MeetingQueryRepository.MeetingTopicSnapshot::type)
                 .containsExactly(MeetingTopicType.MAIN, MeetingTopicType.SUB);
+        /* 안건 식별자가 계층 복원용으로 손실 없이 전달돼야 한다. */
+        assertThat(result)
+                .allSatisfy(snapshot -> assertThat(snapshot.topicId()).isNotNull());
     }
 
     /* 테스트 회의 조건으로 필수 컬럼을 모두 가진 영속성 엔티티를 만든다. */

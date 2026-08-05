@@ -113,18 +113,18 @@ class MeetingQueryPortDelegatingAdapterTest {
     }
 
     @Test
-    void findMeetingTopicsMapsMissingIdsToNull() {
+    void findMeetingTopicsPropagatesTopicHierarchy() {
         List<Long> meetingIds = List.of(100L);
         when(meetingQueryPort.findMeetingTopics(COMPANY_ID, meetingIds)).thenReturn(List.of(
-                new MeetingTopicResult(100L, MeetingTopicType.MAIN, "Decision", 1),
-                new MeetingTopicResult(100L, MeetingTopicType.SUB, "Follow up", 2)
+                new MeetingTopicResult(100L, 10L, null, MeetingTopicType.MAIN, "Decision", 1),
+                new MeetingTopicResult(100L, 11L, 10L, MeetingTopicType.SUB, "Follow up", 2)
         ));
 
         List<MeetingQueryPort.MeetingTopic> mapped = adapter.findMeetingTopics(meetingIds);
 
         assertThat(mapped).containsExactly(
-                new MeetingQueryPort.MeetingTopic(100L, null, null, "MAIN", "Decision", 1),
-                new MeetingQueryPort.MeetingTopic(100L, null, null, "SUB", "Follow up", 2)
+                new MeetingQueryPort.MeetingTopic(100L, 10L, null, "MAIN", "Decision", 1),
+                new MeetingQueryPort.MeetingTopic(100L, 11L, 10L, "SUB", "Follow up", 2)
         );
         verify(meetingQueryPort).findMeetingTopics(COMPANY_ID, meetingIds);
     }

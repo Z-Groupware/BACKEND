@@ -125,7 +125,8 @@ public class HandoverInsightFinalizeService implements FinalizeHandoverInsightsU
         Map<Long, List<MeetingQueryPort.ProjectMeeting>> meetingsByProject = new LinkedHashMap<>();
         for (Long projectId : projectIds) {
             List<MeetingQueryPort.ProjectMeeting> orderedMeetings = new ArrayList<>(meetingQueryPort.findProjectMeetingsOrdered(projectId));
-            orderedMeetings.sort(Comparator.comparing(MeetingQueryPort.ProjectMeeting::startAt));
+            orderedMeetings.sort(Comparator.comparing(
+                MeetingQueryPort.ProjectMeeting::startAt, Comparator.nullsLast(LocalDateTime::compareTo)));
             meetingsByProject.put(projectId, List.copyOf(orderedMeetings));
         }
 
@@ -260,7 +261,8 @@ public class HandoverInsightFinalizeService implements FinalizeHandoverInsightsU
     private List<Long> executorIds(Long departureMemberId, Long projectId, InsightSource source) {
         return source.meetings(projectId).stream()
             .filter(meeting -> source.attendeeIds(meeting.meetingId()).contains(departureMemberId))
-            .max(Comparator.comparing(MeetingQueryPort.ProjectMeeting::startAt))
+            .max(Comparator.comparing(
+                MeetingQueryPort.ProjectMeeting::startAt, Comparator.nullsFirst(LocalDateTime::compareTo)))
             .map(meeting -> limitedCoAttendees(departureMemberId, source.attendeeIds(meeting.meetingId())))
             .orElseGet(List::of);
     }
@@ -301,7 +303,8 @@ public class HandoverInsightFinalizeService implements FinalizeHandoverInsightsU
         try {
             return HandoverInsight.newSnapshot(handoverId, actionId, kind, OBJECT_MAPPER.writeValueAsString(payload), sortOrder);
         } catch (JsonProcessingException e) {
-            throw new BusinessException(HandoverErrorCode.HO_CONFLICT);
+            // 어떤 kind/actionId payload 직렬화가 실패했는지 원인 예외로 보존해 로그에서 추적 가능하게 한다.
+            throw new BusinessException(HandoverErrorCode.HO_CONFLICT, e);
         }
     }
 

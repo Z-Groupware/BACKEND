@@ -79,8 +79,8 @@ public class MeetingQueryPortDelegatingAdapter implements MeetingQueryPort {
     private MeetingTopic toMeetingTopic(MeetingTopicResult result) {
         return new MeetingTopic(
                 result.meetingId(),
-                null,
-                null,
+                result.topicId(),
+                result.parentTopicId(),
                 result.type().name(),
                 result.content(),
                 result.sortOrder()
