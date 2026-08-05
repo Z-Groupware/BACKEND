@@ -1,12 +1,15 @@
 package com.module06.backend.global.security;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,5 +87,57 @@ class JwtTokenProviderTest {
     void refreshTtlDependsOnKeepSignedIn() {
         assertThat(provider.refreshTtl(false)).isEqualTo(Duration.ofDays(1));
         assertThat(provider.refreshTtl(true)).isEqualTo(Duration.ofDays(14));
+    }
+
+    @Test
+    @DisplayName("64자 hex 키로 발급한 토큰의 alg 는 HS256 이다 — 키 길이에 따라 조용히 바뀌지 않는다")
+    void signsWithHs256() {
+        String jwt = provider.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L));
+
+        String header = new String(
+                Base64.getUrlDecoder().decode(jwt.substring(0, jwt.indexOf('.'))), StandardCharsets.UTF_8);
+
+        assertThat(header).contains("\"alg\":\"HS256\"");
+    }
+
+    @Test
+    @DisplayName("32자 hex 는 디코드하면 16바이트뿐이라 거부한다 — 길이를 ASCII 가 아니라 디코드 후로 잰다")
+    void rejectsHexShorterThan32Bytes() {
+        assertThatThrownBy(() -> new JwtTokenProvider(new JwtProperties(
+                "0123456789abcdef0123456789abcdef", Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("16바이트");
+    }
+
+    @Test
+    @DisplayName("hex 가 아닌 secret 은 거부한다")
+    void rejectsNonHexSecret() {
+        assertThatThrownBy(() -> new JwtTokenProvider(new JwtProperties(
+                "not-a-hex-value-but-definitely-long-enough-to-pass-a-length-check",
+                Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("hex");
+    }
+
+    @Test
+    @DisplayName("리프레시 토큰을 액세스 자리에 넣으면 401 로 거부한다 — 예전엔 NPE 로 500 이 났다")
+    void rejectsRefreshTokenUsedAsAccessToken() {
+        String refresh = provider.createRefreshToken(3L, "jti-abc", false);
+
+        assertThatThrownBy(() -> provider.parseAccessToken(refresh))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("액세스 토큰을 리프레시 자리에 넣으면 거부한다 — 예전엔 jti=null 로 통과했다")
+    void rejectsAccessTokenUsedAsRefreshToken() {
+        String access = provider.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L));
+
+        assertThatThrownBy(() -> provider.parseRefreshToken(access))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.REFRESH_TOKEN_INVALID);
     }
 }

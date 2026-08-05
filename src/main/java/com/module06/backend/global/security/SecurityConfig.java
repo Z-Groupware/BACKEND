@@ -13,6 +13,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import tools.jackson.databind.ObjectMapper;
+
 // 인증 배선 전체를 이 클래스 하나에 모은다.
 //
 // JwtTokenProvider·JwtAuthenticationFilter 를 @Component 로 두지 않고 여기서 @Bean 으로 등록하는
@@ -38,6 +40,12 @@ public class SecurityConfig {
         return new JwtAuthenticationFilter(jwtTokenProvider);
     }
 
+    // 스프링 기본 구현은 본문 없는 403 을 내린다 — 프론트와 약속한 ErrorResponse 계약이 깨진다.
+    @Bean
+    public SecurityErrorResponder securityErrorResponder(ObjectMapper objectMapper) {
+        return new SecurityErrorResponder(objectMapper);
+    }
+
     // 1단계 — 인증 경로만 규칙을 걸고 나머지는 계속 열어둔다.
     //
     // 여기서 anyRequest().authenticated() 로 뒤집으면 handover·project·action·meetingroom API 가
@@ -49,12 +57,16 @@ public class SecurityConfig {
     // 나서 바로 발견된다.
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
+                                                   JwtAuthenticationFilter jwtAuthenticationFilter,
+                                                   SecurityErrorResponder securityErrorResponder) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint(securityErrorResponder)
+                        .accessDeniedHandler(securityErrorResponder))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
                                 "/api/companies/lookup",

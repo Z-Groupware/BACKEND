@@ -49,8 +49,9 @@ spring:
     baseline-on-migrate: false
 
 # ── JWT ──
-# secret 은 application-secret.yml 에서 온다. HS256 이라 최소 32바이트여야 하고,
-# 짧으면 키 생성 단계에서 즉시 예외가 나 부팅에서 걸린다(런타임까지 미뤄지지 않는다).
+# secret 은 application-secret.yml 에서 온다. hex 문자열이며 디코드한 raw 바이트가 키다 —
+# HS256 이라 디코드 후 최소 32바이트(= 64자 hex)여야 하고, 짧거나 hex 가 아니면 키 생성
+# 단계에서 즉시 예외가 나 부팅에서 걸린다(런타임까지 미뤄지지 않는다).
 # 이 값이 바뀌면 이미 발급된 모든 토큰이 무효가 된다.
 jwt:
   secret: ${JWT_SECRET}
