@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,6 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meetingroom.domain.model.ReservedSlot;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomSlotRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingReferenceEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomSlotJpaEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingReferenceRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomSlotRepository;
 
 /*
  * ROOM-02의 실제 슬롯 조회 조건과 영속성 어댑터 변환을 검증하는 통합 테스트다.

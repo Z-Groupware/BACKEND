@@ -1,8 +1,10 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.repository;
 
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingReferenceEntity;
 
 /*
  * meeting 테이블을 읽기 전용으로 조회하는 Spring Data JPA 저장소다.

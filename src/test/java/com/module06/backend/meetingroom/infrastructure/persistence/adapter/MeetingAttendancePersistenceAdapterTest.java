@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,6 +13,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meetingroom.domain.repository.MeetingAttendanceRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingAttendeeReferenceEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingAttendeeReferenceRepository;
 
 /*
  * ROOM-02 제목 마스킹 판단에 쓰는 참석 여부 조회를 검증하는 통합 테스트다.

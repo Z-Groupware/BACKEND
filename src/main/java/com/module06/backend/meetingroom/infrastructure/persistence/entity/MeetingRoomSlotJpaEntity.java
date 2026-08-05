@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.entity;
 
 import java.time.LocalDateTime;
 

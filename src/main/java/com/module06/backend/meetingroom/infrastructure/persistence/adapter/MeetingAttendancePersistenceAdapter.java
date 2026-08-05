@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import java.util.List;
 import java.util.Set;
@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meetingroom.domain.repository.MeetingAttendanceRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingAttendeeReferenceEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingAttendeeReferenceRepository;
 
 /*
  * MeetingAttendanceRepository 도메인 계약을 JPA로 구현하는 아웃바운드 어댑터다.

@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,6 +11,10 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meetingroom.domain.model.ReservedSlot;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomSlotRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingReferenceEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomSlotJpaEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingReferenceRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomSlotRepository;
 
 /*
  * MeetingRoomSlotRepository 도메인 계약을 JPA로 구현하는 아웃바운드 어댑터다.

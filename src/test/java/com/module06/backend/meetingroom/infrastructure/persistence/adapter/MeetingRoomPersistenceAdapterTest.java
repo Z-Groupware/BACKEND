@@ -1,4 +1,4 @@
-package com.module06.backend.meetingroom.infrastructure.persistence;
+package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -16,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
+import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
+import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomRepository;
 
 /*
  * ROOM-01의 실제 JPA 조회 조건과 영속성 어댑터 변환을 검증하는 통합 테스트다.
