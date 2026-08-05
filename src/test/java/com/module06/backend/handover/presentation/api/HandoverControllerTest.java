@@ -14,12 +14,16 @@ import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.model.HandoverType;
+import com.module06.backend.global.security.AuthPrincipal;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -125,32 +129,64 @@ class HandoverControllerTest {
     }
 
     @Test
-    void completeUsesMemberIdHeaderAndCurrentTime() throws Exception {
+    void completeUsesTokenMemberIdAndCurrentTime() throws Exception {
+        authenticateAs(APPROVER);
         when(completeHandoverUseCase.complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class)))
                 .thenReturn(reassigned());
 
-        mockMvc.perform(patch("/api/handovers/{id}/complete", HANDOVER_ID)
-                        .header("X-Member-Id", APPROVER))
+        mockMvc.perform(patch("/api/handovers/{id}/complete", HANDOVER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("REASSIGNED"));
 
         verify(completeHandoverUseCase).complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class));
     }
 
+    /*
+     * 승인자를 헤더로 받으면 남의 사번을 적어 그 사람 이름으로 승인할 수 있다. 승인은 감사 기록이
+     * 남는 행위라(finalApproverNameSnap) 신분 위조가 곧 기록 위조가 된다. 토큰만 봐야 한다.
+     */
+    @Test
+    void completeIgnoresSpoofedMemberIdHeader() throws Exception {
+        authenticateAs(APPROVER);
+        when(completeHandoverUseCase.complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class)))
+                .thenReturn(reassigned());
+
+        mockMvc.perform(patch("/api/handovers/{id}/complete", HANDOVER_ID)
+                        .header("X-Member-Id", 999L))
+                .andExpect(status().isOk());
+
+        verify(completeHandoverUseCase).complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class));
+    }
+
     @Test
     void finalizeResolvesApproverNameFromOrgPort() throws Exception {
+        authenticateAs(APPROVER);
         when(orgQueryPort.findMember(APPROVER)).thenReturn(new OrgQueryPort.MemberSnapshot(APPROVER, "Park", "Leader"));
         when(finalizeHandoverUseCase.finalize(eq(HANDOVER_ID), eq(APPROVER), eq("Park"), any(LocalDateTime.class)))
                 .thenReturn(finalized());
 
-        mockMvc.perform(patch("/api/handovers/{id}/finalize", HANDOVER_ID)
-                        .header("X-Member-Id", APPROVER))
+        mockMvc.perform(patch("/api/handovers/{id}/finalize", HANDOVER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("FINALIZED"))
                 .andExpect(jsonPath("$.data.finalApproverNameSnap").value("Park"));
 
         verify(orgQueryPort).findMember(APPROVER);
         verify(finalizeHandoverUseCase).finalize(eq(HANDOVER_ID), eq(APPROVER), eq("Park"), any(LocalDateTime.class));
+    }
+
+    @Test
+    void finalizeIgnoresSpoofedMemberIdHeader() throws Exception {
+        authenticateAs(APPROVER);
+        when(orgQueryPort.findMember(APPROVER)).thenReturn(new OrgQueryPort.MemberSnapshot(APPROVER, "Park", "Leader"));
+        when(finalizeHandoverUseCase.finalize(eq(HANDOVER_ID), eq(APPROVER), eq("Park"), any(LocalDateTime.class)))
+                .thenReturn(finalized());
+
+        mockMvc.perform(patch("/api/handovers/{id}/finalize", HANDOVER_ID)
+                        .header("X-Member-Id", 999L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.finalApproverNameSnap").value("Park"));
+
+        verify(orgQueryPort).findMember(APPROVER);
     }
 
     @Test
@@ -220,5 +256,17 @@ class HandoverControllerTest {
     private static HandoverItem item() {
         return HandoverItem.create(ACTION, "Action", "TODO", "PRJ", "TEAM",
                 LocalDate.of(2026, 8, 30), 500L, "Meeting", "Content", true);
+    }
+
+    /** 필터를 끈 슬라이스라 컨텍스트를 직접 심는다 — 다른 도메인의 컨트롤러 테스트와 같은 방식. */
+    private void authenticateAs(Long memberId) {
+        AuthPrincipal principal = new AuthPrincipal(memberId, 1L, "LEADER", false, TEAM);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, List.of()));
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
     }
 }

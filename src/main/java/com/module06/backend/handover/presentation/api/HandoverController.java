@@ -15,14 +15,15 @@ import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRe
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverResponse;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverSummaryResponse;
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -89,18 +90,22 @@ public class HandoverController {
         return ApiResponse.success("Handover item reassigned.", HandoverResponse.from(handover));
     }
 
+    /*
+     * 승인자를 토큰에서 꺼낸다. 헤더로 받으면 남의 사번을 적어 그 사람 이름으로 승인할 수 있고,
+     * 승인은 감사 기록이 남는 행위라(finalApproverNameSnap) 신분 위조가 곧 기록 위조가 된다.
+     */
     @PatchMapping("/{id}/complete")
     public ApiResponse<HandoverResponse> complete(@PathVariable Long id,
-                                                  @RequestHeader("X-Member-Id") Long memberId) {
-        // TEMP: B(auth) 배선 전까지 헤더 브리지. SecurityContext로 교체 예정.
+                                                  @Parameter(hidden = true)
+                                                  @AuthenticationPrincipal(expression = "memberId") Long memberId) {
         Handover handover = completeHandoverUseCase.complete(id, memberId, LocalDateTime.now());
         return ApiResponse.success("Handover completed.", HandoverResponse.from(handover));
     }
 
     @PatchMapping("/{id}/finalize")
     public ApiResponse<HandoverResponse> finalize(@PathVariable Long id,
-                                                  @RequestHeader("X-Member-Id") Long memberId) {
-        // TEMP: B(auth) 배선 전까지 헤더 브리지. SecurityContext로 교체 예정.
+                                                  @Parameter(hidden = true)
+                                                  @AuthenticationPrincipal(expression = "memberId") Long memberId) {
         OrgQueryPort.MemberSnapshot approver = orgQueryPort.findMember(memberId);
         Handover handover = finalizeHandoverUseCase.finalize(id, memberId, approver.name(), LocalDateTime.now());
         return ApiResponse.success("Handover finalized.", HandoverResponse.from(handover));
