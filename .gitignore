@@ -71,3 +71,6 @@ application-*-secret.yaml
 hs_err_pid*
 replay_pid*
 src/main/resources/application-dev.yaml
+
+# Claude Code 로컬 설정 (개발자 개인 환경 — 하드코딩 경로 등 포함, 공유 대상 아님)
+.claude/
