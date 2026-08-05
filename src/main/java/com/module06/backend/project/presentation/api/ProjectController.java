@@ -61,7 +61,16 @@ public class ProjectController {
         return ApiResponse.created("프로젝트를 생성했습니다.", ProjectSummaryResponse.from(project));
     }
 
+    /*
+        권한표상 목록·기획 열람은 전원이므로 역할을 좁히지 않되, 인증은 요구한다.
+
+        지금은 이 애너테이션이 실제로 동작할 기회가 없다 — 익명 요청은 인자 해석 단계에서
+        먼저 터진다(principal 이 문자열 "anonymousUser" 라 expression 평가 실패). 회의·회의실 API 도
+        같은 상태다. Task 10 이 anyRequest().authenticated() 로 뒤집으면 필터가 그 앞에서 막는다.
+        그때 이 줄은 "이 엔드포인트는 로그인 전원용"이라는 의도 표시 + 2차 방어로 남는다.
+    */
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ProjectSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId

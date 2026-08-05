@@ -136,6 +136,20 @@ class ProjectControllerTest {
         verify(getProjectListUseCase).list(eq(1L));
     }
 
+    /*
+     * 익명 요청은 여기서 검증하지 않는다. 이유가 두 겹이다.
+     *
+     * 1) 이 슬라이스로는 볼 수 없다 — @WebMvcTest 는 @Configuration 을 스캔하지 않아
+     *    SecurityConfig 의 @EnableMethodSecurity 가 없고, 그러면 @PreAuthorize 가 평가되지 않는다.
+     *
+     * 2) 실제 서버에서도 지금은 401 이 아니라 500 이 난다. 익명 요청의 principal 은 AuthPrincipal 이
+     *    아니라 문자열 "anonymousUser" 라서, @AuthenticationPrincipal(expression = "companyId") 가
+     *    SpEL 평가에서 터진다(EL1008E). 인자 해석이 @PreAuthorize 보다 먼저라 401 로 갈 기회가 없다.
+     *    이건 이 변경이 만든 문제가 아니다 — develop 의 회의·회의실 API 도 같은 패턴이라 똑같이
+     *    500 이다(2026-08-05 실제 서버 확인). Task 10 이 anyRequest().authenticated() 로 뒤집으면
+     *    필터가 인자 해석 전에 막아서 세 도메인이 한꺼번에 해소된다.
+     */
+
     /** 필터를 끈 슬라이스 테스트라 컨텍스트를 직접 심는다 — AuthControllerTest 와 같은 방식. */
     private void authenticateAs(Long companyId, Long memberId) {
         AuthPrincipal principal = new AuthPrincipal(memberId, companyId, "OWNER", false, null);
