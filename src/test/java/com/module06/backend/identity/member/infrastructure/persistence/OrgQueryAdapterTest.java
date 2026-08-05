@@ -112,6 +112,57 @@ class OrgQueryAdapterTest {
         assertThat(found.get(0).name()).isEqualTo("있는사람");
     }
 
+    /*
+     * 오너·어드민이 보는 "회사 승인 큐" 의 범위다. handover 테이블에 company_id 가 없어서
+     * 회사 소속을 계정 도메인에 물어보는 구조다(2026-08-06 결정 · A안).
+     *
+     * 스냅샷 컬럼을 박지 않고 매번 조회하는 이유: 조직 이동·개편이 있어도 항상 현재 조직 진실을
+     * 따라야 한다. 작성 시점 팀(team_id)은 스냅샷이 맞지만, "누가 우리 회사 사람인가" 는 지금 기준이다.
+     */
+    @Test
+    @DisplayName("회사의 구성원 id 를 모아 준다 — 오너·어드민의 회사 전체 조회 범위")
+    void findsMemberIdsByCompany() {
+        insertCompany(361L);
+        insertCompany(362L);
+        insertMember(363L, 361L, null, null, "우리회사A", "ACTIVE", null);
+        insertMember(364L, 361L, null, null, "우리회사B", "ACTIVE", null);
+        insertMember(365L, 362L, null, null, "남의회사", "ACTIVE", null);
+
+        assertThat(port.findMemberIdsByCompany(361L)).containsExactlyInAnyOrder(363L, 364L);
+    }
+
+    @Test
+    @DisplayName("남의 회사 구성원은 섞이지 않는다 — 이 목록이 테넌트 경계다")
+    void doesNotLeakOtherCompany() {
+        insertCompany(371L);
+        insertCompany(372L);
+        insertMember(373L, 371L, null, null, "우리", "ACTIVE", null);
+        insertMember(374L, 372L, null, null, "남", "ACTIVE", null);
+
+        assertThat(port.findMemberIdsByCompany(371L)).doesNotContain(374L);
+    }
+
+    /*
+     * 퇴사자를 빼지 않는다. 오프보딩이 끝나면 그 사람은 RESIGNED 가 되는데, 빼 버리면 방금 승인한
+     * 인수인계가 오너의 목록에서 사라져 감사 흔적을 못 본다. 진행 중 여부는 status 필터가 가른다.
+     */
+    @Test
+    @DisplayName("퇴사자도 포함한다 — 빼면 방금 승인한 인수인계가 목록에서 사라진다")
+    void includesResignedForAudit() {
+        insertCompany(381L);
+        insertMember(382L, 381L, null, null, "퇴사자", "RESIGNED", "2026-08-01 12:00:00");
+
+        assertThat(port.findMemberIdsByCompany(381L)).contains(382L);
+    }
+
+    @Test
+    @DisplayName("구성원이 없는 회사는 빈 목록 — null 이 아니다")
+    void emptyCompanyReturnsEmptyList() {
+        insertCompany(391L);
+
+        assertThat(port.findMemberIdsByCompany(391L)).isEmpty();
+    }
+
     @Test
     @DisplayName("팀의 리더를 찾는다")
     void findsTeamLeader() {

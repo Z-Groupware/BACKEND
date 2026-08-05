@@ -58,6 +58,20 @@ public class OrgQueryAdapter implements OrgQueryPort {
     }
 
     /**
+     * 회사 소속 구성원 id. 오너·어드민이 "회사 전체" 인수인계를 볼 때 그 범위가 된다.
+     *
+     * <p>퇴사자를 빼지 않는다 — 오프보딩이 끝나면 작성자가 {@code RESIGNED} 가 되는데, 빼면
+     * 방금 승인한 인수인계가 목록에서 사라져 감사 흔적을 못 본다. 진행 중 여부는 호출자가
+     * status 로 가른다.
+     */
+    @Override
+    public List<Long> findMemberIdsByCompany(Long companyId) {
+        return memberRepository.findByCompanyId(companyId).stream()
+                .map(SpringDataMemberRepository.MemberIdProjection::getId)
+                .toList();
+    }
+
+    /**
      * 구현하지 않는다 — {@code actionCount} 가 액션 도메인의 데이터라 이 도메인에서 셀 수 없다.
      *
      * <p>계정 도메인이 액션 테이블을 직접 조회하면 도메인 경계가 무너지고, 0 으로 채워 돌려주면
