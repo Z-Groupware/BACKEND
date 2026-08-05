@@ -63,6 +63,38 @@ class SlotGridTest {
     }
 
     /*
+     * 초 단위 이용 시작 시각을 분 단위로 잘라 실제 시작 전 슬롯을 만드는 회귀를 방지한다.
+     */
+    @Test
+    @DisplayName("초 단위 이용 시작 시각보다 먼저 시작하는 슬롯을 만들지 않는다")
+    void doesNotCreateSlotBeforeSecondPrecisionAvailableFrom() {
+        /* 09:00:30부터 09:30까지는 완전한 30분 구간이 없으므로 슬롯을 만들 수 없다. */
+        List<LocalTime> slotStarts = SlotGrid.slotStarts(
+                LocalTime.of(9, 0, 30),
+                LocalTime.of(9, 30)
+        );
+
+        /* 분 단위 절단으로 09:00 슬롯이 잘못 생성되지 않아야 한다. */
+        assertThat(slotStarts).isEmpty();
+    }
+
+    /*
+     * 이용 가능 시간에 포함된 초 단위 정밀도가 생성된 슬롯에도 유지되는지 검증한다.
+     */
+    @Test
+    @DisplayName("초 단위 정밀도를 유지해 30분 슬롯을 생성한다")
+    void preservesSecondPrecisionWhenCreatingSlot() {
+        /* 정확히 30분 차이인 초 단위 경계로 슬롯을 계산한다. */
+        List<LocalTime> slotStarts = SlotGrid.slotStarts(
+                LocalTime.of(9, 0, 30),
+                LocalTime.of(9, 30, 30)
+        );
+
+        /* 실제 이용 시작 시각인 09:00:30을 슬롯 시작 시각으로 그대로 사용해야 한다. */
+        assertThat(slotStarts).containsExactly(LocalTime.of(9, 0, 30));
+    }
+
+    /*
      * 슬롯을 만들 수 없는 이용 시간에서 빈 목록이 반환되는지 검증한다.
      */
     @Test

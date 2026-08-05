@@ -20,8 +20,8 @@ public final class SlotGrid {
     /* 예약 슬롯 하나의 길이(분)이며 API 응답의 slotMinutes 값과 동일하다. */
     public static final int SLOT_MINUTES = 30;
 
-    /* 시각을 분 단위 정수로 환산할 때 사용하는 시간당 분이다. */
-    private static final int MINUTES_PER_HOUR = 60;
+    /* 초·나노초 정밀도를 잃지 않고 슬롯 길이를 비교하기 위한 30분의 나노초 값이다. */
+    private static final long SLOT_NANOS = SLOT_MINUTES * 60L * 1_000_000_000L;
 
     /*
      * 상수와 정적 계산만 제공하므로 인스턴스 생성을 막는다.
@@ -44,28 +44,18 @@ public final class SlotGrid {
             return List.of();
         }
 
-        /* 자정을 넘는 계산에서 시각이 되돌아가지 않도록 하루 안의 분 단위 정수로 환산해 비교한다. */
-        int fromMinuteOfDay = toMinuteOfDay(availableFrom);
-        int toMinuteOfDay = toMinuteOfDay(availableTo);
+        /* 초·나노초를 버리지 않도록 자정 기준 나노초로 환산해 실제 이용 시간 경계를 유지한다. */
+        long fromNanoOfDay = availableFrom.toNanoOfDay();
+        long toNanoOfDay = availableTo.toNanoOfDay();
 
         /* 시작 시각부터 슬롯 하나가 종료 시각 안에 완전히 들어가는 동안만 슬롯을 추가한다. */
         List<LocalTime> slotStarts = new ArrayList<>();
-        for (int start = fromMinuteOfDay; start + SLOT_MINUTES <= toMinuteOfDay; start += SLOT_MINUTES) {
-            slotStarts.add(LocalTime.of(start / MINUTES_PER_HOUR, start % MINUTES_PER_HOUR));
+        for (long start = fromNanoOfDay; start + SLOT_NANOS <= toNanoOfDay; start += SLOT_NANOS) {
+            slotStarts.add(LocalTime.ofNanoOfDay(start));
         }
 
         /* 계산 결과가 외부에서 변경되지 않도록 불변 목록으로 반환한다. */
         return List.copyOf(slotStarts);
     }
 
-    /*
-     * 시각을 자정 기준 경과 분으로 환산한다.
-     *
-     * @param time 환산할 시각
-     * @return 자정부터 경과한 분
-     */
-    private static int toMinuteOfDay(LocalTime time) {
-        /* 초 이하 단위는 30분 그리드 계산에 영향을 주지 않으므로 시와 분만 사용한다. */
-        return time.getHour() * MINUTES_PER_HOUR + time.getMinute();
-    }
 }

@@ -30,7 +30,7 @@ public enum MeetingRoomErrorCode implements ErrorCode {
     MEETING_ROOM_NAME_DUPLICATE(HttpStatus.CONFLICT, "MR-002", "이미 사용 중인 회의실 이름입니다."),
 
     /* ROOM-03·04 — 이용 가능 종료 시각이 시작 시각보다 빠르거나 같은 경우다. */
-    INVALID_AVAILABLE_TIME_RANGE(HttpStatus.BAD_REQUEST, "MR-003", "이용 가능 종료 시각이 시작 시각보다 빠릅니다."),
+    INVALID_AVAILABLE_TIME_RANGE(HttpStatus.BAD_REQUEST, "MR-003", "이용 가능 종료 시각은 시작 시각보다 늦어야 합니다."),
 
     /* ROOM-03·04·05 — OWNER·ADMIN이 아닌 요청자가 회의실을 관리하려는 경우다. */
     MEETING_ROOM_MANAGEMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "MR-004", "회의실 관리 권한이 없습니다."),

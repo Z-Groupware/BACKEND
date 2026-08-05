@@ -52,7 +52,11 @@ public class MeetingRoomSlotPersistenceAdapter implements MeetingRoomSlotReposit
 
         /* 회의 테이블 범위 조회 없이 물질화된 슬롯 행만 읽는다. */
         List<MeetingRoomSlotJpaEntity> slots = springDataMeetingRoomSlotRepository
-                .findReservedSlots(meetingRoomIds, fromInclusive, toExclusive);
+                .findAllByMeetingRoomIdInAndSlotStartGreaterThanEqualAndSlotStartLessThanOrderByMeetingRoomIdAscSlotStartAsc(
+                        meetingRoomIds,
+                        fromInclusive,
+                        toExclusive
+                );
 
         /* 예약이 하나도 없으면 회의 제목을 조회할 필요가 없다. */
         if (slots.isEmpty()) {

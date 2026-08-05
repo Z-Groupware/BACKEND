@@ -36,7 +36,13 @@ public class MeetingAttendancePersistenceAdapter implements MeetingAttendanceRep
             return Set.of();
         }
 
-        /* 조회 결과를 집합으로 바꿔 슬롯마다 반복되는 참석 여부 확인을 상수 시간에 처리한다. */
-        return Set.copyOf(springDataMeetingAttendeeReferenceRepository.findAttendedMeetingIds(memberId, meetingIds));
+        /* 최소 컬럼만 매핑한 참조 엔티티에서 회의 ID를 추출해 참석 여부 확인용 집합으로 반환한다. */
+        return Set.copyOf(
+                springDataMeetingAttendeeReferenceRepository
+                        .findAllByMemberIdAndMeetingIdIn(memberId, meetingIds)
+                        .stream()
+                        .map(MeetingAttendeeReferenceEntity::getMeetingId)
+                        .toList()
+        );
     }
 }
