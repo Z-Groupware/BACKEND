@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,6 +39,9 @@ public class CaptureUploadController {
             summary = "청크 업로드 URL 배치 발급",
             description = "청크를 올릴 수 있는 presigned URL을 count개 발급합니다. 첫 호출자가 자동으로 녹음자가 됩니다."
     )
+    // SecurityConfig authenticated()와 이중 방어(anyRequest permitAll 기본값 사고 방지). "현재 녹음자" 검증은
+    // 서비스가 담당하므로, Spring 층에선 "로그인한 사용자 누구나"를 base role 전부 나열로 표현한다.
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @PostMapping("/presign")
     public ApiResponse<PresignedPartsResponse> presign(
             @Parameter(description = "회의 ID") @PathVariable Long meetingId,
@@ -55,6 +59,8 @@ public class CaptureUploadController {
             summary = "청크 업로드 완료 통보",
             description = "청크 하나가 S3에 업로드 완료됐음을 서버에 기록합니다. 이 호출 자체가 하트비트입니다."
     )
+    // presign과 동일 — 이중 방어. "현재 녹음자만"은 서비스의 recordUpload가 검증한다.
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @PostMapping("/{seq}/complete")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ApiResponse<Void> complete(

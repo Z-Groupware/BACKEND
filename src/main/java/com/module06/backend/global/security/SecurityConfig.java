@@ -60,6 +60,10 @@ public class SecurityConfig {
                         // CAP 청크 업로드(presign/complete)
                         .requestMatchers(HttpMethod.POST, "/api/meetings/*/parts/**").authenticated()
 
+                        // CAP 진행 중 캡처 조회 — 토큰의 memberId로 참석 회의를 찾으므로 반드시 인증돼야 한다
+                        // (anyRequest가 permitAll이라 명시하지 않으면 principal이 null이 되어 NPE).
+                        .requestMatchers(HttpMethod.GET, "/api/captures/active").authenticated()
+
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
