@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
+import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 
 /*
@@ -24,6 +25,13 @@ public class SpringMeetingEventPublisher implements MeetingEventPublisher {
     @Override
     public void publish(MeetingReservedEvent event) {
         /* 트랜잭션 안에서 발행하고 소비자가 AFTER_COMMIT 단계에서 처리하게 한다. */
+        applicationEventPublisher.publishEvent(event);
+    }
+
+    /* 새 참석자 초대 이벤트를 Spring 이벤트 채널에 발행한다. */
+    @Override
+    public void publish(MeetingAttendeesAddedEvent event) {
+        /* 트랜잭션 안에서 발행하고 알림 소비자가 AFTER_COMMIT 단계에서 처리하게 한다. */
         applicationEventPublisher.publishEvent(event);
     }
 }

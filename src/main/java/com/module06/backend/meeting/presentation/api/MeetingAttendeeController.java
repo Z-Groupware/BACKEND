@@ -1,9 +1,13 @@
 package com.module06.backend.meeting.presentation.api;
 
+import jakarta.validation.Valid;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -14,14 +18,18 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.meeting.application.query.GetMeetingAttendeesQuery;
+import com.module06.backend.meeting.application.result.MeetingAttendeeUpdateResult;
 import com.module06.backend.meeting.application.result.MeetingAttendeesResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingAttendeesUseCase;
+import com.module06.backend.meeting.application.usecase.ReplaceMeetingAttendeesUseCase;
+import com.module06.backend.meeting.presentation.api.request.ReplaceMeetingAttendeesRequest;
 import com.module06.backend.meeting.presentation.api.response.MeetingAttendeeListResponse;
+import com.module06.backend.meeting.presentation.api.response.MeetingAttendeeUpdateResponse;
 
 /*
  * 회의 참석자 명단 REST API의 진입점이다.
  *
- * RESULT-01의 GET과 향후 MEET-09의 PUT이 같은 참석자 리소스를 공유하므로
+ * RESULT-01의 GET과 MEET-09의 PUT이 같은 참석자 리소스를 공유하므로
  * 핵심 회의 Controller와 분리해 참석자 조회·교체 기능을 한 곳에 모은다.
  */
 @Tag(name = "Meeting Attendee", description = "회의 참석자 조회 및 관리 API")
@@ -32,6 +40,9 @@ public class MeetingAttendeeController {
 
     /* RESULT-01 Controller와 회의 조회 서비스 사이의 인바운드 포트다. */
     private final GetMeetingAttendeesUseCase getMeetingAttendeesUseCase;
+
+    /* MEET-09 Controller와 참석자 교체 서비스 사이의 인바운드 포트다. */
+    private final ReplaceMeetingAttendeesUseCase replaceMeetingAttendeesUseCase;
 
     /*
      * 열람 권한이 있는 회의의 개설자 포함 전체 참석자 명단을 조회한다.
@@ -76,6 +87,38 @@ public class MeetingAttendeeController {
         return ApiResponse.success(
                 "회의 참석자 조회에 성공했습니다.",
                 MeetingAttendeeListResponse.from(result)
+        );
+    }
+
+    /* host·OWNER·ADMIN 권한으로 회의 참석자 명단을 전체 교체한다. */
+    @Operation(
+            summary = "회의 참석자 명단 교체",
+            description = "회의의 입장 허용 및 STT 화자 후보 명단을 전체 교체하며 개설자는 자동 포함합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PutMapping
+    public ApiResponse<MeetingAttendeeUpdateResponse> replaceMeetingAttendees(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "role") String role,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin,
+            @Parameter(description = "대상 회의 식별자", required = true, example = "91")
+            @PathVariable Long meetingId,
+            @Valid @RequestBody ReplaceMeetingAttendeesRequest request
+    ) {
+        /* 인증 정보와 Path 및 요청 본문을 Command로 결합해 MEET-09 유스케이스를 실행한다. */
+        MeetingAttendeeUpdateResult result = replaceMeetingAttendeesUseCase.replaceMeetingAttendees(
+                request.toCommand(companyId, memberId, role, isAdmin, meetingId)
+        );
+
+        /* 교체된 최종 참석자 명단을 공통 200 성공 응답으로 반환한다. */
+        return ApiResponse.success(
+                "참석자 명단을 변경했습니다.",
+                MeetingAttendeeUpdateResponse.from(result)
         );
     }
 }
