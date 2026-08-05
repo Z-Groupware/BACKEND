@@ -128,7 +128,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("없는 이메일은 LOGIN_FAILED — 회사 없음과 같은 응답이어야 한다")
     void unknownEmailIsLoginFailed() {
-        AuthService service = new AuthService(repository(), (companyId, email) -> Optional.empty(),
+        AuthService service = new AuthService(repository(), port(null),
                 new RecordingStore(), tokenProvider, encoder);
 
         assertLoginFailed(service, PASSWORD);
@@ -177,7 +177,7 @@ class AuthServiceTest {
     @DisplayName("없는 이메일에도 비밀번호를 검증한다 — 기업 코드를 아는 사람이 이메일을 열거할 수 있다")
     void verifiesPasswordEvenWhenEmailIsAbsent() {
         CountingEncoder counting = new CountingEncoder();
-        AuthService service = new AuthService(repository(), (companyId, email) -> Optional.empty(),
+        AuthService service = new AuthService(repository(), port(null),
                 new RecordingStore(), tokenProvider, counting);
 
         assertLoginFailed(service, PASSWORD);
@@ -241,8 +241,19 @@ class AuthServiceTest {
         return new RecordingRepository(Optional.of(new Company(1L, CODE, "(주)테크스타트")));
     }
 
+    /** {@code credentials} 가 null 이면 "그 구성원이 없다" 는 뜻이다. */
     private MemberAuthQueryPort port(MemberCredentials credentials) {
-        return (companyId, email) -> EMAIL.equals(email) ? Optional.of(credentials) : Optional.empty();
+        return new MemberAuthQueryPort() {
+            @Override
+            public Optional<MemberCredentials> findForLogin(Long companyId, String email) {
+                return EMAIL.equals(email) ? Optional.ofNullable(credentials) : Optional.empty();
+            }
+
+            @Override
+            public Optional<MemberCredentials> findById(Long memberId) {
+                return Optional.ofNullable(credentials);
+            }
+        };
     }
 
     private MemberCredentials member(Role role, boolean isAdmin) {
