@@ -12,11 +12,7 @@ import com.module06.backend.identity.company.domain.repository.CompanyRepository
 
 import lombok.RequiredArgsConstructor;
 
-/**
- * 로그인 1단계. 기업코드로 회사를 찾아 이름을 돌려준다.
- *
- * <p>레이트 리밋을 조회보다 먼저 건다 — 초과한 요청이 DB 까지 가면 제한의 의미가 없다.
- */
+
 @Service
 @RequiredArgsConstructor
 public class CompanyLookupService implements LookupCompanyUseCase {
@@ -32,7 +28,6 @@ public class CompanyLookupService implements LookupCompanyUseCase {
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.COMPANY_CODE_NOT_FOUND));
     }
 
-    /** 메일에서 복사하면 앞뒤 공백이 붙고, 대소문자도 섞여 들어온다. */
     private String normalize(String rawCode) {
         return rawCode == null ? "" : rawCode.trim().toUpperCase();
     }

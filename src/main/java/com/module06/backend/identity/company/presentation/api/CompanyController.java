@@ -17,12 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
-/**
- * 로그인 1단계 API.
- *
- * <p>GET 쿼리가 아니라 POST 바디인 이유: 쿼리스트링은 액세스 로그·프록시 로그·브라우저 히스토리·
- * Referer 에 기업코드를 그대로 남긴다.
- */
+
 @Tag(name = "Identity", description = "인증 · 기업 조회 API")
 @RestController
 @RequestMapping("/api/companies")
