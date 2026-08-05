@@ -3,6 +3,7 @@ package com.module06.backend.reviewloop.judge;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 씨앗 N+1 코드를 실제 Judge가 finding으로 잡는지 확인. (provider만 Gemini, 나머지 루프는 동일)
  */
 @EnabledIfEnvironmentVariable(named = "GEMINI_API_KEY", matches = ".+")
+@ExtendWith(SkipOnProviderUnavailable.class)
 class GeminiJudgeAdapterLiveTest {
 
     private static final String PERF_POLICY = """
