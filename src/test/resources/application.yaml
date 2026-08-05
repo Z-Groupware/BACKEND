@@ -13,3 +13,14 @@ spring:
   # (ENGINE=InnoDB / JSON / ENUM 등)이라 H2에 실행하지 않는다. 마이그레이션 검증은 실제 MySQL에서.
   flyway:
     enabled: false
+
+# ── JWT ──
+# ⚠️ 이 파일은 main 의 application.yaml 을 **가린다**(같은 이름이 테스트 클래스패스에서 우선).
+#    따라서 main 에 키를 추가하면 여기에도 넣어야 한다. 안 넣으면 스프링 컨텍스트를 띄우는
+#    모든 테스트가 "JwtProperties.secret() is null" 로 한꺼번에 죽는다.
+# 값은 아무 64자 hex 여도 된다 — 테스트는 발급과 검증을 같은 키로만 한다.
+jwt:
+  secret: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  access-ttl: 30m
+  refresh-ttl-default: 1d
+  refresh-ttl-extended: 14d
