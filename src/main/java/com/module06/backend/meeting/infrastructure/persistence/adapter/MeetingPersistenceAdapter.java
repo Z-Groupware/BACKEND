@@ -1,5 +1,9 @@
 package com.module06.backend.meeting.infrastructure.persistence.adapter;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 
@@ -14,6 +18,7 @@ import com.module06.backend.meeting.exception.MeetingErrorCode;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingReservationSlotJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
 
 /*
@@ -27,6 +32,9 @@ public class MeetingPersistenceAdapter implements MeetingRepository {
 
     /* meeting 기본 행을 저장하고 데이터베이스 생성 식별자를 받는 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
+
+    /* 기존 참석자 행을 조회해 목표 명단과의 추가·삭제 차이를 계산하는 기술 저장소다. */
+    private final SpringDataMeetingAttendeeRepository springDataMeetingAttendeeRepository;
 
     /* 복합 PK 엔티티를 merge가 아닌 INSERT로 강제하기 위한 JPA 영속성 컨텍스트다. */
     private final EntityManager entityManager;
@@ -50,6 +58,39 @@ public class MeetingPersistenceAdapter implements MeetingRepository {
 
         /* 저장된 회의 값과 원래의 참석자 순서를 합쳐 도메인 애그리거트로 복원한다. */
         return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
+    }
+
+    /* 기존 참석자 중 빠진 행을 삭제하고 새로 추가된 행을 저장해 명단을 전체 교체한다. */
+    @Override
+    public void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds) {
+        try {
+            /* 현재 명단을 영속성 컨텍스트의 관리 엔티티로 조회한다. */
+            List<MeetingAttendeeJpaEntity> existingAttendees = springDataMeetingAttendeeRepository
+                    .findAllByMeetingIdOrderByMemberIdAsc(meetingId);
+
+            /* 목표 명단과 기존 명단을 집합으로 만들어 추가·삭제 대상을 빠르게 판정한다. */
+            Set<Long> targetMemberIds = Set.copyOf(attendeeMemberIds);
+            Set<Long> existingMemberIds = existingAttendees.stream()
+                    .map(MeetingAttendeeJpaEntity::getMemberId)
+                    .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+
+            /* 목표 명단에서 빠진 기존 참석자 행만 삭제한다. */
+            existingAttendees.stream()
+                    .filter(attendee -> !targetMemberIds.contains(attendee.getMemberId()))
+                    .forEach(entityManager::remove);
+
+            /* 기존 명단에 없던 목표 참석자만 신규 복합 PK 행으로 저장한다. */
+            attendeeMemberIds.stream()
+                    .filter(memberId -> !existingMemberIds.contains(memberId))
+                    .map(memberId -> new MeetingAttendeeJpaEntity(meetingId, memberId))
+                    .forEach(entityManager::persist);
+
+            /* 교체 결과를 트랜잭션 종료 전에 반영해 FK·PK 오류를 이 경계에서 변환한다. */
+            entityManager.flush();
+        } catch (PersistenceException exception) {
+            /* 검증 이후 구성원 삭제 등 경합으로 발생한 무결성 오류를 MT-010으로 통일한다. */
+            throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+        }
     }
 
     /* 회의가 점유할 모든 슬롯을 persist하고 PK 충돌을 도메인 오류로 변환한다. */

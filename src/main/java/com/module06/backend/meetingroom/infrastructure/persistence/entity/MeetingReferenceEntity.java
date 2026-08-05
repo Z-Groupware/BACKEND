@@ -4,6 +4,8 @@ import org.hibernate.annotations.Immutable;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -29,8 +31,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class MeetingReferenceEntity {
 
-    /* 회의를 식별하는 기본 키다. */
+    /* 회의를 식별하며 회의 쓰기 엔티티와 동일한 IDENTITY 전략을 사용하는 기본 키다. */
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id", nullable = false)
     private Long id;
 
