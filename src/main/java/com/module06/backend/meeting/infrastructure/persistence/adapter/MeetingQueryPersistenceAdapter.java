@@ -1,15 +1,19 @@
 package com.module06.backend.meeting.infrastructure.persistence.adapter;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
@@ -59,6 +63,82 @@ public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository {
                 .findAllByCompanyIdAndProjectIdOrderByStartAtAscIdAsc(companyId, projectId)
                 .stream()
                 .map(this::toProjectMeetingSnapshot)
+                .toList();
+    }
+
+    /* 인증 사용자가 참석자로 등록된 예정·진행 중 회의를 현재 이후 기준으로 제한 조회한다. */
+    @Override
+    public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
+            Long companyId,
+            Long memberId,
+            java.time.LocalDateTime now,
+            int limit
+    ) {
+        /* 참석자 조인 테이블에서 먼저 사용자가 실제로 포함된 회의 식별자만 조회한다. */
+        List<Long> attendeeMeetingIds = springDataMeetingAttendeeRepository
+                .findAllByMemberIdOrderByMeetingIdAsc(memberId)
+                .stream()
+                .map(MeetingAttendeeJpaEntity::getMeetingId)
+                .distinct()
+                .toList();
+
+        /* 참석자로 등록된 회의가 없으면 후속 meeting 조회 없이 빈 목록을 반환한다. */
+        if (attendeeMeetingIds.isEmpty()) {
+            return List.of();
+        }
+
+        /* 긴 IN 조건을 피하기 위해 참석 회의 식별자를 200개씩 나눠 활성 후보를 조회한다. */
+        List<MeetingJpaEntity> candidates = new ArrayList<>();
+        List<MeetingStatus> upcomingStatuses = List.of(
+                MeetingStatus.SCHEDULED,
+                MeetingStatus.IN_PROGRESS
+        );
+        for (int fromIndex = 0; fromIndex < attendeeMeetingIds.size(); fromIndex += MEETING_ID_BATCH_SIZE) {
+            /* 현재 배치의 끝 위치가 전체 참석 회의 목록을 넘지 않도록 제한한다. */
+            int toIndex = Math.min(fromIndex + MEETING_ID_BATCH_SIZE, attendeeMeetingIds.size());
+            List<Long> batchMeetingIds = attendeeMeetingIds.subList(fromIndex, toIndex);
+
+            /* 회사·상태·종료 시각 조건을 데이터베이스에 적용한 현재 배치 후보를 수집한다. */
+            candidates.addAll(springDataMeetingRepository
+                    .findAllByIdInAndCompanyIdAndStatusInAndEndAtGreaterThanEqualOrderByStartAtAscIdAsc(
+                            batchMeetingIds,
+                            companyId,
+                            upcomingStatuses,
+                            now
+                    ));
+        }
+
+        /* 배치 경계를 넘어도 전체가 시작 시각과 식별자 순서를 유지하도록 정렬하고 limit을 적용한다. */
+        List<MeetingJpaEntity> selectedMeetings = candidates.stream()
+                .sorted(Comparator
+                        .comparing(MeetingJpaEntity::getStartAt)
+                        .thenComparing(MeetingJpaEntity::getId))
+                .limit(limit)
+                .toList();
+
+        /* 필터 결과가 없으면 참석자 수 조회 없이 빈 목록을 반환한다. */
+        if (selectedMeetings.isEmpty()) {
+            return List.of();
+        }
+
+        /* 최대 20개 선택 회의의 참석자를 한 번에 조회해 회의별 인원수를 계산한다. */
+        List<Long> selectedMeetingIds = selectedMeetings.stream()
+                .map(MeetingJpaEntity::getId)
+                .toList();
+        Map<Long, Long> attendeeCounts = springDataMeetingAttendeeRepository
+                .findAllByMeetingIdInOrderByMeetingIdAscMemberIdAsc(selectedMeetingIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        MeetingAttendeeJpaEntity::getMeetingId,
+                        Collectors.counting()
+                ));
+
+        /* 회의 메타와 배치 계산한 참석자 수를 MEET-03 읽기 모델로 변환한다. */
+        return selectedMeetings.stream()
+                .map(meeting -> toUpcomingMeetingSnapshot(
+                        meeting,
+                        attendeeCounts.getOrDefault(meeting.getId(), 0L).intValue()
+                ))
                 .toList();
     }
 
@@ -183,6 +263,22 @@ public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository {
                 meeting.getStartAt(),
                 meeting.getHostMemberId(),
                 meeting.getStatus()
+        );
+    }
+
+    /* 회의 엔티티와 집계된 참석자 수를 MEET-03 예정 회의 읽기 모델로 변환한다. */
+    private UpcomingMeetingSnapshot toUpcomingMeetingSnapshot(MeetingJpaEntity meeting, int attendeeCount) {
+        /* 카드 조립에 필요한 식별자, 시간, 상태, 참석자 수만 저장소 경계 밖으로 전달한다. */
+        return new UpcomingMeetingSnapshot(
+                meeting.getId(),
+                meeting.getProjectId(),
+                meeting.getMeetingRoomId(),
+                meeting.getHostMemberId(),
+                meeting.getTitle(),
+                meeting.getStatus(),
+                meeting.getStartAt(),
+                meeting.getEndAt(),
+                attendeeCount
         );
     }
 

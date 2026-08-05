@@ -21,6 +21,14 @@ public interface MeetingQueryRepository {
     /* 프로젝트에 속한 회의를 시작 시각과 식별자 오름차순으로 조회한다. */
     List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId);
 
+    /* 인증 사용자가 참석한 예정·진행 중 회의를 현재 시각 이후 기준으로 제한 조회한다. */
+    List<UpcomingMeetingSnapshot> findUpcomingMeetings(
+            Long companyId,
+            Long memberId,
+            LocalDateTime now,
+            int limit
+    );
+
     /* 회사 범위 안의 여러 회의에 연결된 대주제와 소주제를 한 번에 조회한다. */
     List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds);
 
@@ -56,6 +64,20 @@ public interface MeetingQueryRepository {
             LocalDateTime startAt,
             Long hostMemberId,
             MeetingStatus status
+    ) {
+    }
+
+    /* MEET-03 카드 조립에 필요한 회의 메타와 참석자 수를 담은 읽기 모델이다. */
+    record UpcomingMeetingSnapshot(
+            Long meetingId,
+            Long projectId,
+            Long meetingRoomId,
+            Long hostMemberId,
+            String title,
+            MeetingStatus status,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
+            int attendeeCount
     ) {
     }
 

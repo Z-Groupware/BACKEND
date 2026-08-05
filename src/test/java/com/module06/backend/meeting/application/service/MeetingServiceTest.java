@@ -21,8 +21,10 @@ import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
+import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
+import com.module06.backend.meeting.application.port.out.ProjectQueryPort.ProjectSnapshot;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
@@ -157,11 +159,39 @@ class MeetingServiceTest {
             boolean projectExists,
             boolean actionExists
     ) {
-        /* 단일 조회 결과를 반환하는 회의실 포트 대역이다. */
-        MeetingRoomQueryPort roomPort = (companyId, meetingRoomId) -> room;
+        /* 단건 회의실 조회 결과와 사용하지 않는 배치 계약을 구현한 포트 대역이다. */
+        MeetingRoomQueryPort roomPort = new MeetingRoomQueryPort() {
+            /* 테스트가 준비한 활성 회의실 단건 결과를 반환한다. */
+            @Override
+            public Optional<MeetingRoomSnapshot> findActiveMeetingRoom(Long companyId, Long meetingRoomId) {
+                /* MEET-01 검증에 사용할 Optional을 그대로 반환한다. */
+                return room;
+            }
 
-        /* 테스트에서 정한 프로젝트 존재 결과를 반환하는 포트 대역이다. */
-        ProjectQueryPort projectPort = (companyId, projectId) -> projectExists;
+            /* MEET-03 배치 조회는 이 서비스 테스트에서 사용하지 않는다. */
+            @Override
+            public List<MeetingRoomSnapshot> findMeetingRooms(Long companyId, List<Long> meetingRoomIds) {
+                /* 호출되지 않는 별도 계약을 빈 목록으로 만족시킨다. */
+                return List.of();
+            }
+        };
+
+        /* 프로젝트 존재 결과와 사용하지 않는 표시 정보 배치 계약을 구현한 포트 대역이다. */
+        ProjectQueryPort projectPort = new ProjectQueryPort() {
+            /* 테스트에서 정한 프로젝트 존재 여부를 반환한다. */
+            @Override
+            public boolean existsActiveProject(Long companyId, Long projectId) {
+                /* MEET-01 검증 조건으로 전달받은 값을 그대로 반환한다. */
+                return projectExists;
+            }
+
+            /* MEET-03 프로젝트 표시 조회는 이 서비스 테스트에서 사용하지 않는다. */
+            @Override
+            public List<ProjectSnapshot> findProjects(Long companyId, List<Long> projectIds) {
+                /* 호출되지 않는 별도 계약을 빈 목록으로 만족시킨다. */
+                return List.of();
+            }
+        };
 
         /* 테스트에서 준비한 활성 구성원 목록을 반환하는 배치 포트 대역이다. */
         MemberQueryPort memberPort = (companyId, memberIds) -> members;

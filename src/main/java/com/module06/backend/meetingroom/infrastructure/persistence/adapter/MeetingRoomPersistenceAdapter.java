@@ -56,6 +56,30 @@ public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository {
                 .map(this::toDomain);
     }
 
+    /* 예정 회의가 참조하는 회의실을 활성 여부와 무관하게 회사 범위에서 일괄 조회한다. */
+    @Override
+    public List<MeetingRoom> findAllByIds(Long companyId, List<Long> meetingRoomIds) {
+        /* 중복 식별자를 제거해 파생 IN 쿼리의 크기를 줄이고 식별자 순서를 안정화한다. */
+        List<Long> distinctIds = meetingRoomIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(meetingRoomId -> meetingRoomId > 0L)
+                .distinct()
+                .sorted()
+                .toList();
+
+        /* 유효한 식별자가 없으면 데이터베이스를 호출하지 않고 빈 목록을 반환한다. */
+        if (distinctIds.isEmpty()) {
+            return List.of();
+        }
+
+        /* 비활성화된 회의실도 과거·예정 회의 표시값으로 사용할 수 있도록 삭제 조건 없이 조회한다. */
+        return springDataMeetingRoomRepository
+                .findAllByCompanyIdAndIdInOrderByIdAsc(companyId, distinctIds)
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     /*
      * 영속성 엔티티를 프레임워크 의존성이 없는 회의실 도메인 모델로 변환한다.
      *
