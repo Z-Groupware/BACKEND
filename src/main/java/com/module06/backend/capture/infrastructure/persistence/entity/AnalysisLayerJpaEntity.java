@@ -87,31 +87,42 @@ public class AnalysisLayerJpaEntity {
         return entity;
     }
 
-    /* 재실행 — 상태를 RUNNING 으로 되돌리고 시도 횟수를 올린다. 이전 오류는 지운다. */
-    public void restart(LocalDateTime now) {
-        this.status = LayerStatus.RUNNING;
-        this.attemptCount += 1;
-        this.startedAt = now;
-        this.finishedAt = null;
-        this.errorCode = null;
-        this.errorMessage = null;
-    }
-
+    /*
+     * 재실행 시 RUNNING 전이와 이전 메타데이터 초기화는 **조건부 UPDATE 한 문장**으로 한다
+     * (SpringDataAnalysisLayerRepository#tryTransitionToRunning). 조회→검사→저장으로 나누면
+     * 두 실행이 같은 상태를 읽고 둘 다 잠근 것으로 판단해 토큰이 두 배가 된다.
+     *
+     * 토큰은 시도마다 **누적한다.** 실패한 시도에 쓴 토큰도 실제로 나간 비용이라,
+     * 덮어쓰면 QLTY-03 이 그만큼 싸게 본다.
+     */
     public void markDone(LayerRun run, LocalDateTime now) {
         this.status = LayerStatus.DONE;
-        this.tokensIn = run.tokensIn();
-        this.tokensOut = run.tokensOut();
+        this.tokensIn += run.tokensIn();
+        this.tokensOut += run.tokensOut();
         this.modelName = run.modelName();
         this.promptVersion = run.promptVersion();
         this.finishedAt = now;
     }
 
-    public void markFailed(String errorCode, String errorMessage, LocalDateTime now) {
+    /*
+     * @param spent 실패 전까지 실제로 쓴 토큰. L3 처럼 주제마다 부르는 계층은 3번째에서
+     *              터져도 앞의 2번은 과금됐다 — 그걸 버리면 비용이 조용히 과소 집계된다.
+     */
+    public void markFailed(String errorCode, String errorMessage, LayerRun spent, LocalDateTime now) {
         this.status = LayerStatus.FAILED;
         this.errorCode = errorCode;
         // 컬럼이 VARCHAR(500) 이다. 넘치는 메시지로 저장이 터지면 실패 기록 자체가 사라진다 —
         // 그러면 "왜 실패했는지 모르는 실패"가 되어 조사할 출발점이 없어진다.
         this.errorMessage = clip(errorMessage);
+        if (spent != null) {
+            this.tokensIn += spent.tokensIn();
+            this.tokensOut += spent.tokensOut();
+            // 모델·프롬프트는 실제로 부른 적이 있을 때만 남는다.
+            if (spent.modelName() != null) {
+                this.modelName = spent.modelName();
+                this.promptVersion = spent.promptVersion();
+            }
+        }
         this.finishedAt = now;
     }
 

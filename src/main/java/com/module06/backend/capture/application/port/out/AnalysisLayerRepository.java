@@ -30,8 +30,12 @@ public interface AnalysisLayerRepository {
      *
      * errorCode 를 남기는 것이 중요하다. SCHEMA_INVALID·CONTEXT_EXCEEDED 는 재시도해도 토큰만
      * 태우는 영구 실패이고, 그 판정을 나중에 사람이 다시 하려면 무엇으로 실패했는지가 있어야 한다.
+     *
+     * @param spent 실패 전까지 실제로 쓴 토큰. **버리면 안 된다** — L3 처럼 주제마다 부르는
+     *              계층은 3번째에서 터져도 앞의 2번은 이미 과금됐다. 0 으로 기록하면 QLTY-03 이
+     *              실제보다 싼 기준선을 보여주고, 그 숫자로 특화 모델 전환을 판단하게 된다.
      */
-    void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage);
+    void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage, LayerRun spent);
 
     /* CAP-06 이 내려주는 계층 상태 목록이다. */
     List<LayerState> findStates(long meetingId);
