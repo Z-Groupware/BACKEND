@@ -54,7 +54,7 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
 
         // 테넌트 = 회사다. 계층에 그대로 넘어가 few-shot 조회 필터가 되므로 빠지면
         // 다른 회사 회의 발화가 프롬프트에 주입된다 — 정확도 문제가 아니라 유출이다.
-        return orchestrator.run(companyId, companyId, meetingId, participants);
+        return orchestrator.run(companyId, companyId, meetingId, participants, force);
     }
 
     @Override
