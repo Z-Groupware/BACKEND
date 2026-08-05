@@ -33,4 +33,7 @@ public interface SpringDataMeetingRoomRepository extends JpaRepository<MeetingRo
      * @return 조건을 만족하는 활성 회의실 영속성 엔티티, 없으면 빈 Optional
      */
     Optional<MeetingRoomJpaEntity> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
+
+    /* 예정 회의가 참조하는 회의실을 비활성 여부와 무관하게 회사 범위에서 일괄 조회한다. */
+    List<MeetingRoomJpaEntity> findAllByCompanyIdAndIdInOrderByIdAsc(Long companyId, List<Long> ids);
 }

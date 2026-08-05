@@ -3,6 +3,7 @@ package com.module06.backend.reviewloop.judge;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -17,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * GEMINI_API_KEY 있을 때만 실행. provider만 Gemini일 뿐 나머지 루프는 프로덕션과 동일.
  */
 @EnabledIfEnvironmentVariable(named = "GEMINI_API_KEY", matches = ".+")
+@ExtendWith(SkipOnProviderUnavailable.class)
 class GeminiReviewLoopLiveTest {
 
     @TempDir
