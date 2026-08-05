@@ -183,7 +183,16 @@ class MeetingAttendeeCommandServiceTest {
         MeetingLockRepository lockRepository = (companyId, meetingId) -> Optional.of(meeting);
 
         /* 요청에 따라 구성원 표시 정보를 반환하는 B Port 대역을 만든다. */
-        MemberQueryPort memberQueryPort = (companyId, memberIds) -> members;
+        MemberQueryPort memberQueryPort = (companyId, memberIds) -> {
+            boolean invalid = memberIds.stream()
+                    .anyMatch(memberId -> memberId == null || memberId <= 0L);
+
+            if (invalid) {
+                throw new AssertionError("잘못된 구성원 ID가 MemberQueryPort까지 전달됐습니다.");
+            }
+
+            return members;
+        };
 
         /* 실제 서비스에 조회·쓰기·구성원·이벤트 대역을 주입해 반환한다. */
         return new MeetingAttendeeCommandService(
