@@ -3,12 +3,14 @@ package com.module06.backend.project.presentation.api;
 import java.util.List;
 
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import io.swagger.v3.oas.annotations.Parameter;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.project.application.command.CreateProjectCommand;
@@ -32,11 +34,17 @@ public class ProjectController {
     private final CreateProjectUseCase createProjectUseCase;
     private final GetProjectListUseCase getProjectListUseCase;
 
+    /*
+        회사·작성자를 토큰에서 꺼낸다. 헤더로 받으면 로그인만 한 사람이 남의 회사 번호를 적어
+        보낼 수 있어서, 인증을 걸어도 막히지 않는 구멍이 된다.
+    */
     @PostMapping
     @PreAuthorize("hasRole('OWNER')")
     public ApiResponse<ProjectSummaryResponse> create(
-            @RequestHeader("X-Company-Id") Long companyId,
-            @RequestHeader("X-Member-Id") Long memberId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @Valid @RequestBody CreateProjectRequest request
     ) {
         Project project = createProjectUseCase.create(new CreateProjectCommand(
@@ -54,7 +62,10 @@ public class ProjectController {
     }
 
     @GetMapping
-    public ApiResponse<List<ProjectSummaryResponse>> list(@RequestHeader("X-Company-Id") Long companyId) {
+    public ApiResponse<List<ProjectSummaryResponse>> list(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId
+    ) {
         List<ProjectSummaryResponse> response = getProjectListUseCase.list(companyId).stream()
                 .map(ProjectSummaryResponse::from)
                 .toList();
