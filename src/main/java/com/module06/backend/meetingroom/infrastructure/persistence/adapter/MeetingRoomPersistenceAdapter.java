@@ -3,15 +3,18 @@ package com.module06.backend.meetingroom.infrastructure.persistence.adapter;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepository;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
 import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
 import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomRepository;
+import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 
 /*
  * MeetingRoomRepository 도메인 계약을 JPA로 구현하는 아웃바운드 어댑터다.
@@ -22,6 +25,9 @@ import com.module06.backend.meetingroom.infrastructure.persistence.repository.Sp
 @Component
 @RequiredArgsConstructor
 public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository, MeetingRoomCommandRepository {
+
+    /* 활성 회의실 이름의 동시 저장을 최종 차단하는 데이터베이스 제약 이름이다. */
+    private static final String ACTIVE_NAME_UNIQUE_CONSTRAINT = "UK_MEETING_ROOM_ACTIVE_NAME";
 
     /* 실제 meeting_room 조회 쿼리를 실행하는 기술 저장소다. */
     private final SpringDataMeetingRoomRepository springDataMeetingRoomRepository;
@@ -37,12 +43,38 @@ public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository, Mee
     @Override
     public MeetingRoom save(MeetingRoom meetingRoom) {
         /* 검증된 도메인을 영속성 엔티티로 변환하고 IDENTITY 식별자를 즉시 확보한다. */
-        MeetingRoomJpaEntity saved = springDataMeetingRoomRepository.saveAndFlush(
-                MeetingRoomJpaEntity.from(meetingRoom)
-        );
+        MeetingRoomJpaEntity saved;
+        try {
+            /* flush까지 실행해 유일성 제약 위반을 트랜잭션 종료 전 이 경계에서 확인한다. */
+            saved = springDataMeetingRoomRepository.saveAndFlush(MeetingRoomJpaEntity.from(meetingRoom));
+        } catch (DataIntegrityViolationException exception) {
+            /* 활성 이름 유일성 위반만 공개 계약인 MR-002로 변환하고 다른 무결성 오류는 숨기지 않는다. */
+            if (containsConstraintName(exception, ACTIVE_NAME_UNIQUE_CONSTRAINT)) {
+                throw new BusinessException(MeetingRoomErrorCode.MEETING_ROOM_NAME_DUPLICATE, exception);
+            }
+            throw exception;
+        }
 
         /* 저장된 전체 컬럼을 프레임워크 의존성이 없는 회의실 도메인 객체로 복원한다. */
         return toDomain(saved);
+    }
+
+    /* 예외 원인 체인에 특정 데이터베이스 제약 이름이 포함돼 있는지 확인한다. */
+    private boolean containsConstraintName(Throwable exception, String constraintName) {
+        /* JDBC 드라이버와 Hibernate가 예외를 여러 단계로 감싸므로 최하위 원인까지 순회한다. */
+        Throwable current = exception;
+        while (current != null) {
+            /* MySQL·H2가 제약 이름을 메시지에 포함하는 경우 대소문자 차이 없이 판별한다. */
+            String message = current.getMessage();
+            if (message != null && message.toUpperCase(java.util.Locale.ROOT)
+                    .contains(constraintName.toUpperCase(java.util.Locale.ROOT))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        /* 전체 원인 체인에 대상 제약이 없으면 다른 데이터 무결성 오류로 유지한다. */
+        return false;
     }
 
     /*
