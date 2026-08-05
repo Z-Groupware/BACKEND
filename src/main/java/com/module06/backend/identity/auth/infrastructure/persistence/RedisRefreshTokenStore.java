@@ -2,10 +2,9 @@ package com.module06.backend.identity.auth.infrastructure.persistence;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore;
@@ -17,27 +16,42 @@ import lombok.RequiredArgsConstructor;
 public class RedisRefreshTokenStore implements RefreshTokenStore {
 
     private static final String TOKEN_KEY = "refresh:%d:%s";
+    private static final String TOKEN_KEY_PREFIX = "refresh:%d:";
     private static final String MEMBER_SET_KEY = "refresh:%d";
+
+    /** KEYS[1]=토큰 키, KEYS[2]=jti Set, ARGV[1]=jti, ARGV[2]=TTL(ms). */
+    private static final RedisScript<Long> SAVE = RedisScript.of("""
+            local ttl = tonumber(ARGV[2])
+            redis.call('SET', KEYS[1], '1', 'PX', ttl)
+            redis.call('SADD', KEYS[2], ARGV[1])
+            local remaining = redis.call('PTTL', KEYS[2])
+            if remaining < 0 or remaining < ttl then
+                redis.call('PEXPIRE', KEYS[2], ttl)
+            end
+            return 1
+            """, Long.class);
+
+    /** KEYS[1]=jti Set, ARGV[1]=토큰 키 접두어. */
+    private static final RedisScript<Long> REVOKE_ALL = RedisScript.of("""
+            local jtis = redis.call('SMEMBERS', KEYS[1])
+            for i = 1, #jtis do
+                redis.call('DEL', ARGV[1] .. jtis[i])
+            end
+            redis.call('DEL', KEYS[1])
+            return #jtis
+            """, Long.class);
 
     private final StringRedisTemplate redis;
 
     @Override
     public void save(Long memberId, String jti, Duration ttl) {
-        // Redis 는 SETEX 에 0 이하를 주면 오류를 낸다. 이미 만료된 토큰이므로 올리지 않고 끝낸다.
+        // Redis 는 SET 에 0 이하 만료를 주면 오류를 낸다. 이미 만료된 토큰이므로 올리지 않고 끝낸다.
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
             return;
         }
-        String setKey = memberSetKey(memberId);
-        redis.opsForValue().set(tokenKey(memberId, jti), "1", ttl);
-        redis.opsForSet().add(setKey, jti);
-        extendAtLeast(setKey, ttl);
-    }
-
-    private void extendAtLeast(String setKey, Duration ttl) {
-        Long remainingSeconds = redis.getExpire(setKey, TimeUnit.SECONDS);
-        if (remainingSeconds == null || remainingSeconds < 0 || remainingSeconds < ttl.toSeconds()) {
-            redis.expire(setKey, ttl);
-        }
+        redis.execute(SAVE,
+                List.of(tokenKey(memberId, jti), memberSetKey(memberId)),
+                jti, String.valueOf(ttl.toMillis()));
     }
 
     @Override
@@ -53,17 +67,15 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
 
     @Override
     public void revokeAllByMember(Long memberId) {
-        String setKey = memberSetKey(memberId);
-        Set<String> jtis = redis.opsForSet().members(setKey);
-        if (jtis != null && !jtis.isEmpty()) {
-            List<String> keys = jtis.stream().map(jti -> tokenKey(memberId, jti)).toList();
-            redis.delete(keys);
-        }
-        redis.delete(setKey);
+        redis.execute(REVOKE_ALL, List.of(memberSetKey(memberId)), tokenKeyPrefix(memberId));
     }
 
     private String tokenKey(Long memberId, String jti) {
         return TOKEN_KEY.formatted(memberId, jti);
+    }
+
+    private String tokenKeyPrefix(Long memberId) {
+        return TOKEN_KEY_PREFIX.formatted(memberId);
     }
 
     private String memberSetKey(Long memberId) {
