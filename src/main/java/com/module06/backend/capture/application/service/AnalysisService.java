@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.service;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
 
@@ -11,12 +12,13 @@ import com.module06.backend.capture.application.port.out.AnalysisLayerRepository
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
+import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
 /*
- * 분석 유스케이스 구현이다(ANLZ-01).
+ * 분석 유스케이스 구현이다(ANLZ-01 · CAP-06).
  *
  * 오케스트레이션 자체는 {@link AnalysisOrchestrator} 가 갖고, 여기서는 **호출해도 되는지**만
  * 판정한다. 둘을 나눈 이유는 트리거가 늘어나기 때문이다 — 지금은 이 API 하나지만
@@ -29,7 +31,7 @@ import com.module06.backend.global.exception.BusinessException;
  */
 @Service
 @RequiredArgsConstructor
-public class AnalysisService implements RunAnalysisUseCase {
+public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusUseCase {
 
     private final AnalysisOrchestrator orchestrator;
     private final AnalysisLayerRepository analysisLayerRepository;
@@ -53,6 +55,12 @@ public class AnalysisService implements RunAnalysisUseCase {
         // 테넌트 = 회사다. 계층에 그대로 넘어가 few-shot 조회 필터가 되므로 빠지면
         // 다른 회사 회의 발화가 프롬프트에 주입된다 — 정확도 문제가 아니라 유출이다.
         return orchestrator.run(companyId, companyId, meetingId, participants);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProcessingStatus getProcessingStatus(long companyId, long meetingId) {
+        return ProcessingStatus.of(layerProgress(meetingId));
     }
 
     private List<LayerProgress> layerProgress(long meetingId) {
