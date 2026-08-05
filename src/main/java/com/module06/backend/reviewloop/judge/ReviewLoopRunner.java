@@ -69,6 +69,24 @@ public final class ReviewLoopRunner {
                 System.exit(2);
             }
         } catch (Throwable t) {
+            // 제공자를 쓸 수 없는 상태는 '이 저장소 코드의 문제'가 아니다 → 키 부재와 같은 취급으로
+            // 생략·통과한다(run()의 GEMINI_API_KEY 부재 처리와 같은 정책).
+            //
+            // 이걸 ERROR로 두면 크레딧이 소진된 동안 팀 전체의 .java push가 막히고, 사람들은
+            // --no-verify로 우회하게 된다. 그러면 결정론 게이트(Gate 1 ArchUnit)까지 같이 꺼진다 —
+            // 통과 처리하는 쪽이 실제로는 더 엄격하다. (2026-08-05 크레딧 소진으로 실제 발생)
+            String unavailable = ProviderAvailability.unavailableReason(t);
+            if (unavailable != null) {
+                writeStatus(statusOut, STATUS_OK);
+                System.out.println("[GATE] ⚠️ Gate 2(LLM 판정) 생략 — " + unavailable);
+                System.out.println("[GATE] 게이트 통과 처리(Gate 1·CI semgrep 은 그대로 돈다). "
+                        + "이번 변경은 LLM 리뷰를 받지 못했다.");
+                // 원인 진단에는 응답 본문이 필요하다(예: "prepayment credits are depleted").
+                // 키는 x-goog-api-key 헤더로만 가므로 본문에 키가 섞이지 않는다.
+                System.out.println("[GATE] 원본: " + t.getClass().getSimpleName() + ": " + summarize(t.getMessage()));
+                return;
+            }
+
             // 판정 실패 = 리뷰 미수행. 코드 판정(BLOCKED)과 절대 섞이면 안 된다.
             writeStatus(statusOut, STATUS_ERROR);
             System.out.println("[GATE] ⚠️ 게이트 오류 — 리뷰가 수행되지 않았다(코드 판정 아님): "
@@ -207,6 +225,15 @@ public final class ReviewLoopRunner {
         Files.writeString(Path.of("build/reviewloop-run.txt"), report);
 
         return (gate && blocked) ? STATUS_BLOCKED : STATUS_OK;
+    }
+
+    /** 콘솔 한 줄에 담을 만큼으로 줄인다 — 제공자 응답 본문은 개행이 많고 길다. */
+    static String summarize(String message) {
+        if (message == null) {
+            return "(메시지 없음)";
+        }
+        String flat = message.replaceAll("\\s+", " ").strip();
+        return flat.length() <= 300 ? flat : flat.substring(0, 300) + "…";
     }
 
     /**
