@@ -20,6 +20,7 @@ import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.result.MeetingAttendeeUpdateResult;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 
@@ -141,6 +142,36 @@ class MeetingAttendeeCommandServiceTest {
         );
     }
 
+    /* null·0·음수 참석자 식별자가 정규화나 Port 호출 전에 공통 입력 오류로 거절되는지 검증한다. */
+    @Test
+    @DisplayName("형식이 잘못된 참석자 식별자는 Z-001로 거절한다")
+    void rejectsMalformedMemberIdsBeforeNormalization() {
+        /* 정상 회의를 반환하지만 잘못된 요청은 조회 전에 차단할 서비스를 준비한다. */
+        MeetingAttendeeCommandService service = service(
+                meeting(MeetingStatus.SCHEDULED, List.of(3L, 7L)),
+                new RecordingMeetingRepository(),
+                new RecordingEventPublisher(),
+                members(3L, 7L)
+        );
+
+        /* null 요소가 포함돼도 List 복사 단계의 NPE가 아니라 명시적인 Z-001이어야 한다. */
+        assertErrorCode(
+                () -> service.replaceMeetingAttendees(command(
+                        3L,
+                        "MEMBER",
+                        false,
+                        java.util.Arrays.asList(7L, null)
+                )),
+                "Z-001"
+        );
+
+        /* 0과 음수 식별자도 구성원 Port에 전달하지 않고 동일한 입력 오류로 거절해야 한다. */
+        assertErrorCode(
+                () -> service.replaceMeetingAttendees(command(3L, "MEMBER", false, List.of(0L, -1L))),
+                "Z-001"
+        );
+    }
+
     /* 테스트 입력으로 실제 MEET-09 서비스를 조립한다. */
     private MeetingAttendeeCommandService service(
             MeetingQueryRepository.MeetingSnapshot meeting,
@@ -148,55 +179,15 @@ class MeetingAttendeeCommandServiceTest {
             RecordingEventPublisher eventPublisher,
             List<MemberQueryPort.MemberSnapshot> members
     ) {
-        /* 단건 회의만 반환하고 나머지 읽기 계약은 비워 둔 저장소 대역을 만든다. */
-        MeetingQueryRepository queryRepository = new MeetingQueryRepository() {
-            /* 회사 범위 단건 회의로 준비한 조회 모델을 반환한다. */
-            @Override
-            public Optional<MeetingSnapshot> findMeeting(Long companyId, Long meetingId) {
-                /* 서비스 권한·상태 검증에 사용할 회의를 반환한다. */
-                return Optional.of(meeting);
-            }
-
-            /* E 프로젝트 타임라인 조회는 MEET-09 테스트에서 사용하지 않는다. */
-            @Override
-            public List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId) {
-                /* 호출되지 않는 기존 계약을 빈 목록으로 만족시킨다. */
-                return List.of();
-            }
-
-            /* MEET-03 예정 회의 조회는 MEET-09 테스트에서 사용하지 않는다. */
-            @Override
-            public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
-                    Long companyId,
-                    Long memberId,
-                    LocalDateTime now,
-                    int limit
-            ) {
-                /* 호출되지 않는 기존 계약을 빈 목록으로 만족시킨다. */
-                return List.of();
-            }
-
-            /* E 회의 주제 조회는 MEET-09 테스트에서 사용하지 않는다. */
-            @Override
-            public List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds) {
-                /* 호출되지 않는 기존 계약을 빈 목록으로 만족시킨다. */
-                return List.of();
-            }
-
-            /* E 참석자 배치 조회는 MEET-09 테스트에서 사용하지 않는다. */
-            @Override
-            public List<MeetingAttendeeReference> findMeetingAttendees(Long companyId, List<Long> meetingIds) {
-                /* 호출되지 않는 기존 계약을 빈 목록으로 만족시킨다. */
-                return List.of();
-            }
-        };
+        /* 회의 행 잠금 이후 최신 참석자 명단을 반환하는 명령 전용 저장소 대역을 만든다. */
+        MeetingLockRepository lockRepository = (companyId, meetingId) -> Optional.of(meeting);
 
         /* 요청에 따라 구성원 표시 정보를 반환하는 B Port 대역을 만든다. */
         MemberQueryPort memberQueryPort = (companyId, memberIds) -> members;
 
         /* 실제 서비스에 조회·쓰기·구성원·이벤트 대역을 주입해 반환한다. */
         return new MeetingAttendeeCommandService(
-                queryRepository,
+                lockRepository,
                 writeRepository,
                 memberQueryPort,
                 eventPublisher

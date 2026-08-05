@@ -1,5 +1,7 @@
 package com.module06.backend.meeting.presentation.api.request;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import jakarta.validation.constraints.NotNull;
@@ -19,9 +21,9 @@ public record ReplaceMeetingAttendeesRequest(
 
     /* 요청 목록이 DTO 생성 이후 변경되지 않도록 불변 복사한다. */
     public ReplaceMeetingAttendeesRequest {
-        /* null은 Bean Validation이 처리하고 실제 목록만 방어적으로 복사한다. */
+        /* null 요소를 유지한 복사본을 만들어 Bean Validation이 각 요소의 오류를 정상 보고하게 한다. */
         if (attendeeMemberIds != null) {
-            attendeeMemberIds = List.copyOf(attendeeMemberIds);
+            attendeeMemberIds = Collections.unmodifiableList(new ArrayList<>(attendeeMemberIds));
         }
     }
 

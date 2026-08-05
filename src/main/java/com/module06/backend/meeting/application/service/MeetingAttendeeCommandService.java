@@ -21,7 +21,7 @@ import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberS
 import com.module06.backend.meeting.application.result.MeetingAttendeeUpdateResult;
 import com.module06.backend.meeting.application.usecase.ReplaceMeetingAttendeesUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
-import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingSnapshot;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
@@ -36,8 +36,8 @@ import com.module06.backend.meeting.exception.MeetingErrorCode;
 @RequiredArgsConstructor
 public class MeetingAttendeeCommandService implements ReplaceMeetingAttendeesUseCase {
 
-    /* 회사 범위 회의와 기존 참석자 식별자를 읽는 조회 저장소다. */
-    private final MeetingQueryRepository meetingQueryRepository;
+    /* 회사 범위 회의를 잠그고 최신 기존 참석자 식별자를 읽는 명령 전용 저장소다. */
+    private final MeetingLockRepository meetingLockRepository;
 
     /* 참석자 차이를 같은 트랜잭션에서 반영하는 회의 쓰기 저장소다. */
     private final MeetingRepository meetingRepository;
@@ -56,8 +56,8 @@ public class MeetingAttendeeCommandService implements ReplaceMeetingAttendeesUse
         validateRequiredValues(command);
 
         /* 회사 조건을 조회에 포함해 타 회사 회의를 존재하지 않는 회의처럼 처리한다. */
-        MeetingSnapshot meeting = meetingQueryRepository
-                .findMeeting(command.companyId(), command.meetingId())
+        MeetingSnapshot meeting = meetingLockRepository
+                .findMeetingForUpdate(command.companyId(), command.meetingId())
                 .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
 
         /* host·OWNER·ADMIN만 회의 참석자 명단을 관리할 수 있다. */
@@ -129,6 +129,14 @@ public class MeetingAttendeeCommandService implements ReplaceMeetingAttendeesUse
                 || command.meetingId() == null
                 || command.meetingId() <= 0L
                 || command.attendeeMemberIds() == null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+        }
+
+        /* 내부 호출에서도 null·0·음수 참석자 식별자가 정규화 단계의 NPE로 번지지 않게 거절한다. */
+        boolean containsInvalidMemberId = command.attendeeMemberIds().stream()
+                .anyMatch(memberId -> memberId == null || memberId <= 0L);
+        if (containsInvalidMemberId) {
+            /* 형식 자체가 잘못된 요청은 구성원 존재 여부를 조회하기 전에 공통 400 오류로 처리한다. */
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
     }

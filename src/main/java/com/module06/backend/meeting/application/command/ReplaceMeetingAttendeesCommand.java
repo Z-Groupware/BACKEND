@@ -1,5 +1,7 @@
 package com.module06.backend.meeting.application.command;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /*
@@ -18,9 +20,9 @@ public record ReplaceMeetingAttendeesCommand(
 
     /* 외부 요청 목록이 Command 생성 이후 변경되지 않도록 불변 복사한다. */
     public ReplaceMeetingAttendeesCommand {
-        /* null은 서비스 입력 검증이 처리하고 실제 목록만 방어적으로 복사한다. */
+        /* null 요소도 보존한 복사본을 만들어 서비스가 NPE 없이 명시적 입력 오류로 변환하게 한다. */
         if (attendeeMemberIds != null) {
-            attendeeMemberIds = List.copyOf(attendeeMemberIds);
+            attendeeMemberIds = Collections.unmodifiableList(new ArrayList<>(attendeeMemberIds));
         }
     }
 }

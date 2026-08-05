@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +27,9 @@ import com.module06.backend.meeting.presentation.api.response.MeetingAttendeeUpd
  */
 @DisplayName("RESULT-01 회의 참석자 Controller")
 class MeetingAttendeeControllerTest {
+
+    /* 요청 DTO 요소 제약을 단위 테스트에서 실행할 Bean Validation 검증기다. */
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
     /* 인증 principal과 Path 값이 조회 조건이 되고 personKey 응답이 생성되는지 확인한다. */
     @Test
@@ -129,5 +136,23 @@ class MeetingAttendeeControllerTest {
         assertThat(response.getData().attendees())
                 .extracting(MeetingAttendeeUpdateResponse.AttendeeResponse::memberId)
                 .containsExactly(3L, 7L, 11L);
+    }
+
+    /* null·0·음수 요소가 DTO 생성 중 NPE가 아니라 Bean Validation 오류로 수집되는지 검증한다. */
+    @Test
+    @DisplayName("잘못된 참석자 식별자를 요청 검증 단계에서 모두 거절한다")
+    void rejectsInvalidAttendeeIdsAtRequestBoundary() {
+        /* null 요소를 포함하는 변경 가능한 입력 목록으로 요청 DTO를 정상 생성한다. */
+        ReplaceMeetingAttendeesRequest request = new ReplaceMeetingAttendeesRequest(
+                java.util.Arrays.asList(7L, null, 0L, -1L)
+        );
+
+        /* 목록 요소의 @NotNull과 @Positive 제약을 실제 Bean Validation으로 실행한다. */
+        var violations = validator.validate(request);
+
+        /* null·0·음수 세 값이 각각 400 입력 오류의 필드 상세로 이어질 제약 위반이어야 한다. */
+        assertThat(violations)
+                .extracting(ConstraintViolation::getInvalidValue)
+                .containsExactlyInAnyOrder(null, 0L, -1L);
     }
 }
