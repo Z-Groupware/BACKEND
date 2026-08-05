@@ -1,6 +1,7 @@
 package com.module06.backend.meetingroom.domain.repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 
@@ -20,4 +21,17 @@ public interface MeetingRoomRepository {
      * @return 회사에 속한 활성 회의실 목록, 조회 결과가 없으면 빈 목록
      */
     List<MeetingRoom> findAllActiveByCompanyId(Long companyId);
+
+    /*
+     * 특정 회사에 속한 활성 회의실 하나를 조회한다.
+     * 회사 조건을 조회 자체에 포함해, 다른 회사의 회의실은 권한 오류가 아니라 결과 없음으로 다룬다.
+     *
+     * @param companyId 조회할 회사 식별자
+     * @param meetingRoomId 조회할 회의실 식별자
+     * @return 조건을 만족하는 활성 회의실, 없으면 빈 Optional
+     */
+    Optional<MeetingRoom> findActiveById(Long companyId, Long meetingRoomId);
+
+    /* 기존 예정 회의가 참조하는 회의실을 비활성 여부와 무관하게 회사 범위에서 일괄 조회한다. */
+    List<MeetingRoom> findAllByIds(Long companyId, List<Long> meetingRoomIds);
 }

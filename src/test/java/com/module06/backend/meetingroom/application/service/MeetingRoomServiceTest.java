@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -113,6 +114,30 @@ class MeetingRoomServiceTest {
 
             /* 실제 DB 조회 대신 테스트에서 준비한 목록을 반환한다. */
             return meetingRooms;
+        }
+
+        /*
+         * ROOM-01 검증에는 사용하지 않는 단건 조회 계약이다.
+         *
+         * @param companyId 서비스가 전달한 회사 식별자
+         * @param meetingRoomId 서비스가 전달한 회의실 식별자
+         * @return 준비된 목록에서 식별자가 일치하는 회의실, 없으면 빈 Optional
+         */
+        @Override
+        public Optional<MeetingRoom> findActiveById(Long companyId, Long meetingRoomId) {
+            /* 계약을 만족시키기 위해 준비된 목록에서 식별자로 찾아 반환한다. */
+            return meetingRooms.stream()
+                    .filter(meetingRoom -> meetingRoom.getId().equals(meetingRoomId))
+                    .findFirst();
+        }
+
+        /* MEET-03 배치 조회는 ROOM-01 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public List<MeetingRoom> findAllByIds(Long companyId, List<Long> meetingRoomIds) {
+            /* 계약을 만족시키면서 요청 식별자에 포함된 준비 회의실만 반환한다. */
+            return meetingRooms.stream()
+                    .filter(meetingRoom -> meetingRoomIds.contains(meetingRoom.getId()))
+                    .toList();
         }
 
         /*

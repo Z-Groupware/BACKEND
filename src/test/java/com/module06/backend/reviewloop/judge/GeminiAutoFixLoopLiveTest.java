@@ -3,6 +3,7 @@ package com.module06.backend.reviewloop.judge;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 기대: Gemini가 N+1을 IN-배치로 고치고, 재리뷰에서 통과(또는 budget 내 수렴).
  */
 @EnabledIfEnvironmentVariable(named = "GEMINI_API_KEY", matches = ".+")
+@ExtendWith(SkipOnProviderUnavailable.class)
 class GeminiAutoFixLoopLiveTest {
 
     @TempDir

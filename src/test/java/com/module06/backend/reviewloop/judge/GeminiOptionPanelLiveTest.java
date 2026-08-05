@@ -3,6 +3,7 @@ package com.module06.backend.reviewloop.judge;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 판단 패널 라이브(Gemini) — 실제로 안건 3개 + 별도 추천을 생성하는지. GEMINI_API_KEY 있을 때만.
  */
 @EnabledIfEnvironmentVariable(named = "GEMINI_API_KEY", matches = ".+")
+@ExtendWith(SkipOnProviderUnavailable.class)
 class GeminiOptionPanelLiveTest {
 
     @Test
