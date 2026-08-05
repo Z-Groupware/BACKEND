@@ -166,5 +166,5 @@ DDL은 실행 시 진행 중인 트랜잭션을 **암묵적으로 커밋**시킨
 - [ ] 낮은 버전이 높은 버전의 변경에 의존하지 않게 작성 (out-of-order)
 - [ ] baseline-on-migrate=false 유지 (레거시 DB 인계 시에만 대조·승인 후 일시 허용)
 - [ ] 충돌 시 로컬 DB 전체 drop/recreate (히스토리 테이블만 지우지 않기)
-- [ ] 운영 반영 전 validate + migrate 검증
+- [ ] 운영 반영 전 validate + migrate 검증 (CI: `migration-check` job에서 자동 검증)
 - [ ] 머지 순서 = 배포 순서 유지 (운영 `FLYWAY_OUT_OF_ORDER=false`)
