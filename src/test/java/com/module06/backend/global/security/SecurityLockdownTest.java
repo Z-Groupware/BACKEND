@@ -35,6 +35,9 @@ class SecurityLockdownTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
+
     /*
      * "401 이 아님" 으로는 판정할 수 없다 — 로그인 실패(AU-002)·갱신표 불량(AU-004)도 401 이다.
      * 구분은 누가 답했는지로 한다. 보안 필터가 막으면 SecurityErrorResponder 가 AU-006 을 쓰므로,
@@ -110,11 +113,37 @@ class SecurityLockdownTest {
         assertUnauthorized(post("/api/meetings/1/vocabulary/rebuild"));
     }
 
+    /*
+     * 401 만으로는 부족하다 — 컨트롤러나 다른 핸들러가 낸 401 도 통과해 버린다. 위 주석의 판정 기준을
+     * 막힌 쪽에도 그대로 적용한다: 보안 필터가 막았다면 응답에 AU-006 이 있어야 한다.
+     */
+    /*
+     * 반대 방향의 증거다. 위 테스트가 전부 통과해도 아무도 못 들어오면 그건 잠긴 것이 아니라 고장이다.
+     * 그 사고를 볼 수 있는 곳이 여기뿐이다 — 컨트롤러 슬라이스는 addFilters = false 라 체인을 안 태우고,
+     * JwtAuthenticationFilterTest 는 필터를 MockFilterChain 으로 단독 실행해 시큐리티 체인 밖이다.
+     * 토큰이 실제 체인을 지나 애플리케이션까지 닿는지는 아무도 보지 않고 있었다.
+     */
+    @Test
+    @DisplayName("유효한 토큰은 보호 경로를 통과한다 — 잠긴 것이지 닫힌 것이 아니다")
+    void validTokenReachesProtectedApis() throws Exception {
+        AuthPrincipal principal = new AuthPrincipal(3L, 1L, "MEMBER", false, 2L);
+        String bearer = "Bearer " + jwtTokenProvider.createAccessToken(principal);
+
+        // 개별 등록이 있는 경로와 기본 잠금으로만 막히는 경로를 각각 본다.
+        // 컨트롤러가 무엇으로 답하든(404·403·500) 상관없다 — AU-006 이 아니면 필터를 지났다는 뜻이다.
+        assertReachesApplication(get("/api/auth/me").header("Authorization", bearer));
+        assertReachesApplication(get("/api/projects").header("Authorization", bearer));
+    }
+
     private void assertUnauthorized(MockHttpServletRequestBuilder request) throws Exception {
         mockMvc.perform(request)
                 .andExpect(result -> assertThat(result.getResponse().getStatus())
                         .as("토큰 없이 부르면 401 이어야 한다: %s", request)
-                        .isEqualTo(401));
+                        .isEqualTo(401))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .as("401 을 낸 것이 보안 필터여야 한다 — 컨트롤러가 낸 401 은 잠금의 증거가 아니다: %s",
+                                request)
+                        .contains(SECURITY_BLOCKED_CODE));
     }
 
     private void assertNotUnauthorized(MockHttpServletRequestBuilder request) throws Exception {
