@@ -35,17 +35,37 @@ build/
 !.env.example
 .DS_Store
 
-# Secrets — 절대 커밋 금지. 실제 값은 로컬 application-secret.yml 에만 둔다.
+# Secrets — 절대 커밋 금지. 실제 값은 로컬 application-secret.yaml 에만 둔다.
 # (운영/스테이징은 SSM Parameter Store 에서 환경변수로 주입 — infra/deploy.sh)
+# .yml 패턴도 남겨둔다: 구 확장자 파일이 로컬에 남아 있어도 커밋되지 않게 하기 위함.
 application-secret.yml
 application-secret.yaml
 application-*-secret.yml
 application-*-secret.yaml
 !application-secret.yml.example
+!application-secret.yaml.example
 # 비밀값 파일의 백업·사본이 새어나가는 것 방지(application-secret.yml.bak 등).
 # 실제로 커밋 직전까지 갔던 사고가 있었다 — .gitignore가 원본만 막고 .bak은 안 막았다.
 *.bak
 *.orig
+
+# Markdown — 작업용 문서(설계 초안·API 스펙 등)가 저장소에 올라가지 않게 기본 무시.
+#
+# ⚠️ gitignore 는 "아직 추적되지 않은" 파일에만 작동한다.
+#    이미 추적 중인 .md(README, .github 템플릿, DB_MIGRATION_RULES 등)는 그대로 올라간다.
+#    추적을 끊으려면 별도로 `git rm --cached <파일>` 을 해야 한다.
+*.md
+
+# 예외 — 빠지면 기능이나 협업이 깨지는 것들
+# .github/**  : 이슈·PR 템플릿. 무시되면 GitHub 템플릿 기능이 동작하지 않는다
+# README/HELP : 저장소 첫 화면
+# docs/DB_MIGRATION_RULES.md : 담당자별 마이그레이션 레인 규칙. 팀 전체가 봐야 한다
+# docs/LOCAL_SETUP.md        : 로컬 세팅 절차. README 가 필수 문서로 링크한다
+!.github/**/*.md
+!README.md
+!HELP.md
+!docs/DB_MIGRATION_RULES.md
+!docs/LOCAL_SETUP.md
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
