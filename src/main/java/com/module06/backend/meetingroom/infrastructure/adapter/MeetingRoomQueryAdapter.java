@@ -1,5 +1,6 @@
 package com.module06.backend.meetingroom.infrastructure.adapter;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.stereotype.Component;
@@ -28,6 +29,16 @@ public class MeetingRoomQueryAdapter implements MeetingRoomQueryPort {
         /* 타 회사 또는 비활성 회의실은 빈 결과가 되어 상위 계층에서 MR-001로 처리된다. */
         return meetingRoomRepository.findActiveById(companyId, meetingRoomId)
                 .map(this::toSnapshot);
+    }
+
+    /* 예정 회의 목록에 필요한 회의실 표시 정보를 회사 범위에서 한 번에 조회한다. */
+    @Override
+    public List<MeetingRoomSnapshot> findMeetingRooms(Long companyId, List<Long> meetingRoomIds) {
+        /* 회의실 활성 여부와 무관한 배치 도메인 조회 결과를 Port 스냅숏으로 변환한다. */
+        return meetingRoomRepository.findAllByIds(companyId, meetingRoomIds)
+                .stream()
+                .map(this::toSnapshot)
+                .toList();
     }
 
     /* 회의실 도메인 모델을 meeting Port가 정의한 최소 스냅숏으로 변환한다. */

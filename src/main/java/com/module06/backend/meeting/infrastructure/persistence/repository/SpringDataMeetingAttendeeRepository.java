@@ -15,4 +15,10 @@ public interface SpringDataMeetingAttendeeRepository
 
     /* 특정 회의에 저장된 참석자 행을 구성원 식별자 순서로 조회한다. */
     List<MeetingAttendeeJpaEntity> findAllByMeetingIdOrderByMemberIdAsc(Long meetingId);
+
+    /* 특정 구성원이 참석자로 등록된 전체 회의 식별자를 안정적인 순서로 조회한다. */
+    List<MeetingAttendeeJpaEntity> findAllByMemberIdOrderByMeetingIdAsc(Long memberId);
+
+    /* 여러 회의의 참석자를 회의와 구성원 식별자 순서로 한 번에 조회한다. */
+    List<MeetingAttendeeJpaEntity> findAllByMeetingIdInOrderByMeetingIdAscMemberIdAsc(List<Long> meetingIds);
 }
