@@ -23,6 +23,10 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
 
     @Override
     public void save(Long memberId, String jti, Duration ttl) {
+        // Redis 는 SETEX 에 0 이하를 주면 오류를 낸다. 이미 만료된 토큰이므로 올리지 않고 끝낸다.
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            return;
+        }
         String setKey = memberSetKey(memberId);
         redis.opsForValue().set(tokenKey(memberId, jti), "1", ttl);
         redis.opsForSet().add(setKey, jti);

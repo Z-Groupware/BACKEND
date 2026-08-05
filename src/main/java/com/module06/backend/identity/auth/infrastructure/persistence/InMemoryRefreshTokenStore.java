@@ -1,5 +1,6 @@
 package com.module06.backend.identity.auth.infrastructure.persistence;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -17,10 +18,28 @@ public class InMemoryRefreshTokenStore implements RefreshTokenStore {
 
     private final Map<Long, Map<String, Instant>> tokens = new ConcurrentHashMap<>();
 
+    private final Clock clock;
+
+    public InMemoryRefreshTokenStore() {
+        this(Clock.systemUTC());
+    }
+
+    /** 만료 경계를 검증하려면 시계를 앞으로 돌려야 한다. 테스트만 이 생성자를 쓴다. */
+    InMemoryRefreshTokenStore(Clock clock) {
+        this.clock = clock;
+    }
+
     @Override
     public void save(Long memberId, String jti, Duration ttl) {
+        if (isNotPositive(ttl)) {
+            return;
+        }
         tokens.computeIfAbsent(memberId, id -> new ConcurrentHashMap<>())
-                .put(jti, Instant.now().plus(ttl));
+                .put(jti, clock.instant().plus(ttl));
+    }
+
+    private boolean isNotPositive(Duration ttl) {
+        return ttl == null || ttl.isZero() || ttl.isNegative();
     }
 
     @Override
@@ -34,8 +53,10 @@ public class InMemoryRefreshTokenStore implements RefreshTokenStore {
             return false;
         }
         // Redis 는 TTL 이 지나면 키가 스스로 사라진다. 여기서도 같게 보이도록 읽는 김에 지운다.
-        if (expiresAt.isBefore(Instant.now())) {
-            byJti.remove(jti);
+        // 만료 시각이 '지금' 과 같은 것도 만료로 본다 — TTL 이 남았다고 말할 수 없기 때문이다.
+        // 지울 때 값까지 맞춰 지운다. 그 사이 같은 jti 로 새로 저장됐다면 그건 살아 있는 토큰이다.
+        if (!expiresAt.isAfter(clock.instant())) {
+            byJti.remove(jti, expiresAt);
             return false;
         }
         return true;
