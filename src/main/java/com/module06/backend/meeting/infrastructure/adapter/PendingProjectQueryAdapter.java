@@ -1,5 +1,7 @@
 package com.module06.backend.meeting.infrastructure.adapter;
 
+import java.util.List;
+
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
@@ -18,6 +20,15 @@ public class PendingProjectQueryAdapter implements ProjectQueryPort {
         /* 잘못된 통과보다 빠른 실패를 선택해 타 회사 프로젝트가 예약에 연결되는 일을 막는다. */
         throw new UnsupportedOperationException(
                 "ProjectQueryPort 연동 대기 중입니다. C(project) 도메인의 회사 범위 조회 구현이 필요합니다."
+        );
+    }
+
+    /* 프로젝트 담당 도메인의 표시 정보 배치 조회 계약이 아직 연결되지 않았음을 알린다. */
+    @Override
+    public List<ProjectSnapshot> findProjects(Long companyId, List<Long> projectIds) {
+        /* 임의 태그나 색상을 반환하지 않고 C도메인의 실제 조회 Adapter 연결을 요구한다. */
+        throw new UnsupportedOperationException(
+                "ProjectQueryPort 연동 대기 중입니다. C(project) 도메인의 프로젝트 배치 조회 구현이 필요합니다."
         );
     }
 }

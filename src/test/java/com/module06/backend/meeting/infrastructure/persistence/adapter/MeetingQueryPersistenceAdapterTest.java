@@ -186,6 +186,61 @@ class MeetingQueryPersistenceAdapterTest {
                 .containsExactly(MeetingTopicType.MAIN, MeetingTopicType.SUB);
     }
 
+    /* MEET-03 후보 조회가 참석자·회사·종료 시각·정렬·limit 규칙을 지키는지 검증한다. */
+    @Test
+    @DisplayName("내 예정 회의를 회사 범위와 시작 시각 순서로 제한 조회한다")
+    void findsUpcomingMeetingsForAttendeeInCompanyScope() {
+        /* 조회 기준 시각을 2026년 8월 6일 오전 9시로 고정한다. */
+        LocalDateTime now = LocalDateTime.of(2026, 8, 6, 9, 0);
+
+        /* 같은 회사의 가까운 회의와 이후 회의를 저장한다. */
+        MeetingJpaEntity first = springDataMeetingRepository.save(
+                meeting(10L, 12L, "가까운 회의", LocalDateTime.of(2026, 8, 6, 9, 5))
+        );
+        MeetingJpaEntity second = springDataMeetingRepository.save(
+                meeting(10L, 13L, "다음 회의", LocalDateTime.of(2026, 8, 6, 10, 0))
+        );
+
+        /* 이미 종료된 회의, 다른 회사 회의, 요청자가 참석하지 않은 회의도 함께 저장한다. */
+        MeetingJpaEntity expired = springDataMeetingRepository.save(
+                meeting(10L, 12L, "지난 회의", LocalDateTime.of(2026, 8, 6, 7, 0))
+        );
+        MeetingJpaEntity otherCompany = springDataMeetingRepository.save(
+                meeting(20L, 12L, "다른 회사 회의", LocalDateTime.of(2026, 8, 6, 9, 10))
+        );
+        MeetingJpaEntity nonAttendee = springDataMeetingRepository.save(
+                meeting(10L, 12L, "비참석 회의", LocalDateTime.of(2026, 8, 6, 9, 15))
+        );
+
+        /* 요청자 7번은 앞의 네 회의에만 참석자로 연결하고 회의별 전체 인원수도 다르게 만든다. */
+        saveAttendees(first.getId(), 3L, 7L, 11L, 15L);
+        saveAttendees(second.getId(), 3L, 7L);
+        saveAttendees(expired.getId(), 3L, 7L);
+        saveAttendees(otherCompany.getId(), 30L, 7L);
+        saveAttendees(nonAttendee.getId(), 3L, 11L);
+
+        /* limit 20으로 조회하면 조건을 만족하는 같은 회사 회의 두 건만 반환돼야 한다. */
+        List<MeetingQueryRepository.UpcomingMeetingSnapshot> all =
+                meetingQueryRepository.findUpcomingMeetings(10L, 7L, now, 20);
+
+        /* 시작 시각이 가까운 순서이며 지난·타 회사·비참석 회의는 제외돼야 한다. */
+        assertThat(all)
+                .extracting(MeetingQueryRepository.UpcomingMeetingSnapshot::meetingId)
+                .containsExactly(first.getId(), second.getId());
+
+        /* 참석자 수는 회의별 추가 조회가 아닌 배치 집계 결과와 일치해야 한다. */
+        assertThat(all)
+                .extracting(MeetingQueryRepository.UpcomingMeetingSnapshot::attendeeCount)
+                .containsExactly(4, 2);
+
+        /* limit 1을 적용하면 전체 정렬 결과에서 가장 가까운 회의 한 건만 반환돼야 한다. */
+        List<MeetingQueryRepository.UpcomingMeetingSnapshot> limited =
+                meetingQueryRepository.findUpcomingMeetings(10L, 7L, now, 1);
+        assertThat(limited)
+                .extracting(MeetingQueryRepository.UpcomingMeetingSnapshot::meetingId)
+                .containsExactly(first.getId());
+    }
+
     /* 테스트 회의 조건으로 필수 컬럼을 모두 가진 영속성 엔티티를 만든다. */
     private MeetingJpaEntity meeting(
             Long companyId,

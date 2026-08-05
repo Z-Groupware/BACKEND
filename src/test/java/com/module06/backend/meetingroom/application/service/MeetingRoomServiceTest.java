@@ -131,6 +131,15 @@ class MeetingRoomServiceTest {
                     .findFirst();
         }
 
+        /* MEET-03 배치 조회는 ROOM-01 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public List<MeetingRoom> findAllByIds(Long companyId, List<Long> meetingRoomIds) {
+            /* 계약을 만족시키면서 요청 식별자에 포함된 준비 회의실만 반환한다. */
+            return meetingRooms.stream()
+                    .filter(meetingRoom -> meetingRoomIds.contains(meetingRoom.getId()))
+                    .toList();
+        }
+
         /*
          * 저장소에 마지막으로 전달된 회사 식별자를 반환한다.
          *

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
 import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
@@ -37,6 +38,10 @@ class MeetingRoomPersistenceAdapterTest {
     /* application 계층이 실제로 사용하는 회의실 도메인 저장소 계약이다. */
     @Autowired
     private MeetingRoomRepository meetingRoomRepository;
+
+    /* MEET-03이 회의실 표시 정보를 일괄 조회할 때 사용하는 D 내부 Port다. */
+    @Autowired
+    private MeetingRoomQueryPort meetingRoomQueryPort;
 
     /*
      * 각 테스트가 서로의 데이터에 영향을 주지 않도록 meeting_room 데이터를 초기화한다.
@@ -129,6 +134,36 @@ class MeetingRoomPersistenceAdapterTest {
 
         /* 활성 회의실만 조회 대상이므로 결과가 비어야 한다. */
         assertThat(meetingRoomRepository.findActiveById(10L, saved.getId())).isEmpty();
+    }
+
+    /* 예정 회의가 참조하는 비활성 회의실도 회사 범위 안에서 표시할 수 있는지 검증한다. */
+    @Test
+    @DisplayName("예정 회의용 배치 조회는 비활성 회의실을 포함하고 다른 회사는 제외한다")
+    void findsMeetingRoomsForUpcomingMeetingsIncludingInactiveRoom() {
+        /* 같은 회사의 활성·비활성 회의실과 다른 회사 회의실을 각각 저장한다. */
+        MeetingRoomJpaEntity active = springDataMeetingRoomRepository.save(
+                meetingRoom(10L, "활성 회의실", null)
+        );
+        MeetingRoomJpaEntity inactive = springDataMeetingRoomRepository.save(
+                meetingRoom(10L, "비활성 회의실", LocalDateTime.of(2026, 8, 4, 9, 0))
+        );
+        MeetingRoomJpaEntity otherCompany = springDataMeetingRoomRepository.save(
+                meetingRoom(20L, "다른 회사 회의실", null)
+        );
+
+        /* 세 식별자를 모두 전달하되 회사 10의 회의실 표시 정보를 조회한다. */
+        List<MeetingRoomQueryPort.MeetingRoomSnapshot> result = meetingRoomQueryPort.findMeetingRooms(
+                10L,
+                List.of(active.getId(), inactive.getId(), otherCompany.getId())
+        );
+
+        /* 활성 여부와 관계없이 같은 회사 두 회의실만 식별자 순서로 반환돼야 한다. */
+        assertThat(result)
+                .extracting(MeetingRoomQueryPort.MeetingRoomSnapshot::meetingRoomId)
+                .containsExactly(active.getId(), inactive.getId());
+        assertThat(result)
+                .extracting(MeetingRoomQueryPort.MeetingRoomSnapshot::name)
+                .containsExactly("활성 회의실", "비활성 회의실");
     }
 
     /*

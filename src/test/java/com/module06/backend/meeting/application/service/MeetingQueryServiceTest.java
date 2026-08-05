@@ -21,6 +21,7 @@ import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.Mee
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingSnapshot;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.ProjectMeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.UpcomingMeetingSnapshot;
 
 /*
  * RESULT-01 조회 서비스의 테넌트·열람 권한·참석자 변환 규칙을 검증하는 단위 테스트다.
@@ -191,6 +192,18 @@ class MeetingQueryServiceTest {
                         3L,
                         MeetingStatus.SCHEDULED
                 ));
+            }
+
+            /* MEET-03 조회는 RESULT-01 서비스 단위 테스트 대상이 아니므로 빈 목록을 반환한다. */
+            @Override
+            public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
+                    Long companyId,
+                    Long memberId,
+                    LocalDateTime now,
+                    int limit
+            ) {
+                /* 별도 UpcomingMeetingQueryServiceTest에서 검증하므로 여기서는 호출되지 않는다. */
+                return List.of();
             }
 
             /* 회의 맥락 타임라인 조회에 사용할 MAIN 안건 한 건을 반환한다. */
