@@ -28,5 +28,9 @@ CREATE TABLE `meeting_summary` (
     `updated_at`          DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `UK_MEETING_SUMMARY_MEETING` (`meeting_id`) COMMENT '회의당 요약 1건. ANLZ-01 강제 재실행은 갱신이다',
+    -- V5.8 meeting_decision 이 (meeting_summary_id, meeting_id) 복합 FK 로 참조할 대상.
+    -- id 만 참조하면 자식이 '다른 회의의 요약'을 가리키면서 자기 meeting_id 는 딴 값을 갖는 조합이
+    -- 만들어진다. FK 대상이 되려면 참조 컬럼 조합에 유니크 인덱스가 있어야 한다.
+    UNIQUE KEY `UK_MEETING_SUMMARY_ID_MEETING` (`id`, `meeting_id`),
     KEY `IX_MEETING_SUMMARY_COMPANY` (`company_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

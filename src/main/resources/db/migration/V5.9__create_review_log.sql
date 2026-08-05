@@ -41,5 +41,19 @@ CREATE TABLE `review_log` (
     PRIMARY KEY (`id`),
     KEY `IX_REVIEW_LOG_MEETING` (`meeting_id`),
     KEY `IX_REVIEW_LOG_COMPANY_LAYER_DECISION` (`company_id`, `layer`, `decision`),
-    KEY `IX_REVIEW_LOG_TARGET` (`target_type`, `target_id`)
+    KEY `IX_REVIEW_LOG_TARGET` (`target_type`, `target_id`),
+
+    -- decision 과 reject_reason 의 조합을 DB 가 강제한다. 애플리케이션 검사(422 MEETING_422_3)만
+    -- 두면 라벨셋에 "사유 없는 반려"가 섞이고, 그 행은 어느 계층을 고쳐야 할지 가리키지 못해
+    -- 라벨로서 쓸모가 없어진다. 반대로 CONFIRM 에 사유가 붙으면 "맞혔는데 틀렸다"는 모순이 된다.
+    --
+    -- MODIFY 를 target_type 별로 나누는 이유: 액션 수정은 바뀐 필드로 사유를 자동 추론할 수 있지만
+    -- (WRONG_ASSIGNEE · WRONG_DUE), 요약 항목은 문구만 다듬는 수정이 있어 대응하는 사유 코드가 없다.
+    -- 요약까지 사유를 강제하면 ANLZ-04 수정 기록이 아예 남지 못한다.
+    CONSTRAINT `CK_REVIEW_LOG_REASON` CHECK (
+        (`decision` = 'CONFIRM' AND `reject_reason` IS NULL)
+        OR (`decision` = 'REJECT' AND `reject_reason` IS NOT NULL)
+        OR (`decision` = 'MODIFY'
+            AND (`target_type` = 'SUMMARY_ITEM' OR `reject_reason` IS NOT NULL))
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

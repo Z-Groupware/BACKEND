@@ -36,6 +36,11 @@ CREATE TABLE `meeting_decision` (
     PRIMARY KEY (`id`),
     KEY `IX_MEETING_DECISION_MEETING_TYPE` (`meeting_id`, `item_type`),
     KEY `IX_MEETING_DECISION_SUMMARY` (`meeting_summary_id`),
+    -- 복합 FK 로 "같은 회의"까지 강제한다. meeting_summary_id 만 참조하면 요약의 존재만 검증되고,
+    -- 다른 회의의 요약을 가리키면서 meeting_id 는 딴 값인 행을 저장할 수 있다.
+    -- 그러면 회의 상세 화면이 남의 회의 결정사항을 자기 것으로 보여준다 — 조회는 성공하므로
+    -- 아무도 오류를 못 본다. 반정규화한 meeting_id 의 대가를 여기서 치른다.
     CONSTRAINT `FK_MEETING_DECISION_SUMMARY`
-        FOREIGN KEY (`meeting_summary_id`) REFERENCES `meeting_summary` (`id`)
+        FOREIGN KEY (`meeting_summary_id`, `meeting_id`)
+        REFERENCES `meeting_summary` (`id`, `meeting_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -27,5 +27,17 @@ CREATE TABLE `caption_chunk` (
     `updated_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `UK_CAPTION_CHUNK_MEETING_MEMBER_SEQ` (`meeting_id`, `member_id`, `seq`),
-    KEY `IX_CAPTION_CHUNK_MEETING_OFFSET` (`meeting_id`, `start_offset_ms`)
+    KEY `IX_CAPTION_CHUNK_MEETING_OFFSET` (`meeting_id`, `start_offset_ms`),
+
+    -- 값의 범위까지 막는다. NOT NULL 만으로는 뒤집힌 구간과 양수 rms 를 저장할 수 있고,
+    -- 둘 다 조용히 화자 판정을 오염시킨다 — 판정이 실패하는 게 아니라 근거가 틀린 상태가 된다.
+    -- CHECK 는 MySQL 8.0.16+ 부터 실제로 강제된다(로컬 8.4 · CI mysql:8.0.40).
+    --
+    -- 같음(=)을 허용하는 이유: 실제 오염은 뒤집힌 구간이고, 길이 0ms 자막은 무해하다.
+    -- 아주 짧은 발화에서 STT 가 같은 값을 줄 수 있어 정상 입력을 거절하지 않는다.
+    CONSTRAINT `CK_CAPTION_CHUNK_TIME_RANGE` CHECK (`end_offset_ms` >= `start_offset_ms`),
+    CONSTRAINT `CK_CAPTION_CHUNK_OFFSET_SIGN` CHECK (`start_offset_ms` >= 0),
+    -- rms 는 dBFS 라 0 이 최대(풀스케일)다. AnalyserNode 값이 [-1,1] 이므로 양수가 나올 수 없다 —
+    -- 양수가 들어왔다면 단위를 잘못 계산한 것이고, 그 값으로 1·2등을 비교하면 화자가 뒤바뀐다.
+    CONSTRAINT `CK_CAPTION_CHUNK_RMS_DBFS` CHECK (`rms` <= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
