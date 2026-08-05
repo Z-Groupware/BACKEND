@@ -39,6 +39,9 @@ import java.util.stream.Stream;
  *   <li>{@code BLOCKED} — 판정 완료 + 차단 결정(Critical/미완성). exit 1 ← <b>코드 판정</b>
  *   <li>{@code ERROR}   — 판정 실패(LLM 오류·키 형식·네트워크 등). exit 2 ← <b>리뷰 미수행</b>
  * </ul>
+ * {@code OK}가 두 가지 뜻(통과·생략)을 갖는 것은 의도된 것이지만, 그 둘을 구분할 흔적이 없으면
+ * 위 실패가 초록불로 재발한다. 그래서 <b>생략은 반드시 {@link GateSkipRecorder}로 기록한다</b> —
+ * 감사 로그의 {@code skipReason} 행과 CI 요약 배너가 "이번 변경은 리뷰를 못 받았다"를 남긴다.
  * gradle이 JavaExec의 종료코드를 1로 뭉개므로 <b>훅·CI는 종료코드가 아니라 이 파일로 구분</b>해야 한다.
  * 파일이 비어 있으면 러너가 시작조차 못 한 것이다(컴파일 실패 등) — 그것도 '리뷰 미수행'이다.
  */
@@ -78,6 +81,9 @@ public final class ReviewLoopRunner {
             String unavailable = ProviderAvailability.unavailableReason(t);
             if (unavailable != null) {
                 writeStatus(statusOut, STATUS_OK);
+                // 대상 목록이 확정되기 전(규칙 로드·어댑터 생성 등)에 죽은 경로다 — 몇 개가 리뷰를
+                // 못 받았는지 셀 수 없다. 대상 확정 후의 실패는 run() 안에서 건수와 함께 기록한다.
+                GateSkipRecorder.record(Clock.systemUTC(), unavailable, GateSkipRecorder.UNKNOWN_COUNT);
                 System.out.println("[GATE] ⚠️ Gate 2(LLM 판정) 생략 — " + unavailable);
                 System.out.println("[GATE] 게이트 통과 처리(Gate 1·CI semgrep 은 그대로 돈다). "
                         + "이번 변경은 LLM 리뷰를 받지 못했다.");
@@ -135,6 +141,9 @@ public final class ReviewLoopRunner {
         }
 
         if (!ApiKeys.present(System.getenv("GEMINI_API_KEY"))) {
+            // 키 부재도 '리뷰 없이 나간 변경'이다. 쿼터 소진과 원인만 다를 뿐 결과가 같으므로
+            // 같은 곳에 센다 — 한쪽만 세면 "며칠간 몇 건"의 답이 절반만 나온다.
+            GateSkipRecorder.record(clock, GateSkipRecorder.NO_API_KEY, targets.size());
             System.out.println("GEMINI_API_KEY 없음 → Gate 2(LLM 판정) 생략"
                     + (gate ? " · 게이트 통과 처리(Gate 1은 별도)" : ""));
             resetFindings(findingsOut);
@@ -190,28 +199,46 @@ public final class ReviewLoopRunner {
 
         int round = 0;
         boolean blocked = false;
+        int reviewed = 0;
         List<String> minorFindings = new ArrayList<>();   // 자동수정 대상(Minor만) — Claude Code에 넘김
-        for (Path f : targets) {
-            String code = Files.readString(f);
-            ReviewLoop loop = new ReviewLoop(judge, catalog, evidenceFor(f), scorer, lessons);
-            JudgeVerdict v = loop.review(f.getFileName().toString(), code);
+        try {
+            for (Path f : targets) {
+                String code = Files.readString(f);
+                ReviewLoop loop = new ReviewLoop(judge, catalog, evidenceFor(f), scorer, lessons);
+                JudgeVerdict v = loop.review(f.getFileName().toString(), code);
 
-            if (isBlocking(v.decision())) {
-                blocked = true;
-            }
-            out.append(mark(v.decision())).append(' ').append(f.getFileName())
-               .append("  → score ").append(v.score()).append(" · ").append(v.decision())
-               .append(" · findings ").append(v.findings().size()).append('\n');
-            for (Finding fd : v.findings()) {
-                out.append("    - ").append(fd.ruleId()).append(" (").append(fd.severity()).append("): ")
-                   .append(fd.description()).append(" [").append(fd.file()).append(':').append(fd.line()).append("]\n");
-                if (fd.severity() == Severity.MINOR) {   // 자동수정 대상 — Critical은 제외(사람)
-                    minorFindings.add(toPosixPath(f) + ":" + fd.line()
-                            + " [" + fd.ruleId() + "] " + fd.description());
+                if (isBlocking(v.decision())) {
+                    blocked = true;
                 }
+                out.append(mark(v.decision())).append(' ').append(f.getFileName())
+                   .append("  → score ").append(v.score()).append(" · ").append(v.decision())
+                   .append(" · findings ").append(v.findings().size()).append('\n');
+                for (Finding fd : v.findings()) {
+                    out.append("    - ").append(fd.ruleId()).append(" (").append(fd.severity()).append("): ")
+                       .append(fd.description()).append(" [").append(fd.file()).append(':').append(fd.line()).append("]\n");
+                    if (fd.severity() == Severity.MINOR) {   // 자동수정 대상 — Critical은 제외(사람)
+                        minorFindings.add(toPosixPath(f) + ":" + fd.line()
+                                + " [" + fd.ruleId() + "] " + fd.description());
+                    }
+                }
+                audit.append(new AuditRecord(LocalDateTime.now(clock).toString(), ++round, "gemini",
+                        v.score(), v.hasCritical(), v.decision(), v.findings().size(), false));
+                reviewed++;
             }
-            audit.append(new AuditRecord(LocalDateTime.now(clock).toString(), ++round, "gemini",
-                    v.score(), v.hasCritical(), v.decision(), v.findings().size(), false));
+        } catch (Exception e) {
+            // 제공자 사용 불가는 여기서 잡는다 — main()의 catch 와 달리 **몇 개가 리뷰를 못 받았는지**
+            // 알 수 있는 유일한 자리다. 그 건수가 "며칠간 몇 건이 리뷰 없이 나갔나"의 답이다.
+            // 이미 판정된 파일의 결과(blocked 포함)는 버리지 않는다 — 실제로 내려진 코드 판정이다.
+            String unavailable = ProviderAvailability.unavailableReason(e);
+            if (unavailable == null) {
+                throw e;   // 판정 실패 = 리뷰 미수행. main()이 ERROR(exit 2)로 분류한다
+            }
+            int unreviewed = targets.size() - reviewed;
+            GateSkipRecorder.record(clock, unavailable, unreviewed);
+            out.append("\n⚠️ Gate 2 생략 — ").append(unavailable).append('\n')
+               .append("   리뷰되지 않은 .java ").append(unreviewed).append("개")
+               .append(reviewed > 0 ? " (앞선 " + reviewed + "개는 판정 완료)" : "").append('\n')
+               .append("   생략은 감사 로그에 skipReason 으로 남는다 — 초록불이 '판정 통과'를 뜻하지 않는다.\n");
         }
         out.append("\n감사 로그: ").append(ReviewLoopPaths.AUDIT_LOG).append(" (누적)\n");
 

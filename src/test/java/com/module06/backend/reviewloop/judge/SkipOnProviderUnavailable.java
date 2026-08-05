@@ -24,6 +24,11 @@ final class SkipOnProviderUnavailable implements TestExecutionExceptionHandler {
     public void handleTestExecutionException(ExtensionContext context, Throwable throwable) throws Throwable {
         String reason = ProviderAvailability.unavailableReason(throwable);
         if (reason != null) {
+            // 건너뜀은 Gradle 로그 안쪽에만 남는다. 잡이 초록불이면 아무도 그 로그를 펴지 않으므로
+            // CI 요약에 배너를 하나 올린다 — "연동이 살아있는지 확인하지 못했다"가 보여야 한다.
+            // 감사 로그에는 남기지 않는다: 이 잡은 PR 코드를 리뷰하지 않으므로(스모크 테스트)
+            // 거기 섞으면 '리뷰 없이 나간 건수'가 부풀려진다.
+            GateSkipRecorder.warnSmokeSkipped(reason);
             // TestAbortedException → 실패가 아니라 '건너뜀'으로 집계된다.
             Assumptions.abort("라이브 판정을 건너뛴다 — " + reason);
         }
