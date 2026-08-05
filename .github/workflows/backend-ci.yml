@@ -44,6 +44,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false   # PR 코드를 컴파일·실행하는 잡 — 러너에 git 자격증명을 남기지 않는다
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
