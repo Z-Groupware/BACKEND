@@ -1,6 +1,7 @@
 package com.module06.backend.handover.application.service;
 
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
+import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
@@ -8,6 +9,7 @@ import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
+import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
@@ -37,22 +39,26 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     private final ActionReassignPort actionReassignPort;
     private final OrgQueryPort orgQueryPort;
     private final MemberStatusPort memberStatusPort;
+    private final FinalizeHandoverInsightsUseCase finalizeHandoverInsightsUseCase;
 
     public HandoverService(HandoverRepository handoverRepository, ActionReassignPort actionReassignPort,
-                           OrgQueryPort orgQueryPort, MemberStatusPort memberStatusPort) {
+                           OrgQueryPort orgQueryPort, MemberStatusPort memberStatusPort,
+                           FinalizeHandoverInsightsUseCase finalizeHandoverInsightsUseCase) {
         this.handoverRepository = handoverRepository;
         this.actionReassignPort = actionReassignPort;
         this.orgQueryPort = orgQueryPort;
         this.memberStatusPort = memberStatusPort;
+        this.finalizeHandoverInsightsUseCase = finalizeHandoverInsightsUseCase;
     }
 
     @Autowired
     public HandoverService(HandoverRepository handoverRepository,
                            Optional<ActionReassignPort> actionReassignPort,
                            Optional<OrgQueryPort> orgQueryPort,
-                           Optional<MemberStatusPort> memberStatusPort) {
+                           Optional<MemberStatusPort> memberStatusPort,
+                           FinalizeHandoverInsightsUseCase finalizeHandoverInsightsUseCase) {
         this(handoverRepository, actionReassignPort.orElse(null), orgQueryPort.orElse(null),
-                memberStatusPort.orElse(null));
+                memberStatusPort.orElse(null), finalizeHandoverInsightsUseCase);
     }
 
     @Override
@@ -111,7 +117,10 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             memberStatusPort().toVacation(handover.getWriterMemberId());
         } else {
             memberStatusPort().offboard(handover.getWriterMemberId());
-            // TODO(PR3 insight): OFFBOARDING finalize 시 "레거시 컴파일러" 인사이트 스냅샷 조립을 여기 배선.
+            // "레거시 컴파일러" 파생 인텔리전스 스냅샷을 finalize 트랜잭션 내에서 조립·저장(브리프 §4).
+            // 퇴사(OFFBOARDING)에만 적용. 크로스모듈 포트(C/D/B) 미구현 시 여기서 throw → 계약 대기 상태.
+            finalizeHandoverInsightsUseCase.finalizeInsights(
+                    new FinalizeHandoverInsightsCommand(handoverId, handover.getWriterMemberId()));
         }
         return handoverRepository.save(handover);
     }

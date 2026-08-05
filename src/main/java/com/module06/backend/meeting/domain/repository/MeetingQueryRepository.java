@@ -84,6 +84,8 @@ public interface MeetingQueryRepository {
     /* E의 배치 회의 맥락 조회에 제공할 회의 안건 읽기 모델이다. */
     record MeetingTopicSnapshot(
             Long meetingId,
+            Long topicId,
+            Long parentTopicId,
             MeetingTopicType type,
             String content,
             int sortOrder

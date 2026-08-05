@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
+import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
@@ -309,6 +310,12 @@ class MeetingServiceTest {
                     persistedAt
             );
         }
+
+        /* MEET-09 참석자 교체는 MEET-01 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds) {
+            /* 호출되지 않는 별도 쓰기 계약이므로 아무 상태도 변경하지 않는다. */
+        }
     }
 
     /* 발행된 예약 완료 이벤트를 순서대로 기록하는 이벤트 포트 대역이다. */
@@ -322,6 +329,12 @@ class MeetingServiceTest {
         public void publish(MeetingReservedEvent event) {
             /* 실제 메시지 브로커 대신 메모리에 이벤트를 보관한다. */
             events.add(event);
+        }
+
+        /* MEET-09 참석자 추가 이벤트는 MEET-01 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public void publish(MeetingAttendeesAddedEvent event) {
+            /* 호출되지 않는 별도 이벤트 계약이므로 기록하지 않는다. */
         }
     }
 }

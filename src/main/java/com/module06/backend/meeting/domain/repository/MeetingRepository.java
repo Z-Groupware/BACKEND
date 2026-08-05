@@ -1,5 +1,7 @@
 package com.module06.backend.meeting.domain.repository;
 
+import java.util.List;
+
 import com.module06.backend.meeting.domain.model.Meeting;
 
 /*
@@ -16,4 +18,7 @@ public interface MeetingRepository {
      * @return 데이터베이스 식별자와 생성 시각이 반영된 회의
      */
     Meeting saveReservation(Meeting meeting);
+
+    /* 기존 명단과 목표 명단의 차이를 같은 트랜잭션에서 반영해 참석자를 전체 교체한다. */
+    void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds);
 }

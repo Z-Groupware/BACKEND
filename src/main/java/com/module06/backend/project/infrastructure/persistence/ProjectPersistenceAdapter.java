@@ -61,7 +61,19 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
 
     @Override
     public List<Project> findAllByCompanyId(Long companyId) {
-        return springDataProjectRepository.findAllByCompanyId(companyId).stream()
+        return springDataProjectRepository.findAllByCompanyIdAndDeletedAtIsNull(companyId).stream()
+                .map(entity -> toDomain(entity, findTeamIds(entity.getId())))
+                .toList();
+    }
+
+    @Override
+    public boolean existsActiveByCompanyIdAndId(Long companyId, Long id) {
+        return springDataProjectRepository.existsByCompanyIdAndIdAndDeletedAtIsNull(companyId, id);
+    }
+
+    @Override
+    public List<Project> findAllByCompanyIdAndIdIn(Long companyId, List<Long> ids) {
+        return springDataProjectRepository.findAllByCompanyIdAndIdIn(companyId, ids).stream()
                 .map(entity -> toDomain(entity, findTeamIds(entity.getId())))
                 .toList();
     }

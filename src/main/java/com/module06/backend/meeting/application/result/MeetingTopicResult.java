@@ -9,6 +9,8 @@ import com.module06.backend.meeting.domain.model.MeetingTopicType;
  */
 public record MeetingTopicResult(
         Long meetingId,
+        Long topicId,
+        Long parentTopicId,
         MeetingTopicType type,
         String content,
         int sortOrder

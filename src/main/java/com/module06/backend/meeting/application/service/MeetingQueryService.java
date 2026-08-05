@@ -145,6 +145,8 @@ public class MeetingQueryService implements GetMeetingAttendeesUseCase, MeetingQ
                 .stream()
                 .map(topic -> new MeetingTopicResult(
                         topic.meetingId(),
+                        topic.topicId(),
+                        topic.parentTopicId(),
                         topic.type(),
                         topic.content(),
                         topic.sortOrder()
