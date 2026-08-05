@@ -14,6 +14,8 @@ public interface HandoverRepository {
 
     List<Handover> findByWriterMemberId(Long writerMemberId);
 
+    List<Handover> findByTeamId(Long teamId);
+
     List<Handover> findByTeamIdAndStatus(Long teamId, HandoverStatus status);
 
     /** 갭2: 작성자에게 활성(SUBMITTED/REASSIGNED) handover가 이미 있는지. */

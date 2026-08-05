@@ -10,6 +10,8 @@ public interface SpringDataHandoverRepository extends JpaRepository<HandoverJpaE
 
     List<HandoverJpaEntity> findByWriterMemberId(Long writerMemberId);
 
+    List<HandoverJpaEntity> findByTeamId(Long teamId);
+
     List<HandoverJpaEntity> findByTeamIdAndStatus(Long teamId, HandoverStatus status);
 
     boolean existsByWriterMemberIdAndStatusIn(Long writerMemberId, Collection<HandoverStatus> statuses);

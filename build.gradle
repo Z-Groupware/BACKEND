@@ -24,7 +24,16 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 
+	implementation 'org.springframework.boot:spring-boot-starter-mail'   // 계정 발급 시 비밀번호 메일 발송
+
 	implementation 'org.springframework.boot:spring-boot-starter-security'
+
+	// JWT — 액세스/리프레시 토큰. 에러 응답을 프로젝트 ErrorResponse 형식으로 직접 제어해야 해서
+	// Spring OAuth2 리소스 서버 대신 jjwt 를 쓴다.
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
@@ -50,6 +59,14 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 
+	// 스키마 검증 CI(migrationCheck) — 실제 MySQL에 Flyway를 적용해 ddl-auto=validate로 정합성 확인.
+	// spring-boot-testcontainers는 Spring Boot BOM이 버전 관리하지만, testcontainers 개별 모듈
+	// (junit-jupiter/mysql)은 관리 대상이 아니라 testcontainers-bom을 직접 임포트해 버전을 맞춘다.
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation platform('org.testcontainers:testcontainers-bom:1.21.4')
+	testImplementation 'org.testcontainers:junit-jupiter'
+	testImplementation 'org.testcontainers:mysql'
+
 	// ── AI 코드 리뷰 루프 (reviewloop.judge.*) 의존성 ──
 	// 순수 Java CLI라 Spring과 무관. jackson은 webmvc가, snakeyaml은 spring-boot가 끌어오지만 명시 고정.
 	implementation 'org.yaml:snakeyaml'                       // rules.yaml 파싱(RuleCatalog)
@@ -61,7 +78,22 @@ dependencies {
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'migration'
+	}
+}
+
+// 스키마 검증 CI — Testcontainers로 실제 MySQL을 띄워 Flyway를 적용하고 ddl-auto=validate로
+// 엔티티-스키마 정합성을 확인한다(docs/DB_MIGRATION_RULES.md §11). Docker 필요, 느림 → test와 분리.
+tasks.register('migrationCheck', Test) {
+	group = 'verification'
+	description = 'Flyway 마이그레이션을 실제 MySQL(Testcontainers)에 적용하고 ddl-auto=validate로 엔티티-스키마 정합성을 검증한다. Docker 필요.'
+	useJUnitPlatform {
+		includeTags 'migration'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter(test)
 }
 
 // 실수 방어 — 비밀 설정 파일은 프로젝트 루트에 두는 것이 규약이다(application.yaml 주석 참조).

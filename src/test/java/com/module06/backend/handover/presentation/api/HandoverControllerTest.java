@@ -7,6 +7,7 @@ import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
@@ -31,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,6 +68,9 @@ class HandoverControllerTest {
 
     @MockitoBean
     private RejectHandoverUseCase rejectHandoverUseCase;
+
+    @MockitoBean
+    private GetHandoverListUseCase getHandoverListUseCase;
 
     @MockitoBean
     private OrgQueryPort orgQueryPort;
@@ -164,6 +169,28 @@ class HandoverControllerTest {
         verify(rejectHandoverUseCase).reject(captor.capture());
         assertThat(captor.getValue().handoverId()).isEqualTo(HANDOVER_ID);
         assertThat(captor.getValue().reason()).isEqualTo("needs more detail");
+    }
+
+    @Test
+    void listMapsQueryParamsAndReturnsSummaries() throws Exception {
+        when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
+                .thenReturn(List.of(summary()));
+
+        mockMvc.perform(get("/api/handovers").param("teamId", TEAM.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(HANDOVER_ID))
+                .andExpect(jsonPath("$.data[0].itemCount").value(1));
+
+        ArgumentCaptor<GetHandoverListUseCase.HandoverListQuery> captor =
+                ArgumentCaptor.forClass(GetHandoverListUseCase.HandoverListQuery.class);
+        verify(getHandoverListUseCase).list(captor.capture());
+        assertThat(captor.getValue().teamId()).isEqualTo(TEAM);
+        assertThat(captor.getValue().writerMemberId()).isNull();
+    }
+
+    private static GetHandoverListUseCase.HandoverSummary summary() {
+        return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
+                HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0);
     }
 
     private static Handover submitted() {
