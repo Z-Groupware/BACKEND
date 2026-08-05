@@ -53,7 +53,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(principal, null, authorities(principal)));
         } catch (BusinessException e) {
-            // 심지 않고 넘긴다. 보호된 경로면 인가 단계에서 401 이 된다.
+
             SecurityContextHolder.clearContext();
         }
     }
