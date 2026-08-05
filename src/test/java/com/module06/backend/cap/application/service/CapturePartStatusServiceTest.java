@@ -1,0 +1,164 @@
+package com.module06.backend.cap.application.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import com.module06.backend.cap.application.usecase.GetPartUploadStatusUseCase;
+import com.module06.backend.cap.domain.model.CaptureUploadState;
+import com.module06.backend.cap.domain.model.RecordingPart;
+import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
+import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
+import com.module06.backend.cap.domain.repository.RecordingPartRepository;
+import com.module06.backend.global.exception.BusinessException;
+
+/*
+ * CAP-08 청크 업로드 상태 조회 서비스의 회의 존재·녹음자 검증과 missingSeqs/resumeFromSeq/gapMs 계산 규칙을
+ * 검증하는 단위 테스트다.
+ */
+@DisplayName("CAP-08 청크 업로드 상태 조회 서비스")
+class CapturePartStatusServiceTest {
+
+    /* 회의가 없으면 녹음자 검증 전에 CAP-002로 끝나는지 검증한다. */
+    @Test
+    @DisplayName("회의가 없으면 CAP-002로 거절한다")
+    void rejectsWhenMeetingMissing() {
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(false), stateRepo(Optional.empty()), recordingParts(List.of()));
+
+        assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-002");
+    }
+
+    /* 상태행이 없으면(=presign 전) 녹음자가 없으므로 CAP-004로 거절하는지 검증한다. */
+    @Test
+    @DisplayName("상태행이 없으면 CAP-004로 거절한다")
+    void rejectsWhenNoState() {
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(true), stateRepo(Optional.empty()), recordingParts(List.of()));
+
+        assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-004");
+    }
+
+    /* 현재 녹음자가 아니면 CAP-004로 거절하는지 검증한다. */
+    @Test
+    @DisplayName("현재 녹음자가 아니면 CAP-004로 거절한다")
+    void rejectsWhenNotRecorder() {
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+
+        // 녹음자는 7번인데 9번이 조회 시도
+        assertErrorCode(() -> service.getPartUploadStatus(500L, 9L), "CAP-004");
+    }
+
+    /* 정상: 현재 세그먼트의 빠진 순번·재개 순번·gapMs가 규칙대로 계산되는지 검증한다. */
+    @Test
+    @DisplayName("빠진 순번·resumeFromSeq·gapMs를 규칙대로 계산한다")
+    void computesMissingResumeAndGap() {
+        // 세그먼트 2, lastSeq 5, blocksFormed 3, 녹음자 7. 업로드된 순번은 1·2·4 → 3·5가 빠짐.
+        CaptureUploadState state = CaptureUploadState.restore(500L, 2, 7L, 5, 3, null, null);
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 4)));
+
+        GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
+
+        assertThat(result.segmentSeq()).isEqualTo(2);
+        assertThat(result.lastSeq()).isEqualTo(5);
+        assertThat(result.missingSeqs()).containsExactly(3, 5);
+        assertThat(result.blocksFormed()).isEqualTo(3);
+        assertThat(result.resumeFromSeq()).isEqualTo(6);
+        assertThat(result.gapMs()).isZero();
+    }
+
+    /* 모든 순번이 올라와 있으면 missingSeqs가 비고 resumeFromSeq는 lastSeq+1인지 검증한다. */
+    @Test
+    @DisplayName("빠진 순번이 없으면 missingSeqs는 비어있다")
+    void noMissingWhenAllPresent() {
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+
+        GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
+
+        assertThat(result.missingSeqs()).isEmpty();
+        assertThat(result.resumeFromSeq()).isEqualTo(4);
+    }
+
+    /* 아직 아무것도 안 올라왔으면(lastSeq=0) missingSeqs 비고 resumeFromSeq=1인지 검증한다. */
+    @Test
+    @DisplayName("아무것도 안 올라왔으면 resumeFromSeq는 1이다")
+    void resumeFromOneWhenEmpty() {
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, null, null);
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of()));
+
+        GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
+
+        assertThat(result.missingSeqs()).isEmpty();
+        assertThat(result.resumeFromSeq()).isEqualTo(1);
+        assertThat(result.lastSeq()).isZero();
+    }
+
+    // 회의 존재 여부만 고정 반환하는 회의 참조 저장소 대역.
+    private MeetingReferenceRepository meetingRef(boolean exists) {
+        return new MeetingReferenceRepository() {
+            @Override
+            public boolean existsById(Long meetingId) {
+                return exists;
+            }
+
+            @Override
+            public boolean isAttendee(Long meetingId, Long memberId) {
+                return true;
+            }
+
+            @Override
+            public Optional<Long> findCompanyId(Long meetingId) {
+                return Optional.of(1L);
+            }
+        };
+    }
+
+    // 지정한 캡처 상태를 반환하는 상태 저장소 대역(save는 조회 경로에서 쓰지 않음).
+    private CaptureUploadStateRepository stateRepo(Optional<CaptureUploadState> state) {
+        return new CaptureUploadStateRepository() {
+            @Override
+            public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
+                return state;
+            }
+
+            @Override
+            public CaptureUploadState save(CaptureUploadState value) {
+                return value;
+            }
+        };
+    }
+
+    // 현재 세그먼트에 존재하는 순번을 고정 반환하는 청크 저장소 대역(save는 조회 경로에서 쓰지 않음).
+    private RecordingPartRepository recordingParts(List<Integer> presentSeqs) {
+        return new RecordingPartRepository() {
+            @Override
+            public RecordingPart save(RecordingPart recordingPart) {
+                return recordingPart;
+            }
+
+            @Override
+            public List<Integer> findSeqsInSegment(Long meetingId, int segmentSeq) {
+                return presentSeqs;
+            }
+        };
+    }
+
+    // 실행 결과가 예상 서비스 오류 코드인지 검증한다.
+    private void assertErrorCode(Runnable execution, String expectedCode) {
+        assertThatThrownBy(execution::run)
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo(expectedCode);
+    }
+}

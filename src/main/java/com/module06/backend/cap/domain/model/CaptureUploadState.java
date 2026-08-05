@@ -67,11 +67,16 @@ public class CaptureUploadState {
         segmentSeq++;
     }
 
-    /** 청크 업로드 완료 통보 반영 — 현재 녹음자만 가능, lastSeq는 단조 증가만 허용. */
-    public void recordUpload(Long callerId, int seq) {
+    /** 현재 녹음자인지 검증만 한다(상태 변경 없음). 아니면 CAP_NOT_CURRENT_RECORDER — 상태 조회(#4)처럼 읽기 권한 확인용. */
+    public void verifyRecorder(Long callerId) {
         if (recorderPersonId == null || !recorderPersonId.equals(callerId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_CURRENT_RECORDER);
         }
+    }
+
+    /** 청크 업로드 완료 통보 반영 — 현재 녹음자만 가능, lastSeq는 단조 증가만 허용. */
+    public void recordUpload(Long callerId, int seq) {
+        verifyRecorder(callerId);
         if (seq > lastSeq) {
             lastSeq = seq;
         }

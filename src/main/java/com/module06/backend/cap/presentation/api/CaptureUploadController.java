@@ -1,9 +1,11 @@
 package com.module06.backend.cap.presentation.api;
 
 import com.module06.backend.cap.application.usecase.CompletePartUploadUseCase;
+import com.module06.backend.cap.application.usecase.GetPartUploadStatusUseCase;
 import com.module06.backend.cap.application.usecase.IssuePartUploadUrlsUseCase;
 import com.module06.backend.cap.presentation.api.dto.request.CompletePartRequest;
 import com.module06.backend.cap.presentation.api.dto.request.PresignPartsRequest;
+import com.module06.backend.cap.presentation.api.dto.response.PartUploadStatusResponse;
 import com.module06.backend.cap.presentation.api.dto.response.PresignedPartsResponse;
 import com.module06.backend.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,6 +15,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,11 +30,14 @@ public class CaptureUploadController {
 
     private final IssuePartUploadUrlsUseCase issuePartUploadUrlsUseCase;
     private final CompletePartUploadUseCase completePartUploadUseCase;
+    private final GetPartUploadStatusUseCase getPartUploadStatusUseCase;
 
     public CaptureUploadController(IssuePartUploadUrlsUseCase issuePartUploadUrlsUseCase,
-                                   CompletePartUploadUseCase completePartUploadUseCase) {
+                                   CompletePartUploadUseCase completePartUploadUseCase,
+                                   GetPartUploadStatusUseCase getPartUploadStatusUseCase) {
         this.issuePartUploadUrlsUseCase = issuePartUploadUrlsUseCase;
         this.completePartUploadUseCase = completePartUploadUseCase;
+        this.getPartUploadStatusUseCase = getPartUploadStatusUseCase;
     }
 
     // 청크 업로드용 presigned URL 배치 발급 (CAP-04)
@@ -71,5 +77,23 @@ public class CaptureUploadController {
         // 요청자는 JWT principal에서 꺼낸다(위 presign과 동일 원칙).
         completePartUploadUseCase.completePartUpload(request.toCommand(meetingId, memberId, seq));
         return ApiResponse.accepted("청크 업로드가 기록되었습니다.", null);
+    }
+
+    // 청크 업로드 상태 조회 (CAP-08)
+    @Operation(
+            summary = "청크 업로드 상태 조회",
+            description = "현재 녹음자가 어디까지 올라갔는지(lastSeq·missingSeqs·resumeFromSeq 등)를 조회합니다. "
+                    + "새로고침/크래시 후 재접속 시 이어서 업로드하기 위한 재개 정보입니다."
+    )
+    // presign/complete와 동일 이중 방어. "현재 녹음자만"은 서비스가 검증한다.
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping("/status")
+    public ApiResponse<PartUploadStatusResponse> status(
+            @Parameter(description = "회의 ID") @PathVariable Long meetingId,
+            @AuthenticationPrincipal(expression = "memberId") Long memberId) {
+        // 요청자는 JWT principal에서 꺼낸다(presign/complete와 동일 원칙).
+        GetPartUploadStatusUseCase.Result result =
+                getPartUploadStatusUseCase.getPartUploadStatus(meetingId, memberId);
+        return ApiResponse.success("조회 성공", PartUploadStatusResponse.from(result));
     }
 }
