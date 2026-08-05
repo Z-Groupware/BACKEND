@@ -96,24 +96,24 @@ class MyProfileQueryAdapterTest {
     }
 
     @Test
-    @DisplayName("구독 행이 없으면 FREE 로 본다 — 신설 회사는 구독 행이 없을 수 있다")
-    void noSubscriptionMeansFree() {
+    @DisplayName("구독 행이 없으면 plan 은 null — 무료 플랜으로 둘러대지 않는다. 결제 없이는 이용할 수 없다")
+    void noSubscriptionMeansNoPlan() {
         insertCompany(31L, "1NK6-R3FF", "(주)무구독", "2026-02-02 09:00:00");
         insertMember(33L, 31L, null, null, null, "a@x.co.kr", "김무구독",
                 null, "MEMBER", false, "ACTIVE", "2026-02-02", null);
 
-        assertThat(port.findByMemberId(33L).orElseThrow().plan()).isEqualTo(Plan.FREE);
+        assertThat(port.findByMemberId(33L).orElseThrow().plan()).isNull();
     }
 
     @Test
-    @DisplayName("해지된 구독은 무시한다 — CANCELED 행만 있으면 FREE 다")
-    void canceledSubscriptionIsIgnored() {
+    @DisplayName("해지된 구독만 있으면 plan 은 null — CANCELED 는 이용 중이 아니다")
+    void canceledSubscriptionIsNotAPlan() {
         insertCompany(41L, "GZT5-KDF6", "(주)해지", "2026-03-03 09:00:00");
         insertSubscription(47L, 41L, "TEAM", "CANCELED");
         insertMember(43L, 41L, null, null, null, "b@x.co.kr", "박해지",
                 null, "MEMBER", false, "ACTIVE", "2026-03-03", null);
 
-        assertThat(port.findByMemberId(43L).orElseThrow().plan()).isEqualTo(Plan.FREE);
+        assertThat(port.findByMemberId(43L).orElseThrow().plan()).isNull();
     }
 
     @Test

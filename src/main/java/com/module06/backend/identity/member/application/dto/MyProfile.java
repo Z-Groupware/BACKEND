@@ -11,6 +11,9 @@ import com.module06.backend.identity.member.domain.model.Role;
  *
  * <p>teamId·teamName·roleLabel·jobPositionId·positionName 은 nullable 이다. 온보딩 전 오너는 다섯 개가
  * 전부 null 이다.
+ *
+ * <p>{@code plan} 도 nullable 이다 — 살아 있는 구독이 없으면 null 이고, 그것이 "결제가 필요한 상태"를
+ * 뜻한다. FREE 로 둘러대지 않는다.
  */
 public record MyProfile(
         Long memberId,
