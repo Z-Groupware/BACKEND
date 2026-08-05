@@ -27,6 +27,14 @@ public enum CaptureErrorCode implements ErrorCode {
     SUMMARY_NOT_FOUND(HttpStatus.NOT_FOUND, "ANLZ-001", "회의 요약이 없습니다."),
 
     /*
+     * 캡처 파이프라인 공통 — 그 회사에 속한 회의가 아니다(없는 회의도 여기로 온다).
+     *
+     * 403 이 아니라 404 다. 403 이면 "이 회의는 존재하지만 당신 것이 아니다"가 새어 나가고,
+     * id 를 훑어 남의 회사 회의 개수를 셀 수 있다. 없는 회의와 접근 불가를 같은 응답으로 덮는다.
+     */
+    MEETING_NOT_ACCESSIBLE(HttpStatus.NOT_FOUND, "MEETING_404_1", "회의를 찾을 수 없습니다."),
+
+    /*
      * 계층 호출이 실패해 분석이 멈췄다.
      *
      * 502 인 이유 — 우리 요청이 잘못된 것이 아니라 뒤에 있는 AI 서버가 응답하지 못한 것이다.
