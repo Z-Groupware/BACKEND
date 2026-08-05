@@ -1,6 +1,8 @@
 package com.module06.backend.cap.infrastructure.heartbeat;
 
 import com.module06.backend.cap.application.port.out.CaptureHeartbeatPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,7 @@ public class RedisCaptureHeartbeatAdapter implements CaptureHeartbeatPort {
 
     private static final String KEY_PREFIX = "cap:heartbeat:";
     private static final Duration TTL = Duration.ofSeconds(30);
+    private static final Logger log = LoggerFactory.getLogger(RedisCaptureHeartbeatAdapter.class);
 
     private final StringRedisTemplate redisTemplate;
 
@@ -24,10 +27,16 @@ public class RedisCaptureHeartbeatAdapter implements CaptureHeartbeatPort {
         this.redisTemplate = redisTemplate;
     }
 
-    // Redis 키를 30초 TTL로 다시 세팅 (기존 값 덮어씀)
+    // Redis 키를 30초 TTL로 다시 세팅 (기존 값 덮어씀).
+    // 하트비트는 best-effort — Redis 장애가 complete() 업로드 통보 자체를 5xx로 실패시키면 안 되므로
+    // 여기서 삼킨다. 갱신 실패 시 최악은 canTakeover가 잠깐 true로 뜨는 것(isAlive는 장애 시 true 반환).
     @Override
     public void refresh(Long meetingId) {
-        redisTemplate.opsForValue().set(key(meetingId), "alive", TTL);
+        try {
+            redisTemplate.opsForValue().set(key(meetingId), "alive", TTL);
+        } catch (DataAccessException e) {
+            log.warn("하트비트 갱신 실패(meetingId={}) — Redis 접근 오류, 업로드 통보는 계속 진행", meetingId, e);
+        }
     }
 
     // 키가 아직 안 지워졌으면(TTL 안 끝났으면) 살아있는 것

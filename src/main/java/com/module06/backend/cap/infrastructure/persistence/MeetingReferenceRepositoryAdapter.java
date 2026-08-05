@@ -15,24 +15,24 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MeetingReferenceRepositoryAdapter implements MeetingReferenceRepository {
 
-    private final SpringDataMeetingReferenceRepository springDataMeetingReferenceRepository;
-    private final SpringDataMeetingAttendeeReferenceRepository springDataMeetingAttendeeReferenceRepository;
+    private final SpringDataCapMeetingReferenceRepository springDataCapMeetingReferenceRepository;
+    private final SpringDataCapMeetingAttendeeReferenceRepository springDataCapMeetingAttendeeReferenceRepository;
 
     // meeting 테이블에 그 id로 SELECT — 존재 여부만 확인
     @Override
     public boolean existsById(Long meetingId) {
-        return springDataMeetingReferenceRepository.existsById(meetingId);
+        return springDataCapMeetingReferenceRepository.existsById(meetingId);
     }
 
     // meeting_attendee 복합키(meetingId, memberId)로 SELECT — 참석자 명단에 있는지 확인
     @Override
     public boolean isAttendee(Long meetingId, Long memberId) {
-        return springDataMeetingAttendeeReferenceRepository.existsById(new MeetingAttendeeId(meetingId, memberId));
+        return springDataCapMeetingAttendeeReferenceRepository.existsById(new MeetingAttendeeId(meetingId, memberId));
     }
 
     // meeting 테이블에서 company_id(조직 id)만 뽑아옴 — S3 키 조립용
     @Override
     public Optional<Long> findCompanyId(Long meetingId) {
-        return springDataMeetingReferenceRepository.findById(meetingId).map(MeetingReferenceEntity::getCompanyId);
+        return springDataCapMeetingReferenceRepository.findById(meetingId).map(CapMeetingReferenceEntity::getCompanyId);
     }
 }
