@@ -68,8 +68,11 @@ public class MeetingSummaryPersistenceAdapter implements MeetingSummaryRepositor
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<MeetingSummaryView> findByMeeting(long meetingId) {
-        return summaryRepository.findByMeetingId(meetingId)
+    public Optional<MeetingSummaryView> findByMeeting(long companyId, long meetingId) {
+        // 회사 스코프를 조건에 넣는다. 아래 topicsOf(meetingId) 는 meetingId 로만 찾지만,
+        // meeting_decision 이 (meeting_summary_id, meeting_id) 복합 FK 라 이 요약에 속한
+        // 항목만 존재한다 — 요약이 이 회사 것임을 위에서 확인했으므로 범위 안이다.
+        return summaryRepository.findByMeetingIdAndCompanyId(meetingId, companyId)
                 .map(summary -> new MeetingSummaryView(summary.getOverview(), topicsOf(meetingId)));
     }
 

@@ -93,4 +93,19 @@ public class MeetingRoomJpaEntity {
         this.availableTo = availableTo;
         this.deletedAt = deletedAt;
     }
+
+    /* 신규 회의실 도메인 객체를 저장 가능한 영속성 엔티티로 변환한다. */
+    public static MeetingRoomJpaEntity from(com.module06.backend.meetingroom.domain.model.MeetingRoom meetingRoom) {
+        /* 도메인이 검증하고 정규화한 모든 컬럼 값을 동일한 의미로 전달한다. */
+        return new MeetingRoomJpaEntity(
+                meetingRoom.getId(),
+                meetingRoom.getCompanyId(),
+                meetingRoom.getName(),
+                meetingRoom.getLocation(),
+                meetingRoom.getCapacity(),
+                meetingRoom.getAvailableFrom(),
+                meetingRoom.getAvailableTo(),
+                meetingRoom.getDeletedAt()
+        );
+    }
 }

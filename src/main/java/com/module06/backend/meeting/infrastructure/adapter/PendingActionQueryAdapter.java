@@ -8,6 +8,7 @@ import com.module06.backend.meeting.application.port.out.ActionQueryPort;
  * 액션 도메인의 존재 검증 Port가 연결되기 전까지 사용하는 명시적 pending 어댑터다.
  *
  * relatedActionId가 없는 기본 예약에서는 호출되지 않으며, 값이 있을 때만 연동 필요성을 드러낸다.
+ * C도메인의 실제 어댑터가 추가될 때는 동일 타입 Bean이 중복되지 않도록 이 컴포넌트를 제거하거나 교체해야 한다.
  */
 @Component
 public class PendingActionQueryAdapter implements ActionQueryPort {

@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
+import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepository;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
 import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
 import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomRepository;
@@ -38,6 +39,10 @@ class MeetingRoomPersistenceAdapterTest {
     /* application 계층이 실제로 사용하는 회의실 도메인 저장소 계약이다. */
     @Autowired
     private MeetingRoomRepository meetingRoomRepository;
+
+    /* ROOM-03에서 활성 이름 중복 확인과 신규 저장에 사용하는 명령 저장소 계약이다. */
+    @Autowired
+    private MeetingRoomCommandRepository meetingRoomCommandRepository;
 
     /* MEET-03이 회의실 표시 정보를 일괄 조회할 때 사용하는 D 내부 Port다. */
     @Autowired
@@ -98,6 +103,57 @@ class MeetingRoomPersistenceAdapterTest {
 
         /* Repository 계약에 따라 null이 아닌 빈 목록이 반환되는지 확인한다. */
         assertThat(result).isEmpty();
+    }
+
+    /* ROOM-03 신규 도메인이 저장되고 생성 식별자가 반환되는지 검증한다. */
+    @Test
+    @DisplayName("신규 회의실을 저장하고 생성 식별자를 반환한다")
+    void savesNewMeetingRoomWithGeneratedId() {
+        /* 식별자가 없는 활성 회의실 도메인을 생성한다. */
+        MeetingRoom meetingRoom = MeetingRoom.create(
+                10L,
+                "대회의실",
+                "박애관 421호",
+                12,
+                LocalTime.of(9, 0),
+                LocalTime.of(18, 0)
+        );
+
+        /* 명령 저장소를 통해 실제 테스트 DB에 신규 회의실을 저장한다. */
+        MeetingRoom saved = meetingRoomCommandRepository.save(meetingRoom);
+
+        /* IDENTITY 식별자와 전체 등록 속성이 저장 결과에 반영돼야 한다. */
+        assertThat(saved.getId()).isPositive();
+        assertThat(saved.getCompanyId()).isEqualTo(10L);
+        assertThat(saved.getName()).isEqualTo("대회의실");
+        assertThat(saved.getAvailableFrom()).isEqualTo(LocalTime.of(9, 0));
+        assertThat(saved.isActive()).isTrue();
+    }
+
+    /* 회사·이름·활성 조건을 모두 적용해 중복을 판단하는지 검증한다. */
+    @Test
+    @DisplayName("같은 회사의 활성 회의실 이름만 중복으로 판단한다")
+    void checksDuplicateNameOnlyAmongActiveRoomsInSameCompany() {
+        /* 기준이 될 같은 회사의 활성 회의실을 저장한다. */
+        springDataMeetingRoomRepository.save(meetingRoom(10L, "대회의실", null));
+
+        /* 같은 회사의 같은 활성 이름은 중복이어야 한다. */
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndName(10L, "대회의실"))
+                .isTrue();
+
+        /* 다른 회사이거나 존재하지 않는 이름은 중복으로 노출되면 안 된다. */
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndName(20L, "대회의실"))
+                .isFalse();
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndName(10L, "소회의실"))
+                .isFalse();
+
+        /* 활성 행을 지우고 같은 이름의 비활성 행만 남기면 이름을 재사용할 수 있어야 한다. */
+        springDataMeetingRoomRepository.deleteAll();
+        springDataMeetingRoomRepository.save(
+                meetingRoom(10L, "대회의실", LocalDateTime.of(2026, 8, 5, 9, 0))
+        );
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndName(10L, "대회의실"))
+                .isFalse();
     }
 
     /*

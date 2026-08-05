@@ -59,6 +59,16 @@ public class SecurityConfig {
 
                         // CAP 청크 업로드(presign/complete)
                         .requestMatchers(HttpMethod.POST, "/api/meetings/*/parts/**").authenticated()
+                        // ── 캡처 파이프라인(도메인 A) ──
+                        // 체인이 anyRequest().permitAll() 로 끝나므로 여기 등록하지 않으면
+                        // @PreAuthorize 만으로는 익명 요청이 principal 없이 들어와
+                        // companyId 추출에서 NPE(500)가 난다. 인증 실패는 401 이어야 한다.
+                        .requestMatchers(HttpMethod.POST, "/api/meetings/*/analysis").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/processing-status").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/summary").authenticated()
+
+                        // ROOM-03 회의실 등록은 principal의 companyId를 사용하므로 인자 해석 전에 익명 요청을 401로 차단한다.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/meeting-rooms").authenticated()
 
                         // CAP 진행 중 캡처 조회 — 토큰의 memberId로 참석 회의를 찾으므로 반드시 인증돼야 한다
                         // (anyRequest가 permitAll이라 명시하지 않으면 principal이 null이 되어 NPE).
