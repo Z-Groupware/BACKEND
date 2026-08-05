@@ -212,6 +212,9 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(result)
                 .extracting(MeetingQueryRepository.MeetingTopicSnapshot::type)
                 .containsExactly(MeetingTopicType.MAIN, MeetingTopicType.SUB);
+        /* 안건 식별자가 계층 복원용으로 손실 없이 전달돼야 한다. */
+        assertThat(result)
+                .allSatisfy(snapshot -> assertThat(snapshot.topicId()).isNotNull());
     }
 
     /* MEET-03 후보 조회가 참석자·회사·종료 시각·정렬·limit 규칙을 지키는지 검증한다. */

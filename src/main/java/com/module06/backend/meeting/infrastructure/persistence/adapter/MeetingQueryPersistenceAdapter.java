@@ -296,9 +296,11 @@ public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository, M
 
     /* 회의 안건 엔티티를 E 배치 계약에 필요한 읽기 모델로 변환한다. */
     private MeetingTopicSnapshot toMeetingTopicSnapshot(MeetingTopicJpaEntity topic) {
-        /* 회의 식별자, MAIN·SUB 유형, 내용, 표시 순서만 경계 밖으로 전달한다. */
+        /* 회의 식별자, 안건·부모 안건 식별자, MAIN·SUB 유형, 내용, 표시 순서를 경계 밖으로 전달한다. */
         return new MeetingTopicSnapshot(
                 topic.getMeetingId(),
+                topic.getId(),
+                topic.getParentTopicId(),
                 topic.getTopicType(),
                 topic.getContent(),
                 topic.getSortOrder()

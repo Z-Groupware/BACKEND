@@ -158,7 +158,9 @@ class MeetingQueryServiceTest {
 
         /* 안건 유형과 표시 순서가 손실 없이 공개 Port 결과로 변환돼야 한다. */
         assertThat(topics).singleElement().satisfies(result -> {
-            /* E가 회의 맥락을 조립할 MAIN 유형과 내용을 확인한다. */
+            /* E가 회의 맥락을 조립할 안건 식별자·계층·유형과 내용을 확인한다. */
+            assertThat(result.topicId()).isEqualTo(55L);
+            assertThat(result.parentTopicId()).isNull();
             assertThat(result.type()).isEqualTo(MeetingTopicType.MAIN);
             assertThat(result.content()).isEqualTo("출시 범위 확정");
             assertThat(result.sortOrder()).isZero();
@@ -209,9 +211,11 @@ class MeetingQueryServiceTest {
             /* 회의 맥락 타임라인 조회에 사용할 MAIN 안건 한 건을 반환한다. */
             @Override
             public List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds) {
-                /* 안건의 유형, 내용, 표시 순서를 가진 조회 모델을 반환한다. */
+                /* 안건 식별자·부모 안건·유형·내용·표시 순서를 가진 조회 모델을 반환한다. */
                 return List.of(new MeetingTopicSnapshot(
                         91L,
+                        55L,
+                        null,
                         MeetingTopicType.MAIN,
                         "출시 범위 확정",
                         0
