@@ -35,9 +35,14 @@ public class CapturePartStatusService implements GetPartUploadStatusUseCase {
 
     @Override
     public Result getPartUploadStatus(Long meetingId, Long callerId) {
-        // 회의 존재 확인(404) → 상태행 확인 → 녹음자 검증(403). "현재 녹음자만" 접근 가능.
+        // 회의 존재 확인(404) → 참석자 확인(403) → 상태행 확인 → 녹음자 검증(403).
         if (!meetingReferenceRepository.existsById(meetingId)) {
             throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
+        }
+        // presign/complete와 동일한 회의 접근 확인 — 참석자 명단에서 빠진 옛 녹음자가 상태행만으로
+        // 조회하는 걸 막는다(recorder_person_id 비교만으론 못 거르는 IDOR 갭 보완).
+        if (!meetingReferenceRepository.isAttendee(meetingId, callerId)) {
+            throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
         // 상태행이 없다는 건 presign이 한 번도 없었다는 뜻 — 녹음자로 배정된 사람 자체가 없으므로 caller도 녹음자가 아니다.
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(meetingId)

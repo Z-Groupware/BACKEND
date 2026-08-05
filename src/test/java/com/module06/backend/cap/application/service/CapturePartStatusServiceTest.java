@@ -29,7 +29,7 @@ class CapturePartStatusServiceTest {
     @DisplayName("회의가 없으면 CAP-002로 거절한다")
     void rejectsWhenMeetingMissing() {
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(false), stateRepo(Optional.empty()), recordingParts(List.of()));
+                meetingRef(false, false), stateRepo(Optional.empty()), recordingParts(List.of()));
 
         assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-002");
     }
@@ -39,9 +39,21 @@ class CapturePartStatusServiceTest {
     @DisplayName("상태행이 없으면 CAP-004로 거절한다")
     void rejectsWhenNoState() {
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true), stateRepo(Optional.empty()), recordingParts(List.of()));
+                meetingRef(true, true), stateRepo(Optional.empty()), recordingParts(List.of()));
 
         assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-004");
+    }
+
+    /* 참석자가 아니면 상태행을 읽기 전에 CAP-010으로 거절하는지 검증한다(IDOR 갭 보완). */
+    @Test
+    @DisplayName("참석자가 아니면 CAP-010으로 거절한다")
+    void rejectsWhenNotAttendee() {
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
+        CapturePartStatusService service = new CapturePartStatusService(
+                meetingRef(true, false), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+
+        // 회의도 있고 상태행도 있지만, caller가 참석자 명단에 없으면 녹음자 검증 전에 막혀야 한다.
+        assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-010");
     }
 
     /* 현재 녹음자가 아니면 CAP-004로 거절하는지 검증한다. */
@@ -50,7 +62,7 @@ class CapturePartStatusServiceTest {
     void rejectsWhenNotRecorder() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
         // 녹음자는 7번인데 9번이 조회 시도
         assertErrorCode(() -> service.getPartUploadStatus(500L, 9L), "CAP-004");
@@ -63,7 +75,7 @@ class CapturePartStatusServiceTest {
         // 세그먼트 2, lastSeq 5, blocksFormed 3, 녹음자 7. 업로드된 순번은 1·2·4 → 3·5가 빠짐.
         CaptureUploadState state = CaptureUploadState.restore(500L, 2, 7L, 5, 3, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 4)));
+                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 4)));
 
         GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
 
@@ -81,7 +93,7 @@ class CapturePartStatusServiceTest {
     void noMissingWhenAllPresent() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
         GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
 
@@ -95,7 +107,7 @@ class CapturePartStatusServiceTest {
     void resumeFromOneWhenEmpty() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true), stateRepo(Optional.of(state)), recordingParts(List.of()));
+                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of()));
 
         GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
 
@@ -105,7 +117,7 @@ class CapturePartStatusServiceTest {
     }
 
     // 회의 존재 여부만 고정 반환하는 회의 참조 저장소 대역.
-    private MeetingReferenceRepository meetingRef(boolean exists) {
+    private MeetingReferenceRepository meetingRef(boolean exists, boolean attendee) {
         return new MeetingReferenceRepository() {
             @Override
             public boolean existsById(Long meetingId) {
@@ -114,7 +126,7 @@ class CapturePartStatusServiceTest {
 
             @Override
             public boolean isAttendee(Long meetingId, Long memberId) {
-                return true;
+                return attendee;
             }
 
             @Override
