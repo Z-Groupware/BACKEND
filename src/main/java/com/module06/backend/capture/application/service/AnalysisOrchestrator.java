@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,7 @@ import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.LayerName;
+import com.module06.backend.capture.domain.model.LayerStatus;
 import com.module06.backend.capture.domain.model.TopicSegment;
 import com.module06.backend.capture.domain.model.Utterance;
 
@@ -48,6 +51,10 @@ import com.module06.backend.capture.domain.model.Utterance;
 @RequiredArgsConstructor
 public class AnalysisOrchestrator {
 
+    /* 이 오케스트레이터가 실제로 도는 계층. 계층을 붙이면 여기도 같이 늘린다 —
+     * 빠뜨리면 "전부 완료" 판정이 새 계층을 안 보고 생략을 결정한다. */
+    private static final Set<LayerName> RUN_LAYERS = Set.of(LayerName.L2, LayerName.L3);
+
     private final TranscriptRepository transcriptRepository;
     private final AnalysisLayerRepository analysisLayerRepository;
     private final MeetingSummaryRepository meetingSummaryRepository;
@@ -61,7 +68,20 @@ public class AnalysisOrchestrator {
      * @param participants 닫힌 목록. 명단 밖 참석자를 나타내는 personId=null 항목을 포함해야 한다.
      */
     public AnalysisOutcome run(long tenantId, long companyId, long meetingId,
-                               List<AiLayerPort.Participant> participants) {
+                               List<AiLayerPort.Participant> participants, boolean force) {
+
+        /*
+         * 이미 다 돌아간 회의를 다시 돌리지 않는다.
+         *
+         * ANLZ-01 도 같은 판정을 하지만(409), 이 오케스트레이터는 곧 MEET-08(회의 종료)과
+         * SQS 워커도 부른다. 그 경로는 유스케이스의 검사를 지나지 않으므로, 중복 메시지 하나가
+         * 회의 전체를 다시 태우게 된다 — SQS 는 at-least-once 라 중복은 언젠가 반드시 온다.
+         * 계층 잠금은 "동시 실행"만 막고 "완료 후 재실행"은 막지 못한다.
+         */
+        if (!force && alreadyComplete(meetingId)) {
+            log.info("분석 생략 — 이미 완료된 회의다. meetingId={}", meetingId);
+            return AnalysisOutcome.skipped("이미 분석이 완료된 회의입니다.");
+        }
 
         List<Utterance> utterances = transcriptRepository.findByMeetingOrderByOffset(meetingId);
         if (utterances.isEmpty()) {
@@ -76,30 +96,33 @@ public class AnalysisOrchestrator {
         utterances.forEach(utterance -> byId.put(utterance.utteranceId(), utterance));
 
         // ── L2 · 주제 분할 ───────────────────────────────────────────────────────
-        LayerOutcome<SegmentTopicsResult> segmented = runLayer(meetingId, LayerName.L2, () -> {
+        LayerOutcome<SegmentTopicsResult> segmented = runLayer(meetingId, LayerName.L2, sink -> {
             SegmentTopicsResult result = aiLayerPort.segmentTopics(tenantId, meetingId, utterances);
-            // 값과 토큰을 함께 올린다 — runLayer 가 analysis_layer 에 usage 를 기록하는 경로다.
-            return new Accumulated<>(result, result.run());
+            // 토큰을 먼저 sink 에 넣는다. 아래에서 던져도 이미 쓴 비용은 기록된다.
+            sink.add(result.run());
+
+            if (result.topics().isEmpty()) {
+                // 발화는 있는데 주제가 하나도 안 나왔다. 여기서 "회의 전체를 한 주제"로 지어내면
+                // 분할이 실패한 사실이 감춰지고, L3 는 회의 전체를 한 번에 요약하게 된다.
+                //
+                // 계층 안에서 던지는 이유: 밖에서 판정하면 runLayer 가 이미 L2 를 DONE 으로
+                // 닫아버려서, 분석은 실패했는데 analysis_layer 는 "완료"라고 말하게 된다.
+                // CAP-06 이 그 상태를 그대로 내려주므로 화면도 같이 거짓말한다.
+                throw new AiLayerException("EMPTY_TOPICS", "주제 분할 결과가 비어 있습니다.", true);
+            }
+            return new Accumulated<>(result, sink.spent());
         });
         if (!segmented.succeeded()) {
             return segmented.toAnalysisOutcome(LayerName.L2);
         }
 
         List<TopicSegment> topics = segmented.value().topics();
-        if (topics.isEmpty()) {
-            // 발화는 있는데 주제가 하나도 안 나왔다. 여기서 "회의 전체를 한 주제"로 지어내면
-            // 분할이 실패한 사실이 감춰지고, L3 는 회의 전체를 한 번에 요약하게 된다.
-            log.warn("L2 가 주제를 만들지 못했다 — meetingId={}", meetingId);
-            return AnalysisOutcome.failed(LayerName.L2, "EMPTY_TOPICS",
-                    "주제 분할 결과가 비어 있습니다.", true);
-        }
 
-        // ── L3 · 주제별 정리 (주제마다 한 번) ────────────────────────────────────
+        // ── L3 · 주제별 정리 (주제마다 한 번) + 산출물 저장 ──────────────────────
         List<TopicDecisions> decisions = new ArrayList<>();
         StringBuilder overview = new StringBuilder();
 
-        LayerOutcome<Void> summarized = runLayer(meetingId, LayerName.L3, () -> {
-            LayerRun accumulated = LayerRun.empty();
+        LayerOutcome<Void> summarized = runLayer(meetingId, LayerName.L3, sink -> {
             for (TopicSegment topic : topics) {
                 SummarizeTopicResult result = aiLayerPort.summarizeTopic(
                         tenantId, meetingId, topic.topicSeq(), topic.topic(),
@@ -109,16 +132,25 @@ public class AnalysisOrchestrator {
                 appendOverview(overview, topic, result.summary());
                 // 주제마다 부르므로 토큰은 누적한다. 마지막 호출 값만 남기면 회의당 비용이
                 // 주제 수만큼 과소 집계되고 QLTY-03 이 틀어진다.
-                accumulated = accumulated.plus(result.run());
+                // sink 에 넣으므로 중간에 터져도 그때까지의 비용이 FAILED 기록에 남는다.
+                sink.add(result.run());
             }
-            return new Accumulated<Void>(null, accumulated);
+
+            /*
+             * 저장을 계층 안에서 한다 — DONE 표시보다 **먼저** 끝나야 한다.
+             *
+             * 밖에서 저장하면 runLayer 가 L3 를 DONE 으로 닫은 뒤에 저장이 실패할 수 있고,
+             * 그러면 "L3 완료인데 요약이 없는" 상태가 남는다. ANLZ-03 은 404 를 주고 CAP-06 은
+             * 완료라고 말하는, 아무도 원인을 못 찾는 조합이다.
+             */
+            meetingSummaryRepository.replace(companyId, meetingId, overview.toString().strip(),
+                    decisions, sink.spent().modelName(), sink.spent().promptVersion());
+
+            return new Accumulated<>(null, sink.spent());
         });
         if (!summarized.succeeded()) {
             return summarized.toAnalysisOutcome(LayerName.L3);
         }
-
-        meetingSummaryRepository.replace(companyId, meetingId, overview.toString().strip(), decisions,
-                summarized.run().modelName(), summarized.run().promptVersion());
 
         log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건",
                 meetingId, decisions.size(), decisions.stream().mapToInt(d -> d.items().size()).sum());
@@ -136,24 +168,47 @@ public class AnalysisOrchestrator {
             log.info("계층 잠금 실패 — 이미 실행 중이다. meetingId={} layer={}", meetingId, layer.wireValue());
             return LayerOutcome.locked();
         }
+        /*
+         * 실패해도 그때까지 쓴 토큰이 남아야 한다. L3 는 주제마다 부르므로 5개 중 3번째에서
+         * 터져도 앞의 2번은 이미 과금됐다 — 그걸 0 으로 기록하면 QLTY-03 이 실제보다 싼
+         * 기준선을 보여주고, 그 숫자로 특화 모델 전환의 손익분기점을 계산하게 된다.
+         */
+        UsageSink sink = new UsageSink();
         try {
-            Accumulated<T> accumulated = call.execute();
+            Accumulated<T> accumulated = call.execute(sink);
             analysisLayerRepository.markDone(meetingId, layer, accumulated.run());
             return LayerOutcome.success(accumulated.value(), accumulated.run());
         } catch (AiLayerException e) {
             // 계층이 던진 분류를 그대로 남긴다. 여기서 다시 판정하면 Python 과 두 곳에서
             // 재시도 여부를 정하게 되고, 한쪽만 고쳐지는 상태가 만들어진다.
-            log.warn("계층 실패 — meetingId={} layer={} code={} retryable={}",
-                    meetingId, layer.wireValue(), e.getErrorCode(), e.isRetryable(), e);
-            analysisLayerRepository.markFailed(meetingId, layer, e.getErrorCode(), e.getMessage());
+            log.warn("계층 실패 — meetingId={} layer={} code={} retryable={} 사용토큰={}/{}",
+                    meetingId, layer.wireValue(), e.getErrorCode(), e.isRetryable(),
+                    sink.spent().tokensIn(), sink.spent().tokensOut(), e);
+            analysisLayerRepository.markFailed(
+                    meetingId, layer, e.getErrorCode(), e.getMessage(), sink.spent());
             return LayerOutcome.failure(e.getErrorCode(), e.getMessage(), e.isRetryable());
         } catch (RuntimeException e) {
             // 우리 코드의 버그다. 제공자 실패와 섞으면 "재시도하면 되는 것"으로 오분류되어
             // 같은 버그를 세 번 돌린다.
             log.error("계층 실행 중 내부 오류 — meetingId={} layer={}", meetingId, layer.wireValue(), e);
-            analysisLayerRepository.markFailed(meetingId, layer, "ORCHESTRATION_ERROR", e.toString());
+            analysisLayerRepository.markFailed(
+                    meetingId, layer, "ORCHESTRATION_ERROR", e.toString(), sink.spent());
             return LayerOutcome.failure("ORCHESTRATION_ERROR", e.toString(), false);
         }
+    }
+
+    /*
+     * 이 오케스트레이터가 도는 계층이 전부 DONE 인가.
+     *
+     * 계층별 재개(ANLZ-02)는 아직 아니다 — L2 산출물을 따로 저장하지 않으므로 L3 만 이어서
+     * 돌릴 수 없다. 그래서 지금은 "전부 완료면 생략, 아니면 처음부터"만 구분한다.
+     */
+    private boolean alreadyComplete(long meetingId) {
+        Set<LayerName> done = analysisLayerRepository.findStates(meetingId).stream()
+                .filter(state -> state.status() == LayerStatus.DONE)
+                .map(AnalysisLayerRepository.LayerState::layer)
+                .collect(Collectors.toSet());
+        return done.containsAll(RUN_LAYERS);
     }
 
     /*
@@ -184,7 +239,26 @@ public class AnalysisOrchestrator {
 
     @FunctionalInterface
     private interface LayerCall<T> {
-        Accumulated<T> execute();
+        Accumulated<T> execute(UsageSink sink);
+    }
+
+    /*
+     * 계층이 쓴 토큰을 모으는 자리. 성공·실패 양쪽에서 같은 값을 쓰려면 호출 바깥에 있어야 한다 —
+     * 람다 안의 지역변수로 두면 예외가 나갈 때 그 값이 함께 사라진다(그게 원래 버그였다).
+     */
+    private static final class UsageSink {
+
+        private LayerRun spent = LayerRun.empty();
+
+        void add(LayerRun run) {
+            if (run != null) {
+                spent = spent.plus(run);
+            }
+        }
+
+        LayerRun spent() {
+            return spent;
+        }
     }
 
     /* 계층 호출의 산출물 + 그 호출에 든 비용. */
