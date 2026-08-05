@@ -9,16 +9,19 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
+import com.module06.backend.capture.application.port.out.MeetingSummaryRepository;
+import com.module06.backend.capture.application.port.out.MeetingSummaryRepository.MeetingSummaryView;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
+import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
 /*
- * 분석 유스케이스 구현이다(ANLZ-01 · CAP-06).
+ * 분석 유스케이스 셋(ANLZ-01 · CAP-06 · ANLZ-03)의 구현이다.
  *
  * 오케스트레이션 자체는 {@link AnalysisOrchestrator} 가 갖고, 여기서는 **호출해도 되는지**만
  * 판정한다. 둘을 나눈 이유는 트리거가 늘어나기 때문이다 — 지금은 이 API 하나지만
@@ -31,10 +34,11 @@ import com.module06.backend.global.exception.BusinessException;
  */
 @Service
 @RequiredArgsConstructor
-public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusUseCase {
+public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusUseCase, GetSummaryUseCase {
 
     private final AnalysisOrchestrator orchestrator;
     private final AnalysisLayerRepository analysisLayerRepository;
+    private final MeetingSummaryRepository meetingSummaryRepository;
     private final MeetingParticipantProvider participantProvider;
 
     @Override
@@ -61,6 +65,15 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     @Transactional(readOnly = true)
     public ProcessingStatus getProcessingStatus(long companyId, long meetingId) {
         return ProcessingStatus.of(layerProgress(meetingId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MeetingSummaryView getSummary(long companyId, long meetingId) {
+        // 분석 전이면 빈 요약을 지어내지 않고 404 다. 빈 결과를 200 으로 돌려주면
+        // 화면이 "요약할 내용이 없는 회의"로 읽고, 분석이 안 돌았다는 사실이 사라진다.
+        return meetingSummaryRepository.findByMeeting(companyId, meetingId)
+                .orElseThrow(() -> new BusinessException(CaptureErrorCode.SUMMARY_NOT_FOUND));
     }
 
     private List<LayerProgress> layerProgress(long meetingId) {

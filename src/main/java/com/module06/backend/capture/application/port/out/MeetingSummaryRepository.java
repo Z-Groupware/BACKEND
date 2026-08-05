@@ -28,7 +28,11 @@ public interface MeetingSummaryRepository {
                  String modelName, String promptVersion);
 
     /* ANLZ-03 조회. 분석 전이면 비어 있다 — 빈 요약을 만들어 돌려주지 않는다. */
-    Optional<MeetingSummaryView> findByMeeting(long meetingId);
+    /*
+     * 회사 스코프를 **인자로 받는다.** meetingId 만으로 조회하면 다른 회사 회의의 요약과
+     * 근거 발화 id 가 나간다 — 메타데이터가 아니라 회의 내용이다(CWE-639).
+     */
+    Optional<MeetingSummaryView> findByMeeting(long companyId, long meetingId);
 
     /* 한 주제와 그 안의 항목들. topicSeq 는 L2 가 매긴 순번을 그대로 쓴다. */
     record TopicDecisions(int topicSeq, String topic, List<TopicItem> items) {
