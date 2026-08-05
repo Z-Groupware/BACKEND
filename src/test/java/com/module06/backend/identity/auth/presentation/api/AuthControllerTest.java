@@ -1,5 +1,7 @@
 package com.module06.backend.identity.auth.presentation.api;
 
+import java.time.LocalDate;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,11 +21,17 @@ import com.module06.backend.identity.auth.application.dto.LoginResult;
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
+import com.module06.backend.identity.member.application.dto.MyProfile;
+import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
+import com.module06.backend.identity.member.domain.model.MemberStatus;
+import com.module06.backend.identity.member.domain.model.Plan;
+import com.module06.backend.identity.member.domain.model.Role;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -48,6 +56,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private LogoutUseCase logoutUseCase;
+
+    @MockitoBean
+    private GetMyProfileUseCase getMyProfileUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -203,6 +214,49 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data").doesNotExist());
 
         verify(logoutUseCase).logout(7L);
+    }
+
+    @Test
+    @DisplayName("어드민 겸직 팀장의 정보를 내려준다 — roleLabel 은 하위팀이 아니라 자유 라벨이다")
+    void returnsMyProfile() throws Exception {
+        authenticateAs(3L);
+        when(getMyProfileUseCase.get(3L)).thenReturn(new MyProfile(
+                3L, 1L, "(주)테크스타트", "NOVA-7K3D",
+                "이하윤", "hayun@zgroup.co.kr", "010-1234-5678",
+                1L, "개발팀", "프론트엔드", 4L, "선임",
+                Role.LEADER, true, true,
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.TEAM));
+
+        mockMvc.perform(get("/api/auth/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.memberId").value(3))
+                .andExpect(jsonPath("$.data.role").value("LEADER"))
+                .andExpect(jsonPath("$.data.isAdmin").value(true))
+                .andExpect(jsonPath("$.data.roleLabel").value("프론트엔드"))
+                .andExpect(jsonPath("$.data.workStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.plan").value("TEAM"))
+                .andExpect(jsonPath("$.data.landingPath").value("/team"))
+                .andExpect(jsonPath("$.data.phone").value("010-1234-5678"));
+    }
+
+    @Test
+    @DisplayName("온보딩 전 오너는 부서·직급·라벨·구독이 전부 null 로 나가고 200 이다")
+    void returnsNullFieldsForOwnerBeforeOnboarding() throws Exception {
+        authenticateAs(9L);
+        when(getMyProfileUseCase.get(9L)).thenReturn(new MyProfile(
+                9L, 2L, "(주)신규", "ABCD-EFGH",
+                "대표", "owner@new.kr", null,
+                null, null, null, null, null,
+                Role.OWNER, false, false,
+                MemberStatus.ACTIVE, null, null));
+
+        mockMvc.perform(get("/api/auth/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.teamId").doesNotExist())
+                .andExpect(jsonPath("$.data.roleLabel").doesNotExist())
+                .andExpect(jsonPath("$.data.plan").doesNotExist())
+                .andExpect(jsonPath("$.data.isOnboarded").value(false))
+                .andExpect(jsonPath("$.data.landingPath").value("/owner"));
     }
 
     /** 필터를 끈 슬라이스 테스트라 컨텍스트를 직접 심는다 — JwtAuthenticationFilterTest 와 같은 방식. */
