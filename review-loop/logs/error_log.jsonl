@@ -34,3 +34,5 @@
 {"timestamp":"2026-08-05T09:47:11.878317500","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":11,"terminatedByBudget":false,"skipReason":"제공자를 쓸 수 없다 (HTTP 429 — 키 만료·무효, 쿼터·크레딧 소진, 제공자 장애 중 하나)."}
 {"timestamp":"2026-08-05T09:00:32.747185","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":17,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
 {"timestamp":"2026-08-05T09:14:46.276565","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":9,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T14:12:40.332955","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":18,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T14:27:49.093311","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":4,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}

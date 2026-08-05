@@ -67,6 +67,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/meetings/*/processing-status").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/meetings/*/summary").authenticated()
 
+                        // ROOM-03 회의실 등록은 principal의 companyId를 사용하므로 인자 해석 전에 익명 요청을 401로 차단한다.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/meeting-rooms").authenticated()
+
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();

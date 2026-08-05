@@ -138,6 +138,60 @@ class MeetingServiceTest {
         assertErrorCode(() -> service.createMeeting(validCommand()), "MT-010");
     }
 
+    /* C도메인이 관련 액션을 찾지 못한 경우 MEET-01 외부 계약이 AC-001인지 검증한다. */
+    @Test
+    @DisplayName("관련 액션이 존재하지 않으면 AC-001로 거절한다")
+    void rejectsMissingRelatedAction() {
+        /* 액션 존재 여부만 false이고 나머지 외부 리소스는 정상인 서비스를 준비한다. */
+        RecordingMeetingRepository repository = new RecordingMeetingRepository();
+        RecordingMeetingEventPublisher eventPublisher = new RecordingMeetingEventPublisher();
+        MeetingService service = service(
+                repository,
+                eventPublisher,
+                activeRoom(),
+                validMembers(),
+                true,
+                false
+        );
+
+        /* relatedActionId가 있는 정상 형식 요청에서 액션 미존재 오류를 확인한다. */
+        assertErrorCode(() -> service.createMeeting(validCommand()), "AC-001");
+
+        /* 외부 참조 검증 실패 뒤에는 회의 저장이나 예약 이벤트가 발생하면 안 된다. */
+        assertThat(repository.savedMeeting).isNull();
+        assertThat(eventPublisher.events).isEmpty();
+    }
+
+    /* 액션을 선택하지 않은 회의가 ActionQueryPort 연동 전에도 진행 가능한지 검증한다. */
+    @Test
+    @DisplayName("관련 액션을 선택하지 않으면 액션 조회 없이 회의를 예약한다")
+    void createsMeetingWithoutRelatedAction() {
+        /* 호출되는 순간 실패하는 액션 Port를 포함해 나머지 정상 의존성을 직접 조립한다. */
+        ActionQueryPort pendingActionPort = (companyId, actionId) -> {
+            throw new AssertionError("relatedActionId가 없으면 ActionQueryPort를 호출하면 안 됩니다.");
+        };
+        MeetingService service = serviceWithActionPort(pendingActionPort);
+
+        /* 선택 입력인 relatedActionId만 null인 정상 회의 예약 명령을 준비한다. */
+        CreateMeetingCommand command = new CreateMeetingCommand(
+                10L,
+                3L,
+                100L,
+                "A커머스 온보딩 킥오프",
+                12L,
+                2L,
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                true,
+                null,
+                List.of(7L, 11L)
+        );
+
+        /* 액션 Port를 호출하지 않고 예약이 완료되며 관련 액션은 null로 유지돼야 한다. */
+        MeetingCreationResult result = service.createMeeting(command);
+        assertThat(result.meetingId()).isEqualTo(91L);
+    }
+
     /* 정상 외부 리소스를 반환하는 기본 서비스를 생성한다. */
     private MeetingService defaultService() {
         /* 개별 검증 테스트에서는 저장 결과를 따로 확인하지 않는다. */
@@ -148,6 +202,54 @@ class MeetingServiceTest {
                 validMembers(),
                 true,
                 true
+        );
+    }
+
+    /* 전달받은 액션 Port와 나머지 정상 대역으로 MEET-01 서비스를 조립한다. */
+    private MeetingService serviceWithActionPort(ActionQueryPort actionQueryPort) {
+        /* 단건 회의실 조회와 사용하지 않는 배치 조회를 구현한 정상 포트를 만든다. */
+        MeetingRoomQueryPort roomPort = new MeetingRoomQueryPort() {
+            /* 활성 회의실 단건 결과를 반환한다. */
+            @Override
+            public Optional<MeetingRoomSnapshot> findActiveMeetingRoom(Long companyId, Long meetingRoomId) {
+                /* 테스트의 정상 회의실 결과를 그대로 반환한다. */
+                return activeRoom();
+            }
+
+            /* 이 테스트에서 사용하지 않는 배치 표시 조회는 빈 목록을 반환한다. */
+            @Override
+            public List<MeetingRoomSnapshot> findMeetingRooms(Long companyId, List<Long> meetingRoomIds) {
+                /* MEET-03 전용 계약이므로 데이터베이스 조회를 흉내 내지 않는다. */
+                return List.of();
+            }
+        };
+
+        /* 활성 프로젝트 존재와 사용하지 않는 표시 조회를 구현한 정상 포트를 만든다. */
+        ProjectQueryPort projectPort = new ProjectQueryPort() {
+            /* 요청 프로젝트가 활성 상태라고 응답한다. */
+            @Override
+            public boolean existsActiveProject(Long companyId, Long projectId) {
+                /* 이 테스트는 액션 선택 여부에만 집중하므로 true를 반환한다. */
+                return true;
+            }
+
+            /* 이 테스트에서 사용하지 않는 프로젝트 배치 조회는 빈 목록을 반환한다. */
+            @Override
+            public List<ProjectSnapshot> findProjects(Long companyId, List<Long> projectIds) {
+                /* MEET-03 전용 계약이므로 데이터베이스 조회를 흉내 내지 않는다. */
+                return List.of();
+            }
+        };
+
+        /* 액션 Port 외에는 모두 정상값을 반환하는 실제 회의 서비스를 생성한다. */
+        return new MeetingService(
+                new RecordingMeetingRepository(),
+                roomPort,
+                projectPort,
+                (companyId, memberIds) -> validMembers(),
+                actionQueryPort,
+                new RecordingMeetingEventPublisher(),
+                FIXED_CLOCK
         );
     }
 
