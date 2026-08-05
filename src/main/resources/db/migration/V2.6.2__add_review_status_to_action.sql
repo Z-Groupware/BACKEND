@@ -1,0 +1,3 @@
+ALTER TABLE `action`
+    ADD COLUMN `review_status` ENUM('PENDING', 'AUTO_CONFIRMED', 'HUMAN_CONFIRMED', 'REJECTED') NOT NULL DEFAULT 'PENDING'
+        COMMENT '분배 직후 PENDING, 자동/수동 확정 여부와 반려를 구분';
