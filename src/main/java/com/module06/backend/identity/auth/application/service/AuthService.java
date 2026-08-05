@@ -17,12 +17,9 @@ import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
-import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.dto.MemberCredentials;
 import com.module06.backend.identity.member.application.port.out.MemberAuthQueryPort;
-
-import lombok.RequiredArgsConstructor;
 
 /**
  * 로그인 · 토큰 재발급 · 로그아웃.
@@ -31,11 +28,14 @@ import lombok.RequiredArgsConstructor;
  * 구분해서 내리면 그것만으로 "이 회사가 이 서비스를 쓴다", "이 이메일이 이 회사에 있다"를 확인하는
  * 도구가 된다.
  *
+ * <p><b>응답 코드만 통일해서는 부족하다.</b> 회사·이메일이 없을 때 즉시 반환하면 BCrypt 검증
+ * 한 번(수십 ms)만큼 응답이 빨라져서, 시간을 반복 측정하는 것만으로 같은 정보가 새어 나간다.
+ * 그래서 구성원을 못 찾아도 더미 해시에 대해 검증을 <b>반드시 한 번</b> 수행한다.
+ *
  * <p>세 흐름이 한 클래스에 있는 이유는 갱신표({@link RefreshTokenStore})를 공유하기 때문이다.
  * 로그인이 표를 올리고, 재발급이 교체하고, 로그아웃이 지운다 — 나누면 그 규칙이 세 곳에 흩어진다.
  */
 @Service
-@RequiredArgsConstructor
 public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUseCase {
 
     private final CompanyRepository companyRepository;
@@ -44,16 +44,40 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
     private final JwtTokenProvider tokenProvider;
     private final PasswordEncoder passwordEncoder;
 
+    /**
+     * 구성원을 못 찾았을 때 검증 대상으로 쓰는 해시. 리터럴을 박지 않고 주입된 인코더로 만든다 —
+     * BCrypt 의 검증 비용은 해시 문자열에 박힌 cost 에서 나오므로, DB 의 해시를 만든 것과 같은
+     * 인코더가 만들어야 비용이 일치한다. 형식이 어긋나면 {@code matches} 가 즉시 false 를 반환해
+     * (경고만 남는다) 시간을 맞추려는 목적 자체가 무너진다.
+     */
+    private final String absentMemberHash;
+
+    public AuthService(CompanyRepository companyRepository,
+                       MemberAuthQueryPort memberAuthQueryPort,
+                       RefreshTokenStore refreshTokenStore,
+                       JwtTokenProvider tokenProvider,
+                       PasswordEncoder passwordEncoder) {
+        this.companyRepository = companyRepository;
+        this.memberAuthQueryPort = memberAuthQueryPort;
+        this.refreshTokenStore = refreshTokenStore;
+        this.tokenProvider = tokenProvider;
+        this.passwordEncoder = passwordEncoder;
+        this.absentMemberHash = passwordEncoder.encode(UUID.randomUUID().toString());
+    }
+
     @Override
     @Transactional(readOnly = true)
     public LoginResult login(LoginCommand command) {
-        Company company = companyRepository.findByCode(normalize(command.companyCode()))
-                .orElseThrow(AuthService::loginFailed);
+        MemberCredentials member = companyRepository.findByCode(normalize(command.companyCode()))
+                .flatMap(company -> memberAuthQueryPort.findForLogin(company.id(), command.email()))
+                .orElse(null);
 
-        MemberCredentials member = memberAuthQueryPort.findForLogin(company.id(), command.email())
-                .orElseThrow(AuthService::loginFailed);
+        // 어느 경로로 실패하든 검증을 정확히 한 번 수행한다 — 분기마다 횟수가 달라지면 시간도 달라진다.
+        boolean passwordMatches = passwordEncoder.matches(
+                command.password(),
+                member == null ? absentMemberHash : member.passwordHash());
 
-        if (!passwordEncoder.matches(command.password(), member.passwordHash())) {
+        if (member == null || !passwordMatches) {
             throw loginFailed();
         }
 
