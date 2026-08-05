@@ -25,4 +25,15 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
      */
     @EntityGraph(attributePaths = {"team"})
     Optional<MemberJpaEntity> findByCompanyIdAndEmail(Long companyId, String email);
+
+    /**
+     * 재발급용. 상속받은 {@code findById} 를 덮어 team 을 함께 읽게 만든다 —
+     * {@link #findByCompanyIdAndEmail} 과 같은 이유다(teamId 가 토큰 클레임에 들어간다).
+     *
+     * <p>{@link #findByIdAndDeletedAtIsNull} 을 쓰지 않는 이유: 그건 퇴사자를 걸러내므로
+     * "퇴사했다"와 "그런 구성원이 없다"가 같은 결과가 된다. 재발급은 그 둘을 다르게 답해야 한다.
+     */
+    @Override
+    @EntityGraph(attributePaths = {"team"})
+    Optional<MemberJpaEntity> findById(Long id);
 }

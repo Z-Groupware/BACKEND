@@ -20,6 +20,11 @@ public class MemberAuthQueryAdapter implements MemberAuthQueryPort {
         return memberRepository.findByCompanyIdAndEmail(companyId, email).map(this::toCredentials);
     }
 
+    @Override
+    public Optional<MemberCredentials> findById(Long memberId) {
+        return memberRepository.findById(memberId).map(this::toCredentials);
+    }
+
     private MemberCredentials toCredentials(MemberJpaEntity member) {
         TeamRefEntity team = member.getTeam();
         return new MemberCredentials(
