@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
+import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepository;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
 import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
 import com.module06.backend.meetingroom.infrastructure.persistence.repository.SpringDataMeetingRoomRepository;
@@ -20,10 +21,29 @@ import com.module06.backend.meetingroom.infrastructure.persistence.repository.Sp
  */
 @Component
 @RequiredArgsConstructor
-public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository {
+public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository, MeetingRoomCommandRepository {
 
     /* 실제 meeting_room 조회 쿼리를 실행하는 기술 저장소다. */
     private final SpringDataMeetingRoomRepository springDataMeetingRoomRepository;
+
+    /* 회사 안에서 동일한 이름의 활성 회의실이 존재하는지 데이터베이스에서 확인한다. */
+    @Override
+    public boolean existsActiveByCompanyIdAndName(Long companyId, String name) {
+        /* 회사·이름·활성 조건을 모두 파생 쿼리에 포함해 다른 회사와 비활성 행을 제외한다. */
+        return springDataMeetingRoomRepository.existsByCompanyIdAndNameAndDeletedAtIsNull(companyId, name);
+    }
+
+    /* 신규 회의실을 저장하고 데이터베이스 생성 식별자가 반영된 도메인 객체를 반환한다. */
+    @Override
+    public MeetingRoom save(MeetingRoom meetingRoom) {
+        /* 검증된 도메인을 영속성 엔티티로 변환하고 IDENTITY 식별자를 즉시 확보한다. */
+        MeetingRoomJpaEntity saved = springDataMeetingRoomRepository.saveAndFlush(
+                MeetingRoomJpaEntity.from(meetingRoom)
+        );
+
+        /* 저장된 전체 컬럼을 프레임워크 의존성이 없는 회의실 도메인 객체로 복원한다. */
+        return toDomain(saved);
+    }
 
     /*
      * 특정 회사에 속한 활성 회의실을 정렬된 도메인 목록으로 반환한다.

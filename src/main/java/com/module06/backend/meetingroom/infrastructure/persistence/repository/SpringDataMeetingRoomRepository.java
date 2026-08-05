@@ -15,6 +15,9 @@ import com.module06.backend.meetingroom.infrastructure.persistence.entity.Meetin
  */
 public interface SpringDataMeetingRoomRepository extends JpaRepository<MeetingRoomJpaEntity, Long> {
 
+    /* 같은 회사의 활성 회의실 중 정규화된 이름이 같은 행이 존재하는지 확인한다. */
+    boolean existsByCompanyIdAndNameAndDeletedAtIsNull(Long companyId, String name);
+
     /*
      * 회사 식별자가 일치하고 삭제 시각이 없는 회의실을 이름과 식별자 오름차순으로 조회한다.
      * 이름이 같은 회의실도 식별자 정렬을 적용해 항상 동일한 응답 순서를 보장한다.

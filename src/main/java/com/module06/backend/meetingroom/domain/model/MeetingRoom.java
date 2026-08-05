@@ -80,6 +80,33 @@ public class MeetingRoom {
         this.deletedAt = deletedAt;
     }
 
+    /* 검증이 끝난 등록 요청으로 아직 식별자가 없는 활성 회의실을 생성한다. */
+    public static MeetingRoom create(
+            Long companyId,
+            String name,
+            String location,
+            int capacity,
+            LocalTime availableFrom,
+            LocalTime availableTo
+    ) {
+        /* 이름과 위치의 가장자리 공백을 제거하고 빈 위치는 미등록 값인 null로 정규화한다. */
+        String normalizedLocation = location == null || location.trim().isEmpty()
+                ? null
+                : location.trim();
+
+        /* 신규 회의실은 데이터베이스 식별자와 비활성화 시각이 없는 활성 상태로 시작한다. */
+        return new MeetingRoom(
+                null,
+                companyId,
+                name.trim(),
+                normalizedLocation,
+                capacity,
+                availableFrom,
+                availableTo,
+                null
+        );
+    }
+
     /*
      * 회의실이 현재 활성 상태인지 판단한다.
      *
