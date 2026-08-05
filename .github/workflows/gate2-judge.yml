@@ -165,4 +165,8 @@ jobs:
             build/reports/tests/test
             build/test-results/test
           retention-days: 7
-          if-no-files-found: ignore
+          # 이 스텝은 failure() 일 때만 돈다 — 즉 테스트가 실제로 실패했다는 뜻이고, 그러면
+          # 리포트가 있어야 정상이다. ignore 로 두면 경로가 바뀌거나 리포트 생성이 깨졌을 때
+          # 조용히 성공해서, 원인을 보려고 들어온 사람이 빈손으로 돌아간다.
+          # error 는 쓰지 않는다 — 진단용 업로드가 실패해서 잡을 더 빨갛게 만들 이유가 없다.
+          if-no-files-found: warn

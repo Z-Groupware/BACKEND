@@ -1,10 +1,18 @@
 package com.module06.backend.reviewloop.judge;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import javax.net.ssl.SSLHandshakeException;
+
 import java.io.IOException;
 import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.NoSuchFileException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,12 +50,36 @@ class ProviderAvailabilityTest {
     }
 
     @Test
-    @DisplayName("연결 자체가 안 되면 사용 불가 — 원인 사슬 안쪽의 IOException 까지 본다")
+    @DisplayName("연결 자체가 안 되면 사용 불가 — 원인 사슬 안쪽까지 본다")
     void 네트워크_오류는_사용_불가다() {
-        Throwable wrapped = new RuntimeException("Gemini 호출 실패", new ConnectException("timed out"));
+        // 어댑터는 전송 실패를 RuntimeException("Gemini 호출 실패", e) 로 감싼다.
+        assertThat(ProviderAvailability.unavailableReason(
+                new RuntimeException("Gemini 호출 실패", new ConnectException("refused")))).isNotNull();
+        assertThat(ProviderAvailability.unavailableReason(new UnknownHostException("no dns"))).isNotNull();
+        assertThat(ProviderAvailability.unavailableReason(new SocketTimeoutException("read"))).isNotNull();
+        assertThat(ProviderAvailability.unavailableReason(new HttpConnectTimeoutException("connect")))
+                .isNotNull();
+        assertThat(ProviderAvailability.unavailableReason(new SSLHandshakeException("tls"))).isNotNull();
+    }
 
-        assertThat(ProviderAvailability.unavailableReason(wrapped)).isNotNull();
-        assertThat(ProviderAvailability.unavailableReason(new IOException("boom"))).isNotNull();
+    @Test
+    @DisplayName("로컬 파일 오류는 사용 불가가 아니다 — 디스크 오류가 게이트 통과가 되면 안 된다")
+    void 로컬_IO_오류는_사용_불가가_아니다() {
+        // 러너는 판정 도중 Files.readString(대상 파일)과 감사 로그 기록에서도 IOException 을 던진다.
+        // IOException 전체를 네트워크로 묶으면 그것들이 "제공자 장애 → 생략·통과"가 되어,
+        // 이 클래스가 막으려던 실패("판정을 못 했는데 초록불")를 반대 방향으로 재현한다.
+        assertThat(ProviderAvailability.unavailableReason(new IOException("boom"))).isNull();
+        assertThat(ProviderAvailability.unavailableReason(new NoSuchFileException("A.java"))).isNull();
+        assertThat(ProviderAvailability.unavailableReason(new AccessDeniedException("logs/"))).isNull();
+    }
+
+    @Test
+    @DisplayName("직렬화 실패도 사용 불가가 아니다 — JsonProcessingException 은 IOException 이다")
+    void 직렬화_실패는_사용_불가가_아니다() {
+        // 우리 코드·데이터의 문제다. 통과시키면 감사 로그가 안 쌓이는데도 게이트는 초록이 된다.
+        Throwable jackson = new JsonMappingException(null, "직렬화 실패");
+
+        assertThat(ProviderAvailability.unavailableReason(jackson)).isNull();
     }
 
     @Test

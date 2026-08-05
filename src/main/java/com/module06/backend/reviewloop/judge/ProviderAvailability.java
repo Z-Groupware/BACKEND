@@ -1,6 +1,11 @@
 package com.module06.backend.reviewloop.judge;
 
-import java.io.IOException;
+import javax.net.ssl.SSLException;
+
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.http.HttpTimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,10 +34,18 @@ import java.util.regex.Pattern;
  *   <tr><td>401 · 403</td><td>사용 불가</td><td>키 만료·무효 — 코드로 고칠 수 없다</td></tr>
  *   <tr><td>429</td><td>사용 불가</td><td>쿼터·크레딧 소진 — 결제·시간의 문제다</td></tr>
  *   <tr><td>5xx</td><td>사용 불가</td><td>제공자 장애</td></tr>
- *   <tr><td>연결 실패({@link IOException})</td><td>사용 불가</td><td>네트워크</td></tr>
+ *   <tr><td>연결 실패(아래 목록)</td><td>사용 불가</td><td>네트워크</td></tr>
  *   <tr><td><b>400 · 404</b></td><td><b>코드·설정 문제</b></td><td>요청 형식·모델 id — 빨간불로 남아야 고쳐진다</td></tr>
+ *   <tr><td><b>그 밖의 {@code IOException}</b></td><td><b>코드·환경 문제</b></td><td>파일 읽기·로그 기록 실패 — 아래 참조</td></tr>
  *   <tr><td>2xx 응답 후의 실패</td><td><b>코드 판정</b></td><td>이게 게이트가 지켜보려던 것이다</td></tr>
  * </table>
+ *
+ * <p><b>{@code IOException} 전체를 네트워크로 보지 않는다.</b> {@link ReviewLoopRunner}는 판정 도중
+ * {@code Files.readString}(대상 파일 읽기)과 감사 로그 기록에서도 {@code IOException}을 던진다.
+ * 그것까지 "제공자 사용 불가"로 묶으면 <b>디스크 오류가 게이트 통과가 된다</b> — 이 클래스가
+ * 막으려던 실패("판정을 못 했는데 초록불")를 정확히 반대 방향으로 재현하는 셈이다.
+ * Jackson의 직렬화 실패({@code JsonProcessingException})도 {@code IOException}이라 같은 구멍에 들어간다.
+ * 그래서 <b>전송 계층에서만 나올 수 있는 예외</b>로 좁힌다(CodeRabbit PR #63 지적).
  *
  * <p>사유 문자열에는 <b>HTTP 상태코드만</b> 담고 응답 본문은 담지 않는다. 본문을 사유로 실어 나르면
  * 나중에 어떤 값이 섞여 들어올지 보증할 수 없다. 본문이 필요한 진단은 호출자가 원본 예외를 따로 찍는다.
@@ -56,7 +69,7 @@ final class ProviderAvailability {
     static String unavailableReason(Throwable throwable) {
         Throwable cause = throwable;
         for (int depth = 0; cause != null && depth < MAX_CAUSE_DEPTH; depth++, cause = cause.getCause()) {
-            if (cause instanceof IOException) {
+            if (isConnectionFailure(cause)) {
                 return "제공자에 연결할 수 없다 (" + cause.getClass().getSimpleName()
                         + "). 네트워크·제공자 상태를 확인할 것.";
             }
@@ -67,6 +80,22 @@ final class ProviderAvailability {
             }
         }
         return null;
+    }
+
+    /**
+     * 전송 계층에서만 나올 수 있는 예외인가 — 즉 <b>우리 디스크·직렬화로는 만들 수 없는</b> 실패인가.
+     *
+     * <p>여기 넣어도 되는 조건은 하나다: {@code Files.readString}·{@code Files.writeString}·Jackson이
+     * 그 타입을 던질 수 없어야 한다. 그것들이 던질 수 있는 타입을 넣는 순간 로컬 오류가 통과로 바뀐다.
+     * ({@code NoSuchFileException}·{@code AccessDeniedException}·{@code JsonProcessingException}은
+     * 전부 아래 어느 것의 하위 타입도 아니다.)
+     */
+    static boolean isConnectionFailure(Throwable cause) {
+        return cause instanceof SocketException          // ConnectException · NoRouteToHostException 포함
+                || cause instanceof SocketTimeoutException
+                || cause instanceof UnknownHostException
+                || cause instanceof HttpTimeoutException  // HttpConnectTimeoutException 포함
+                || cause instanceof SSLException;
     }
 
     /** 메시지에서 HTTP 상태코드를 뽑는다. 형식이 아니면 -1. */
