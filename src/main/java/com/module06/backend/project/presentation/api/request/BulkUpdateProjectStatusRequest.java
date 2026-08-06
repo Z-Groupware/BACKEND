@@ -1,5 +1,13 @@
 package com.module06.backend.project.presentation.api.request;
 
+import java.util.List;
+
+import com.module06.backend.project.domain.model.ProjectStatus;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+
 /* comment.
     보드 "저장" 버튼용 일괄 상태 변경 요청 DTO.
     형태: { "items": [ { "projectId": 1, "status": "DONE" }, ... ] }
@@ -10,5 +18,13 @@ package com.module06.backend.project.presentation.api.request;
     - BulkUpdateProjectStatusCommand  : 이 DTO가 변환되는 application 명령
     - ProjectStatus                   : items의 status 값
 */
-public record BulkUpdateProjectStatusRequest() {
+public record BulkUpdateProjectStatusRequest(
+        @NotEmpty List<@Valid Item> items
+) {
+
+    public record Item(
+            @NotNull Long projectId,
+            @NotNull ProjectStatus status
+    ) {
+    }
 }

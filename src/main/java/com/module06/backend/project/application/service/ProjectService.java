@@ -1,10 +1,13 @@
 package com.module06.backend.project.application.service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.module06.backend.action.application.port.ActionQueryPort;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
 import com.module06.backend.project.application.command.CreateProjectCommand;
@@ -46,6 +49,7 @@ public class ProjectService implements
     private final ProjectAttachmentRepository projectAttachmentRepository;
     private final ProjectOwnerOnlyPolicy projectOwnerOnlyPolicy;
     private final ProjectTeamOwnershipPolicy projectTeamOwnershipPolicy;
+    private final ActionQueryPort actionQueryPort;
 
     @Override
     @Transactional
@@ -78,8 +82,9 @@ public class ProjectService implements
 
     @Override
     @Transactional(readOnly = true)
-    public ProjectDetailResult getDetail(Long projectId) {
+    public ProjectDetailResult getDetail(Long companyId, Long projectId) {
         Project project = projectRepository.findById(projectId)
+                .filter(found -> found.getCompanyId().equals(companyId))
                 .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
 
         List<ProjectAttachment> attachments = projectAttachmentRepository.findAllByProjectId(projectId);
@@ -115,6 +120,29 @@ public class ProjectService implements
                 .toList();
 
         projects.forEach(projectRepository::save);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimelineItem> getTimeline(Long companyId, Long projectId) {
+        projectRepository.findById(projectId)
+                .filter(found -> found.getCompanyId().equals(companyId))
+                .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        LocalDate today = LocalDate.now();
+
+        return actionQueryPort.findTeamActionsByProjectId(projectId).stream()
+                .map(summary -> new TimelineItem(
+                        summary.actionId(),
+                        summary.title(),
+                        summary.teamId(),
+                        summary.teamName(),
+                        summary.status(),
+                        summary.dueDate(),
+                        summary.status() != ActionStatus.DONE
+                                && summary.dueDate() != null && summary.dueDate().isBefore(today)
+                ))
+                .toList();
     }
 
     // meeting(D)이 회의 개설 시 프로젝트가 활성 상태로 존재하는지 확인한다.
