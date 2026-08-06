@@ -15,4 +15,7 @@ public interface SpringDataRecordingPartRepository extends JpaRepository<Recordi
     interface SeqView {
         Integer getSeq();
     }
+
+    // 이 회의의 잔여 청크 조각 삭제(하드 삭제) — 파생 삭제 쿼리(QUERY_002 준수). 트랜잭션 안에서 호출.
+    void deleteByMeetingId(Long meetingId);
 }

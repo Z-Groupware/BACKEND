@@ -168,6 +168,10 @@ class CapturePartStatusServiceTest {
             public List<Integer> findSeqsInSegment(Long meetingId, int segmentSeq) {
                 return presentSeqs;
             }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+            }
         };
     }
 

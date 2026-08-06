@@ -149,6 +149,10 @@ class PlaybackUrlServiceTest {
             public Optional<Recording> findByMeetingId(Long meetingId) {
                 return recording;
             }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+            }
         };
         CapObjectStoragePort storage = new CapObjectStoragePort() {
             @Override
@@ -159,6 +163,10 @@ class PlaybackUrlServiceTest {
             @Override
             public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
                 return new IssuedPlaybackUrl("https://stub/playback/" + s3Key, 10800);
+            }
+
+            @Override
+            public void deleteRecording(String s3Key) {
             }
         };
         return new PlaybackUrlService(meetingRef, recordingRepo, storage);

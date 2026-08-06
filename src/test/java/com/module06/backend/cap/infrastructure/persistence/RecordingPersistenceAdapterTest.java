@@ -59,6 +59,19 @@ class RecordingPersistenceAdapterTest {
         assertThat(recordingRepository.findByMeetingId(999L)).isEmpty();
     }
 
+    /* 회의별 녹음본을 하드 삭제하면 존재하지 않게 되는지 검증한다(CAP-15 파생 삭제). */
+    @Test
+    @DisplayName("회의별 녹음본을 삭제한다")
+    void deletesByMeetingId() {
+        recordingRepository.save(
+                Recording.register(500L, "recording.ogg", "recordings/org-1/meeting-500/recording.ogg", 100L));
+        assertThat(recordingRepository.existsByMeetingId(500L)).isTrue();
+
+        recordingRepository.deleteByMeetingId(500L);
+
+        assertThat(recordingRepository.existsByMeetingId(500L)).isFalse();
+    }
+
     /* 같은 회의로 두 번 저장하면 UNIQUE(meeting_id) 제약이 두 번째를 CAP-014로 막는지 검증한다(경쟁 최종 방어선). */
     @Test
     @DisplayName("같은 회의 중복 저장은 CAP-014로 막힌다")
