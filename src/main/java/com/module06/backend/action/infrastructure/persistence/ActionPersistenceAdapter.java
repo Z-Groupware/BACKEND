@@ -1,6 +1,16 @@
 package com.module06.backend.action.infrastructure.persistence;
 
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.stereotype.Component;
+
+import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionRepository;
+
+import lombok.RequiredArgsConstructor;
 
 /* comment.
     domain의 ActionRepository 계약을 JPA로 구현하는 어댑터(의존성 역전의 실행 지점).
@@ -13,5 +23,54 @@ import com.module06.backend.action.domain.repository.ActionRepository;
     - ActionJpaEntity            : 변환 대상 엔티티
     - Action                     : 변환 결과 도메인 모델
 */
+@Component
+@RequiredArgsConstructor
 public class ActionPersistenceAdapter implements ActionRepository {
+
+    private final SpringDataActionRepository springDataActionRepository;
+
+    @Override
+    public Optional<Action> findById(Long actionId) {
+        return springDataActionRepository.findById(actionId)
+                .map(ActionJpaEntity::toDomain);
+    }
+
+    @Override
+    public Action save(Action action) {
+        return springDataActionRepository.save(ActionJpaEntity.from(action))
+                .toDomain();
+    }
+
+    @Override
+    public List<Action> findPersonalByAssignee(Long memberId, boolean excludeDone) {
+        if (excludeDone) {
+            return springDataActionRepository
+                    .findAllByAssigneeMemberIdAndActionTypeAndStatusNotOrderByDueDateAscIdAsc(
+                            memberId,
+                            ActionType.PERSONAL,
+                            ActionStatus.DONE
+                    )
+                    .stream()
+                    .map(ActionJpaEntity::toDomain)
+                    .toList();
+        }
+        return findAllPersonalByAssignee(memberId);
+    }
+
+    @Override
+    public List<Action> findAllPersonalByAssignee(Long memberId) {
+        return springDataActionRepository
+                .findAllByAssigneeMemberIdAndActionTypeOrderByDueDateAscIdAsc(memberId, ActionType.PERSONAL)
+                .stream()
+                .map(ActionJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<Action> findParentTeamActionsByAssignee(Long memberId) {
+        return springDataActionRepository.findDistinctParentTeamActionsByAssignee(memberId)
+                .stream()
+                .map(ActionJpaEntity::toDomain)
+                .toList();
+    }
 }

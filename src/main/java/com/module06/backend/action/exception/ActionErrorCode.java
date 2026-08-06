@@ -19,6 +19,7 @@ import lombok.Getter;
     - PersonalActionAssigneeOnlyPolicy : NOT_ACTION_ASSIGNEE를 던짐 (application.policy)
     - TeamActionLeaderOnlyPolicy       : NOT_TEAM_LEADER를 던짐 (application.policy)
     - ActionTypeShapePolicy            : INVALID_ACTION_TYPE_SHAPE를 던짐 (domain.policy)
+    - ActionReassignService            : CANNOT_REASSIGN_TEAM_ACTION을 던짐 (application.service)
 */
 @Getter
 @AllArgsConstructor
@@ -28,7 +29,8 @@ public enum ActionErrorCode implements ErrorCode {
     NOT_ACTION_ASSIGNEE(HttpStatus.FORBIDDEN, "AC-002", "담당자만 수행할 수 있습니다."),
     NOT_TEAM_LEADER(HttpStatus.FORBIDDEN, "AC-003", "해당 팀의 리더만 수행할 수 있습니다."),
     CHECKLIST_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-004", "존재하지 않는 체크리스트 항목입니다."),
-    INVALID_ACTION_TYPE_SHAPE(HttpStatus.BAD_REQUEST, "AC-005", "액션 종류(TEAM/PERSONAL)에 맞지 않는 필드 조합입니다.");
+    INVALID_ACTION_TYPE_SHAPE(HttpStatus.BAD_REQUEST, "AC-005", "액션 종류(TEAM/PERSONAL)에 맞지 않는 필드 조합입니다."),
+    CANNOT_REASSIGN_TEAM_ACTION(HttpStatus.BAD_REQUEST, "AC-006", "팀 액션은 해당자 재분배 대상이 아닙니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
