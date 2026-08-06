@@ -78,9 +78,7 @@ public class MeetingCompletedAnalysisTrigger {
              * 돌게 된다 — 그 갈림이 정확히 이 저장소가 겪은 사고다(#100).
              */
             AnalysisOutcome outcome = runAnalysisUseCase.run(companyId, meetingId, false);
-
-            log.info("회의 종료 자동 분석 — meetingId={} status={} 주제={}",
-                    meetingId, outcome.status(), outcome.topicCount());
+            logOutcome(meetingId, outcome);
 
         } catch (BusinessException e) {
             /*
@@ -95,6 +93,26 @@ public class MeetingCompletedAnalysisTrigger {
     }
 
     /*
+     * 결과를 남긴다. **실패는 INFO 로 두지 않는다.**
+     *
+     * 자동 경로에는 결과를 보는 사람이 없다 — 사람이 버튼을 눌렀으면 화면이 실패를 보여주지만,
+     * 회의 종료로 시작된 분석은 아무도 응답을 받지 않는다. 전부 INFO 로 남기면 실패한 회의가
+     * 로그 더미에 묻히고, 사용자가 "요약이 왜 없냐"고 물을 때까지 아무도 모른다.
+     *
+     * SKIPPED 는 INFO 다. 발화 0건·이미 완료는 정상 동작이고, 그 판단의 근거는 메시지에 있다.
+     */
+    private void logOutcome(long meetingId, AnalysisOutcome outcome) {
+        if (outcome.status() == AnalysisOutcome.Status.FAILED) {
+            log.warn("회의 종료 자동 분석 실패 — meetingId={} 계층={} code={} 재시도가능={}",
+                    meetingId, outcome.failedLayer(), outcome.errorCode(), outcome.retryable());
+            return;
+        }
+        log.info("회의 종료 자동 분석 — meetingId={} status={} 주제={} {}",
+                meetingId, outcome.status(), outcome.topicCount(),
+                outcome.message() != null ? outcome.message() : "");
+    }
+
+    /*
      * 실측 길이로 자동 실행 여부를 가른다.
      *
      * 길이를 **못 읽으면 돌린다.** 모르는 것과 짧은 것은 다르고, 모를 때 건너뛰면 멀쩡한 회의의
@@ -102,7 +120,20 @@ public class MeetingCompletedAnalysisTrigger {
      * 토큰이고, 그건 로그로 보인다.
      */
     private boolean tooShortForAutoRun(long meetingId) {
-        Optional<Duration> length = meetingLengthProvider.actualLengthOf(meetingId);
+        Optional<Duration> length;
+        try {
+            length = meetingLengthProvider.actualLengthOf(meetingId);
+        } catch (RuntimeException e) {
+            /*
+             * 조회가 터진 것도 **길이를 모르는 것**이다. 위 규칙과 같은 방향으로 간다 —
+             * 여기서 예외를 그대로 올리면 바깥 catch 가 "분석 실패"로 기록하고 분석은 시작조차
+             * 되지 않는다. DB 가 잠깐 흔들렸다는 이유로 회의의 분석이 통째로 사라지는 것은
+             * 하한 검사가 하려던 일이 아니다.
+             */
+            log.warn("회의 길이 조회가 실패해 하한 검사를 건너뛴다 — meetingId={}", meetingId, e);
+            return false;
+        }
+
         if (length.isEmpty()) {
             log.warn("회의 길이를 읽지 못해 하한 검사를 건너뛴다 — meetingId={}", meetingId);
             return false;

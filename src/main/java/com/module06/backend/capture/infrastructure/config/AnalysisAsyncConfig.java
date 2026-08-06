@@ -46,11 +46,19 @@ public class AnalysisAsyncConfig {
         executor.setThreadNamePrefix("analysis-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         /*
-         * 종료 시 돌던 분석을 기다린다. 중간에 끊기면 계층 하나가 RUNNING 인 채로 남아,
-         * 다음 실행이 그 계층을 "이미 실행 중"으로 보고 물러난다.
+         * 종료 시 돌던 분석을 기다린다. 중간에 끊기면 계층 하나가 **RUNNING 인 채로 남고**,
+         * 그 회의는 다음 실행이 "이미 실행 중"으로 보고 물러난다 — force 재실행도 같은 잠금에
+         * 막히므로 사람이 풀 방법이 없다.
+         *
+         * ⚠ **이 대기는 보장이 아니다.** 회의 하나가 이 시간을 넘기면(계층 9개 · 모델 호출 7회라
+         * 큰 회의는 넘을 수 있다) 그대로 끊긴다. 무한정 기다리게 두지 않는 이유는 배포가 그만큼
+         * 멈추기 때문이다 — 종료를 못 하는 서버는 그 자체로 사고다.
+         *
+         * 남은 RUNNING 을 되찾는 경로(오래된 RUNNING 을 FAILED 로 내리는 회수 작업)는 아직 없다.
+         * 이 설정이 그 필요를 줄일 뿐이고, 없애지는 못한다.
          */
         executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.setAwaitTerminationSeconds(60);
+        executor.setAwaitTerminationSeconds(180);
         executor.initialize();
         return executor;
     }

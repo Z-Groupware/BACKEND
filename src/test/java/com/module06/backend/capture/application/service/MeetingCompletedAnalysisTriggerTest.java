@@ -86,6 +86,24 @@ class MeetingCompletedAnalysisTriggerTest {
     }
 
     @Test
+    @DisplayName("길이 조회가 터져도 부른다 — DB 가 흔들렸다고 회의 분석이 사라지면 안 된다")
+    void 길이_조회가_실패해도_분석한다() {
+        RecordingRunAnalysis analysis = new RecordingRunAnalysis();
+
+        /*
+         * 조회 실패도 "길이를 모르는 것"이다. 여기서 예외가 밖으로 나가면 트리거가 그것을
+         * 「분석 실패」로 기록하고 분석은 시작조차 되지 않는다 — 하한 검사가 하려던 일이 아니다.
+         */
+        MeetingLengthProvider exploding = meetingId -> {
+            throw new IllegalStateException("커넥션 풀이 말랐다");
+        };
+
+        new MeetingCompletedAnalysisTrigger(analysis, exploding).onMeetingCompleted(event());
+
+        assertThat(analysis.calls).hasSize(1);
+    }
+
+    @Test
     @DisplayName("이미 진행 중이면 조용히 넘어간다 — 중복이 걸러진 정상 동작이다")
     void 이미_진행_중이면_예외를_밖으로_내지_않는다() {
         RunAnalysisUseCase failing = (companyId, meetingId, force) -> {
