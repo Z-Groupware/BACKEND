@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
+import com.module06.backend.capture.application.port.out.CaptionRepository;
 import com.module06.backend.capture.application.port.out.ExtractTuplesResult;
 import com.module06.backend.capture.application.port.out.GateResult;
 import com.module06.backend.capture.application.port.out.LayerRun;
@@ -20,9 +21,12 @@ import com.module06.backend.capture.application.port.out.MeetingSummaryRepositor
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
+import com.module06.backend.capture.application.port.out.TranscriptRepository;
+import com.module06.backend.capture.application.port.out.VerifyTupleResult;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.CaptionChunk;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.ItemType;
@@ -32,6 +36,7 @@ import com.module06.backend.capture.domain.model.ReferenceType;
 import com.module06.backend.capture.domain.model.ResolvedReference;
 import com.module06.backend.capture.domain.model.TopicSegment;
 import com.module06.backend.capture.domain.model.Utterance;
+import com.module06.backend.capture.domain.model.VerifyVerdict;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -272,6 +277,81 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("L1 이 화자를 이식하고, 뒤 계층은 이식된 화자를 본다")
+    void L1이_이식한_화자가_뒤_계층에_보인다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+
+        // 발화 2번(5~8초)은 화자가 null 이다. 참석자 전원(42)이 자막을 보내면 판정된다.
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+        FakeCaptionRepository captions = new FakeCaptionRepository(
+                new CaptionChunk(42L, 5_000, 8_000, new java.math.BigDecimal("-18.00")));
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, captions, new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        // 정본에 이식됐다.
+        assertThat(transcripts.applied)
+                .extracting(SpeakerAttributionResolver.Attribution::speakerMemberId)
+                .containsOnly(42L);
+        // 그리고 L2 가 보는 발화에 그 화자가 들어 있다 — 이식 후 다시 읽지 않으면 여기가 null 이다.
+        assertThat(ai.segmentUtterances)
+                .filteredOn(utterance -> utterance.utteranceId() == 2L)
+                .extracting(Utterance::speakerMemberId)
+                .containsExactly(42L);
+    }
+
+    @Test
+    @DisplayName("자막이 없어도 분석은 끝까지 돈다 — CAP-11 미구현 상태의 정상 경로")
+    void 자막이_없어도_파이프라인은_완주한다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 판정 0건이지만 실패가 아니다. 화자 미정은 정상 동작이고, 뒤 계층은 그대로 돈다.
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(transcripts.applied).isEmpty();
+        assertThat(ai.extractRequests).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("재판정이 기권하면 예전 화자를 지운다 — 불확실해진 화자가 확정으로 굳으면 안 된다")
+    void 기권한_발화의_예전_화자를_지운다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+
+        // 발화 1 에는 예전 실행이 심어 둔 화자(42)가 남아 있다. 이번엔 자막이 없어 전원 기권이다.
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        // 뒤 계층은 화자 없는 발화를 본다. 남아 있으면 L4 가 근거 없는 담당자를 확정한다.
+        assertThat(ai.segmentUtterances).extracting(Utterance::speakerMemberId)
+                .containsOnlyNulls();
+    }
+
+    @Test
     @DisplayName("완료 판정은 RUN_LAYERS 기준이다 — 예전 계층만 DONE 이면 완료가 아니다")
     void 완료_판정은_RUN_LAYERS를_본다() {
         FakeLayerRepository layers = new FakeLayerRepository();
@@ -286,9 +366,15 @@ class AnalysisOrchestratorTest {
 
         layers.done.add(LayerName.L1_5);
         layers.done.add(LayerName.L3_5);
+        layers.done.add(LayerName.L4);
+        // L1 이 빠져 있다. 계층을 붙일 때 이 판정을 갱신하지 않으면 여기서 걸린다.
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isFalse();
 
-        layers.done.add(LayerName.L4);
+        layers.done.add(LayerName.L1);
+        // L5 가 빠져 있다. 계층을 붙일 때마다 이 자리가 조용히 재발한다.
+        assertThat(orchestrator.isFullyAnalyzed(MEETING)).isFalse();
+
+        layers.done.add(LayerName.L5);
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isTrue();
     }
 
@@ -298,8 +384,9 @@ class AnalysisOrchestratorTest {
         RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
-                meetingId -> List.of(), new FakeLayerRepository(), new FakeSummaryRepository(),
-                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
+                new FakeTranscriptRepository(List.of()), new FakeCaptionRepository(),
+                new FakeLayerRepository(), new FakeSummaryRepository(), new FakeTupleRepository(),
+                meetingId -> Optional.of(MEETING_DATE), new SpeakerAttributionResolver(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
@@ -315,13 +402,148 @@ class AnalysisOrchestratorTest {
                 decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
-                meetingId -> utterances(), new FakeLayerRepository(), summaries,
-                new FakeTupleRepository(), meetingId -> Optional.empty(), ai)
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeLayerRepository(), summaries, new FakeTupleRepository(),
+                meetingId -> Optional.empty(), new SpeakerAttributionResolver(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
         // null 을 넘긴다 — 오늘 날짜로 대체하면 그럴듯하게 틀린 마감이 보드에 꽂힌다.
         assertThat(ai.meetingDates).containsExactly((LocalDate) null);
+    }
+
+    // ── L5 · 관점 다변화 검증 ───────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("L5 는 tuple 마다 한 번씩 돈다 — 주제 단위가 아니다")
+    void L5는_tuple마다_한_번씩_돈다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L),
+                        item(ItemType.DECISION, "일정 확정", 2L)),
+                decisionIds -> decisionIds.stream()
+                        .map(id -> new GateVerdict(id, GateStatus.CONFIRMED, "합의됨"))
+                        .toList());
+        // 한 주제에서 tuple 이 둘 나왔다. 주제 단위로 부르면 호출이 1회로 뭉친다.
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L),
+                new AssignmentTuple("일정표 공유", 42L, AssigneeSource.FIRST_PERSON, null, 2L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(ai.verifyTargets).extracting(AssignmentTuple::title)
+                .containsExactly("로드맵 초안 작성", "일정표 공유");
+    }
+
+    @Test
+    @DisplayName("검증 결과를 해당 tuple 행에 적는다 — agree=false 는 검토 대상이다")
+    void 검증_결과가_tuple_행에_반영된다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L),
+                        item(ItemType.DECISION, "일정 확정", 2L)),
+                decisionIds -> decisionIds.stream()
+                        .map(id -> new GateVerdict(id, GateStatus.CONFIRMED, "합의됨"))
+                        .toList());
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L),
+                new AssignmentTuple("일정표 공유", 42L, AssigneeSource.FIRST_PERSON, null, 2L));
+        // 두 번째 tuple 만 관점이 갈렸다 — 판정이 tuple 별로 따로 적히는지가 요점이다.
+        ai.verifyResults = tuple -> "일정표 공유".equals(tuple.title())
+                ? new VerifyTupleResult(false, List.of("assigneeCandidatePersonId"),
+                        VerifyVerdict.REJECT, "근거 발화에 담당자 지목이 없음", RecordingAiLayerPort.RUN)
+                : new VerifyTupleResult(true, List.of(), VerifyVerdict.ACCEPT, "확인됨",
+                        RecordingAiLayerPort.RUN);
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        AssignmentTupleRepository.TupleVerification agreed = tuples.verificationOfTitle("로드맵 초안 작성");
+        assertThat(agreed.agree()).isTrue();
+        assertThat(agreed.disagreementFields()).isEmpty();
+
+        AssignmentTupleRepository.TupleVerification disagreed = tuples.verificationOfTitle("일정표 공유");
+        assertThat(disagreed.agree()).isFalse();
+        assertThat(disagreed.disagreementFields()).containsExactly("assigneeCandidatePersonId");
+        assertThat(disagreed.verdict()).isEqualTo(VerifyVerdict.REJECT);
+        // 검증에 쓴 모델을 L4 의 것과 따로 남긴다 — 한 칸을 공유하면 추출 모델이 지워진다.
+        assertThat(disagreed.modelName()).isEqualTo("gemini-flash");
+    }
+
+    @Test
+    @DisplayName("검증에는 L4 에 넘긴 것과 같은 확정 항목을 넘긴다")
+    void 검증_입력은_L4와_같다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L),
+                        // 게이트를 통과하지 못할 항목 — 검증 재추출에도 실리면 안 된다.
+                        item(ItemType.DISCUSSION, "예산은 논의만", 2L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨"),
+                        new GateVerdict(decisionIds.get(1), GateStatus.DISCUSSED, "결론 없음")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+
+        orchestrator(summaries, new FakeTupleRepository(), ai).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 입력이 갈리면 불일치가 관점 차이인지 입력 차이인지 구분되지 않는다.
+        assertThat(ai.verifyItemRequests).hasSize(1);
+        assertThat(ai.verifyItemRequests.get(0)).isEqualTo(ai.extractRequests.get(0));
+        // 기준일도 같아야 한다 — 갈리면 dueDate 차이가 "관점이 갈렸다"로 기록된다.
+        assertThat(ai.verifyMeetingDates).containsExactly(MEETING_DATE);
+        // 확정된 것만 실렸다.
+        assertThat(ai.verifyItemRequests.get(0))
+                .extracting(AiLayerPort.ConfirmedItem::content)
+                .containsExactly("로드맵 확정");
+    }
+
+    @Test
+    @DisplayName("뽑힌 tuple 이 없으면 L5 를 부르지 않는다 — 실패가 아니라 대상 0건이다")
+    void tuple이_없으면_L5를_부르지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        // L4 가 아무것도 못 뽑았다.
+        ai.tuples = List.of();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai, layers).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(ai.verifyTargets).isEmpty();
+        // 계층은 DONE 으로 닫힌다. FAILED 로 두면 ANLZ-02 가 영원히 재시도한다.
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(layers.done).contains(LayerName.L5);
+        assertThat(layers.failed).isEmpty();
+    }
+
+    @Test
+    @DisplayName("L5 가 실패하면 분석이 L5 에서 멈춘다 — 검증 없이 완료로 넘어가지 않는다")
+    void L5_실패는_분석을_멈춘다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        // 두 관점이 모두 실패했을 때 Python 이 던지는 분류다.
+        ai.verifyFailure = new AiLayerException("ALL_VIEWS_FAILED", "두 관점이 모두 실패", true);
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai, layers).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.FAILED);
+        assertThat(outcome.failedLayer()).isEqualTo(LayerName.L5);
+        assertThat(outcome.retryable()).isTrue();
+        assertThat(layers.failed).containsKey(LayerName.L5);
+        // tuple 은 이미 저장돼 있고 지워지지 않는다 — 검증 실패는 추출 실패가 아니다.
+        assertThat(tuples.saved).hasSize(1);
+        // 다만 판정은 남지 않는다. 미검증(NULL)이 "검증에서 걸렸다"와 섞이면 안 된다.
+        assertThat(tuples.verifications).isEmpty();
     }
 
     // ── 조립 ────────────────────────────────────────────────────────────────────
@@ -337,14 +559,17 @@ class AnalysisOrchestratorTest {
                                               RecordingAiLayerPort ai,
                                               FakeLayerRepository layers) {
         return new AnalysisOrchestrator(
-                meetingId -> utterances(), layers, summaries, tuples,
-                meetingId -> Optional.of(MEETING_DATE), ai);
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
+                // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
+                new SpeakerAttributionResolver(), ai);
     }
 
     private static List<Utterance> utterances() {
         return List.of(
-                new Utterance(1L, 42L, 0, "로드맵 정리합시다"),
-                new Utterance(2L, null, 5_000, "그거 그분한테 맡기죠"));
+                new Utterance(1L, 42L, 0, 3_000, "로드맵 정리합시다"),
+                new Utterance(2L, null, 5_000, 8_000, "그거 그분한테 맡기죠"));
     }
 
     private static com.module06.backend.capture.domain.model.TopicItem item(
@@ -376,6 +601,14 @@ class AnalysisOrchestratorTest {
         private final List<List<GateCandidate>> gateRequests = new ArrayList<>();
         private final List<List<ConfirmedItem>> extractRequests = new ArrayList<>();
         private final List<LocalDate> meetingDates = new ArrayList<>();
+
+        private final List<AssignmentTuple> verifyTargets = new ArrayList<>();
+        private final List<List<ConfirmedItem>> verifyItemRequests = new ArrayList<>();
+        private final List<LocalDate> verifyMeetingDates = new ArrayList<>();
+        /* 기본은 두 관점 일치다. 불일치를 보려는 테스트만 이 함수를 바꾼다. */
+        private java.util.function.Function<AssignmentTuple, VerifyTupleResult> verifyResults =
+                tuple -> new VerifyTupleResult(true, List.of(), VerifyVerdict.ACCEPT, "근거 발화로 확인됨", RUN);
+        private AiLayerException verifyFailure;
 
         /* 게이트 판정은 저장된 항목의 id 를 알아야 만들 수 있어 함수로 받는다. */
         private RecordingAiLayerPort(List<com.module06.backend.capture.domain.model.TopicItem> l3Items,
@@ -425,6 +658,19 @@ class AnalysisOrchestratorTest {
             extractRequests.add(List.copyOf(items));
             meetingDates.add(meetingDate);
             return new ExtractTuplesResult(tuples, RUN);
+        }
+
+        @Override
+        public VerifyTupleResult verifyTuple(long tenantId, long meetingId, String topic, AssignmentTuple tuple,
+                                             List<ConfirmedItem> items, List<Utterance> utterances,
+                                             List<Participant> participants, LocalDate meetingDate) {
+            if (verifyFailure != null) {
+                throw verifyFailure;
+            }
+            verifyTargets.add(tuple);
+            verifyItemRequests.add(List.copyOf(items));
+            verifyMeetingDates.add(meetingDate);
+            return verifyResults.apply(tuple);
         }
     }
 
@@ -504,16 +750,112 @@ class AnalysisOrchestratorTest {
         }
     }
 
+    /*
+     * 정본 저장소. L1 이 이식한 화자를 기록하고, 이식 후 재조회에서 그 값을 반영해 돌려준다 —
+     * 오케스트레이터가 "이식 후 다시 읽는다"를 실제로 하는지 이 가짜가 드러낸다.
+     */
+    private static final class FakeTranscriptRepository implements TranscriptRepository {
+
+        private final List<Utterance> utterances;
+        private final List<SpeakerAttributionResolver.Attribution> applied = new ArrayList<>();
+
+        private FakeTranscriptRepository(List<Utterance> utterances) {
+            this.utterances = new ArrayList<>(utterances);
+        }
+
+        @Override
+        public List<Utterance> findByMeetingOrderByOffset(long meetingId) {
+            return List.copyOf(utterances);
+        }
+
+        /*
+         * 실물과 같은 계약이다 — **이번 판정이 그 회의의 화자 상태 전부다.** 목록에 없는 발화는
+         * 화자를 NULL 로 되돌린다. 덮어쓰기만 흉내내면 "기권했는데 예전 판정이 남는" 버그가
+         * 이 가짜에서는 재현되지 않아 테스트가 통과해 버린다.
+         */
+        @Override
+        public int applySpeakerAttributions(long meetingId, List<SpeakerAttributionResolver.Attribution> attributions) {
+            applied.addAll(attributions);
+
+            Map<Long, SpeakerAttributionResolver.Attribution> byUtteranceId = new LinkedHashMap<>();
+            attributions.forEach(attribution -> byUtteranceId.put(attribution.utteranceId(), attribution));
+
+            utterances.replaceAll(utterance -> {
+                SpeakerAttributionResolver.Attribution attribution = byUtteranceId.get(utterance.utteranceId());
+                return new Utterance(utterance.utteranceId(),
+                        attribution != null ? attribution.speakerMemberId() : null,
+                        utterance.startOffsetMs(), utterance.endOffsetMs(), utterance.text());
+            });
+            return attributions.size();
+        }
+    }
+
+    /* CAP-11 이 미구현이라 기본값은 자막 0건이다 — 실제 운영 상태와 같다. */
+    private static final class FakeCaptionRepository implements CaptionRepository {
+
+        private final List<CaptionChunk> captions;
+
+        private FakeCaptionRepository(CaptionChunk... captions) {
+            this.captions = List.of(captions);
+        }
+
+        @Override
+        public List<CaptionChunk> findByMeeting(long meetingId) {
+            return captions;
+        }
+    }
+
+    /*
+     * meeting_assignment_tuple 을 흉내낸다. **저장하면서 id 를 붙이는 것**이 요점이다 —
+     * L5 는 저장된 행의 id 로 판정을 되짚으므로, id 가 없으면 그 경로가 검증되지 않는다.
+     */
     private static final class FakeTupleRepository implements AssignmentTupleRepository {
 
         private final List<TupleRow> saved = new ArrayList<>();
+        private final Map<Long, StoredTuple> storedById = new LinkedHashMap<>();
+        private final Map<Long, TupleVerification> verifications = new LinkedHashMap<>();
         private int replaceCalls;
+        private long nextId = 9_000L;
 
         @Override
         public void replace(long companyId, long meetingId, List<TupleRow> rows) {
             replaceCalls++;
             saved.clear();
             saved.addAll(rows);
+
+            // 교체이므로 이전 판정도 함께 사라진다 — 새 tuple 이 예전 검증 결과를 물려받으면
+            // 검증받지 않은 배정이 검증된 것으로 보인다.
+            storedById.clear();
+            verifications.clear();
+            for (TupleRow row : rows) {
+                long id = nextId++;
+                storedById.put(id, new StoredTuple(id, row.tuple(), row.topicSeq(), row.topic()));
+            }
+        }
+
+        @Override
+        public List<StoredTuple> findByMeeting(long companyId, long meetingId) {
+            return List.copyOf(storedById.values());
+        }
+
+        @Override
+        public int applyVerifications(long meetingId, List<TupleVerification> incoming) {
+            int applied = 0;
+            for (TupleVerification verification : incoming) {
+                if (storedById.containsKey(verification.tupleId())) {
+                    verifications.put(verification.tupleId(), verification);
+                    applied++;
+                }
+            }
+            return applied;
+        }
+
+        private TupleVerification verificationOfTitle(String title) {
+            return storedById.values().stream()
+                    .filter(stored -> title.equals(stored.tuple().title()))
+                    .map(stored -> verifications.get(stored.id()))
+                    .findFirst()
+                    .orElseThrow();
         }
     }
 

@@ -18,7 +18,10 @@ import lombok.extern.slf4j.Slf4j;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.StoredTuple;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleRow;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleVerification;
+import com.module06.backend.capture.application.port.out.CaptionRepository;
 import com.module06.backend.capture.application.port.out.ExtractTuplesResult;
 import com.module06.backend.capture.application.port.out.GateResult;
 import com.module06.backend.capture.application.port.out.LayerRun;
@@ -31,8 +34,10 @@ import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
+import com.module06.backend.capture.application.port.out.VerifyTupleResult;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.CaptionChunk;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.LayerName;
@@ -47,10 +52,16 @@ import com.module06.backend.capture.domain.model.Utterance;
  * 계층 안에서 무엇을 판단하는지는 Python 몫이다(명세 「내부 API」 머리말).
  *
  * <h2>지금 도는 구간</h2>
- * L1.5(지시어 해소) → L2(주제 분할) → 주제마다 L3(정리) → meeting_summary·meeting_decision 저장
- * → 주제마다 L3.5(확정/논의 게이트) → gate_status 반영 → 주제마다 L4(tuple 추출)
- * → meeting_assignment_tuple 저장.
- * L1(화자 귀속) · L5(검증) · L6(모순 검사) · L7(자동확정 게이트)은 아직 붙지 않았다.
+ * L1(화자 귀속) → L1.5(지시어 해소) → L2(주제 분할) → 주제마다 L3(정리)
+ * → meeting_summary·meeting_decision 저장 → 주제마다 L3.5(확정/논의 게이트) → gate_status 반영
+ * → 주제마다 L4(tuple 추출) → meeting_assignment_tuple 저장
+ * → tuple 마다 L5(관점 다변화 검증) → 그 행에 판정 반영.
+ * L6(모순 검사) · L7(자동확정 게이트)은 아직 붙지 않았다.
+ *
+ * 호출 단위가 계층마다 다르다 — 회의당 1회(L1·L1.5·L2) · 주제당 1회(L3·L3.5·L4) ·
+ * tuple 당 1회(L5). 단위는 각 계층의 Python 요청이 무엇을 하나로 받는지가 정한다.
+ *
+ * L1 만 **코드 계층**이다(rms·명단으로 판정 · LLM 아님). 나머지는 Python 계층 호출이다.
  * 계층을 하나 붙일 때 바꾸는 곳은 {@link #run} 안의 호출 순서와 {@link #RUN_LAYERS} 두 곳이고,
  * 잠금·상태 기록·토큰 집계는 {@link #runLayer} 가 공통으로 갖는다.
  *
@@ -83,14 +94,17 @@ public class AnalysisOrchestrator {
 
     /* 이 오케스트레이터가 실제로 도는 계층. 계층을 붙이면 여기도 같이 늘린다 —
      * 빠뜨리면 "전부 완료" 판정이 새 계층을 안 보고 생략을 결정한다. */
-    private static final Set<LayerName> RUN_LAYERS =
-            Set.of(LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5, LayerName.L4);
+    private static final Set<LayerName> RUN_LAYERS = Set.of(
+            LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
+            LayerName.L4, LayerName.L5);
 
     private final TranscriptRepository transcriptRepository;
+    private final CaptionRepository captionRepository;
     private final AnalysisLayerRepository analysisLayerRepository;
     private final MeetingSummaryRepository meetingSummaryRepository;
     private final AssignmentTupleRepository assignmentTupleRepository;
     private final MeetingDateProvider meetingDateProvider;
+    private final SpeakerAttributionResolver speakerAttributionResolver;
     private final AiLayerPort aiLayerPort;
 
     /*
@@ -116,14 +130,70 @@ public class AnalysisOrchestrator {
             return AnalysisOutcome.skipped("이미 분석이 완료된 회의입니다.");
         }
 
-        List<Utterance> rawUtterances = transcriptRepository.findByMeetingOrderByOffset(meetingId);
-        if (rawUtterances.isEmpty()) {
+        List<Utterance> loaded = transcriptRepository.findByMeetingOrderByOffset(meetingId);
+        if (loaded.isEmpty()) {
             // 발화가 없으면 계층을 부르지 않는다. 빈 입력으로 돌리면 빈 결과에 돈만 쓰고,
             // 그 빈 결과가 "분석 완료"로 기록돼 자막·STT 쪽 사고를 가린다.
             // (명세 ANLZ-01 의 SKIPPED_NO_CAPTION 과 같은 성질이다.)
             log.info("분석 생략 — 발화 0건 meetingId={}", meetingId);
             return AnalysisOutcome.skipped("발화가 없어 분석을 건너뛰었습니다.");
         }
+
+        // ── L1 · 화자 귀속 (코드 계층 · LLM 아님) ────────────────────────────────
+        /*
+         * 파이프라인의 **첫** 계층이다. 자막(caption_chunk)과 정본을 ±1.5초 창에서 맞춰
+         * rms 최대인 참석자를 화자로 정하고, 그 결과를 정본에 이식한다. 모델이 아니라 산수다.
+         *
+         * 여기가 먼저여야 하는 이유 — 뒤 계층 전부가 화자를 본다. L1.5 는 "그분"을 풀 때,
+         * L4 는 1인칭 발화("제가 할게요")의 담당자를 정할 때 speakerMemberId 를 쓴다.
+         * 나중에 돌리면 이미 담당자가 정해진 뒤에 화자가 밝혀진다.
+         *
+         * ⚠ **CAP-11(자막 청크 전송)이 아직 구현되지 않았다.** caption_chunk 가 비어 있으면
+         * 전원 판정 포기로 끝난다 — 지금과 같은 상태이고, 정상 동작이다. CAP-11 이 붙는 순간
+         * 이 계층이 실제로 화자를 채우기 시작한다.
+         */
+        LayerOutcome<Integer> attributed = runLayer(meetingId, LayerName.L1, sink -> {
+            List<CaptionChunk> captions = captionRepository.findByMeeting(meetingId);
+
+            // 명단 밖 탈출구(personId=null)는 제외한다 — 소거법과 "전원 자막" 판단의 분모가
+            // 실제 참석자 수여야 한다. 탈출구를 포함하면 참석자가 2명인 회의가 3명으로 보여
+            // 소거법이 성립하지 않는다.
+            Set<Long> attendeeMemberIds = participants.stream()
+                    .map(AiLayerPort.Participant::personId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            List<SpeakerAttributionResolver.Attribution> attributions =
+                    speakerAttributionResolver.resolve(loaded, captions, attendeeMemberIds);
+
+            int applied = transcriptRepository.applySpeakerAttributions(meetingId, attributions);
+            if (applied != attributions.size()) {
+                // 그 회의에 없는 발화 id 가 섞였다. 오류로 올리지 않는다 — 이식되지 않은 발화는
+                // 화자가 미정으로 남아 안전한 방향이고, 여기서 회의 전체를 실패시키면 발화
+                // 하나 때문에 분석을 못 하게 된다.
+                log.warn("화자 이식 건수가 판정 수와 다르다 — meetingId={} 판정={} 이식={}",
+                        meetingId, attributions.size(), applied);
+            }
+
+            // 토큰을 쓰지 않는 코드 계층이다. LayerRun.empty() 를 기록하는 것이 맞다 —
+            // 0 을 채우는 것이 아니라 실제로 0 이다(모델을 부르지 않았다).
+            return new Accumulated<>(applied, LayerRun.empty());
+        });
+        if (!attributed.succeeded()) {
+            return attributed.toAnalysisOutcome(LayerName.L1);
+        }
+
+        /*
+         * 이식 후의 정본을 다시 읽는다. 판정 결과를 메모리에서 합치지 않는 이유는 L4 가 게이트
+         * 반영 후 값을 다시 읽는 것과 같다 — 이식되지 않은 판정(그 회의에 없는 id)까지 화자가
+         * 채워진 것으로 취급하면 DB 와 프롬프트가 서로 다른 말을 하게 된다.
+         *
+         * ⚠ 판정 0건이어도 다시 읽는다. L1 은 이번에 기권한 발화의 화자를 NULL 로 되돌리므로
+         * (applySpeakerAttributions), 판정이 하나도 없어도 DB 는 바뀔 수 있다 — 예전 판정이
+         * 전부 지워지는 경우가 정확히 그것이다. loaded 를 재사용하면 이미 지워진 화자를
+         * 뒤 계층에 그대로 넘기게 된다.
+         */
+        List<Utterance> rawUtterances = transcriptRepository.findByMeetingOrderByOffset(meetingId);
 
         // ── L1.5 · 지시어 해소 ──────────────────────────────────────────────────
         /*
@@ -288,12 +358,7 @@ public class AnalysisOrchestrator {
              */
             Map<Integer, TopicView> gatedBySeq = savedTopicsBySeq(companyId, meetingId);
 
-            // 상대 표현("다음 주까지")의 기준일. 없으면 계층이 상대 표현을 계산하지 않는다 —
-            // 오늘 날짜로 대체하지 않는다. 재실행은 회의 몇 주 뒤일 수도 있다.
-            LocalDate meetingDate = meetingDateProvider.meetingDateOf(meetingId).orElse(null);
-            if (meetingDate == null) {
-                log.warn("회의 날짜를 읽지 못해 상대 기한을 계산하지 않는다. meetingId={}", meetingId);
-            }
+            LocalDate meetingDate = meetingDateOf(meetingId);
 
             List<TupleRow> rows = new ArrayList<>();
             for (TopicSegment topic : topics) {
@@ -328,11 +393,109 @@ public class AnalysisOrchestrator {
             return extracted.toAnalysisOutcome(LayerName.L4);
         }
 
-        log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건",
+        // ── L5 · 관점 다변화 검증 (tuple 마다 한 번) + 판정 반영 ─────────────────
+        /*
+         * L4 **저장 후에** 돈다. 판정을 meeting_assignment_tuple 의 각 행에 적어야 하고,
+         * 저장 전에 부르면 응답을 어느 행에 적용할지 순번으로 맞춰야 한다 — L3.5 를 L3 저장
+         * 뒤에 두는 것과 정확히 같은 이유다.
+         *
+         * <h2>왜 tuple 마다 부르나</h2>
+         * Python 의 요청이 tuple 단수다. 주제 단위로 묶어 보내려면 응답 판정을 어느 tuple 에
+         * 적용할지 되짚는 키가 계약에 새로 필요한데, 그 키가 없어서 겪은 문제가 L4 의
+         * toTupleRows 다(근거 발화로 되짚고 있고 한 발화에 항목이 둘이면 포기한다).
+         * 같은 자리를 하나 더 만들지 않는다.
+         *
+         * <h2>판정이 false 여도 행을 지우지 않는다</h2>
+         * agree=false 는 "틀렸다"가 아니라 "확신할 수 없다"이다 — 두 관점이 갈렸거나 한쪽이
+         * 죽은 것이다. 지우면 사람이 검토할 대상 자체가 사라지고, 그건 검증을 안 한 것보다 나쁘다.
+         * 이 판정을 무엇에 쓸지(자동확정 대상에서 제외)는 L7 이 정한다.
+         */
+        LayerOutcome<Integer> verified = runLayer(meetingId, LayerName.L5, sink -> {
+            List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
+            if (stored.isEmpty()) {
+                // 뽑힌 배정이 없으면 검증할 것이 없다. 계층은 DONE 으로 닫는다 — 실패가 아니라
+                // 대상이 0건인 것이고, FAILED 로 두면 ANLZ-02 가 영원히 재시도하게 된다.
+                log.info("L5 생략 — 검증할 tuple 이 없다. meetingId={}", meetingId);
+                return new Accumulated<>(0, sink.spent());
+            }
+
+            /*
+             * 검증 재추출에 넘길 재료를 주제 순번으로 찾을 수 있게 만든다.
+             *
+             * items 는 L4 에 넘긴 것과 **같은 집합**이어야 한다. 다르면 두 관점이 서로 다른
+             * 입력을 본 것이라, 불일치가 관점 차이인지 입력 차이인지 구분되지 않는다 —
+             * 그러면 disagreementFields 가 원인 조사에 쓸모없어진다.
+             */
+            Map<Integer, TopicView> gatedBySeq = savedTopicsBySeq(companyId, meetingId);
+            Map<Integer, TopicSegment> topicBySeq = new HashMap<>();
+            topics.forEach(topic -> topicBySeq.put(topic.topicSeq(), topic));
+
+            LocalDate meetingDate = meetingDateOf(meetingId);
+
+            List<TupleVerification> verifications = new ArrayList<>();
+            for (StoredTuple row : stored) {
+                TopicSegment topic = topicBySeq.get(row.topicSeq());
+                TopicView gatedTopic = gatedBySeq.get(row.topicSeq());
+                if (topic == null || gatedTopic == null) {
+                    // 저장된 tuple 의 주제를 이번 실행에서 찾지 못했다. 문맥 없이 검증하면
+                    // 좁은 시야 재추출이 근거를 못 찾아 전부 notReproduced 로 나오는데,
+                    // 그건 tuple 이 의심스럽다는 뜻이 아니라 우리가 재료를 못 준 것이다.
+                    log.warn("검증할 주제를 찾지 못해 건너뛴다 — meetingId={} tupleId={} topicSeq={}",
+                            meetingId, row.id(), row.topicSeq());
+                    continue;
+                }
+
+                VerifyTupleResult result = aiLayerPort.verifyTuple(
+                        tenantId, meetingId, row.topic(), row.tuple(),
+                        toConfirmedItems(confirmedItemsOf(gatedTopic)),
+                        utterancesOf(topic, byId), participants, meetingDate);
+                // tuple 마다 부르므로 토큰을 누적한다. 중간에 터져도 그때까지의 비용이 남는다.
+                sink.add(result.run());
+
+                verifications.add(new TupleVerification(
+                        row.id(), result.agree(), result.disagreementFields(),
+                        result.verdict(), result.reason(),
+                        result.run().modelName(), result.run().promptVersion()));
+            }
+
+            int applied = assignmentTupleRepository.applyVerifications(meetingId, verifications);
+            if (applied != verifications.size()) {
+                // 되짚지 못한 행이 있다. 오류로 올리지 않는다 — 그 행은 미검증(NULL)으로 남고,
+                // 미검증은 검토 대상에서 빠지는 것이 아니라 "아직 안 봤다"로 남는다.
+                log.warn("L5 판정 반영 수가 대상과 다르다 — meetingId={} 대상={} 반영={}",
+                        meetingId, verifications.size(), applied);
+            }
+
+            long needsReview = verifications.stream().filter(v -> !v.agree()).count();
+            log.info("L5 검증 — meetingId={} tuple {}건 중 검토 대상 {}건",
+                    meetingId, verifications.size(), needsReview);
+            return new Accumulated<>(applied, sink.spent());
+        });
+        if (!verified.succeeded()) {
+            return verified.toAnalysisOutcome(LayerName.L5);
+        }
+
+        log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건",
                 meetingId, decisions.size(),
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
-                extracted.value());
+                extracted.value(), verified.value());
         return AnalysisOutcome.done(decisions.size());
+    }
+
+    /*
+     * 상대 표현("다음 주까지")의 기준일이다. 없으면 계층이 상대 표현을 계산하지 않는다 —
+     * 오늘 날짜로 대체하지 않는다. 재실행은 회의 몇 주 뒤일 수도 있고, 그때 오늘로 계산하면
+     * 그럴듯하게 틀린 마감이 보드에 꽂힌다.
+     *
+     * L4 와 L5 가 같은 값을 써야 한다. L5 의 좁은 시야 재추출도 기한을 다시 계산하는데,
+     * 기준일이 갈리면 dueDate 가 그것 때문에 달라지고 그 차이가 "관점이 갈렸다"로 기록된다.
+     */
+    private LocalDate meetingDateOf(long meetingId) {
+        LocalDate meetingDate = meetingDateProvider.meetingDateOf(meetingId).orElse(null);
+        if (meetingDate == null) {
+            log.warn("회의 날짜를 읽지 못해 상대 기한을 계산하지 않는다. meetingId={}", meetingId);
+        }
+        return meetingDate;
     }
 
     /*
@@ -533,7 +696,8 @@ public class AnalysisOrchestrator {
             annotated.add(matched == null
                     ? utterance
                     : new Utterance(utterance.utteranceId(), utterance.speakerMemberId(),
-                            utterance.startOffsetMs(), withAnnotations(utterance, matched, nameByPersonId)));
+                            utterance.startOffsetMs(), utterance.endOffsetMs(),
+                            withAnnotations(utterance, matched, nameByPersonId)));
         }
         return annotated;
     }
