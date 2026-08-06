@@ -103,30 +103,17 @@ public enum CaptureErrorCode implements ErrorCode {
             "직접 추가에는 담당자와 기한이 필요합니다."),
 
     /*
-     * RVW-04 — AI 가 만든 액션을 삭제하려 했다.
+     * RVW-03 — 근거 발화가 이 회의의 것이 아니다.
      *
-     * **AI 생성 액션은 지우는 것이 아니라 반려(RVW-02 REJECT)한다.** 지우면 라벨이 사라진다 —
-     * "AI 가 이런 걸 뽑았고 사람이 아니라고 했다"는 쌍이 개선의 재료인데, 행이 없어지면 그
-     * 사실 자체가 없던 일이 된다. 지나간 회의는 다시 만들 수 없어 복구도 불가능하다.
-     */
-    REVIEW_DELETE_AI_ACTION(HttpStatus.CONFLICT, "MEETING_409_7", "AI 생성 액션은 반려로 처리해야 합니다."),
-
-    /*
-     * RVW-05 — 확인되지 않은 STT 구간이나 미검토 액션이 남아 있다.
+     * **다른 회의(다른 회사)의 발화 id 를 넣는 경로를 막는다.** 검증 없이 저장하면 그 id 가
+     * 액션에 박히고, 검토 화면(RVW-01)은 그 id 로 원문을 조인해 보여준다 — 남의 회의 발화
+     * 내용이 우리 화면에 인용된다. 화면에 뿌려지는 순간 유출이라 저장 전에 막는다(#100).
      *
-     * **분배는 되돌리기 어렵다.** 액션이 사람들 보드에 꽂히고 나면 회수 경로가 없다(재분석
-     * 결과가 액션에 반영되지 않는 것과 같은 이유다). 그래서 구멍이 남은 채로는 막고,
-     * ?confirm=true 로만 강행하게 한다 — 강행 여부를 사람이 눈으로 보고 정하는 자리다.
+     * 근거를 아예 넣지 않는 것(null)은 정상이다. 회의록에서 집어 오지 않고 사람이 새로 쓴
+     * 할 일이 그 모양이고, 명세의 요청 예시도 evidenceTranscriptId 가 null 이다.
      */
-    REVIEW_CONFIRM_BLOCKED(HttpStatus.CONFLICT, "MEETING_409_5", "확인되지 않은 STT 구간이 남아 있습니다."),
-
-    /*
-     * RVW-05 — 회의 담당자가 아니다.
-     *
-     * 403 이다. 다른 회사 회의는 404 로 존재를 숨기지만(MEETING_NOT_ACCESSIBLE), 이건 같은
-     * 회사 안에서 **권한**이 갈리는 자리다 — 회의가 있다는 사실은 이미 검토 화면으로 보고 있다.
-     */
-    REVIEW_CONFIRM_HOST_ONLY(HttpStatus.FORBIDDEN, "MEETING_403_1", "회의 담당자만 요청할 수 있습니다.");
+    REVIEW_EVIDENCE_NOT_IN_MEETING(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_6",
+            "이 회의의 발화가 아닙니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

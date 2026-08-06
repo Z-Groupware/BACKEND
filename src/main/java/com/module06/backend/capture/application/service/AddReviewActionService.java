@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.ReviewActionCreatePort;
+import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.port.out.ReviewActionCreatePort.ManualAction;
 import com.module06.backend.capture.application.result.ReviewActionAdded;
 import com.module06.backend.capture.application.usecase.AddReviewActionUseCase;
@@ -41,6 +42,7 @@ public class AddReviewActionService implements AddReviewActionUseCase {
     private static final String STATUS_HUMAN_CONFIRMED = "HUMAN_CONFIRMED";
 
     private final ReviewActionCreatePort reviewActionCreatePort;
+    private final TranscriptRepository transcriptRepository;
     private final MeetingAccessGuard meetingAccessGuard;
     private final MeetingProjectProvider meetingProjectProvider;
     private final MeetingParticipantProvider meetingParticipantProvider;
@@ -51,6 +53,7 @@ public class AddReviewActionService implements AddReviewActionUseCase {
         meetingAccessGuard.requireAccessible(command.companyId(), command.meetingId());
         requireManualShape(command);
         requireInRoster(command);
+        requireEvidenceInMeeting(command);
 
         /*
          * 프로젝트를 못 읽으면 만들지 않는다. action.project_id 는 NOT NULL 이고, 임의의
@@ -80,6 +83,27 @@ public class AddReviewActionService implements AddReviewActionUseCase {
     private void requireManualShape(AddReviewActionCommand command) {
         if (command.assigneeMemberId() == null || command.dueDate() == null) {
             throw new BusinessException(CaptureErrorCode.REVIEW_MANUAL_FIELD_REQUIRED);
+        }
+    }
+
+    /*
+     * 근거 발화가 **이 회의의 것인지** 본다.
+     *
+     * 검증 없이 저장하면 다른 회의 — 나아가 다른 회사 — 의 발화 id 를 넣을 수 있고, 검토
+     * 화면(RVW-01)은 그 id 로 `transcript_chunk` 를 조인해 원문을 그대로 인용한다.
+     * **화면에 뿌려지는 순간이 유출이라 저장 전에 막는다**(#100 과 같은 자리).
+     *
+     * 근거가 없는 것(null)은 정상이다 — 회의록에서 집어 오지 않고 사람이 새로 쓴 할 일이
+     * 그 모양이고, 명세의 요청 예시도 evidenceTranscriptId 가 null 이다. 그래서 "없으면 거절"이
+     * 아니라 **"있으면 이 회의 것이어야 한다"** 로 막는다.
+     */
+    private void requireEvidenceInMeeting(AddReviewActionCommand command) {
+        Long evidenceId = command.evidenceTranscriptId();
+        if (evidenceId == null) {
+            return;
+        }
+        if (!transcriptRepository.existsInMeeting(command.meetingId(), evidenceId)) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_EVIDENCE_NOT_IN_MEETING);
         }
     }
 

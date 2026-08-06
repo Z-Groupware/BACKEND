@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.ReviewActionCreatePort;
+import com.module06.backend.capture.application.port.out.TranscriptRepository;
+import com.module06.backend.capture.domain.model.Utterance;
 import com.module06.backend.capture.application.result.ReviewActionAdded;
 import com.module06.backend.capture.application.usecase.AddReviewActionUseCase.AddReviewActionCommand;
 import com.module06.backend.capture.exception.CaptureErrorCode;
@@ -111,12 +113,57 @@ class AddReviewActionServiceTest {
     }
 
     @Test
+    @DisplayName("다른 회의의 근거 발화는 막는다 — 남의 회의 원문이 검토 화면에 인용된다")
+    void 이_회의의_발화가_아니면_추가하지_않는다() {
+        RecordingCreatePort actions = new RecordingCreatePort();
+
+        /*
+         * 검증 없이 저장하면 그 id 가 액션에 박히고, RVW-01 이 그 id 로 원문을 조인해 보여준다 —
+         * 다른 회사 회의의 발화 내용이 우리 화면에 인용된다. 화면에 뿌려지는 순간이 유출이다.
+         */
+        AddReviewActionService service = new AddReviewActionService(
+                actions, transcripts(false), guard(),
+                meetingId -> Optional.of(PROJECT), roster());
+
+        assertThatThrownBy(() -> service.add(commandWithEvidence(9_999L)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_EVIDENCE_NOT_IN_MEETING);
+        assertThat(actions.created).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이 회의의 발화면 근거로 붙는다")
+    void 이_회의의_발화는_근거로_붙는다() {
+        RecordingCreatePort actions = new RecordingCreatePort();
+
+        new AddReviewActionService(actions, transcripts(true), guard(),
+                meetingId -> Optional.of(PROJECT), roster())
+                .add(commandWithEvidence(8_812L));
+
+        assertThat(actions.created.get(0).evidenceTranscriptId()).isEqualTo(8_812L);
+    }
+
+    @Test
+    @DisplayName("근거를 안 넣는 것은 정상이다 — 회의록에 없는 할 일도 추가할 수 있어야 한다")
+    void 근거가_없어도_추가한다() {
+        RecordingCreatePort actions = new RecordingCreatePort();
+
+        // "없으면 거절"이 아니라 "있으면 이 회의 것이어야 한다"로 막는다(명세의 요청 예시도 null 이다).
+        new AddReviewActionService(actions, transcripts(false), guard(),
+                meetingId -> Optional.of(PROJECT), roster())
+                .add(command(ATTENDEE, DUE));
+
+        assertThat(actions.created).hasSize(1);
+        assertThat(actions.created.get(0).evidenceTranscriptId()).isNull();
+    }
+
+    @Test
     @DisplayName("회의의 프로젝트를 못 읽으면 만들지 않는다 — 엉뚱한 보드에 꽂힌다")
     void 프로젝트를_못_읽으면_추가하지_않는다() {
         RecordingCreatePort actions = new RecordingCreatePort();
 
         AddReviewActionService service = new AddReviewActionService(
-                actions, guard(), meetingId -> Optional.empty(), roster());
+                actions, transcripts(true), guard(), meetingId -> Optional.empty(), roster());
 
         assertThatThrownBy(() -> service.add(command(ATTENDEE, DUE)))
                 .isInstanceOf(IllegalStateException.class);
@@ -125,7 +172,35 @@ class AddReviewActionServiceTest {
 
     private AddReviewActionService service(RecordingCreatePort actions) {
         return new AddReviewActionService(
-                actions, guard(), meetingId -> Optional.of(PROJECT), roster());
+                actions, transcripts(true), guard(), meetingId -> Optional.of(PROJECT), roster());
+    }
+
+    /* 근거 발화 존재 여부만 답한다 — 이 서비스가 읽는 것이 그것뿐이다. */
+    private TranscriptRepository transcripts(boolean inMeeting) {
+        return new TranscriptRepository() {
+
+            @Override
+            public boolean existsInMeeting(long meetingId, long transcriptId) {
+                return inMeeting;
+            }
+
+            @Override
+            public List<Utterance> findByMeetingOrderByOffset(long meetingId) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public int applySpeakerAttributions(long meetingId,
+                                                List<SpeakerAttributionResolver.Attribution> attributions) {
+                throw new UnsupportedOperationException();
+            }
+        };
+    }
+
+    private AddReviewActionCommand commandWithEvidence(Long evidenceTranscriptId) {
+        return new AddReviewActionCommand(
+                COMPANY, MEETING, ATTENDEE, "결제 실패 케이스 정리", null, DUE,
+                evidenceTranscriptId, ME);
     }
 
     /* 회사 스코프 관문은 여기서 볼 대상이 아니다(MeetingAccessGuardTest 가 본다). */

@@ -40,4 +40,13 @@ public interface SpringDataTranscriptChunkRepository extends JpaRepository<Trans
      * 아무도 오류를 못 본다.
      */
     List<TranscriptChunkJpaEntity> findByMeetingId(Long meetingId, Sort sort);
+
+    /*
+     * 근거 발화가 그 회의의 것인지 본다(RVW-03).
+     *
+     * **id 만으로 찾지 않는다.** 그러면 다른 회의(다른 회사)의 발화도 존재한다고 답하고,
+     * 그 id 가 액션에 박혀 검토 화면이 남의 회의 원문을 인용하게 된다. meetingId 를 함께
+     * 거는 것이 여기서는 곧 회사 스코프다 — findByMeetingId 와 같은 이유다.
+     */
+    boolean existsByIdAndMeetingId(Long id, Long meetingId);
 }
