@@ -14,6 +14,13 @@ import com.module06.backend.global.exception.ErrorCode;
 @AllArgsConstructor
 public enum CaptureSessionErrorCode implements ErrorCode {
 
+    /* 회의에 아직 캡처 세션이 생성되지 않아 상태를 제어할 수 없는 경우다. */
+    CAPTURE_SESSION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "CS-001",
+            "진행 중인 캡처 세션이 없습니다."
+    ),
+
     /* 회의당 하나인 캡처 세션이 이미 생성된 경우다. */
     CAPTURE_SESSION_ALREADY_EXISTS(
             HttpStatus.CONFLICT,
@@ -26,6 +33,20 @@ public enum CaptureSessionErrorCode implements ErrorCode {
             HttpStatus.FORBIDDEN,
             "CS-003",
             "회의 개설자만 수행할 수 있습니다."
+    ),
+
+    /* PAUSED 세션에 일시정지를 다시 요청한 경우다. */
+    CAPTURE_SESSION_ALREADY_PAUSED(
+            HttpStatus.CONFLICT,
+            "CS-004",
+            "이미 일시정지된 캡처 세션입니다."
+    ),
+
+    /* ENDED 세션의 상태 변경을 요청한 경우다. */
+    CAPTURE_SESSION_ALREADY_ENDED(
+            HttpStatus.CONFLICT,
+            "CS-006",
+            "이미 종료된 캡처 세션입니다."
     );
 
     /* 응답에 사용할 HTTP 상태다. */

@@ -1,6 +1,7 @@
 package com.module06.backend.meeting.infrastructure.persistence.adapter;
 
 import java.util.Optional;
+import java.util.List;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -11,6 +12,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.CaptureSession;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
+import com.module06.backend.meeting.domain.repository.CaptureSessionControlRepository;
 import com.module06.backend.meeting.exception.CaptureSessionErrorCode;
 import com.module06.backend.meeting.infrastructure.persistence.entity.CaptureSessionJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
@@ -23,7 +25,9 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
  */
 @Component
 @RequiredArgsConstructor
-public class CaptureSessionPersistenceAdapter implements CaptureSessionRepository {
+public class CaptureSessionPersistenceAdapter implements
+        CaptureSessionRepository,
+        CaptureSessionControlRepository {
 
     /* 회사 범위 회의 행을 잠금 조회하는 기존 회의 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -48,6 +52,14 @@ public class CaptureSessionPersistenceAdapter implements CaptureSessionRepositor
                 ));
     }
 
+    /* 회사 범위 회의에서 CAP 상태 제어에 필요한 host 정보만 잠금 없이 조회한다. */
+    @Override
+    public Optional<Meeting> findMeetingForControl(Long companyId, Long meetingId) {
+        /* 참석자 명단은 사용하지 않으므로 불필요한 meeting_attendee 조회 없이 회의 원본만 복원한다. */
+        return springDataMeetingRepository.findByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> meeting.toDomain(List.of()));
+    }
+
     /* 회사 범위 회의를 잠그고 host·상태·최신 참석자 명단을 가진 도메인으로 복원한다. */
     @Override
     public Optional<Meeting> findMeetingForStart(Long companyId, Long meetingId) {
@@ -67,6 +79,14 @@ public class CaptureSessionPersistenceAdapter implements CaptureSessionRepositor
     public boolean existsByMeetingId(Long meetingId) {
         /* 빠른 사용자 오류 반환을 위한 사전 검사이며 최종 보장은 UNIQUE 제약이 담당한다. */
         return springDataCaptureSessionRepository.existsByMeetingId(meetingId);
+    }
+
+    /* 회의당 하나인 캡처 세션을 쓰기 잠금으로 조회해 동시 상태 전이를 직렬화한다. */
+    @Override
+    public Optional<CaptureSession> findByMeetingIdForUpdate(Long meetingId) {
+        /* 잠긴 JPA 엔티티를 애플리케이션 밖으로 노출하지 않고 순수 도메인으로 변환한다. */
+        return springDataCaptureSessionRepository.findByMeetingId(meetingId)
+                .map(CaptureSessionJpaEntity::toDomain);
     }
 
     /* 신규 캡처 세션을 저장하고 회의당 하나인 UNIQUE 충돌을 CS-002로 변환한다. */
