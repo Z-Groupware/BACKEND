@@ -197,4 +197,31 @@ public class CaptureSession {
                 resumedAt
         );
     }
+
+    /* ACTIVE 또는 PAUSED 세션을 같은 시간축을 보존한 ENDED 상태로 전이한다. */
+    public CaptureSession end(LocalDateTime endedAt) {
+        /* 종료 시각은 세션 시작보다 빠를 수 없고 null일 수도 없다. */
+        if (endedAt == null || endedAt.isBefore(startedAt)) {
+            throw new IllegalArgumentException("캡처 종료 시각은 세션 시작 시각 이후여야 합니다.");
+        }
+
+        /* 이미 종료된 세션에 종료 전이를 반복하는 잘못된 내부 호출을 차단한다. */
+        if (status == CaptureSessionStatus.ENDED) {
+            throw new IllegalStateException("이미 종료된 캡처 세션입니다.");
+        }
+
+        /* 세션 ID·시간축·시작자는 유지하고 상태와 종료·수정 시각만 변경한다. */
+        return new CaptureSession(
+                id,
+                meetingId,
+                startedBy,
+                CaptureSessionStatus.ENDED,
+                startedAt,
+                startedAtEpochMs,
+                pausedAt,
+                endedAt,
+                createdAt,
+                endedAt
+        );
+    }
 }
