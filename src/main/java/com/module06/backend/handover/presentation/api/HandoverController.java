@@ -89,14 +89,19 @@ public class HandoverController {
         return GetHandoverListUseCase.HandoverListQuery.self(principal.memberId(), status);
     }
 
+    // 신청자·팀은 본문이 아니라 토큰에서 — 남의 명의로 대신 신청하는 것을 원천 차단.
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<HandoverResponse> create(@Valid @RequestBody CreateHandoverRequest request) {
-        Handover handover = createHandoverUseCase.create(request.toCommand());
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<HandoverResponse> create(@Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
+                                                @Valid @RequestBody CreateHandoverRequest request) {
+        Handover handover = createHandoverUseCase.create(
+                request.toCommand(principal.getMemberId(), principal.getTeamId()));
         return ApiResponse.created("Handover created.", HandoverResponse.from(handover));
     }
 
     @PatchMapping("/{id}/items/{actionId}/reassign")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<HandoverResponse> reassignItem(@PathVariable Long id,
                                                       @PathVariable Long actionId,
                                                       @Valid @RequestBody ReassignItemRequest request) {
@@ -110,7 +115,9 @@ public class HandoverController {
      * 승인자를 토큰에서 꺼낸다. 헤더로 받으면 남의 사번을 적어 그 사람 이름으로 승인할 수 있고,
      * 승인은 감사 기록이 남는 행위라(finalApproverNameSnap) 신분 위조가 곧 기록 위조가 된다.
      */
+    // 중간 승인(재분배 확정)은 팀장 단계. 어느 팀 팀장인지(작성자 팀리더 일치)는 서비스가 볼 몫 — B(findTeamLeaderId) 배선 후.
     @PatchMapping("/{id}/complete")
+    @PreAuthorize("hasAnyRole('LEADER', 'OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> complete(@PathVariable Long id,
                                                   @Parameter(hidden = true)
                                                   @AuthenticationPrincipal(expression = "memberId") Long memberId) {
@@ -118,7 +125,9 @@ public class HandoverController {
         return ApiResponse.success("Handover completed.", HandoverResponse.from(handover));
     }
 
+    // 최종 승인 = 오너·어드민. 같은 회사 건인지(크로스컴퍼니 차단)는 서비스가 볼 몫 — B(findMember) 배선 후.
     @PatchMapping("/{id}/finalize")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> finalize(@PathVariable Long id,
                                                   @Parameter(hidden = true)
                                                   @AuthenticationPrincipal(expression = "memberId") Long memberId) {
@@ -127,7 +136,9 @@ public class HandoverController {
         return ApiResponse.success("Handover finalized.", HandoverResponse.from(handover));
     }
 
+    // 반려는 승인 라인(팀장·오너·어드민)만.
     @PatchMapping("/{id}/reject")
+    @PreAuthorize("hasAnyRole('LEADER', 'OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> reject(@PathVariable Long id,
                                                 @Valid @RequestBody RejectHandoverRequest request) {
         Handover handover = rejectHandoverUseCase.reject(request.toCommand(id));

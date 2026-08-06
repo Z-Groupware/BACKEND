@@ -80,16 +80,21 @@ class HandoverControllerTest {
     @MockitoBean
     private OrgQueryPort orgQueryPort;
 
+    /*
+     * 신청자·팀은 본문이 아니라 토큰에서 온다. 본문에 남의 사번/팀을 넣어도 무시되고,
+     * 커맨드에는 토큰의 memberId/teamId가 실린다 — 남의 명의 대리 신청 차단.
+     */
     @Test
-    void createMapsRequestToCommandAndReturnsCreatedApiResponse() throws Exception {
+    void createTakesWriterAndTeamFromTokenIgnoringBody() throws Exception {
+        authenticateAs(WRITER, COMPANY, "MEMBER", false, TEAM);
         when(createHandoverUseCase.create(any(CreateHandoverCommand.class))).thenReturn(submitted());
 
         mockMvc.perform(post("/api/handovers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "writerMemberId": 1,
-                                  "teamId": 10,
+                                  "writerMemberId": 999,
+                                  "teamId": 888,
                                   "handoverType": "VACATION",
                                   "leaveStartAt": "2026-08-10T09:00:00",
                                   "leaveEndAt": "2026-08-20T18:00:00",
