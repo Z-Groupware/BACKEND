@@ -12,6 +12,11 @@ import java.time.LocalDateTime;
  */
 public class CaptureUploadState {
 
+    // 세그먼트당 청크 순번 상한 — 업무 제한이 아니라 DoS 방어용(정상 회의는 도달 불가:
+    // 15초 청크 × 100,000 ≈ 17일). 미검증 seq가 lastSeq에 그대로 들어가면 상태 조회의
+    // 1..lastSeq 순회가 응답·메모리를 폭증시키고, Integer.MAX_VALUE에선 int 오버플로로 무한 루프가 된다.
+    public static final int MAX_SEQ = 100_000;
+
     private final Long meetingId;
     private int segmentSeq;
     private Long recorderPersonId;
@@ -67,10 +72,19 @@ public class CaptureUploadState {
         segmentSeq++;
     }
 
-    /** 청크 업로드 완료 통보 반영 — 현재 녹음자만 가능, lastSeq는 단조 증가만 허용. */
-    public void recordUpload(Long callerId, int seq) {
+    /** 현재 녹음자인지 검증만 한다(상태 변경 없음). 아니면 CAP_NOT_CURRENT_RECORDER — 상태 조회(#4)처럼 읽기 권한 확인용. */
+    public void verifyRecorder(Long callerId) {
         if (recorderPersonId == null || !recorderPersonId.equals(callerId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_CURRENT_RECORDER);
+        }
+    }
+
+    /** 청크 업로드 완료 통보 반영 — 현재 녹음자만 가능, seq는 1..MAX_SEQ 범위, lastSeq는 단조 증가만 허용. */
+    public void recordUpload(Long callerId, int seq) {
+        verifyRecorder(callerId);
+        // 범위 밖 seq를 거부해 lastSeq 오염을 막는다(상태 조회의 무한 리스트·int 오버플로 방지).
+        if (seq < 1 || seq > MAX_SEQ) {
+            throw new BusinessException(CapErrorCode.CAP_INVALID_SEQ);
         }
         if (seq > lastSeq) {
             lastSeq = seq;
