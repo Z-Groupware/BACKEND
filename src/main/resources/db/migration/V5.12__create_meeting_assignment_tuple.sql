@@ -61,7 +61,13 @@ CREATE TABLE `meeting_assignment_tuple` (
     `action_id`                    BIGINT       NULL COMMENT '분배 결과. NULL=아직 대기실에 있음. FK 는 걸지 않는다(C 소유)',
     `sort_order`                   INT          NOT NULL DEFAULT 0,
     `created_at`                   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`                   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- ON UPDATE 를 붙인다. 이 테이블은 대기실이라 분배 시점에 action_id 를 채우는 UPDATE 가
+    -- 반드시 발생한다. 없으면 updated_at 이 created_at 과 영원히 같아 컬럼이 무의미해지고,
+    -- "이 tuple 이 언제 분배됐나"를 되짚을 수 없다.
+    -- (V5.7·V5.8 에는 이 절이 없다. 그 테이블들은 교체(replace)로만 바뀌어 UPDATE 경로가
+    --  없었기 때문인데, meeting_decision.gate_status 갱신이 생겼으니 그쪽도 언젠가 필요하다.
+    --  이미 머지된 파일은 고칠 수 없으므로 새 마이그레이션으로 보완할 것.)
+    `updated_at`                   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `IX_ASSIGNMENT_TUPLE_COMPANY_MEETING` (`company_id`, `meeting_id`),
     KEY `IX_ASSIGNMENT_TUPLE_DECISION` (`meeting_decision_id`),

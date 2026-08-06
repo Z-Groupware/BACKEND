@@ -119,6 +119,48 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("후보로 보내지 않은 항목의 게이트 판정은 버린다 — 게이트를 통한 게이트 우회를 막는다")
+    void 후보_밖_판정은_반영하지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        // 항목 둘: 하나는 근거가 있어 후보가 되고, 하나는 근거가 없어 **일부러 제외된다**.
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "근거 있는 결정", 1L),
+                        item(ItemType.DECISION, "근거 없는 결정", null)),
+                // 계층이 후보가 아닌 항목(근거 없는 결정)에 CONFIRMED 를 돌려준다.
+                // 그대로 저장되면 근거를 확인할 수 없는 항목이 L4 로 넘어간다.
+                decisionIds -> List.of(
+                        new GateVerdict(999_999L, GateStatus.CONFIRMED, "요청에 없던 항목")));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 후보는 하나였는데 그 하나는 판정을 못 받았고, 온 판정은 후보 밖이라 버려진다.
+        // 결과적으로 확정된 항목이 없으므로 L4 를 부르지 않는다.
+        assertThat(ai.gateRequests).hasSize(1);
+        assertThat(ai.extractRequests).isEmpty();
+        assertThat(tuples.saved).isEmpty();
+    }
+
+    @Test
+    @DisplayName("후보 밖 판정에 실제 항목 id 가 실려도 버린다")
+    void 후보_밖_판정이_실존_항목을_가리켜도_버린다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "근거 있는 결정", 1L),
+                        item(ItemType.DECISION, "근거 없는 결정", null)),
+                // 후보(첫 항목) 대신 **같은 회의의 제외된 항목** id 로 CONFIRMED 를 돌려준다.
+                // meetingId 스코프만 보는 검사로는 통과하는 모양이다 — 그게 이 테스트의 요점이다.
+                decisionIds -> List.of(new GateVerdict(
+                        summaries.idOfContent("근거 없는 결정"), GateStatus.CONFIRMED, "제외된 항목")));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(ai.extractRequests).isEmpty();
+        assertThat(tuples.saved).isEmpty();
+    }
+
+    @Test
     @DisplayName("tuple 을 근거 발화로 확정 항목에 되짚어 저장한다")
     void tuple을_근거_항목에_연결해_저장한다() {
         FakeSummaryRepository summaries = new FakeSummaryRepository();
@@ -442,6 +484,14 @@ class AnalysisOrchestratorTest {
                             topicNameBySeq.get(entry.getKey()), entry.getValue()))
                     .toList();
             return Optional.of(new MeetingSummaryView("개요", topics));
+        }
+
+        private Long idOfContent(String content) {
+            return byId.values().stream()
+                    .filter(item -> content.equals(item.content()))
+                    .map(ItemView::id)
+                    .findFirst()
+                    .orElseThrow();
         }
 
         private Long idOfEvidence(long evidenceUtteranceId) {

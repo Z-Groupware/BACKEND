@@ -5,6 +5,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -148,7 +150,10 @@ public class AiLayerHttpAdapter implements AiLayerPort {
                 GateResponseDto.class);
 
         return new GateResult(
-                toGateVerdicts(response.verdicts()),
+                // 이 호출에 보낸 후보의 id 만 통과시킨다. 아래 toGateVerdicts 주석 참조 —
+                // 후보 밖 항목의 판정을 받아들이면 근거가 없어 게이트에서 **제외한** 항목이
+                // 모델 응답 하나로 CONFIRMED 가 되고, 그대로 L4 로 넘어간다.
+                toGateVerdicts(response.verdicts(), candidateIds(candidates)),
                 toLayerRun(response.usage(), response.model(), response.promptVersion()));
     }
 
@@ -320,19 +325,32 @@ public class AiLayerHttpAdapter implements AiLayerPort {
      * itemKey 가 숫자가 아니거나 gateStatus 를 못 읽으면 **그 판정을 버린다.** 버린 항목은
      * gate_status 가 NULL 로 남아 L4 로 넘어가지 않는다 — 판정을 못 읽은 항목을 CONFIRMED 로
      * 낙관하면 게이트가 뚫리고, DISCUSSED 로 단정하면 확정된 일이 사라진다. 미판정이 정직하다.
+     *
+     * <h2>후보 집합 밖의 판정도 버린다</h2>
+     * 이게 이 메서드에서 가장 중요한 검사다. 회의 스코프만 확인하면 **같은 회의 안의** 다른
+     * 항목은 막지 못하는데, 그 구멍이 정확히 게이트를 무력화한다 —
+     *
+     *   1. 근거 발화가 없는 항목은 우리가 게이트 후보에서 **일부러 제외한다**
+     *      (확인할 수 없는 항목이 확정으로 올라가지 않게)
+     *   2. 그런데 계층이 그 항목의 id 로 CONFIRMED 를 돌려주면 그대로 저장된다
+     *   3. 다음 단계의 confirmedItemsOf 가 그 항목을 L4 로 넘긴다
+     *
+     * 즉 게이트가 막으려던 상태가 게이트를 통해 만들어진다. 개수 비교로는 안 잡힌다 —
+     * "후보 A 미판정 + 비후보 B 판정"이면 수가 같아 경고조차 나오지 않는다.
+     * 그래서 **보낸 후보의 id 만** 통과시킨다. 계약 위반이 생기는 자리가 여기이므로 여기서 막는다.
      */
-    private List<GateVerdict> toGateVerdicts(List<GateVerdictDto> verdicts) {
+    private List<GateVerdict> toGateVerdicts(List<GateVerdictDto> verdicts, Set<Long> candidateIds) {
         if (verdicts == null) {
             return List.of();
         }
         return verdicts.stream()
                 .filter(Objects::nonNull)
-                .map(this::toGateVerdict)
+                .map(dto -> toGateVerdict(dto, candidateIds))
                 .filter(Objects::nonNull)
                 .toList();
     }
 
-    private GateVerdict toGateVerdict(GateVerdictDto dto) {
+    private GateVerdict toGateVerdict(GateVerdictDto dto, Set<Long> candidateIds) {
         Long decisionId = parseDecisionId(dto.itemKey());
         GateStatus status = GateStatus.fromNullable(dto.gateStatus());
 
@@ -341,7 +359,22 @@ public class AiLayerHttpAdapter implements AiLayerPort {
                     dto.itemKey(), dto.gateStatus());
             return null;
         }
+        if (!candidateIds.contains(decisionId)) {
+            // 계약 위반이다. 그냥 버리지 않고 경고로 남긴다 — 계층이 요청에 없는 항목을
+            // 판정했다는 것은 프롬프트나 후처리가 어긋났다는 신호이고, 조용히 버리면
+            // 그 어긋남이 "판정이 좀 적게 왔다"로만 보인다.
+            log.warn("후보로 보내지 않은 항목의 게이트 판정을 버린다 — itemKey={} gateStatus={}",
+                    dto.itemKey(), dto.gateStatus());
+            return null;
+        }
         return new GateVerdict(decisionId, status, dto.reason());
+    }
+
+    private Set<Long> candidateIds(List<GateCandidate> candidates) {
+        return candidates.stream()
+                .map(GateCandidate::decisionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     private Long parseDecisionId(String itemKey) {

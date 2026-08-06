@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -218,7 +219,8 @@ public class AnalysisOrchestrator {
         LayerOutcome<Void> gated = runLayer(meetingId, LayerName.L3_5, sink -> {
             Map<Integer, TopicView> savedBySeq = savedTopicsBySeq(companyId, meetingId);
             List<GateVerdict> verdicts = new ArrayList<>();
-            int candidateCount = 0;
+            // 후보로 보낸 항목의 id. 판정을 되짚을 수 있는 유일한 집합이다.
+            Set<Long> candidateIds = new HashSet<>();
 
             for (TopicSegment topic : topics) {
                 TopicView saved = savedBySeq.get(topic.topicSeq());
@@ -231,7 +233,7 @@ public class AnalysisOrchestrator {
                     // 토큰만 쓴다. 이 주제의 항목은 미판정(NULL)으로 남아 L4 로 넘어가지 않는다.
                     continue;
                 }
-                candidateCount += candidates.size();
+                candidates.forEach(candidate -> candidateIds.add(candidate.decisionId()));
 
                 GateResult result = aiLayerPort.gate(tenantId, meetingId, topic.topic(), candidates,
                         utterancesOf(topic, byId), participants);
@@ -239,15 +241,37 @@ public class AnalysisOrchestrator {
                 verdicts.addAll(result.verdicts());
             }
 
-            int applied = meetingSummaryRepository.applyGateVerdicts(meetingId, verdicts);
-            if (applied != candidateCount) {
+            /*
+             * 후보 밖 항목의 판정을 한 번 더 버린다.
+             *
+             * 어댑터가 이미 호출 단위로 같은 검사를 한다(AiLayerHttpAdapter#toGateVerdicts).
+             * 그런데 그 검사는 **구현체의 성실함**에 달려 있고, 이 포트는 다른 구현으로 갈릴 수 있다
+             * (테스트 가짜 · 나중의 다른 제공자 어댑터). 여기서 막는 것이 저장 직전의 마지막 관문이다.
+             *
+             * 왜 이렇게까지 하나 — 근거가 없어 **일부러 후보에서 제외한** 항목의 id 로 CONFIRMED 가
+             * 오면 그 항목이 확정되어 L4 로 넘어간다. 게이트가 막으려던 상태가 게이트를 통해
+             * 만들어지는 경로다.
+             */
+            List<GateVerdict> scoped = verdicts.stream()
+                    .filter(verdict -> candidateIds.contains(verdict.decisionId()))
+                    .toList();
+            if (scoped.size() != verdicts.size()) {
+                log.warn("후보 밖 게이트 판정을 버렸다 — meetingId={} 받음={} 사용={}",
+                        meetingId, verdicts.size(), scoped.size());
+            }
+
+            int applied = meetingSummaryRepository.applyGateVerdicts(meetingId, scoped);
+            if (applied != candidateIds.size()) {
                 /*
                  * 판정을 못 받은 항목이 있다. 오류로 올리지 않는다 — 그 항목은 미판정(NULL)으로
                  * 남아 L4 로 넘어가지 않으므로 안전한 방향이고, 여기서 회의 전체를 실패시키면
                  * 항목 하나 때문에 요약까지 못 쓰게 된다. 대신 수를 남겨 게이트 누락을 볼 수 있게 한다.
+                 *
+                 * ⚠ 이 비교는 후보 밖 판정을 버린 **뒤에** 해야 의미가 있다. 버리기 전에 비교하면
+                 * "후보 A 미판정 + 비후보 B 판정"이 수가 같아 경고 없이 지나간다.
                  */
                 log.warn("게이트 판정이 대상 수와 다르다 — meetingId={} 대상={} 반영={}",
-                        meetingId, candidateCount, applied);
+                        meetingId, candidateIds.size(), applied);
             }
             return new Accumulated<>(null, sink.spent());
         });
@@ -289,7 +313,7 @@ public class AnalysisOrchestrator {
                         utterancesOf(topic, byId), participants, meetingDate);
                 sink.add(result.run());
 
-                rows.addAll(toTupleRows(result, confirmed, topic));
+                rows.addAll(toTupleRows(meetingId, result, confirmed, topic));
             }
 
             /*
@@ -440,10 +464,10 @@ public class AnalysisOrchestrator {
      * 고르면 그 tuple 은 엉뚱한 결정에서 나온 것으로 기록되고, 사람이 검토할 때 근거 항목을
      * 눌러도 다른 내용이 나온다 — 근거를 모르는 것보다 나쁘다.
      */
-    private List<TupleRow> toTupleRows(ExtractTuplesResult result, List<ItemView> confirmed,
-                                       TopicSegment topic) {
+    private List<TupleRow> toTupleRows(long meetingId, ExtractTuplesResult result,
+                                       List<ItemView> confirmed, TopicSegment topic) {
         Map<Long, Long> decisionIdByEvidence = new HashMap<>();
-        Set<Long> ambiguous = new java.util.HashSet<>();
+        Set<Long> ambiguous = new HashSet<>();
 
         for (ItemView item : confirmed) {
             Long evidence = item.evidenceUtteranceId();
@@ -460,8 +484,8 @@ public class AnalysisOrchestrator {
         for (AssignmentTuple tuple : result.tuples()) {
             Long decisionId = decisionIdByEvidence.get(tuple.evidenceUtteranceId());
             if (decisionId == null) {
-                log.info("tuple 의 근거 항목을 되짚지 못해 연결 없이 저장한다 — meetingId 주제={} 근거={}",
-                        topic.topic(), tuple.evidenceUtteranceId());
+                log.info("tuple 의 근거 항목을 되짚지 못해 연결 없이 저장한다 — meetingId={} 주제={} 근거={}",
+                        meetingId, topic.topic(), tuple.evidenceUtteranceId());
             }
             rows.add(new TupleRow(tuple, decisionId, topic.topicSeq(), topic.topic(),
                     result.run().modelName(), result.run().promptVersion()));
