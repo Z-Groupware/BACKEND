@@ -52,9 +52,9 @@ public class MemberJpaEntity {
     @JoinColumn(name = "team_id")
     private TeamRefEntity team;
 
-    /** 화면의 "역할". 구 sub_team 이다(V2.3.2·V2.3.4). 인가에 쓰지 않는 라벨이다. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "role_id")
+    /** 화면의 "역할". 구 sub_team 이다(V2.3.2·V2.3.4). 인가에 쓰지 않는 라벨이다. role_id 는 NOT NULL 이다(V2.3.10). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "role_id", nullable = false)
     private RoleRefEntity role;
 
     /** 화면의 "직급". 구 job_position 이다(V2.3.3·V2.3.5). */
