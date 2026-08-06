@@ -1,14 +1,28 @@
 package com.module06.backend.action.domain.repository;
 
-/* comment.
-    액션 저장소 계약. domain 계층이 선언하고 infrastructure가 구현한다(의존성 역전).
-    JPA·쿼리 같은 기술 세부사항은 이 인터페이스에 드러나지 않는다.
+import java.util.List;
+import java.util.Optional;
 
-    연결된 클래스
-    - Action                    : 다루는 도메인 모델
-    - ActionPersistenceAdapter  : 구현체 (infrastructure.persistence)
-    - SpringDataActionRepository: 어댑터가 위임하는 Spring Data 인터페이스
-    - application.service.*     : 이 계약을 주입받는 유스케이스 구현체들
+import com.module06.backend.action.domain.model.Action;
+
+/* comment.
+    action 저장소 계약. 이번 슬라이스(ActionReassignPort 배선)에 필요한 메서드만 우선 채운다 —
+    나머지 조회(개인/팀 목록, 회의별 조회 등)는 각 유스케이스 착수 시 추가.
+
+    findHandoverablePersonalActions: 인수인계 대상 개인 액션 조회. includeDoneActions=false면
+    미완료(status != DONE)만, true면 상태 무관 전체 — 어느 쪽이든 완료된(status=DONE) 프로젝트에
+    속한 액션은 항상 제외한다(2026-08-06 종준 PO 확인).
+
+    findTeamActionsByLeaderMemberId: 이 memberId가 팀장인 팀들의 TEAM 액션 전체 —
+    인수인계(E)의 퇴사자 팀 액션 고아경보(orphan-alert)용, 읽기 전용.
 */
 public interface ActionRepository {
+
+    Action save(Action action);
+
+    Optional<Action> findById(Long id);
+
+    List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions);
+
+    List<Action> findTeamActionsByLeaderMemberId(Long leaderMemberId);
 }
