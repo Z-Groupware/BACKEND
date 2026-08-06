@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -226,6 +227,12 @@ class ActionReviewServiceTest {
             lastCompanyId = companyId;
             lastReviewStatus = reviewStatus;
             return actions;
+        }
+
+        /* 아직 분배 확정하지 않은 회의다 — 검토 화면이 열려 있는 정상 상태다(RVW-05 전). */
+        @Override
+        public Optional<java.time.LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
+            return Optional.empty();
         }
     }
 }

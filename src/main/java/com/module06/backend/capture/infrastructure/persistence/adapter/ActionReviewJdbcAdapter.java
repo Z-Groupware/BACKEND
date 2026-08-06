@@ -2,6 +2,7 @@ package com.module06.backend.capture.infrastructure.persistence.adapter;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -134,7 +135,28 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                AND a.company_id = ?
             """;
 
+    /*
+     * 이 회의를 마지막으로 내보낸 시각(RVW-05).
+     *
+     * MAX 를 쓰는 이유 — 확정 뒤에 추가된 액션(RVW-03)은 아직 안 나가 NULL 이고, 두 번째
+     * 확정으로 나간 액션은 더 최근 시각을 갖는다. MIN 이면 화면이 "처음 내보낸 때"를 보여주는데,
+     * 사람이 알고 싶은 것은 지금 이 목록이 언제 기준인가다. MAX 는 NULL 을 무시한다.
+     */
+    private static final String DISPATCHED_AT_SQL = """
+            SELECT MAX(a.dispatched_at) AS dispatched_at
+              FROM action a
+             WHERE a.source_meeting_id = ?
+               AND a.company_id = ?
+            """;
+
     private final JdbcTemplate jdbcTemplate;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
+        return Optional.ofNullable(jdbcTemplate.queryForObject(
+                DISPATCHED_AT_SQL, LocalDateTime.class, meetingId, companyId));
+    }
 
     @Override
     @Transactional(readOnly = true)

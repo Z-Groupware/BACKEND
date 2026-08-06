@@ -19,6 +19,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
+import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase;
+import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase.ConfirmDistributionCommand;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
@@ -26,6 +28,7 @@ import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.presentation.api.request.ReviewDecisionRequest;
 import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
+import com.module06.backend.capture.presentation.api.response.DistributionConfirmResponse;
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
 import com.module06.backend.capture.presentation.api.response.ReviewDecisionResponse;
@@ -59,6 +62,7 @@ public class AnalysisController {
     private final GetSummaryUseCase getSummaryUseCase;
     private final GetActionReviewUseCase getActionReviewUseCase;
     private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
+    private final ConfirmDistributionUseCase confirmDistributionUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -156,6 +160,36 @@ public class AnalysisController {
                 "반영되었습니다.",
                 ReviewDecisionResponse.from(applyReviewDecisionUseCase.apply(
                         request.toCommand(me.getCompanyId(), meetingId, actionId, me.getMemberId()))));
+    }
+
+    /*
+     * RVW-05 · 액션 분배 확정.
+     *
+     * **파이프라인의 마지막 사람 손이다.** 이 호출 전까지 액션은 만들어져 있어도 아무 데도 가
+     * 있지 않고, 이 호출 뒤에 각자의 보드에 카드가 생긴다 — 그때부터는 C(액션·보드) 소관이다.
+     *
+     * 회의 담당자만 부를 수 있다(403). 검토는 참석자 누구나 하되 **마지막 버튼은 한 사람**이다 —
+     * 분배는 되돌릴 수 없기 때문이다. 그 판정은 서비스가 한다(역할이 아니라 그 회의의 host 다).
+     */
+    @Operation(
+            summary = "액션 분배 확정 (RVW-05)",
+            description = "검토를 끝내고 액션을 담당자 보드로 내보낸다. 확인되지 않은 STT 구간이나 "
+                    + "미검토 액션이 남아 있으면 409 이며 confirm=true 로만 강행한다. "
+                    + "강행해도 미검토·반려·담당자 미정 액션은 나가지 않고 skipped 로 돌아온다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/review/confirm")
+    public ApiResponse<DistributionConfirmResponse> confirmDistribution(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Parameter(description = "true 면 미검토·미확인 구멍이 남아 있어도 강행한다")
+            @RequestParam(defaultValue = "false") boolean confirm
+    ) {
+        return ApiResponse.success(
+                "분배가 확정되었습니다.",
+                DistributionConfirmResponse.from(confirmDistributionUseCase.confirm(
+                        new ConfirmDistributionCommand(
+                                me.getCompanyId(), meetingId, me.getMemberId(), confirm))));
     }
 
     /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */

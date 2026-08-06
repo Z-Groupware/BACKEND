@@ -85,7 +85,24 @@ public enum CaptureErrorCode implements ErrorCode {
      * 화면과 DB 가 갈린다. 값을 고쳤다면 MODIFY 로 사유와 함께 보내야 한다.
      */
     REVIEW_CONFIRM_WITH_VALUE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_4",
-            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다.");
+            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다."),
+
+    /*
+     * RVW-05 — 확인되지 않은 STT 구간이나 미검토 액션이 남아 있다.
+     *
+     * **분배는 되돌리기 어렵다.** 액션이 사람들 보드에 꽂히고 나면 회수 경로가 없다(재분석
+     * 결과가 액션에 반영되지 않는 것과 같은 이유다). 그래서 구멍이 남은 채로는 막고,
+     * ?confirm=true 로만 강행하게 한다 — 강행 여부를 사람이 눈으로 보고 정하는 자리다.
+     */
+    REVIEW_CONFIRM_BLOCKED(HttpStatus.CONFLICT, "MEETING_409_5", "확인되지 않은 STT 구간이 남아 있습니다."),
+
+    /*
+     * RVW-05 — 회의 담당자가 아니다.
+     *
+     * 403 이다. 다른 회사 회의는 404 로 존재를 숨기지만(MEETING_NOT_ACCESSIBLE), 이건 같은
+     * 회사 안에서 **권한**이 갈리는 자리다 — 회의가 있다는 사실은 이미 검토 화면으로 보고 있다.
+     */
+    REVIEW_CONFIRM_HOST_ONLY(HttpStatus.FORBIDDEN, "MEETING_403_1", "회의 담당자만 요청할 수 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
