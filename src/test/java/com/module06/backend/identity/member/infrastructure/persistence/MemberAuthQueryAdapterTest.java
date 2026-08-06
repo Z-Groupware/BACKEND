@@ -84,10 +84,12 @@ class MemberAuthQueryAdapterTest {
 
     private void insertMember(Long id, Long companyId, Long teamId, String email, String passwordHash,
                               String role, boolean isAdmin, String status, String deletedAt) {
+        /* role_id 는 NOT NULL 이다(V2.3.10) — 시드 행 "없음"(id 2)을 그대로 흉내 낸다. */
+        em.createNativeQuery("MERGE INTO role (id, name) KEY(id) VALUES (2, '없음')").executeUpdate();
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, team_id, email, password_hash, name, authority, is_admin, status, deleted_at)
-                        VALUES (?, ?, ?, ?, ?, '테스트', ?, ?, ?, ?)
+                          (id, company_id, team_id, role_id, email, password_hash, name, authority, is_admin, status, deleted_at)
+                        VALUES (?, ?, ?, 2, ?, ?, '테스트', ?, ?, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, companyId).setParameter(3, teamId)
                 .setParameter(4, email).setParameter(5, passwordHash).setParameter(6, role)

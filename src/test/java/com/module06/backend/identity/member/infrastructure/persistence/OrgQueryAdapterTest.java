@@ -207,11 +207,13 @@ class OrgQueryAdapterTest {
 
     private void insertMember(Long id, Long companyId, Long teamId, Long positionId,
                              String name, String status, String deletedAt) {
+        /* role_id 는 NOT NULL 이다(V2.3.10) — 시드 행 "없음"(id 2)을 그대로 흉내 낸다. */
+        em.createNativeQuery("MERGE INTO role (id, name) KEY(id) VALUES (2, '없음')").executeUpdate();
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, team_id, position_id, email, password_hash,
+                          (id, company_id, team_id, role_id, position_id, email, password_hash,
                            name, authority, is_admin, status, deleted_at)
-                        VALUES (?, ?, ?, ?, ?, 'hash', ?, 'MEMBER', FALSE, ?, ?)
+                        VALUES (?, ?, ?, 2, ?, ?, 'hash', ?, 'MEMBER', FALSE, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, companyId).setParameter(3, teamId)
                 .setParameter(4, positionId).setParameter(5, "m" + id + "@x.co.kr")
