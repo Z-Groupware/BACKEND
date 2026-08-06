@@ -200,7 +200,7 @@ class MemberStatusAdapterTest {
                 .setParameter(1, id).setParameter(2, "C" + id).executeUpdate();
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, email, password_hash, name, role, is_admin, status, deleted_at)
+                          (id, company_id, email, password_hash, name, authority, is_admin, status, deleted_at)
                         VALUES (?, ?, ?, 'hash', '테스트', 'MEMBER', FALSE, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, id).setParameter(3, "m" + id + "@x.co.kr")

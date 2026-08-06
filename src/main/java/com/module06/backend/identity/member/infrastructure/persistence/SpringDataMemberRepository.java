@@ -15,7 +15,7 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
      * 벗어난 뒤 연관에 손대면 지연 로딩 예외가 나고, 하나씩 읽으면 회원 한 명 조회에 쿼리가 다섯 번
      * 나간다. /me 는 모든 화면 진입에서 호출되므로 그 차이가 그대로 드러난다.
      */
-    @EntityGraph(attributePaths = {"company", "team", "subTeam", "jobPosition"})
+    @EntityGraph(attributePaths = {"company", "team", "role", "position"})
     Optional<MemberJpaEntity> findByIdAndDeletedAtIsNull(Long id);
 
     /**

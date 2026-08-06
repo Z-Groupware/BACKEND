@@ -198,23 +198,23 @@ class OrgQueryAdapterTest {
 
     /*
      * company_id 를 넣지 않는다. 테스트 스키마는 ddl-auto: create-drop 으로 엔티티에서 생성되고,
-     * JobPositionRefEntity 는 이 조회에 필요한 id·name 만 매핑한다 — 매핑하지 않은 컬럼은 H2 에 없다.
+     * PositionRefEntity 는 이 조회에 필요한 id·name 만 매핑한다 — 매핑하지 않은 컬럼은 H2 에 없다.
      */
     private void insertJobPosition(Long id, Long companyId, String name) {
-        em.createNativeQuery("INSERT INTO job_position (id, name) VALUES (?, ?)")
+        em.createNativeQuery("INSERT INTO position (id, name) VALUES (?, ?)")
                 .setParameter(1, id).setParameter(2, name).executeUpdate();
     }
 
-    private void insertMember(Long id, Long companyId, Long teamId, Long jobPositionId,
+    private void insertMember(Long id, Long companyId, Long teamId, Long positionId,
                              String name, String status, String deletedAt) {
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, team_id, job_position_id, email, password_hash,
-                           name, role, is_admin, status, deleted_at)
+                          (id, company_id, team_id, position_id, email, password_hash,
+                           name, authority, is_admin, status, deleted_at)
                         VALUES (?, ?, ?, ?, ?, 'hash', ?, 'MEMBER', FALSE, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, companyId).setParameter(3, teamId)
-                .setParameter(4, jobPositionId).setParameter(5, "m" + id + "@x.co.kr")
+                .setParameter(4, positionId).setParameter(5, "m" + id + "@x.co.kr")
                 .setParameter(6, name).setParameter(7, status).setParameter(8, deletedAt)
                 .executeUpdate();
         em.flush();

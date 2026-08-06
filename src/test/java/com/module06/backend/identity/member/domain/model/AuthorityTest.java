@@ -8,7 +8,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("Role")
+@DisplayName("Authority")
 class RoleTest {
 
     @ParameterizedTest
@@ -18,14 +18,14 @@ class RoleTest {
             "MEMBER, /my"
     })
     @DisplayName("역할별 착지 경로 — 명세 ROLE_LANDING 과 글자까지 같아야 프론트가 응답을 그대로 쓴다")
-    void mapsRoleToLandingPath(Role role, String expected) {
+    void mapsRoleToLandingPath(Authority role, String expected) {
         assertThat(role.landingPath()).isEqualTo(expected);
     }
 
     @ParameterizedTest
-    @EnumSource(Role.class)
+    @EnumSource(Authority.class)
     @DisplayName("모든 역할이 착지 경로를 가진다 — 역할을 추가하고 매핑을 잊으면 로그인 직후 갈 곳이 없다")
-    void everyRoleHasLandingPath(Role role) {
+    void everyRoleHasLandingPath(Authority role) {
         assertThat(role.landingPath()).startsWith("/");
     }
 }

@@ -95,7 +95,7 @@ public class OrgQueryAdapter implements OrgQueryPort {
 
     /** 온보딩 전 오너는 직급이 없다 — null 이 정상 경로다. */
     private String positionOf(MemberJpaEntity member) {
-        JobPositionRefEntity position = member.getJobPosition();
+        PositionRefEntity position = member.getPosition();
         return position == null ? null : position.getName();
     }
 }

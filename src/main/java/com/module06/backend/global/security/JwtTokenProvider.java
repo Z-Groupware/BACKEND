@@ -20,7 +20,7 @@ import io.jsonwebtoken.security.Keys;
 public class JwtTokenProvider {
 
     private static final String CLAIM_COMPANY_ID = "companyId";
-    private static final String CLAIM_ROLE = "role";
+    private static final String CLAIM_AUTHORITY = "authority";
     private static final String CLAIM_IS_ADMIN = "isAdmin";
     private static final String CLAIM_TEAM_ID = "teamId";
 
@@ -76,7 +76,7 @@ public class JwtTokenProvider {
                 .subject(String.valueOf(principal.memberId()))
                 .claim(CLAIM_TOKEN_TYPE, TYPE_ACCESS)
                 .claim(CLAIM_COMPANY_ID, principal.companyId())
-                .claim(CLAIM_ROLE, principal.role())
+                .claim(CLAIM_AUTHORITY, principal.authority())
                 .claim(CLAIM_IS_ADMIN, principal.isAdmin())
                 .claim(CLAIM_TEAM_ID, principal.teamId())
                 .issuedAt(Date.from(now))
@@ -107,15 +107,15 @@ public class JwtTokenProvider {
         requireType(claims, TYPE_ACCESS, AuthErrorCode.UNAUTHORIZED);
 
         Number companyId = claims.get(CLAIM_COMPANY_ID, Number.class);
-        String role = claims.get(CLAIM_ROLE, String.class);
-        if (companyId == null || role == null) {
+        String authority = claims.get(CLAIM_AUTHORITY, String.class);
+        if (companyId == null || authority == null) {
 
             throw new BusinessException(AuthErrorCode.UNAUTHORIZED);
         }
         return new AuthPrincipal(
                 memberId(claims, AuthErrorCode.UNAUTHORIZED),
                 companyId.longValue(),
-                role,
+                authority,
                 Boolean.TRUE.equals(claims.get(CLAIM_IS_ADMIN, Boolean.class)),
                 toNullableLong(claims.get(CLAIM_TEAM_ID, Number.class)));
     }

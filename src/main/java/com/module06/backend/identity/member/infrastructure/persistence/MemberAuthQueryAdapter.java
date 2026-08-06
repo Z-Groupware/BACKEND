@@ -31,7 +31,7 @@ public class MemberAuthQueryAdapter implements MemberAuthQueryPort {
                 member.getId(),
                 companyIdOf(member),
                 member.getPasswordHash(),
-                member.getRole(),
+                member.getAuthority(),
                 member.isAdmin(),
                 team == null ? null : team.getId(),
                 member.getDeletedAt() != null);

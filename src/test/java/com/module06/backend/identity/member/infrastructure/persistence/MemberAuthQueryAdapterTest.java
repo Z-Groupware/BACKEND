@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.identity.member.application.dto.MemberCredentials;
 import com.module06.backend.identity.member.application.port.out.MemberAuthQueryPort;
-import com.module06.backend.identity.member.domain.model.Role;
+import com.module06.backend.identity.member.domain.model.Authority;
 
 import jakarta.persistence.EntityManager;
 
@@ -37,7 +37,7 @@ class MemberAuthQueryAdapterTest {
         assertThat(found.memberId()).isEqualTo(103L);
         assertThat(found.companyId()).isEqualTo(101L);
         assertThat(found.passwordHash()).isEqualTo("$2a$10$hash");
-        assertThat(found.role()).isEqualTo(Role.LEADER);
+        assertThat(found.authority()).isEqualTo(Authority.LEADER);
         assertThat(found.isAdmin()).isTrue();
         assertThat(found.teamId()).isEqualTo(2L);
         assertThat(found.resigned()).isFalse();
@@ -86,7 +86,7 @@ class MemberAuthQueryAdapterTest {
                               String role, boolean isAdmin, String status, String deletedAt) {
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, team_id, email, password_hash, name, role, is_admin, status, deleted_at)
+                          (id, company_id, team_id, email, password_hash, name, authority, is_admin, status, deleted_at)
                         VALUES (?, ?, ?, ?, ?, '테스트', ?, ?, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, companyId).setParameter(3, teamId)

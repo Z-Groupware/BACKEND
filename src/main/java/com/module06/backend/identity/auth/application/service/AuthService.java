@@ -135,13 +135,13 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
         // 갱신표에 올리지 않으면 방금 발급한 토큰으로 재발급이 거부된다.
         refreshTokenStore.save(member.memberId(), jti, ttl);
 
-        return new LoginResult(accessToken, refreshToken, member.role().landingPath());
+        return new LoginResult(accessToken, refreshToken, member.authority().landingPath());
     }
 
     /** 로그인과 재발급이 같은 클레임을 실어야 한다 — 갈리면 재발급 뒤에 권한이 조용히 달라진다. */
     private AuthPrincipal principalOf(MemberCredentials member) {
         return new AuthPrincipal(member.memberId(), member.companyId(),
-                member.role().name(), member.isAdmin(), member.teamId());
+                member.authority().name(), member.isAdmin(), member.teamId());
     }
 
     /** 메일에서 복사하면 앞뒤 공백이 붙고 대소문자도 섞여 들어온다(API 01 과 같은 규칙). */

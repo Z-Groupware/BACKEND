@@ -28,8 +28,8 @@ public class MyProfileQueryAdapter implements MyProfileQueryPort {
     private MyProfile toProfile(MemberJpaEntity member) {
         CompanyJpaEntity company = member.getCompany();
         TeamRefEntity team = member.getTeam();
-        SubTeamRefEntity subTeam = member.getSubTeam();
-        JobPositionRefEntity position = member.getJobPosition();
+        RoleRefEntity role = member.getRole();
+        PositionRefEntity position = member.getPosition();
 
         return new MyProfile(
                 member.getId(),
@@ -43,11 +43,11 @@ public class MyProfileQueryAdapter implements MyProfileQueryPort {
 
                 team == null ? null : team.getId(),
                 team == null ? null : team.getName(),
-                subTeam == null ? null : subTeam.getName(),
+                role == null ? null : role.getName(),
                 position == null ? null : position.getId(),
                 position == null ? null : position.getName(),
 
-                member.getRole(),
+                member.getAuthority(),
                 member.isAdmin(),
                 company.getOnboardedAt() != null,
 

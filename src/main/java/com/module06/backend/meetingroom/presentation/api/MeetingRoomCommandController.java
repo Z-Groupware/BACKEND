@@ -93,7 +93,7 @@ public class MeetingRoomCommandController {
     ) {
         /* 인증 토큰의 회사·역할과 Path·본문을 결합해 ROOM-04 유스케이스를 실행한다. */
         MeetingRoomUpdateResult result = updateMeetingRoomUseCase.updateMeetingRoom(
-                request.toCommand(me.getCompanyId(), me.getRole(), meetingRoomId)
+                request.toCommand(me.getCompanyId(), me.getAuthority(), meetingRoomId)
         );
 
         /* 수정된 전체 회의실 상태를 명세의 200 OK 공통 응답으로 반환한다. */
@@ -119,7 +119,7 @@ public class MeetingRoomCommandController {
         /* 인증 토큰의 회사·역할과 Path 식별자를 결합해 ROOM-05 유스케이스를 실행한다. */
         deactivateMeetingRoomUseCase.deactivateMeetingRoom(new DeactivateMeetingRoomCommand(
                 me.getCompanyId(),
-                me.getRole(),
+                me.getAuthority(),
                 meetingRoomId
         ));
 
