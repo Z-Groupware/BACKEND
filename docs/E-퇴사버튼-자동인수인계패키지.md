@@ -1,0 +1,39 @@
+# 퇴사버튼 · 자동 인수인계 패키지 (최적화 확정본)
+
+> 담당 박종준(PO) · 2026-08-03 확정 · 발표 차별점 데모의 핵심
+> **원칙: 이미 쌓인 데이터의 "조립"(읽기 뷰). 새 AI 생성·권한 모델링 없음.** 전부 실데이터라 데모에서 안 털림.
+
+## 트리거
+신청 폼에서 **오프보딩(또는 휴직) 생성 = handover 생성 순간**, 아래 패키지가 자동 조립되어 팀장에게 상신.
+차별점 서사: *"회의에서 방금 캡처된 액션들이 → 퇴사버튼 한 방에 → 출처 회의까지 붙은 인수인계서로 자동 조립 + 인수자별 자동 분류."*
+
+## 패키지 구성 (6블록, 전부 실데이터)
+
+| 블록 | 내용 | 데이터 출처 |
+| --- | --- | --- |
+| **1. 기본정보** | 이름·역할·소속팀·부재유형·시작일/최종근무일·복귀예정일 | member(B) 스냅샷 + handover(E) |
+| **2. 업무 공백 요약** | 인계 총건수·미완료수·마감임박(D-7)수 | handover_item 스냅샷 **파생**(deadline_snap) |
+| **3. 인수 대상 업무** | 업무명·상태·마감·프로젝트태그·출처회의명 | handover_item 스냅샷 |
+| **4. 업무별 맥락(재사용)** | 액션에 이미 붙은 **AI 정리 + 체크리스트** (새 생성 안 함) | action(C) content |
+| **5. 관련 회의 히스토리** | 출처회의 날짜·참석자·결정/액션 요약 | `MeetingQueryPort`(D) via source_meeting_id |
+| **6. 인수자별 묶음** | reassigneeId 그룹핑, 각 인수자에게 넘어간 업무 | handover_item(E) |
+
+**승인 흐름(기존 유지)**: 팀장 재분배→중간승인 → 오너·어드민 최종승인 → (오프보딩)soft delete.
+원안 §10 다자 체크리스트(인수자 수락·첫액션완료·권한승인)는 **컷** — 기존 2단계 승인만.
+
+## 잘라낸 것 (데이터 없음 = 데모 리스크)
+- **§6 결정/정책** — Decision 엔티티 설계 때 삭제됨. 구조화 데이터 0. **CUT**
+- **§7 권한/자원 이전** — 잇다는 시스템 권한/자원을 모델링 안 함(OnBoard 때 폐기). 100% 지어낸 것. **CUT**
+- **§3 추천 인수자·추천 이유** — 추천 엔진 없음. 재분배는 팀장 수동 DnD. **미채택**
+- **§4 새 AI 맥락 생성(주의예외·후임 할일)**, §2 승인대기·권한이전, §8 고객·비용 연결 — 해당 필드·상태 없음. **제외**
+
+## E 계약 delta (이 패키지 위해 추가)
+- `handover`: **`last_working_day`** (오프보딩 최종근무일) 추가
+- `handover_item` 스냅샷: **`deadline_snap`** + **`source_meeting_id`** + **`source_meeting_title_snap`** 추가
+- `ActionReassignPort.HandoverableAction`: `deadline`(기존) + **`sourceMeetingId`·`sourceMeetingTitle`** + 맥락용 **`content`(액션 AI 정리)** 추가
+- **`MeetingQueryPort`(신설, D/모성진)**: `findMeeting(meetingId)` → {date, attendees[], decisionSummary, actionItemsSummary} — §5용. 회의는 **불변 이력**이라 조회 시 라이브 read 허용(스냅샷 예외).
+- 패키지 자체는 **새 저장 아님, 읽기 조립 뷰**(상세/패키지 응답 DTO). §2·3·6은 이미 저장된 스냅샷에서 파생.
+
+## 남은 협의
+- **D(모성진)**: `MeetingQueryPort` — §5 회의 히스토리 조회 계약
+- **C(김민섭)**: `findHandoverableActions` 반환에 sourceMeeting·content 추가
