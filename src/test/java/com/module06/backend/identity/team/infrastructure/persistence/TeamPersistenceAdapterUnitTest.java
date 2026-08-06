@@ -39,7 +39,8 @@ class TeamPersistenceAdapterUnitTest {
     @DisplayName("수정 시 이름 유일성 제약 위반을 AU-016으로 변환한다")
     void translatesNameConstraintViolationOnRename() {
         SpringDataTeamRepository repository = mock(SpringDataTeamRepository.class);
-        when(repository.findById(1L)).thenReturn(java.util.Optional.empty());
+        when(repository.findById(1L))
+                .thenReturn(java.util.Optional.of(TeamJpaEntity.create(1L, null, "본부")));
         doThrow(new DataIntegrityViolationException(
                 "Duplicate entry for key 'UK_TEAM_COMPANY_PARENT_NAME'"
         )).when(repository).flush();
@@ -49,6 +50,19 @@ class TeamPersistenceAdapterUnitTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
                 .isEqualTo("AU-016");
+    }
+
+    @Test
+    @DisplayName("수정 대상이 없으면(동시 삭제 등) AU-014로 실패한다")
+    void throwsNotFoundWhenRenameTargetIsGone() {
+        SpringDataTeamRepository repository = mock(SpringDataTeamRepository.class);
+        when(repository.findById(1L)).thenReturn(java.util.Optional.empty());
+        TeamPersistenceAdapter adapter = new TeamPersistenceAdapter(repository);
+
+        assertThatThrownBy(() -> adapter.rename(1L, "본부"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo("AU-014");
     }
 
     @Test

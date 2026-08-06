@@ -56,7 +56,11 @@ public class TeamPersistenceAdapter implements TeamRepository {
     @Override
     @Transactional
     public void rename(Long id, String name) {
-        repository.findById(id).ifPresent(entity -> entity.rename(name));
+        /* 서비스가 이미 존재를 확인했더라도, 그 확인과 이 갱신 사이에 동시 삭제가 끼어들면
+         * 대상이 없어질 수 있다 — 조용히 넘기지 않고 명시적으로 실패시킨다. */
+        TeamJpaEntity entity = repository.findById(id)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
+        entity.rename(name);
         try {
             /* 커밋까지 기다리지 않고 이 메서드 경계에서 유일성 제약 위반을 확인한다. */
             repository.flush();
