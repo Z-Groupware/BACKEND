@@ -23,7 +23,8 @@ public enum CapErrorCode implements ErrorCode {
     CAP_NOT_CURRENT_RECORDER(HttpStatus.FORBIDDEN, "CAP-004", "현재 녹음자가 아닙니다."),
     CAP_NOT_ATTENDEE(HttpStatus.FORBIDDEN, "CAP-010", "회의 참석자가 아닙니다."),
 
-    CAP_PART_ALREADY_REGISTERED(HttpStatus.CONFLICT, "CAP-005", "이미 등록된 청크입니다.");
+    CAP_PART_ALREADY_REGISTERED(HttpStatus.CONFLICT, "CAP-005", "이미 등록된 청크입니다."),
+    CAP_ASSEMBLY_INCOMPLETE(HttpStatus.CONFLICT, "CAP-012", "녹음 파일 조립에 실패했습니다. 일부 구간이 누락되었습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
