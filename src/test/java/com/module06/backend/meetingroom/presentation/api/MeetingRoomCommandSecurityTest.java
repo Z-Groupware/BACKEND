@@ -1,6 +1,7 @@
 package com.module06.backend.meetingroom.presentation.api;
 
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,12 +18,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.module06.backend.meetingroom.application.usecase.CreateMeetingRoomUseCase;
+import com.module06.backend.meetingroom.application.usecase.DeactivateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.application.usecase.UpdateMeetingRoomUseCase;
 
 /*
- * ROOM-03·04 익명 요청과 ROOM-04 역할 위반이 유스케이스 호출 전에 차단되는지 검증한다.
+ * ROOM-03~05 익명 요청과 ROOM-04·05 역할 위반이 유스케이스 호출 전에 차단되는지 검증한다.
  */
-@DisplayName("ROOM-03·04 회의실 명령 보안")
+@DisplayName("ROOM-03~05 회의실 명령 보안")
 @SpringBootTest
 @AutoConfigureMockMvc
 class MeetingRoomCommandSecurityTest {
@@ -38,6 +40,10 @@ class MeetingRoomCommandSecurityTest {
     /* ROOM-04 인증·역할 실패에서 수정 유스케이스가 호출되지 않는지 확인하는 대역이다. */
     @MockitoBean
     private UpdateMeetingRoomUseCase updateMeetingRoomUseCase;
+
+    /* ROOM-05 인증·역할 실패에서 비활성화 유스케이스가 호출되지 않는지 확인하는 대역이다. */
+    @MockitoBean
+    private DeactivateMeetingRoomUseCase deactivateMeetingRoomUseCase;
 
     /* Access Token 없는 등록 요청이 500이 아니라 공통 401 응답인지 검증한다. */
     @Test
@@ -99,5 +105,32 @@ class MeetingRoomCommandSecurityTest {
 
         /* @PreAuthorize에서 거절된 요청은 ROOM-04 유스케이스에 도달하면 안 된다. */
         verifyNoInteractions(updateMeetingRoomUseCase);
+    }
+
+    /* Access Token 없는 ROOM-05 요청이 기본 잠금으로 401인지 검증한다. */
+    @Test
+    @DisplayName("익명 DELETE 요청을 AU-006과 401로 거절한다")
+    void rejectsAnonymousDeactivateRequest() throws Exception {
+        /* 인증 헤더 없이 2번 회의실 비활성화 요청을 전송한다. */
+        mockMvc.perform(delete("/api/v1/meeting-rooms/2"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AU-006"));
+
+        /* 기본 인증 단계에서 거절된 요청은 ROOM-05 유스케이스에 도달하면 안 된다. */
+        verifyNoInteractions(deactivateMeetingRoomUseCase);
+    }
+
+    /* 로그인했지만 관리 역할이 아닌 사용자가 ROOM-05를 호출할 수 없는지 검증한다. */
+    @Test
+    @WithMockUser(roles = "LEADER")
+    @DisplayName("LEADER의 DELETE 요청을 MR-004와 403으로 거절한다")
+    void rejectsLeaderDeactivateRequest() throws Exception {
+        /* LEADER 인증으로 2번 회의실 비활성화 요청을 전송한다. */
+        mockMvc.perform(delete("/api/v1/meeting-rooms/2"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("MR-004"));
+
+        /* @PreAuthorize에서 거절된 요청은 ROOM-05 유스케이스에 도달하면 안 된다. */
+        verifyNoInteractions(deactivateMeetingRoomUseCase);
     }
 }

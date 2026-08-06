@@ -14,7 +14,7 @@ import com.module06.backend.global.exception.ErrorResponse;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 
 /*
- * 메서드 보안에서 거절된 회의실 관리 요청을 ROOM-04 명세의 오류 응답으로 변환한다.
+ * 메서드 보안에서 거절된 회의실 관리 요청을 ROOM-04·05 명세의 오류 응답으로 변환한다.
  * 공통 예외 처리기가 AuthorizationDeniedException을 500으로 처리하지 않도록 회의실 API에만 우선 적용한다.
  */
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -24,7 +24,7 @@ public class MeetingRoomSecurityExceptionHandler {
     /* 추적 ID를 ErrorResponse에 동일하게 전달하기 위한 MDC 키다. */
     private static final String TRACE_ID_MDC_KEY = "traceId";
 
-    /* OWNER 또는 ADMIN이 아닌 사용자의 회의실 수정 요청을 MR-004로 응답한다. */
+    /* OWNER 또는 ADMIN이 아닌 사용자의 회의실 수정·비활성화 요청을 MR-004로 응답한다. */
     @ExceptionHandler(AuthorizationDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAuthorizationDenied(
             AuthorizationDeniedException exception,

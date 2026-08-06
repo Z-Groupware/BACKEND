@@ -12,6 +12,7 @@ import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.meetingroom.application.command.UpdateMeetingRoomCommand;
 import com.module06.backend.meetingroom.application.result.MeetingRoomUpdateResult;
 import com.module06.backend.meetingroom.application.usecase.CreateMeetingRoomUseCase;
+import com.module06.backend.meetingroom.application.usecase.DeactivateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.application.usecase.UpdateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.presentation.api.request.UpdateMeetingRoomRequest;
 import com.module06.backend.meetingroom.presentation.api.response.UpdateMeetingRoomResponse;
@@ -25,6 +26,11 @@ class MeetingRoomUpdateControllerTest {
     /* ROOM-04 테스트에서 호출되면 실패하는 ROOM-03 등록 유스케이스 대역이다. */
     private static final CreateMeetingRoomUseCase UNUSED_CREATE_USE_CASE = command -> {
         throw new AssertionError("ROOM-04 수정에서는 등록 유스케이스를 호출하면 안 됩니다.");
+    };
+
+    /* ROOM-04 테스트에서 호출되면 실패하는 ROOM-05 비활성화 유스케이스 대역이다. */
+    private static final DeactivateMeetingRoomUseCase UNUSED_DEACTIVATE_USE_CASE = command -> {
+        throw new AssertionError("ROOM-04 수정에서는 비활성화 유스케이스를 호출하면 안 됩니다.");
     };
 
     /* 인증 principal과 부분 본문이 수정 명령이 되고 전체 상태 응답으로 변환되는지 검증한다. */
@@ -48,7 +54,8 @@ class MeetingRoomUpdateControllerTest {
         };
         MeetingRoomCommandController controller = new MeetingRoomCommandController(
                 UNUSED_CREATE_USE_CASE,
-                updateUseCase
+                updateUseCase,
+                UNUSED_DEACTIVATE_USE_CASE
         );
 
         /* 토큰 principal과 수용 인원·종료 시각만 전달한 PATCH 요청을 준비한다. */
