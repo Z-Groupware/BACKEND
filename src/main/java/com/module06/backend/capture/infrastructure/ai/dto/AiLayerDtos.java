@@ -236,6 +236,65 @@ public final class AiLayerDtos {
     ) {
     }
 
+    // ── AI-07 · L5 관점 다변화 검증 ─────────────────────────────────────────────
+
+    /*
+     * tuple **하나**를 검증한다. 문맥을 통째로 다시 싣는 이유는 Python 이 내부에서 L4 를
+     * 한 번 더(view=EXTRACT_NARROW) 돌리기 때문이다 — 그 재추출에 items·utterances·
+     * participants·meetingDate 가 그대로 필요하다.
+     *
+     * ⚠ view 를 보내지 않는다. L4 요청과 달리 이 계약에는 그 필드가 없다(관점을 고르는 것은
+     * Python 안의 일이다). CamelModel 이 extra="forbid" 라 모르는 필드를 실으면 422 다.
+     *
+     * items 는 L4 에 넘긴 것과 **같은 ConfirmedItemDto** 를 쓴다. Python 쪽도 같은 TopicItem
+     * 모델이라 gateStatus 가 Literal["CONFIRMED"] 로 강제되고, 검증 재추출이 게이트를 지나지
+     * 않은 항목을 보는 경로가 여기서도 막힌다.
+     */
+    public record VerifyRequestDto(
+            Long tenantId,
+            Long meetingId,
+            String topic,
+            AssignmentTupleDto tuple,
+            List<ConfirmedItemDto> items,
+            List<UtteranceDto> utterances,
+            List<ParticipantDto> participants,
+            String meetingDate,
+            String queryText
+    ) {
+    }
+
+    /*
+     * 관점 하나의 결과. **관점마다 채워지는 필드가 다르다** —
+     *   EXTRACT_NARROW  tuple (재현되지 않았으면 null)
+     *   VERIFY          verdict · reason
+     * error 는 그 관점이 실패했다는 뜻이고, 둘 다 실패하면 Python 이 계층 오류로 던진다.
+     */
+    public record ViewResultDto(
+            String view,
+            AssignmentTupleDto tuple,
+            String verdict,
+            String reason,
+            String error
+    ) {
+    }
+
+    /*
+     * agree 는 두 관점이 같은 말을 했는가다. 필드가 갈린 목록이 disagreementFields 이고,
+     * agree=true 면 비어 있다.
+     *
+     * results 는 관점별 원시 결과다. 우리가 저장하는 것은 VERIFY 쪽 verdict·reason 뿐이지만
+     * 전부 받아 둔다 — 실패 원인이 '불일치'인지 '한쪽이 죽음'인지는 여기서만 구분된다.
+     */
+    public record VerifyResponseDto(
+            Boolean agree,
+            List<String> disagreementFields,
+            List<ViewResultDto> results,
+            UsageDto usage,
+            String model,
+            String promptVersion
+    ) {
+    }
+
     // ── 오류 응답 ───────────────────────────────────────────────────────────────
 
     /*

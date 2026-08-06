@@ -1,6 +1,8 @@
 package com.module06.backend.capture.infrastructure.persistence.entity;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -16,6 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import com.module06.backend.capture.domain.model.AssigneeSource;
+import com.module06.backend.capture.domain.model.VerifyVerdict;
 
 /*
  * meeting_assignment_tuple(V5.12) 매핑이다.
@@ -90,6 +93,39 @@ public class MeetingAssignmentTupleJpaEntity {
     @Column(name = "sort_order", nullable = false)
     private Integer sortOrder;
 
+    /*
+     * ── L5 관점 다변화 검증 결과 (V5.13) ────────────────────────────────────────
+     *
+     * 전부 nullable 이고, NULL 이 "L5 가 이 행을 아직 보지 않았다"는 뜻이다. 저장 시점
+     * (L4)에는 항상 NULL 이고 {@link #applyVerification} 만 채운다 — of() 로 채우면
+     * 검증받지 않은 tuple 이 검증된 것으로 저장되는 경로가 생긴다(gate_status 와 같은 짝).
+     *
+     * verifyAgree 를 Boolean(래퍼)으로 둔다. boolean 이면 미검증이 false 와 같아지고,
+     * "검증에서 걸린 것"과 "검증을 안 한 것"이 한 값으로 뭉친다.
+     */
+    @Column(name = "verify_agree")
+    private Boolean verifyAgree;
+
+    @Column(name = "verify_disagreement_fields", length = 200)
+    private String verifyDisagreementFields;
+
+    /* assignee_source 와 같은 매핑이다 — DB ENUM + @Enumerated(STRING), length 없음. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "verify_verdict")
+    private VerifyVerdict verifyVerdict;
+
+    @Column(name = "verify_reason", length = 500)
+    private String verifyReason;
+
+    @Column(name = "verify_model_name", length = 60)
+    private String verifyModelName;
+
+    @Column(name = "verify_prompt_version", length = 20)
+    private String verifyPromptVersion;
+
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
+
     public static MeetingAssignmentTupleJpaEntity of(long companyId, long meetingId, Long meetingDecisionId,
                                                      int topicSeq, String topic, String title,
                                                      Long assigneeCandidateMemberId, AssigneeSource assigneeSource,
@@ -110,6 +146,38 @@ public class MeetingAssignmentTupleJpaEntity {
         entity.promptVersion = clip(promptVersion, 20);
         entity.sortOrder = sortOrder;
         return entity;
+    }
+
+    /*
+     * L5 판정을 적는다. **덮어쓰기다** — 재검증은 이전 판정을 남길 이유가 없다.
+     *
+     * verifiedAt 을 함께 찍는 이유: agree=false 인 행이 "방금 검증에서 걸린 것"인지 "예전
+     * 판정이 그대로 남은 것"인지 구분해야 한다. tuple 은 재실행마다 통째로 갈리지만(replace),
+     * L4 만 재실행하는 경로가 ANLZ-02 로 붙으면 두 시점이 갈린다.
+     *
+     * disagreementFields 는 쉼표로 이어 붙인다. 이 조립을 어댑터가 아니라 엔티티가 하는
+     * 이유는 컬럼 길이(200)를 아는 곳이 여기이기 때문이다.
+     */
+    public void applyVerification(boolean agree, List<String> disagreementFields, VerifyVerdict verdict,
+                                  String reason, String modelName, String promptVersion) {
+        this.verifyAgree = agree;
+        this.verifyDisagreementFields = clip(joinFields(disagreementFields), 200);
+        this.verifyVerdict = verdict;
+        this.verifyReason = clip(reason, 500);
+        this.verifyModelName = clip(modelName, 60);
+        this.verifyPromptVersion = clip(promptVersion, 20);
+        this.verifiedAt = LocalDateTime.now();
+    }
+
+    /*
+     * 빈 목록은 NULL 로 둔다. 빈 문자열로 두면 "갈린 필드가 없다"와 구분되지 않는데,
+     * 정확히는 같은 뜻이므로 값을 하나로 모은다 — 두 표현이 섞이면 조회 조건이 둘로 갈린다.
+     */
+    private static String joinFields(List<String> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return null;
+        }
+        return String.join(",", fields);
     }
 
     /*

@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.port.out;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.module06.backend.capture.domain.model.AssignmentTuple;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.ItemType;
 import com.module06.backend.capture.domain.model.Utterance;
@@ -96,6 +97,39 @@ public interface AiLayerPort {
             long tenantId,
             long meetingId,
             String topic,
+            List<ConfirmedItem> items,
+            List<Utterance> utterances,
+            List<Participant> participants,
+            LocalDate meetingDate
+    );
+
+    /*
+     * AI-07 · L5 관점 다변화 검증. **tuple 마다 한 번** 부른다.
+     *
+     * 주제별이 아니라 tuple 별인 이유: 검증 대상이 tuple 하나이고, 판정 결과도 그 행에 적힌다.
+     * 주제 단위로 묶어 부르면 응답의 판정을 어느 tuple 에 적용할지 다시 맞춰야 하는데,
+     * 그 맞추기가 틀리면 A 배정의 검증 결과가 B 배정에 저장된다(L3.5 를 L3 저장 후에
+     * 부르는 것과 같은 이유다).
+     *
+     * <h2>두 관점을 여기서 합치지 않는다</h2>
+     * Python 이 EXTRACT_NARROW(앞뒤 3발화만 보고 다시 뽑기)와 VERIFY("이 tuple 이 맞나?")를
+     * 내부에서 병렬로 돌리고 조합까지 끝내서 준다. Spring 이 각각 호출해 결과를 모으면
+     * 인스턴스 간 왕복이 두 번이 되고, 더 나쁘게는 조합 규칙("한쪽만 실패하면 안전한 쪽으로")이
+     * Spring 과 Python 두 곳에 생겨 한쪽만 고쳐지는 상태가 만들어진다.
+     *
+     * 두 관점이 **모두** 실패하면 계층 실패로 던져진다 — 검증이 아예 수행되지 않은 것을
+     * agree=false 로 돌려주면 "관점이 갈렸다"로 기록돼 검증이 돈 것처럼 보인다.
+     *
+     * @param tuple 검증 대상. L4 가 뽑아 이미 저장된 행의 내용이다.
+     * @param items 좁은 시야 재추출에 쓸 확정 항목. L4 에 넘긴 것과 같은 집합이어야 한다 —
+     *              다르면 두 관점이 서로 다른 입력을 본 것이라 불일치가 관점 차이인지
+     *              입력 차이인지 구분되지 않는다.
+     */
+    VerifyTupleResult verifyTuple(
+            long tenantId,
+            long meetingId,
+            String topic,
+            AssignmentTuple tuple,
             List<ConfirmedItem> items,
             List<Utterance> utterances,
             List<Participant> participants,
