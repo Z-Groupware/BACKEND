@@ -19,10 +19,17 @@ import lombok.NoArgsConstructor;
     meetingroom 도메인에 이미 동명 엔티티(meetingroom.infrastructure.persistence.entity.
     MeetingReferenceEntity)가 있어 Hibernate 엔티티명 충돌 방지 위해 Action 접두어로 구분.
 
+    teamId·relatedActionId는 AI 분배(ActionDistributionPort)가 쓴다. 분배 계약이 이 두 값을
+    주지 않기 때문에 C가 회의에서 유도해야 한다 — TEAM 액션의 대상 팀은 meeting.team_id,
+    PERSONAL 액션의 상위 팀 액션은 meeting.related_action_id(V3.1.1)다(결정로그 25번).
+    둘 다 NULL 가능하다: team_id는 OWNER 개설 회의면 없고, related_action_id는 프로젝트
+    회의(팀 액션을 만들어내는 쪽)면 없다.
+
     연결된 클래스
     - ActionJpaEntity                  : source_meeting_id 조인의 반대편
     - SpringDataActionRepository       : findHandoverablePersonalActions에서 조인
-    - ActionMeetingReferenceRepository : ActionReassignAdapter의 배치조회
+    - ActionMeetingReferenceRepository : ActionReassignAdapter의 배치조회,
+                                         ActionDistributionService의 teamId·상위액션 배치조회
 */
 @Entity
 @Table(name = "meeting")
@@ -40,4 +47,12 @@ public class ActionMeetingReferenceEntity {
 
     @Column(name = "title")
     private String title;
+
+    // OWNER 개설 회의는 NULL — 그 회의에서 TEAM 액션을 만들려 하면 대상 팀을 특정할 수 없다.
+    @Column(name = "team_id")
+    private Long teamId;
+
+    // 이 회의가 다루는 상위 팀 액션(V3.1.1). 프로젝트 회의(팀 액션을 낳는 쪽)는 NULL.
+    @Column(name = "related_action_id")
+    private Long relatedActionId;
 }

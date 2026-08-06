@@ -1,5 +1,7 @@
 package com.module06.backend.action.infrastructure.persistence;
 
+import java.time.LocalDate;
+
 import org.hibernate.annotations.Immutable;
 
 import com.module06.backend.project.domain.model.ProjectStatus;
@@ -20,14 +22,16 @@ import lombok.NoArgsConstructor;
     위한 참조 엔티티. 같은 C 도메인 내부라 해도 애그리거트 경계를 넘는 직접 참조는 피하고
     참조 전용으로 둔다(project 쪽에서 MemberReferenceEntity·TeamReferenceEntity를 두는 것과 동일 원칙).
     쓰기 금지.
-    이번 슬라이스엔 status(완료된 프로젝트 제외 필터, 2026-08-06 종준 PO 확인)와 tag
-    (ActionReassignPort.HandoverableAction.projectTag 표시용)만 필요 — 첨부파일 등
-    나머지 표시 필드는 GetActionDetailUseCase 착수 시 추가.
+    지금 쓰는 필드는 status(완료된 프로젝트 제외 필터, 2026-08-06 종준 PO 확인), tag
+    (ActionReassignPort.HandoverableAction.projectTag 표시용), dueDate(AI가 기한을 비워
+    보낸 액션의 마감일 기본값 — 결정로그 25번, V2.6.4) 세 개다. 첨부파일 등 나머지 표시
+    필드는 GetActionDetailUseCase 착수 시 추가.
 
     연결된 클래스
     - ActionJpaEntity              : project_id 조인의 반대편
     - SpringDataActionRepository   : findHandoverablePersonalActions에서 조인
-    - SpringDataProjectReferenceRepository : ActionReassignAdapter의 projectTag 배치조회
+    - SpringDataProjectReferenceRepository : ActionReassignAdapter의 projectTag 배치조회,
+                                             ActionDistributionService의 마감일 기본값 배치조회
 */
 @Entity
 @Table(name = "project")
@@ -51,4 +55,8 @@ public class ProjectReferenceEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private ProjectStatus status;
+
+    // 액션 마감일의 원천. AI가 dueDate를 비워 보내면 이 값으로 채우고 due_date_defaulted=true로 남긴다.
+    @Column(name = "due_date")
+    private LocalDate dueDate;
 }
