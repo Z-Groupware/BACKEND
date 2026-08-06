@@ -50,31 +50,39 @@ public class SecurityConfig {
                         .authenticationEntryPoint(securityErrorResponder)
                         .accessDeniedHandler(securityErrorResponder))
                 .authorizeHttpRequests(auth -> auth
+                        // ── 공개: 로그인 전 화면 ──
+                        // 토큰을 받으러 오는 경로다. 여기에 인증을 걸면 아무도 로그인할 수 없다.
+                        // refresh 는 갱신표 자체가 신분증이라 액세스 토큰을 요구하지 않는다.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/companies/lookup",
                                 "/api/auth/login",
                                 "/api/auth/refresh").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
 
-                        // CAP 청크 업로드(presign/complete)
-                        .requestMatchers(HttpMethod.POST, "/api/meetings/*/parts/**").authenticated()
-                        // ── 캡처 파이프라인(도메인 A) ──
-                        // 체인이 anyRequest().permitAll() 로 끝나므로 여기 등록하지 않으면
-                        // @PreAuthorize 만으로는 익명 요청이 principal 없이 들어와
-                        // companyId 추출에서 NPE(500)가 난다. 인증 실패는 401 이어야 한다.
-                        .requestMatchers(HttpMethod.POST, "/api/meetings/*/analysis").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/processing-status").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/meetings/*/summary").authenticated()
+                        // ── 공개: 운영·문서 ──
+                        // health 는 배포·로드밸런서가 토큰 없이 부른다(show-details: never 라 내부 정보는 안 나간다).
+                        // API 문서는 스펙을 잠그면 Swagger UI 가 읽지 못해 화면 자체가 죽는다 —
+                        // 운영에서 감추려면 보안 규칙이 아니라 springdoc.api-docs.enabled=false 로 끈다.
+                        // /actuator/prometheus 는 일부러 열지 않는다. 스크래핑 주체가 아직 없어 막아도
+                        // 깨지지 않고, 엔드포인트 이름·호출 수·메모리가 그대로 나간다. 모니터링을 붙일 때
+                        // 네트워크 단(VPC·보안그룹)에서 열거나 토큰을 주는 편이 맞다.
+                        .requestMatchers(
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html").permitAll()
 
-                        // ROOM-03 회의실 등록은 principal의 companyId를 사용하므로 인자 해석 전에 익명 요청을 401로 차단한다.
-                        .requestMatchers(HttpMethod.POST, "/api/v1/meeting-rooms").authenticated()
-
-                        // CAP 진행 중 캡처 조회 — 토큰의 memberId로 참석 회의를 찾으므로 반드시 인증돼야 한다
-                        // (anyRequest가 permitAll이라 명시하지 않으면 principal이 null이 되어 NPE).
-                        .requestMatchers(HttpMethod.GET, "/api/captures/active").authenticated()
-
-                        .anyRequest().permitAll())
+                        // ── 기본 잠금 ──
+                        // 개별 등록을 지웠다. 전까지는 체인이 permitAll() 로 끝나서 담당자가 자기
+                        // 엔드포인트를 여기 적어야 익명 요청이 401 이 됐고(로그아웃·내 정보·CAP 청크·
+                        // 캡처 파이프라인 3개·ROOM-03), 그 목록은 API 가 늘수록 길어지기만 했다.
+                        // 지금은 기본이 잠김이라 전부 필요 없다.
+                        //
+                        // 방향이 뒤집힌 것이 핵심이다. 전에는 등록을 빼먹으면 그 API 가 조용히 열렸고,
+                        // 이제는 공개 예외를 빼먹으면 401 이 나서 바로 발견된다.
+                        // 역할·소유권 검사는 각 컨트롤러의 @PreAuthorize 와 서비스가 계속 맡는다 —
+                        // 이 줄은 "로그인했나" 까지만 본다.
+                        .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
