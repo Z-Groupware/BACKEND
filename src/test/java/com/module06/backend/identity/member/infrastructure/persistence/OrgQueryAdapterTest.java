@@ -181,6 +181,23 @@ class OrgQueryAdapterTest {
         assertThat(port.findTeamLeaderId(36L)).isNull();
     }
 
+    @Test
+    @DisplayName("팀 표시명을 준다 — 인수인계서 PDF 헤더 스냅샷용")
+    void findsTeamName() {
+        insertTeamWithLeader(37L, "디자인팀", null);
+
+        assertThat(port.findTeamName(37L)).isEqualTo("디자인팀");
+    }
+
+    @Test
+    @DisplayName("없는 팀은 TEAM_NOT_FOUND — 조용히 null 을 주면 스냅샷이 빈 채로 굳는다")
+    void unknownTeamNameIsRejected() {
+        assertThatThrownBy(() -> port.findTeamName(9997L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.TEAM_NOT_FOUND);
+    }
+
     // ── 픽스처 ──
 
     private void insertCompany(Long id) {
