@@ -131,7 +131,12 @@ class ActionReviewServiceTest {
                 actionId, assignee, assigneeName, AssigneeSource.EXPLICIT_CALL,
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 7), "제품 로드맵", false, "PENDING",
                 new ActionReviewQueryPort.Evidence(8812L, "박대표", "서준님이 정리해주세요.", 1_284_000),
-                new GateSignals(true, assignee != null, true, autoConfirmed),
+                /*
+                 * 신호 넷과 autoConfirmed 를 **따로 둔다.** 네 번째 신호는 viewsAgree 이고,
+                 * 그것을 autoConfirmed 에 묶으면 "신호 넷은 통과했는데 L6 모순 때문에 걸린 건"을
+                 * 이 픽스처로 만들 수 없다 — 게이트가 실제로 그 조합을 만든다.
+                 */
+                new GateSignals(true, assignee != null, true, true),
                 autoConfirmed);
     }
 

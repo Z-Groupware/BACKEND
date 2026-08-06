@@ -34,6 +34,12 @@ import com.module06.backend.capture.domain.model.GateSignals;
  *   member(화자)              L1 이 화자 판정을 포기했다 — 정상 동작이다
  * INNER 로 걸면 이 액션들이 검토 화면에서 통째로 사라진다. **검토에서 빠지는 것이 가장
  * 나쁜 실패다** — 사람이 볼 기회 자체가 없어진다.
+ *
+ * <h2>액션당 한 행인 것은 DB 가 보장한다</h2>
+ * tuple 조인이 액션을 여러 행으로 돌려주면 검토 화면이 같은 액션을 두 번 보여주고 검토
+ * 대상 건수도 두 번 센다. 그래서 action_id 에 UNIQUE 를 걸었다(V5.15) — 여기서 GROUP BY 나
+ * 상관 서브쿼리로 한 행을 골라내지 않는 이유다. 고르는 쪽으로 하면 어느 tuple 이 진짜인지를
+ * 조회가 추측하게 되는데, 그 상태 자체가 분배 버그이므로 INSERT 에서 막는 편이 맞다.
  */
 @Component
 @RequiredArgsConstructor
