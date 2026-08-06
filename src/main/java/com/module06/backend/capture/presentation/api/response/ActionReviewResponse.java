@@ -56,9 +56,25 @@ public record ActionReviewResponse(
             String title,
             String detail,
             LocalDate dueDate,
+            /*
+             * 이 기한이 **회의에서 나온 것이 아니라 프로젝트 마감일로 채운 것**인지.
+             *
+             * action.due_date 가 NOT NULL 이라 기한을 말하지 않은 액션도 날짜가 채워진다.
+             * 이 값이 없으면 화면에서 둘이 똑같은 날짜로 보이고, 사람은 "AI 가 이 날짜라고
+             * 판단했구나"로 읽는다 — 고쳐야 할 기한을 그냥 넘긴다. true 면 화면이
+             * "회의에서 정해지지 않음"을 함께 보여주면 된다.
+             */
+            boolean dueDateDefaulted,
             String topic,
             boolean isManual,
             String reviewStatus,
+            /*
+             * 왜 고쳤는지 · 왜 반려했는지(RVW-02). 판정 전이면 null 이다.
+             *
+             * reviewStatus 만 내려주면 화면에 "반려됨"만 뜨고 **다음 사람이 이유를 몰라 다시
+             * 물어봐야 한다.** 화면의 「반려됨 · 이미 있는 것과 중복」에서 뒷부분이 이 값이다.
+             */
+            String rejectReason,
             EvidenceResponse evidence,
             GateResponse gate
     ) {
@@ -71,9 +87,11 @@ public record ActionReviewResponse(
                     action.title(),
                     action.detail(),
                     action.dueDate(),
+                    action.dueDateDefaulted(),
                     action.topic(),
                     action.manual(),
                     action.reviewStatus(),
+                    action.rejectReason() != null ? action.rejectReason().name() : null,
                     EvidenceResponse.from(action),
                     GateResponse.from(action));
         }

@@ -3,6 +3,7 @@ package com.module06.backend.capture.infrastructure.persistence.adapter;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.GateSignals;
+import com.module06.backend.capture.domain.model.RejectReason;
 
 /*
  * RVW-01 검토 조회의 읽기 어댑터다.
@@ -53,6 +55,16 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
      * 정렬은 담당자 → 액션 id. 화면이 사람별로 묶어 보여주므로(actionsByPerson) 담당자가
      * 1차 키여야 그룹핑이 한 번에 끝난다. 담당자 미정(NULL)은 MySQL 오름차순에서 맨 앞으로
      * 오는데, 그건 "누구 것인지 모르는 액션"이라 먼저 보이는 편이 맞다.
+     *
+     * <h2>반려 사유는 review_log 의 마지막 행에서 온다</h2>
+     * action 에는 사유 컬럼이 없다 — 사유는 액션의 현재 상태가 아니라 **사람이 그때 내린
+     * 판단**이고, 라벨로 남아야 하는 값이다(V5.9). 마지막 행을 보는 이유는 사람이 판정을
+     * 두 번 할 수 있기 때문이다(반려했다가 다시 확인). 마지막이 CONFIRM 이면 사유가 NULL 이고,
+     * 그게 곧 "지금은 반려 상태가 아니다"라는 뜻이라 화면이 라벨을 지운다.
+     *
+     * 상관 서브쿼리를 쓰는 이유 — JOIN 하면 판정 이력이 여러 개인 액션이 여러 행으로 불어난다
+     * (tuple 조인과 같은 문제이고, 이쪽은 UNIQUE 로 막을 수 없다. 이력은 원래 여럿이다).
+     * IX_REVIEW_LOG_TARGET(target_type, target_id)이 이 조회를 받는다.
      */
     private static final String SQL = """
             SELECT a.id                          AS action_id,
@@ -62,9 +74,16 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                    a.title                       AS title,
                    a.description                 AS detail,
                    a.due_date                    AS due_date,
+                   a.due_date_defaulted          AS due_date_defaulted,
                    a.is_manual                   AS is_manual,
                    a.review_status               AS review_status,
                    a.evidence_transcript_id      AS evidence_transcript_id,
+                   (SELECT rl.reject_reason
+                      FROM review_log rl
+                     WHERE rl.target_type = 'ACTION'
+                       AND rl.target_id = a.id
+                     ORDER BY rl.id DESC
+                     LIMIT 1)                    AS reject_reason,
                    t.topic                       AS topic,
                    t.gate_auto_confirmed         AS gate_auto_confirmed,
                    t.gate_has_evidence           AS gate_has_evidence,
@@ -83,6 +102,36 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                AND a.company_id = ?
                AND (? IS NULL OR a.review_status = ?)
              ORDER BY a.assignee_member_id, a.id
+            """;
+
+    /*
+     * 판정 대상 하나(RVW-02). tuple 에서 AI 원본을 함께 읽는다.
+     *
+     * action 의 값과 tuple 의 값을 **둘 다** 읽는 것이 요점이다 — action 은 사람이 고친 뒤
+     * 덮여 있을 수 있어서 "AI 가 무엇을 냈는가"의 답이 아니다. 라벨은 그 둘의 차이다.
+     */
+    private static final String ONE_SQL = """
+            SELECT a.id                          AS action_id,
+                   a.assignee_member_id          AS assignee_member_id,
+                   a.due_date                    AS due_date,
+                   a.title                       AS title,
+                   a.is_manual                   AS is_manual,
+                   a.review_status               AS review_status,
+                   a.evidence_transcript_id      AS evidence_transcript_id,
+                   tc.content                    AS evidence_content,
+                   t.topic                       AS topic,
+                   t.title                       AS ai_title,
+                   t.assignee_candidate_member_id AS ai_assignee_member_id,
+                   t.assignee_source             AS ai_assignee_source,
+                   t.due_date                    AS ai_due_date,
+                   t.model_name                  AS ai_model_name,
+                   t.prompt_version              AS ai_prompt_version
+              FROM action a
+              LEFT JOIN meeting_assignment_tuple t ON t.action_id = a.id
+              LEFT JOIN transcript_chunk tc ON tc.id = a.evidence_transcript_id
+             WHERE a.id = ?
+               AND a.source_meeting_id = ?
+               AND a.company_id = ?
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -105,12 +154,78 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                 rs.getString("title"),
                 rs.getString("detail"),
                 rs.getObject("due_date", java.time.LocalDate.class),
+                rs.getBoolean("due_date_defaulted"),
                 rs.getString("topic"),
                 rs.getBoolean("is_manual"),
                 rs.getString("review_status"),
+                rejectReasonOf(rs),
                 evidenceOf(rs),
                 signalsOf(rs),
                 nullableBoolean(rs, "gate_auto_confirmed"));
+    }
+
+    /*
+     * 판정 대상 하나를 읽는다(RVW-02).
+     *
+     * 목록과 쿼리를 나눈 이유 — 여기서만 필요한 것이 있다. **AI 가 원래 낸 값**(tuple 의
+     * title·담당자·기한·모델·프롬프트 버전)은 라벨의 llm_output 이고 화면은 쓰지 않는다.
+     * 목록에 실으면 액션 수십 건마다 쓰이지 않는 컬럼 다섯이 따라다닌다.
+     *
+     * 회의를 조건에 함께 넣는다. actionId 만으로 찾으면 **다른 회의의 액션 id 를 넣어 남의
+     * 액션을 고칠 수 있다** — 관문(MeetingAccessGuard)은 회의까지만 본다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ReviewTarget> findOne(long companyId, long meetingId, long actionId) {
+        return jdbcTemplate.query(ONE_SQL,
+                rs -> {
+                    if (!rs.next()) {
+                        return Optional.<ReviewTarget>empty();
+                    }
+                    return Optional.of(toReviewTarget(rs));
+                },
+                actionId, meetingId, companyId);
+    }
+
+    private ReviewTarget toReviewTarget(ResultSet rs) throws SQLException {
+        return new ReviewTarget(
+                rs.getLong("action_id"),
+                nullableLong(rs, "assignee_member_id"),
+                rs.getObject("due_date", java.time.LocalDate.class),
+                rs.getString("title"),
+                rs.getBoolean("is_manual"),
+                rs.getString("review_status"),
+                nullableLong(rs, "evidence_transcript_id"),
+                rs.getString("evidence_content"),
+                rs.getString("topic"),
+                aiValueOf(rs));
+    }
+
+    /*
+     * AI 원본. tuple 이 없으면(수동 추가 액션 · RVW-03) null 이다.
+     *
+     * tuple 의 title 로 존재를 판정한다 — NOT NULL 컬럼이라 조인이 붙었을 때만 값이 있다.
+     * 빈 AiValue 를 만들면 "AI 가 빈 값을 냈다"로 읽히는데, 그건 AI 를 부른 적이 없는 것과
+     * 다른 상태다. 그 구분이 라벨의 is_manual 과 짝을 이룬다.
+     */
+    private AiValue aiValueOf(ResultSet rs) throws SQLException {
+        String aiTitle = rs.getString("ai_title");
+        if (aiTitle == null) {
+            return null;
+        }
+        return new AiValue(
+                aiTitle,
+                nullableLong(rs, "ai_assignee_member_id"),
+                AssigneeSource.fromNullable(rs.getString("ai_assignee_source")),
+                rs.getObject("ai_due_date", java.time.LocalDate.class),
+                rs.getString("ai_model_name"),
+                rs.getString("ai_prompt_version"));
+    }
+
+    /* 알 수 없는 값이 오면 던진다 — 사유 코드가 늘었는데 이쪽이 모르는 상태를 감추지 않는다. */
+    private RejectReason rejectReasonOf(ResultSet rs) throws SQLException {
+        String value = rs.getString("reject_reason");
+        return value == null ? null : RejectReason.valueOf(value);
     }
 
     /*

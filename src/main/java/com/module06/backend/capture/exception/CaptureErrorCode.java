@@ -40,7 +40,38 @@ public enum CaptureErrorCode implements ErrorCode {
      * 502 인 이유 — 우리 요청이 잘못된 것이 아니라 뒤에 있는 AI 서버가 응답하지 못한 것이다.
      * 500 으로 내리면 이 저장소의 버그와 구분되지 않고, 알람이 엉뚱한 사람에게 간다.
      */
-    ANALYSIS_LAYER_FAILED(HttpStatus.BAD_GATEWAY, "ANLZ-002", "분석 계층 호출에 실패했습니다.");
+    ANALYSIS_LAYER_FAILED(HttpStatus.BAD_GATEWAY, "ANLZ-002", "분석 계층 호출에 실패했습니다."),
+
+    /*
+     * RVW-02 — 그 회의의 액션이 아니다(없는 액션도 여기로 온다).
+     *
+     * MEETING_NOT_ACCESSIBLE 과 같은 이유로 404 다. 관문은 회의까지만 보므로, 회의는 내 것인데
+     * actionId 만 남의 것을 넣는 경로가 남는다 — 그 시도에 403 을 주면 "그 액션은 존재한다"가
+     * 새어 나가고 id 를 훑어 남의 회사 액션 개수를 셀 수 있다.
+     */
+    REVIEW_ACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "MEETING_404_2", "액션을 찾을 수 없습니다."),
+
+    /*
+     * RVW-02 — 수정·반려에 사유 코드가 없다(또는 CONFIRM 에 사유가 붙었다).
+     *
+     * 422 로 막는 이유 — 사유 없는 라벨은 **어느 계층을 고쳐야 할지 가리키지 못해 라벨로서
+     * 쓸모가 없다.** 그런 행이 섞이면 정확도 조사를 처음부터 다시 해야 하고, 지나간 회의는
+     * 다시 만들 수 없으므로 그 조사는 불가능하다. DB CHECK(CK_REVIEW_LOG_REASON)가 같은 규칙을
+     * 강제하지만, 여기서 먼저 막아야 사용자에게 이유가 보인다 — DB 까지 내려가면 500 이 된다.
+     *
+     * ⚠ UNPROCESSABLE_ENTITY 가 이 스프링 버전에서 deprecated 경고를 낸다. 대체 상수
+     * (UNPROCESSABLE_CONTENT)가 아직 없어 그대로 쓴다 — 명세가 요구하는 코드가 422 다.
+     */
+    REVIEW_REASON_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_3", "수정·반려에는 사유 코드가 필요합니다."),
+
+    /*
+     * RVW-02 — 참석자 명단에 없는 담당자로 고치려 했다.
+     *
+     * 사람이 고른 값이라 신뢰할 만해 보이지만, 드롭다운 밖의 id 를 직접 보내는 경로가 남아
+     * 있다. 명단 밖 담당자를 넣으면 그 액션은 회의에 참석하지 않은 사람의 보드로 가고,
+     * **그 값이 정답 라벨로 학습된다** — 틀린 배정을 AI 에게 가르치는 셈이다.
+     */
+    REVIEW_ASSIGNEE_NOT_IN_ROSTER(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_1", "참석자 명단에 없는 담당자입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
