@@ -14,6 +14,7 @@ import com.module06.backend.project.application.usecase.DeleteAttachmentUseCase;
 import com.module06.backend.project.application.usecase.IssueAttachmentUploadUrlUseCase;
 import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
+import com.module06.backend.project.domain.repository.ProjectRepository;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class ProjectAttachmentService implements
 
     private final ProjectAttachmentRepository projectAttachmentRepository;
     private final ProjectAttachmentStoragePort projectAttachmentStoragePort;
+    private final ProjectRepository projectRepository;
 
     @Override
     public IssuedUploadUrl issueUploadUrl(IssueAttachmentUploadUrlCommand command) {
@@ -48,6 +50,10 @@ public class ProjectAttachmentService implements
     @Override
     @Transactional
     public ProjectAttachment confirm(ConfirmAttachmentCommand command) {
+        if (!projectRepository.existsActiveByCompanyIdAndId(command.companyId(), command.projectId())) {
+            throw new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND);
+        }
+
         return projectAttachmentRepository.findByProjectIdAndFileUrl(command.projectId(), command.fileUrl())
                 .orElseGet(() -> {
                     ProjectAttachment attachment = ProjectAttachment.create(
