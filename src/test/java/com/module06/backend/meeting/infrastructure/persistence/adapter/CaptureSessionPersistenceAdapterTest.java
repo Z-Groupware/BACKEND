@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -188,7 +189,9 @@ class CaptureSessionPersistenceAdapterTest {
                 .satisfies(entity -> {
                     /* CAP-02는 시작 시각과 시간축을 바꾸지 않고 일시정지 값만 기록한다. */
                     assertThat(entity.getStatus().name()).isEqualTo("PAUSED");
-                    assertThat(entity.getPausedAt()).isEqualTo(paused.pausedAt());
+                    /* MySQL DATETIME(6)과 H2가 보존하는 마이크로초 정밀도에 맞춰 비교한다. */
+                    assertThat(entity.getPausedAt())
+                            .isEqualTo(paused.pausedAt().truncatedTo(ChronoUnit.MICROS));
                     assertThat(entity.getStartedAtEpochMs()).isEqualTo(started.startedAtEpochMs());
                     assertThat(entity.getEndedAt()).isNull();
                 });
