@@ -12,7 +12,7 @@ import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.port.out.MyProfileQueryPort;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.model.Role;
+import com.module06.backend.identity.member.domain.model.Authority;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,7 +53,7 @@ class MyProfileServiceTest {
                 3L, 1L, "(주)테크스타트", "8AS2-G8T1",
                 "이하윤", "hayun@zgroup.co.kr", "010-1000-0003",
                 2L, "개발팀", "프론트엔드", 4L, "선임",
-                Role.MEMBER, false, true,
+                Authority.MEMBER, false, true,
                 MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.FREE);
     }
 

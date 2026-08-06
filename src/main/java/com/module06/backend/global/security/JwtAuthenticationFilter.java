@@ -58,9 +58,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * authority 이름의 {@code ROLE_} 접두사는 그대로 둔다 — {@code hasRole()} 이 그 규약으로 찾는다.
+     * 우리 도메인의 이름만 authority 로 바꿨고 Spring Security 표기는 건드리지 않는다.
+     */
     private List<GrantedAuthority> authorities(AuthPrincipal principal) {
         List<GrantedAuthority> authorities = new ArrayList<>();
-        authorities.add(new SimpleGrantedAuthority("ROLE_" + principal.role()));
+        authorities.add(new SimpleGrantedAuthority("ROLE_" + principal.authority()));
         if (principal.isAdmin()) {
             authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }

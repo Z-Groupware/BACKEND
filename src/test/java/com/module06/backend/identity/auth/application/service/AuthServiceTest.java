@@ -20,7 +20,7 @@ import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.dto.MemberCredentials;
 import com.module06.backend.identity.member.application.port.out.MemberAuthQueryPort;
-import com.module06.backend.identity.member.domain.model.Role;
+import com.module06.backend.identity.member.domain.model.Authority;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,7 +45,7 @@ class AuthServiceTest {
     @DisplayName("로그인하면 토큰 두 개와 착지 경로를 준다")
     void issuesTokensAndLandingPath() {
         RecordingStore store = new RecordingStore();
-        AuthService service = service(member(Role.LEADER, false), store);
+        AuthService service = service(member(Authority.LEADER, false), store);
 
         LoginResult result = service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
 
@@ -57,14 +57,14 @@ class AuthServiceTest {
     @Test
     @DisplayName("액세스 토큰에 역할·어드민 겸직·팀이 실린다 — 필터가 이 값으로 권한을 심는다")
     void accessTokenCarriesClaims() {
-        AuthService service = service(member(Role.MEMBER, true), new RecordingStore());
+        AuthService service = service(member(Authority.MEMBER, true), new RecordingStore());
 
         LoginResult result = service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
         AuthPrincipal principal = tokenProvider.parseAccessToken(result.accessToken());
 
         assertThat(principal.memberId()).isEqualTo(3L);
         assertThat(principal.companyId()).isEqualTo(1L);
-        assertThat(principal.role()).isEqualTo("MEMBER");
+        assertThat(principal.authority()).isEqualTo("MEMBER");
         assertThat(principal.isAdmin()).isTrue();
         assertThat(principal.teamId()).isEqualTo(2L);
     }
@@ -72,7 +72,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("어드민을 겸직해도 착지 경로는 역할 그대로다 — 팀장 겸 어드민은 /team")
     void adminDoesNotChangeLandingPath() {
-        AuthService service = service(member(Role.LEADER, true), new RecordingStore());
+        AuthService service = service(member(Authority.LEADER, true), new RecordingStore());
 
         assertThat(service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false)).landingPath())
                 .isEqualTo("/team");
@@ -82,7 +82,7 @@ class AuthServiceTest {
     @DisplayName("발급한 리프레시 토큰을 갱신표에 올린다 — 올리지 않으면 재발급이 즉시 거부된다")
     void savesRefreshTokenToStore() {
         RecordingStore store = new RecordingStore();
-        AuthService service = service(member(Role.MEMBER, false), store);
+        AuthService service = service(member(Authority.MEMBER, false), store);
 
         service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
 
@@ -94,10 +94,10 @@ class AuthServiceTest {
     @DisplayName("로그인 유지를 켜면 리프레시 수명이 14일, 끄면 1일 — 액세스 수명은 바뀌지 않는다")
     void keepSignedInChangesOnlyRefreshTtl() {
         RecordingStore off = new RecordingStore();
-        service(member(Role.MEMBER, false), off).login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
+        service(member(Authority.MEMBER, false), off).login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
 
         RecordingStore on = new RecordingStore();
-        service(member(Role.MEMBER, false), on).login(new LoginCommand(CODE, EMAIL, PASSWORD, true));
+        service(member(Authority.MEMBER, false), on).login(new LoginCommand(CODE, EMAIL, PASSWORD, true));
 
         assertThat(off.savedTtl).isEqualTo(Duration.ofDays(1));
         assertThat(on.savedTtl).isEqualTo(Duration.ofDays(14));
@@ -108,7 +108,7 @@ class AuthServiceTest {
     void normalizesCompanyCode() {
         RecordingRepository repository = new RecordingRepository(
                 Optional.of(new Company(1L, CODE, "(주)테크스타트")));
-        AuthService service = new AuthService(repository, port(member(Role.MEMBER, false)),
+        AuthService service = new AuthService(repository, port(member(Authority.MEMBER, false)),
                 new RecordingStore(), tokenProvider, encoder);
 
         service.login(new LoginCommand("  8as2-g8t1 ", EMAIL, PASSWORD, false));
@@ -120,7 +120,7 @@ class AuthServiceTest {
     @DisplayName("없는 기업 코드는 LOGIN_FAILED — COMPANY_CODE_NOT_FOUND 로 내리면 어느 회사가 있는지 알려준다")
     void unknownCompanyIsLoginFailed() {
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Role.MEMBER, false)), new RecordingStore(), tokenProvider, encoder);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, encoder);
 
         assertLoginFailed(service, PASSWORD);
     }
@@ -137,7 +137,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("비밀번호가 틀리면 LOGIN_FAILED — 앞의 둘과 같은 응답이어야 한다")
     void wrongPasswordIsLoginFailed() {
-        AuthService service = service(member(Role.MEMBER, false), new RecordingStore());
+        AuthService service = service(member(Authority.MEMBER, false), new RecordingStore());
 
         assertLoginFailed(service, "WrongPass1");
     }
@@ -166,7 +166,7 @@ class AuthServiceTest {
     void verifiesPasswordEvenWhenCompanyIsAbsent() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Role.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -194,7 +194,7 @@ class AuthServiceTest {
     void absentMemberHashIsRealBcrypt() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Role.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -219,7 +219,7 @@ class AuthServiceTest {
     @DisplayName("로그인 실패는 갱신표에 아무것도 올리지 않는다")
     void failedLoginSavesNothing() {
         RecordingStore store = new RecordingStore();
-        AuthService service = service(member(Role.MEMBER, false), store);
+        AuthService service = service(member(Authority.MEMBER, false), store);
 
         assertLoginFailed(service, "WrongPass1");
 
@@ -256,17 +256,17 @@ class AuthServiceTest {
         };
     }
 
-    private MemberCredentials member(Role role, boolean isAdmin) {
+    private MemberCredentials member(Authority role, boolean isAdmin) {
         return new MemberCredentials(3L, 1L, encoder.encode(PASSWORD), role, isAdmin, 2L, false);
     }
 
     /** 해시를 세는 인코더로 만들어야 matchCalls 가 setUp 의 encode 까지 세지 않는다. */
     private MemberCredentials memberWith(PasswordEncoder with) {
-        return new MemberCredentials(3L, 1L, with.encode(PASSWORD), Role.MEMBER, false, 2L, false);
+        return new MemberCredentials(3L, 1L, with.encode(PASSWORD), Authority.MEMBER, false, 2L, false);
     }
 
     private MemberCredentials resignedMember() {
-        return new MemberCredentials(3L, 1L, encoder.encode(PASSWORD), Role.MEMBER, false, 2L, true);
+        return new MemberCredentials(3L, 1L, encoder.encode(PASSWORD), Authority.MEMBER, false, 2L, true);
     }
 
     /** 실제 BCrypt 를 그대로 쓰면서 matches 호출만 기록한다 — 검증 비용을 흉내내지 않는다. */

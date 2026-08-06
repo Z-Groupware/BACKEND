@@ -80,10 +80,10 @@ public class HandoverController {
     }
 
     private GetHandoverListUseCase.HandoverListQuery scopeFor(AuthPrincipal principal, HandoverStatus status) {
-        if (principal.isAdmin() || "OWNER".equals(principal.role())) {
+        if (principal.isAdmin() || "OWNER".equals(principal.authority())) {
             return GetHandoverListUseCase.HandoverListQuery.company(principal.companyId(), status);
         }
-        if ("LEADER".equals(principal.role())) {
+        if ("LEADER".equals(principal.authority())) {
             return GetHandoverListUseCase.HandoverListQuery.team(principal.teamId(), status);
         }
         return GetHandoverListUseCase.HandoverListQuery.self(principal.memberId(), status);

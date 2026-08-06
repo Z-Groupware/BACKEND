@@ -12,7 +12,7 @@ import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.port.out.MyProfileQueryPort;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.model.Role;
+import com.module06.backend.identity.member.domain.model.Authority;
 
 import jakarta.persistence.EntityManager;
 
@@ -55,10 +55,10 @@ class MyProfileQueryAdapterTest {
         assertThat(profile.phone()).isEqualTo("010-1000-0003");
         assertThat(profile.teamId()).isEqualTo(2L);
         assertThat(profile.teamName()).isEqualTo("개발팀");
-        assertThat(profile.roleLabel()).isEqualTo("프론트엔드");
-        assertThat(profile.jobPositionId()).isEqualTo(4L);
+        assertThat(profile.roleName()).isEqualTo("프론트엔드");
+        assertThat(profile.positionId()).isEqualTo(4L);
         assertThat(profile.positionName()).isEqualTo("선임");
-        assertThat(profile.role()).isEqualTo(Role.MEMBER);
+        assertThat(profile.authority()).isEqualTo(Authority.MEMBER);
         assertThat(profile.isAdmin()).isFalse();
         assertThat(profile.isOnboarded()).isTrue();
         assertThat(profile.workStatus()).isEqualTo(MemberStatus.ACTIVE);
@@ -78,8 +78,8 @@ class MyProfileQueryAdapterTest {
 
         assertThat(profile.teamId()).isNull();
         assertThat(profile.teamName()).isNull();
-        assertThat(profile.roleLabel()).isNull();
-        assertThat(profile.jobPositionId()).isNull();
+        assertThat(profile.roleName()).isNull();
+        assertThat(profile.positionId()).isNull();
         assertThat(profile.positionName()).isNull();
         assertThat(profile.isOnboarded()).isFalse();
         assertThat(profile.landingPath()).isEqualTo("/owner");
@@ -136,12 +136,12 @@ class MyProfileQueryAdapterTest {
 
     /** team_id 는 넣지 않는다 — 이 엔티티가 매핑하지 않아 H2 테스트 스키마에 없다(실 MySQL 에는 있다). */
     private void insertSubTeam(Long id, String name) {
-        em.createNativeQuery("INSERT INTO sub_team (id, name) VALUES (?, ?)")
+        em.createNativeQuery("INSERT INTO role (id, name) VALUES (?, ?)")
                 .setParameter(1, id).setParameter(2, name).executeUpdate();
     }
 
     private void insertJobPosition(Long id, String name) {
-        em.createNativeQuery("INSERT INTO job_position (id, name) VALUES (?, ?)")
+        em.createNativeQuery("INSERT INTO position (id, name) VALUES (?, ?)")
                 .setParameter(1, id).setParameter(2, name).executeUpdate();
     }
 
@@ -152,17 +152,17 @@ class MyProfileQueryAdapterTest {
     }
 
     @SuppressWarnings("checkstyle:ParameterNumber")
-    private void insertMember(Long id, Long companyId, Long teamId, Long subTeamId, Long jobPositionId,
+    private void insertMember(Long id, Long companyId, Long teamId, Long subTeamId, Long positionId,
                              String email, String name, String phone, String role, boolean isAdmin,
                              String status, String joinedOn, String deletedAt) {
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, team_id, sub_team_id, job_position_id, email, password_hash,
-                           name, phone, role, is_admin, status, joined_on, deleted_at)
+                          (id, company_id, team_id, role_id, position_id, email, password_hash,
+                           name, phone, authority, is_admin, status, joined_on, deleted_at)
                         VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?, ?, ?, ?, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, companyId).setParameter(3, teamId)
-                .setParameter(4, subTeamId).setParameter(5, jobPositionId).setParameter(6, email)
+                .setParameter(4, subTeamId).setParameter(5, positionId).setParameter(6, email)
                 .setParameter(7, name).setParameter(8, phone).setParameter(9, role)
                 .setParameter(10, isAdmin).setParameter(11, status)
                 .setParameter(12, joinedOn).setParameter(13, deletedAt)

@@ -6,8 +6,8 @@ import java.time.LocalDateTime;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.company.infrastructure.persistence.CompanyJpaEntity;
+import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
-import com.module06.backend.identity.member.domain.model.Role;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -45,13 +45,15 @@ public class MemberJpaEntity {
     @JoinColumn(name = "team_id")
     private TeamRefEntity team;
 
+    /** 화면의 "역할". 구 sub_team 이다(V2.3.2·V2.3.4). 인가에 쓰지 않는 라벨이다. */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sub_team_id")
-    private SubTeamRefEntity subTeam;
+    @JoinColumn(name = "role_id")
+    private RoleRefEntity role;
 
+    /** 화면의 "직급". 구 job_position 이다(V2.3.3·V2.3.5). */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "job_position_id")
-    private JobPositionRefEntity jobPosition;
+    @JoinColumn(name = "position_id")
+    private PositionRefEntity position;
 
     @Column(name = "email")
     private String email;
@@ -66,11 +68,12 @@ public class MemberJpaEntity {
     @Column(name = "phone")
     private String phone;
 
+    /** 화면의 "권한". 구 role 컬럼이다(V2.3.1) — 이름을 role 테이블에 내줬다. */
     @Enumerated(EnumType.STRING)
-    @Column(name = "role")
-    private Role role;
+    @Column(name = "authority")
+    private Authority authority;
 
-    /** 어드민 겸직. role 과 독립이다(V2.2.1). */
+    /** 어드민 겸직. authority 와 독립이다(V2.2.1). */
     @Column(name = "is_admin")
     private boolean isAdmin;
 

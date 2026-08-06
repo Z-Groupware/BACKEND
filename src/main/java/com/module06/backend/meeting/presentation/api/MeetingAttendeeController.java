@@ -66,7 +66,9 @@ public class MeetingAttendeeController {
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @Parameter(hidden = true)
-            @AuthenticationPrincipal(expression = "role") String role,
+            // AuthPrincipal 의 필드명이 role → authority 로 바뀌었다(V2.3.1). SpEL 은 문자열이라
+            // 컴파일에 걸리지 않고 런타임에 터지므로 여기도 함께 고친다. 담는 값은 그대로다.
+            @AuthenticationPrincipal(expression = "authority") String role,
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin,
             @Parameter(description = "대상 회의 식별자", required = true, example = "91")
@@ -103,7 +105,9 @@ public class MeetingAttendeeController {
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @Parameter(hidden = true)
-            @AuthenticationPrincipal(expression = "role") String role,
+            // AuthPrincipal 의 필드명이 role → authority 로 바뀌었다(V2.3.1). SpEL 은 문자열이라
+            // 컴파일에 걸리지 않고 런타임에 터지므로 여기도 함께 고친다. 담는 값은 그대로다.
+            @AuthenticationPrincipal(expression = "authority") String role,
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin,
             @Parameter(description = "대상 회의 식별자", required = true, example = "91")

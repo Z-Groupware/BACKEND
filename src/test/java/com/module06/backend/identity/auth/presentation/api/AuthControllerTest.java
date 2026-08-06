@@ -25,7 +25,7 @@ import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.model.Role;
+import com.module06.backend.identity.member.domain.model.Authority;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -217,22 +217,22 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("어드민 겸직 팀장의 정보를 내려준다 — roleLabel 은 하위팀이 아니라 자유 라벨이다")
+    @DisplayName("어드민 겸직 팀장의 정보를 내려준다 — roleName 은 하위팀이 아니라 자유 라벨이다")
     void returnsMyProfile() throws Exception {
         authenticateAs(3L);
         when(getMyProfileUseCase.get(3L)).thenReturn(new MyProfile(
                 3L, 1L, "(주)테크스타트", "NOVA-7K3D",
                 "이하윤", "hayun@zgroup.co.kr", "010-1234-5678",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
-                Role.LEADER, true, true,
+                Authority.LEADER, true, true,
                 MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.TEAM));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.memberId").value(3))
-                .andExpect(jsonPath("$.data.role").value("LEADER"))
+                .andExpect(jsonPath("$.data.authority").value("LEADER"))
                 .andExpect(jsonPath("$.data.isAdmin").value(true))
-                .andExpect(jsonPath("$.data.roleLabel").value("프론트엔드"))
+                .andExpect(jsonPath("$.data.roleName").value("프론트엔드"))
                 .andExpect(jsonPath("$.data.workStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.plan").value("TEAM"))
                 .andExpect(jsonPath("$.data.landingPath").value("/team"))
@@ -247,13 +247,13 @@ class AuthControllerTest {
                 9L, 2L, "(주)신규", "ABCD-EFGH",
                 "대표", "owner@new.kr", null,
                 null, null, null, null, null,
-                Role.OWNER, false, false,
+                Authority.OWNER, false, false,
                 MemberStatus.ACTIVE, null, null));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.teamId").doesNotExist())
-                .andExpect(jsonPath("$.data.roleLabel").doesNotExist())
+                .andExpect(jsonPath("$.data.roleName").doesNotExist())
                 .andExpect(jsonPath("$.data.plan").doesNotExist())
                 .andExpect(jsonPath("$.data.isOnboarded").value(false))
                 .andExpect(jsonPath("$.data.landingPath").value("/owner"));

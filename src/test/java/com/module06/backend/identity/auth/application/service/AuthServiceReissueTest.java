@@ -17,7 +17,7 @@ import com.module06.backend.identity.auth.infrastructure.persistence.InMemoryRef
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.dto.MemberCredentials;
 import com.module06.backend.identity.member.application.port.out.MemberAuthQueryPort;
-import com.module06.backend.identity.member.domain.model.Role;
+import com.module06.backend.identity.member.domain.model.Authority;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,10 +59,10 @@ class AuthServiceReissueTest {
     void reissuedAccessTokenReflectsCurrentRole() {
         String token = issuedRefreshToken("jti-2");
 
-        String access = service(member(Role.LEADER, true)).reissue(token, false).accessToken();
+        String access = service(member(Authority.LEADER, true)).reissue(token, false).accessToken();
 
         AuthPrincipal principal = tokenProvider.parseAccessToken(access);
-        assertThat(principal.role()).isEqualTo("LEADER");
+        assertThat(principal.authority()).isEqualTo("LEADER");
         assertThat(principal.isAdmin()).isTrue();
         assertThat(principal.memberId()).isEqualTo(MEMBER_ID);
         assertThat(principal.teamId()).isEqualTo(2L);
@@ -149,7 +149,7 @@ class AuthServiceReissueTest {
         String token = tokenProvider.createRefreshToken(MEMBER_ID, "jti-8", true);
         recording.save(MEMBER_ID, "jti-8", Duration.ofDays(14));
 
-        service(member(Role.MEMBER, false), recording).reissue(token, true);
+        service(member(Authority.MEMBER, false), recording).reissue(token, true);
 
         assertThat(recording.savedTtl).isEqualTo(Duration.ofDays(14));
     }
@@ -190,7 +190,7 @@ class AuthServiceReissueTest {
     }
 
     private AuthService service() {
-        return service(member(Role.LEADER, true));
+        return service(member(Authority.LEADER, true));
     }
 
     private AuthService service(MemberCredentials credentials) {
@@ -222,12 +222,12 @@ class AuthServiceReissueTest {
         };
     }
 
-    private MemberCredentials member(Role role, boolean isAdmin) {
+    private MemberCredentials member(Authority role, boolean isAdmin) {
         return new MemberCredentials(MEMBER_ID, 1L, "hash", role, isAdmin, 2L, false);
     }
 
     private MemberCredentials resignedMember() {
-        return new MemberCredentials(MEMBER_ID, 1L, "hash", Role.MEMBER, false, 2L, true);
+        return new MemberCredentials(MEMBER_ID, 1L, "hash", Authority.MEMBER, false, 2L, true);
     }
 
     private static final class RecordingStore implements RefreshTokenStore {
