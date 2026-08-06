@@ -48,14 +48,18 @@ public class Action {
     private final String title;
     private final String description;
     private final ActionStatus status;
-    private final LocalDate dueDate;
-    private final boolean dueDateDefaulted;
-    private final ActionReviewStatus reviewStatus;
+    /*
+     * 아래 넷은 final 이 아니다 — 사람의 검토 판정(applyHumanReview)이 바꾸는 값이다.
+     * RVW-02 착수로 열었다(2026-08-06). 나머지 필드는 여전히 불변이다.
+     */
+    private LocalDate dueDate;
+    private boolean dueDateDefaulted;
+    private ActionReviewStatus reviewStatus;
     private final AssigneeSource assigneeSource;
     private final Long evidenceTranscriptId;
     private final String gateSignals;
     private final boolean isManual;
-    private final LocalDateTime confirmedAt;
+    private LocalDateTime confirmedAt;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
 
@@ -199,5 +203,45 @@ public class Action {
             throw new IllegalStateException("TEAM 액션은 담당자를 교체할 수 없습니다.");
         }
         this.assigneeMemberId = newAssigneeMemberId;
+    }
+
+    /*
+     * 사람의 검토 판정을 반영한다 — review(A)의 RVW-02 가 ActionReviewApplyPort 로 부른다.
+     * 클래스 주석의 "리뷰확정은 유스케이스 착수 시 추가한다"가 이 메서드다(2026-08-06).
+     *
+     * 담당자·기한은 **null 이면 바꾸지 않는다.** 비우라는 뜻이 아니다 — 검토 화면은 고친 칸만
+     * 보내오고, 담당자 지우기는 그 화면에 없는 동작이다. null 을 "비우기"로 해석하면 기한만
+     * 고친 요청이 담당자를 지운다.
+     *
+     * 기한을 고치면 dueDateDefaulted 를 내린다. 프로젝트 마감일로 채운 값이 아니게 되므로,
+     * 그대로 두면 WRONG_DUE 집계가 "AI 가 정한 기한"과 "기본값"을 계속 섞어 본다(V2.6.4).
+     */
+    public void applyHumanReview(Long newAssigneeMemberId, LocalDate newDueDate, ActionReviewStatus newReviewStatus) {
+        if (newReviewStatus == null) {
+            throw new IllegalArgumentException("newReviewStatus는 null일 수 없습니다.");
+        }
+        if (newAssigneeMemberId != null) {
+            reassignTo(newAssigneeMemberId);
+        }
+        if (newDueDate != null) {
+            this.dueDate = newDueDate;
+            this.dueDateDefaulted = false;
+        }
+        this.reviewStatus = newReviewStatus;
+        /*
+         * 확정 시각은 확정일 때만 찍는다. 반려에도 찍으면 "담당자가 분배 확정한 시각"이라는
+         * 컬럼 뜻(V1 주석)과 갈리고, 보드로 가지 않은 액션이 확정된 것으로 집계된다.
+         *
+         * 확정이 아니면 **이전 확정 시각을 지운다.** 한 번 확정한 액션을 뒤늦게 반려하는 경로가
+         * 있어(사람이 마음을 바꾼 것도 판정이다), 안 지우면 reviewStatus=HUMAN_REJECTED 와
+         * confirmedAt != null 이 함께 저장된다 — 그 행은 확정 집계에도 잡히고 반려 목록에도
+         * 잡혀 두 숫자가 서로 맞지 않게 된다.
+         */
+        if (newReviewStatus == ActionReviewStatus.HUMAN_CONFIRMED
+                || newReviewStatus == ActionReviewStatus.AUTO_CONFIRMED) {
+            this.confirmedAt = LocalDateTime.now();
+        } else {
+            this.confirmedAt = null;
+        }
     }
 }

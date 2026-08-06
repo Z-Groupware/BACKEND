@@ -3,25 +3,32 @@ package com.module06.backend.capture.presentation.api;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import jakarta.validation.Valid;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
+import com.module06.backend.capture.presentation.api.request.ReviewDecisionRequest;
 import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
+import com.module06.backend.capture.presentation.api.response.ReviewDecisionResponse;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 
@@ -51,6 +58,7 @@ public class AnalysisController {
     private final GetProcessingStatusUseCase getProcessingStatusUseCase;
     private final GetSummaryUseCase getSummaryUseCase;
     private final GetActionReviewUseCase getActionReviewUseCase;
+    private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -118,6 +126,36 @@ public class AnalysisController {
                 "조회 성공",
                 ActionReviewResponse.from(
                         getActionReviewUseCase.getReview(me.getCompanyId(), meetingId, reviewStatus)));
+    }
+
+    /*
+     * RVW-02 · 액션 항목 수정·반려.
+     *
+     * **사람이 확정하는 이 순간이 시스템에서 유일한 쓰기 지점이다**(명세 RVW-02). 화면에서는
+     * "담당자 바꾸고 저장"이지만, 이 저장소가 여기서 얻는 것은 {AI 입력 → 사람이 인정한 정답}
+     * 한 쌍이다 — 특화 모델의 유일한 연료이고 지나간 회의는 다시 만들 수 없다.
+     *
+     * MEMBER 까지 허용한다. 검토는 회의 참석자가 하는 일이고, 역할로 막으면 사원이 참석한
+     * 회의의 자기 액션도 못 고친다. 회사 스코프는 MeetingAccessGuard 가 본다.
+     */
+    @Operation(
+            summary = "액션 항목 수정·반려 (RVW-02)",
+            description = "검토 화면에서 담당자·기한을 고치거나 반려한다. 판정은 review_log 에 "
+                    + "라벨로 남고, 확정·수정 건은 few-shot 예시로 예약된다. "
+                    + "수정·반려에는 사유 코드가 필수다(422)."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PatchMapping("/review/{actionId}")
+    public ApiResponse<ReviewDecisionResponse> applyReviewDecision(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @PathVariable Long actionId,
+            @Valid @RequestBody ReviewDecisionRequest request
+    ) {
+        return ApiResponse.success(
+                "반영되었습니다.",
+                ReviewDecisionResponse.from(applyReviewDecisionUseCase.apply(
+                        request.toCommand(me.getCompanyId(), meetingId, actionId, me.getMemberId()))));
     }
 
     /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */
