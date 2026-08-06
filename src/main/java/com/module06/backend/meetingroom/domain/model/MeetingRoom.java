@@ -107,6 +107,32 @@ public class MeetingRoom {
         );
     }
 
+    /* 검증된 최종 속성으로 식별자와 활성 상태를 유지한 새 회의실 상태를 만든다. */
+    public MeetingRoom update(
+            String name,
+            String location,
+            int capacity,
+            LocalTime availableFrom,
+            LocalTime availableTo
+    ) {
+        /* 빈 위치는 미등록 상태인 null로 통일하고 그 외 문자열의 가장자리 공백을 제거한다. */
+        String normalizedLocation = location == null || location.trim().isEmpty()
+                ? null
+                : location.trim();
+
+        /* 수정은 기존 식별자·회사·비활성화 상태를 바꾸지 않고 관리 가능한 속성만 교체한다. */
+        return new MeetingRoom(
+                id,
+                companyId,
+                name.trim(),
+                normalizedLocation,
+                capacity,
+                availableFrom,
+                availableTo,
+                deletedAt
+        );
+    }
+
     /*
      * 회의실이 현재 활성 상태인지 판단한다.
      *

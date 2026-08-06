@@ -54,7 +54,7 @@ public class MeetingRoomController {
             summary = "회의실 목록 조회",
             description = "로그인한 사용자의 회사에서 비활성화되지 않은 회의실 목록을 이름순으로 조회합니다."
     )
-    @PreAuthorize("hasAnyRole('OWNER', 'LEADER', 'MEMBER')")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @GetMapping
     public ApiResponse<MeetingRoomListResponse> getMeetingRooms(
             @Parameter(hidden = true)

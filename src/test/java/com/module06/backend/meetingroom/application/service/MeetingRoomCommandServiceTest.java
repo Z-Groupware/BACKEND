@@ -184,6 +184,24 @@ class MeetingRoomCommandServiceTest {
             return duplicate;
         }
 
+        /* ROOM-04 잠금 조회는 ROOM-03 등록 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public java.util.Optional<MeetingRoom> findActiveByIdForUpdate(Long companyId, Long meetingRoomId) {
+            /* 호출되지 않는 별도 수정 계약이므로 빈 결과를 반환한다. */
+            return java.util.Optional.empty();
+        }
+
+        /* ROOM-04 자기 자신 제외 이름 조회는 ROOM-03 등록 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public boolean existsActiveByCompanyIdAndNameExcludingId(
+                Long companyId,
+                String name,
+                Long excludedMeetingRoomId
+        ) {
+            /* 호출되지 않는 별도 수정 계약이므로 중복이 없다고 반환한다. */
+            return false;
+        }
+
         /* 저장 요청을 기록하고 생성 식별자가 반영된 도메인 객체를 반환한다. */
         @Override
         public MeetingRoom save(MeetingRoom meetingRoom) {
