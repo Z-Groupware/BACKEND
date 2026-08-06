@@ -27,7 +27,8 @@ public record DistributionConfirmResponse(
                         .toList());
     }
 
-    /* reason: STILL_PENDING(미검토) · REJECTED(반려) · NO_ASSIGNEE(담당자 미정) */
+    /* reason: STILL_PENDING(미검토) · REJECTED(반려) · NO_ASSIGNEE(담당자 미정) ·
+       ALREADY_DISPATCHED(지난 확정에서 이미 나감) */
     public record Skipped(long actionId, String reason) {
     }
 }

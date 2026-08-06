@@ -1,6 +1,7 @@
 package com.module06.backend.action.infrastructure.adapter;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.module06.backend.action.infrastructure.persistence.ActionJpaEntity;
 import com.module06.backend.action.infrastructure.persistence.SpringDataActionRepository;
 import com.module06.backend.capture.application.port.out.ActionDispatchPort;
+import com.module06.backend.capture.application.port.out.ActionDispatchPort.DispatchOutcome;
 
 /* comment.
     action(C)이 구현하는 검토(A) 아웃바운드 포트. A가 정의한 ActionDispatchPort
@@ -43,14 +45,15 @@ public class ActionDispatchAdapter implements ActionDispatchPort {
 
     @Override
     @Transactional
-    public int markDispatched(long companyId, List<Long> actionIds, LocalDateTime dispatchedAt) {
+    public DispatchOutcome markDispatched(long companyId, List<Long> actionIds, LocalDateTime dispatchedAt) {
         if (actionIds.isEmpty()) {
-            return 0;
+            return DispatchOutcome.none();
         }
 
         List<ActionJpaEntity> actions = springDataActionRepository.findAllById(actionIds);
 
-        int marked = 0;
+        int newlyDispatched = 0;
+        List<Long> alreadyDispatched = new ArrayList<>();
         for (ActionJpaEntity action : actions) {
             if (!Long.valueOf(companyId).equals(action.getCompanyId())) {
                 // 다른 회사 액션이다. 여기까지 올 수 없는 값이지만 왔다면 조용히 뺀다.
@@ -58,11 +61,18 @@ public class ActionDispatchAdapter implements ActionDispatchPort {
                 continue;
             }
             if (action.markDispatched(dispatchedAt)) {
-                marked++;
+                newlyDispatched++;
+            } else {
+                /*
+                 * 이미 나가 있던 액션이다. 시각은 처음 나간 그때 것을 그대로 둔다 —
+                 * 회수 경로가 없으므로 "언제 나갔나"의 답은 처음 것이 맞다.
+                 * 호출자가 "지워진 액션"과 구분할 수 있도록 목록으로 돌려준다.
+                 */
+                alreadyDispatched.add(action.getId());
             }
         }
 
         springDataActionRepository.saveAll(actions);
-        return marked;
+        return new DispatchOutcome(newlyDispatched, List.copyOf(alreadyDispatched));
     }
 }

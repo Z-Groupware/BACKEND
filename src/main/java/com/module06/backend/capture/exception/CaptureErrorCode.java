@@ -94,7 +94,8 @@ public enum CaptureErrorCode implements ErrorCode {
      * 결과가 액션에 반영되지 않는 것과 같은 이유다). 그래서 구멍이 남은 채로는 막고,
      * ?confirm=true 로만 강행하게 한다 — 강행 여부를 사람이 눈으로 보고 정하는 자리다.
      */
-    REVIEW_CONFIRM_BLOCKED(HttpStatus.CONFLICT, "MEETING_409_5", "확인되지 않은 STT 구간이 남아 있습니다."),
+    REVIEW_CONFIRM_BLOCKED(HttpStatus.CONFLICT, "MEETING_409_5",
+            "확인되지 않은 STT 구간이나 검토하지 않은 액션이 남아 있습니다."),
 
     /*
      * RVW-05 — 회의 담당자가 아니다.

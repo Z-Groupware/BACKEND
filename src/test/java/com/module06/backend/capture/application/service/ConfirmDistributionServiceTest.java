@@ -154,6 +154,33 @@ class ConfirmDistributionServiceTest {
     }
 
     @Test
+    @DisplayName("이미 나간 액션은 다시 세지 않고 사유로 돌려준다 — 실패가 아니라 지난번에 나간 것이다")
+    void 이미_나간_액션은_다시_내보내지_않는다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        dispatch.alreadyDispatched = List.of(1L, 2L);
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(
+                action(1L, "AUTO_CONFIRMED", HOST),
+                action(2L, "HUMAN_CONFIRMED", HOST),
+                // 확정 뒤에 사람이 새로 넣은 액션(RVW-03)이다. 이번에 나가야 한다.
+                action(3L, "HUMAN_CONFIRMED", HOST));
+
+        DistributionConfirmed confirmed = service(actions, dispatch, 0).confirm(command(HOST, false));
+
+        /*
+         * dispatchedCount 는 **이번에 새로 나간 것**만이다. 이미 나간 것을 더하면 화면이 같은
+         * 액션을 두 번 보낸 것처럼 말한다. 대신 그것들은 사유와 함께 skipped 로 돌려준다 —
+         * 안 적으면 사람은 "3건 중 1건만 나갔다"로 읽고 나머지가 실패한 줄 안다.
+         */
+        assertThat(confirmed.dispatchedCount()).isEqualTo(1);
+        assertThat(dispatch.dispatched).containsExactly(3L);
+        assertThat(confirmed.skipped())
+                .extracting(SkippedAction::actionId, SkippedAction::reason)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(1L, "ALREADY_DISPATCHED"),
+                        org.assertj.core.groups.Tuple.tuple(2L, "ALREADY_DISPATCHED"));
+    }
+
+    @Test
     @DisplayName("내보낼 것이 없으면 포트를 부르지 않는다 — 빈 요청을 만들지 않는다")
     void 대상이_없으면_포트를_부르지_않는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
@@ -217,12 +244,18 @@ class ConfirmDistributionServiceTest {
 
         private final List<Long> dispatched = new ArrayList<>();
         private int calls;
+        /* 이미 나가 있던 것으로 취급할 액션. 재확정 상황을 만드는 손잡이다. */
+        private List<Long> alreadyDispatched = List.of();
 
         @Override
-        public int markDispatched(long companyId, List<Long> actionIds, LocalDateTime dispatchedAt) {
+        public DispatchOutcome markDispatched(long companyId, List<Long> actionIds,
+                                              LocalDateTime dispatchedAt) {
             calls++;
-            dispatched.addAll(actionIds);
-            return actionIds.size();
+            List<Long> newly = actionIds.stream()
+                    .filter(id -> !alreadyDispatched.contains(id))
+                    .toList();
+            dispatched.addAll(newly);
+            return new DispatchOutcome(newly.size(), alreadyDispatched);
         }
     }
 

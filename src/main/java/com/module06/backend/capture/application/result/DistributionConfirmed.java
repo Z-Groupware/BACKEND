@@ -24,6 +24,9 @@ public record DistributionConfirmed(
      *   REJECTED       사람이 반려했다. 보드로 가면 안 되는 것이 반려의 뜻이다
      *   NO_ASSIGNEE    담당자가 정해지지 않았다. 나가면 아무도 자기 일로 보지 않는다
      *                  (C 도메인과 2026-08-07 합의 — 생성은 열고 확정에서 막는다)
+     *   ALREADY_DISPATCHED  지난 확정에서 이미 나갔다. **실패가 아니다** — 확정 뒤에 액션을
+     *                  더 넣고(RVW-03) 다시 확정하면 그 회차의 액션들이 여기 담긴다.
+     *                  적지 않으면 화면이 "10건 중 2건만 나갔다"로 보여 나머지가 실패한 줄 안다
      */
     public record SkippedAction(long actionId, String reason) {
     }

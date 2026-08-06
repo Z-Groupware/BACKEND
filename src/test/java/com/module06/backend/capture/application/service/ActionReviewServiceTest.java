@@ -88,12 +88,22 @@ class ActionReviewServiceTest {
     }
 
     @Test
-    @DisplayName("분배 전이므로 dispatchedAt 은 null 이다")
+    @DisplayName("분배 전이면 dispatchedAt 은 null 이다 — 자동 확정 건도 아직 아무 데도 없다")
     void 분배_전에는_dispatchedAt이_없다() {
         // 자동 확정 건도 분배 전까지는 아무 데도 가 있지 않다(명세 RVW-01).
         FakeQueryPort port = new FakeQueryPort(List.of(action(1L, ALICE, "김서준", true)));
 
         assertThat(service(port).getReview(COMPANY, MEETING, null).dispatchedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("분배 확정된 회의는 그 시각을 내려준다 — 화면이 「확정됨」을 이 값으로 그린다")
+    void 분배_뒤에는_dispatchedAt이_있다() {
+        FakeQueryPort port = new FakeQueryPort(List.of(action(1L, ALICE, "김서준", true)));
+        port.dispatchedAt = java.time.LocalDateTime.of(2026, 8, 7, 15, 31, 2);
+
+        assertThat(service(port).getReview(COMPANY, MEETING, null).dispatchedAt())
+                .isEqualTo(java.time.LocalDateTime.of(2026, 8, 7, 15, 31, 2));
     }
 
     @Test
@@ -229,10 +239,12 @@ class ActionReviewServiceTest {
             return actions;
         }
 
-        /* 아직 분배 확정하지 않은 회의다 — 검토 화면이 열려 있는 정상 상태다(RVW-05 전). */
+        /* 분배 확정 시각. 기본은 비어 있다 — 확정 전 회의가 검토 화면의 정상 상태다. */
+        private java.time.LocalDateTime dispatchedAt;
+
         @Override
         public Optional<java.time.LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
-            return Optional.empty();
+            return Optional.ofNullable(dispatchedAt);
         }
     }
 }

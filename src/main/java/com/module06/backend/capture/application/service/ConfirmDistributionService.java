@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.ActionDispatchPort;
+import com.module06.backend.capture.application.port.out.ActionDispatchPort.DispatchOutcome;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort.ReviewAction;
 import com.module06.backend.capture.application.port.out.SttGapRepository;
@@ -51,6 +52,7 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
     private static final String SKIP_STILL_PENDING = "STILL_PENDING";
     private static final String SKIP_REJECTED = "REJECTED";
     private static final String SKIP_NO_ASSIGNEE = "NO_ASSIGNEE";
+    private static final String SKIP_ALREADY_DISPATCHED = "ALREADY_DISPATCHED";
 
     private final ActionReviewQueryPort actionReviewQueryPort;
     private final ActionDispatchPort actionDispatchPort;
@@ -91,21 +93,42 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
          * 같은 확정으로 나간 액션의 시각이 갈리고, "이 회의를 언제 내보냈나"가 하나로 안 읽힌다.
          */
         LocalDateTime dispatchedAt = LocalDateTime.now(clock);
-        int dispatched = dispatchTargets.isEmpty()
-                ? 0
+        DispatchOutcome outcome = dispatchTargets.isEmpty()
+                ? DispatchOutcome.none()
                 : actionDispatchPort.markDispatched(command.companyId(), dispatchTargets, dispatchedAt);
 
-        if (dispatched != dispatchTargets.size()) {
-            // 표시 못 한 액션이 있다. 그 사이에 지워진 것이라 오류로 올리지 않는다 —
-            // 나머지 확정을 되돌리면 사람이 다시 눌러야 하고, 결과는 같다.
-            log.warn("분배 표시 수가 대상과 다르다 — meetingId={} 대상={} 반영={}",
-                    command.meetingId(), dispatchTargets.size(), dispatched);
+        /*
+         * 이미 나가 있던 액션도 사람에게 말한다.
+         *
+         * 확정은 한 번으로 끝나지 않는다 — 확정 뒤에 액션을 더 넣고(RVW-03) 다시 누를 수 있고,
+         * 그때 이전에 나간 것들이 대상에 함께 들어온다. 응답에 안 적으면 화면은 "10건 중 2건만
+         * 나갔다"로 보이고 **사람은 나머지 8건이 실패한 줄 안다.**
+         */
+        outcome.alreadyDispatched()
+                .forEach(actionId -> skipped.add(new SkippedAction(actionId, SKIP_ALREADY_DISPATCHED)));
+
+        if (outcome.accountedFor() != dispatchTargets.size()) {
+            /*
+             * 확인되지 않은 액션이 있다 — 그 사이에 지워진 것이다. 오류로 올리지 않는다.
+             * 나머지 확정을 되돌리면 사람이 다시 눌러야 하고 결과는 같다.
+             *
+             * 이미 나간 것을 함께 세는 것이 요점이다. 새로 찍힌 수만 비교하면 **두 번째
+             * 확정마다 이 경고가 뜬다** — 정상 동작인데 사고처럼 보인다.
+             */
+            log.warn("분배 대상 중 확인되지 않은 액션이 있다 — meetingId={} 대상={} 확인={}",
+                    command.meetingId(), dispatchTargets.size(), outcome.accountedFor());
         }
 
-        log.info("분배 확정 — meetingId={} 확정한사람={} 내보냄={} 남김={} 강행={}",
-                command.meetingId(), command.requestedBy(), dispatched, skipped.size(), command.force());
+        log.info("분배 확정 — meetingId={} 확정한사람={} 새로내보냄={} 이미나감={} 남김={} 강행={}",
+                command.meetingId(), command.requestedBy(), outcome.newlyDispatched(),
+                outcome.alreadyDispatched().size(), skipped.size(), command.force());
 
-        return new DistributionConfirmed(dispatched, dispatchedAt, skipped);
+        /*
+         * dispatchedCount 와 dispatchedAt 은 **이번에 새로 나간 것**만 가리킨다. 이미 나간
+         * 액션은 그때의 시각을 유지하므로 여기 숫자에 더하면 "방금 몇 건이 나갔나"가 부풀고,
+         * 화면이 같은 액션을 두 번 보낸 것처럼 말하게 된다.
+         */
+        return new DistributionConfirmed(outcome.newlyDispatched(), dispatchedAt, List.copyOf(skipped));
     }
 
     /*
