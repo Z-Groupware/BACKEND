@@ -24,23 +24,19 @@ public class TeamJpaEntity {
     @Column(name = "company_id")
     private Long companyId;
 
-    @Column(name = "parent_team_id")
-    private Long parentTeamId;
-
     @Column(name = "name")
     private String name;
 
     @Column(name = "leader_member_id")
     private Long leaderMemberId;
 
-    private TeamJpaEntity(Long companyId, Long parentTeamId, String name) {
+    private TeamJpaEntity(Long companyId, String name) {
         this.companyId = companyId;
-        this.parentTeamId = parentTeamId;
         this.name = name;
     }
 
-    static TeamJpaEntity create(Long companyId, Long parentTeamId, String name) {
-        return new TeamJpaEntity(companyId, parentTeamId, name);
+    static TeamJpaEntity create(Long companyId, String name) {
+        return new TeamJpaEntity(companyId, name);
     }
 
     void rename(String name) {
