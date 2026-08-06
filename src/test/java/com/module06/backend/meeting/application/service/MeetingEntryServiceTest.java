@@ -75,7 +75,7 @@ class MeetingEntryServiceTest {
         assertThat(result.status()).isEqualTo(MeetingStatus.IN_PROGRESS);
         assertThat(result.startedAt()).isEqualTo(originalStartedAt);
         assertThat(result.isHost()).isFalse();
-        assertThat(result.canControlRecording()).isTrue();
+        assertThat(result.canControlRecording()).isFalse();
         assertThat(repository.saveCalls).isZero();
     }
 

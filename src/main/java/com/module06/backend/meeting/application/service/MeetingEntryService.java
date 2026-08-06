@@ -71,15 +71,16 @@ public class MeetingEntryService implements EnterMeetingUseCase {
             enteredMeeting = meetingEntryRepository.saveState(enteredMeeting);
         }
 
-        /* 참석자는 CAP-01 선점 녹음을 시도할 수 있으므로 화면 제어 플래그를 true로 반환한다. */
+        /* 새 CAP 계약은 host만 세션을 제어하므로 입장 응답의 두 화면 플래그를 같은 원본에서 계산한다. */
+        boolean isHost = enteredMeeting.isHost(command.requesterMemberId());
         return new MeetingEntryResult(
                 enteredMeeting.getId(),
                 enteredMeeting.getStatus(),
                 enteredMeeting.getStartedAt(),
                 enteredMeeting.getAttendeeMemberIds().size(),
                 enteredMeeting.isRecordingConsent(),
-                enteredMeeting.isHost(command.requesterMemberId()),
-                true
+                isHost,
+                isHost
         );
     }
 
