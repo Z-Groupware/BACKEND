@@ -45,6 +45,24 @@ public enum AuthErrorCode implements ErrorCode {
             "지금 상태에서는 처리할 수 없습니다. 화면을 새로 고쳐 확인해 주세요."),
 
     /*
+     * 기업 등록(API 27). 승인 절차가 없어 신청 하나가 기업·오너 계정 생성까지 처리하므로,
+     * 여기서 막지 못한 값은 그대로 회사가 되어 되돌릴 경로가 없다.
+     */
+    REGISTRATION_NO_INVALID(HttpStatus.BAD_REQUEST, "AU-010",
+            "사업자등록번호 형식이 올바르지 않습니다. 000-00-00000 형태로 입력해 주세요."),
+    REGISTRATION_NO_DUPLICATED(HttpStatus.CONFLICT, "AU-011",
+            "이미 등록된 사업자등록번호입니다."),
+    TERMS_NOT_AGREED(HttpStatus.BAD_REQUEST, "AU-012",
+            "이용약관과 개인정보 처리방침에 동의해 주세요."),
+
+    /*
+     * 기업코드를 3회 뽑았는데 전부 UNIQUE 에 걸린 경우. 32^8 조합에서 실제로 일어나면
+     * 무작위 원천이 고장 난 것이므로 재시도로 덮지 않고 500 으로 드러낸다.
+     */
+    COMPANY_CODE_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "AU-013",
+            "기업 코드 발급에 실패했습니다. 잠시 후 다시 시도해 주세요."),
+
+    /*
      * 부서 CRUD(API 14~17). 본부→팀 2단계까지만 허용하고, 같은 부모 안에서만 이름 중복을 막는다
      * (§6-2). 전역 유니크가 아니므로 다른 본부 아래에는 같은 이름의 팀이 있을 수 있다.
      */
