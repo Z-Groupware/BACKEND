@@ -26,6 +26,7 @@ import com.module06.backend.capture.application.port.out.LayerRun;
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
+import com.module06.backend.capture.application.port.out.VerifyTupleResult;
 import com.module06.backend.capture.application.service.AiLayerException;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
@@ -37,6 +38,7 @@ import com.module06.backend.capture.domain.model.ResolvedReference;
 import com.module06.backend.capture.domain.model.TopicItem;
 import com.module06.backend.capture.domain.model.TopicSegment;
 import com.module06.backend.capture.domain.model.Utterance;
+import com.module06.backend.capture.domain.model.VerifyVerdict;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.AssignmentTupleDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.ConfirmedItemDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.ExtractTuplesRequestDto;
@@ -58,6 +60,9 @@ import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.TopicItemD
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.TopicSegmentDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.UsageDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.UtteranceDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.VerifyRequestDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.VerifyResponseDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.ViewResultDto;
 
 /*
  * AI EC2 내부 API 호출 어댑터다. Spring ↔ Python 계약이 실체로 만나는 유일한 자리다.
@@ -174,6 +179,74 @@ public class AiLayerHttpAdapter implements AiLayerPort {
         return new ExtractTuplesResult(
                 toAssignmentTuples(response.tuples()),
                 toLayerRun(response.usage(), response.model(), response.promptVersion()));
+    }
+
+    @Override
+    public VerifyTupleResult verifyTuple(long tenantId, long meetingId, String topic, AssignmentTuple tuple,
+                                         List<ConfirmedItem> items, List<Utterance> utterances,
+                                         List<Participant> participants, LocalDate meetingDate) {
+        VerifyResponseDto response = post(
+                "/internal/layers/l5/verify",
+                new VerifyRequestDto(tenantId, meetingId, topic, toAssignmentTupleDto(tuple),
+                        toConfirmedItemDtos(items), toUtteranceDtos(utterances),
+                        toParticipantDtos(participants),
+                        // L4 와 같은 이유로 ISO 문자열로 고정한다(Jackson 이 배열로 직렬화할 여지).
+                        meetingDate != null ? meetingDate.toString() : null,
+                        null),
+                VerifyResponseDto.class);
+
+        ViewResultDto verifyView = viewOf(response.results(), "VERIFY");
+        logFailedViews(response.results());
+
+        return new VerifyTupleResult(
+                /*
+                 * agree 가 없으면 **false 로 읽는다.** 다른 곳에서는 못 읽은 값을 버리지만
+                 * 여기서는 방향이 반대다 — 버리면 이 tuple 이 미검증(NULL)으로 남아 검토
+                 * 대상에서 빠지는데, 그건 검증을 통과한 것과 같은 취급이다. 애매한 것은
+                 * 검토로 보낸다(Python 이 판정값 파손을 REJECT 로 내리는 것과 같은 방향).
+                 */
+                Boolean.TRUE.equals(response.agree()),
+                response.disagreementFields() != null ? response.disagreementFields() : List.of(),
+                verifyView != null ? VerifyVerdict.fromNullable(verifyView.verdict()) : null,
+                verifyView != null ? verifyView.reason() : null,
+                toLayerRun(response.usage(), response.model(), response.promptVersion()));
+    }
+
+    private AssignmentTupleDto toAssignmentTupleDto(AssignmentTuple tuple) {
+        return new AssignmentTupleDto(
+                tuple.title(),
+                tuple.assigneeCandidateMemberId(),
+                tuple.assigneeSource() != null ? tuple.assigneeSource().name() : null,
+                tuple.dueDate() != null ? tuple.dueDate().toString() : null,
+                tuple.evidenceUtteranceId());
+    }
+
+    private ViewResultDto viewOf(List<ViewResultDto> results, String view) {
+        if (results == null) {
+            return null;
+        }
+        return results.stream()
+                .filter(Objects::nonNull)
+                .filter(result -> view.equals(result.view()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /*
+     * 실패한 관점을 로그로 남긴다. 저장하지는 않는다 — 판정 결과(agree=false)에 이미 반영돼
+     * 있고, 실패 사유는 사람이 고칠 것을 가리키는 운영 정보다.
+     *
+     * 남기는 이유: agree=false 의 원인이 '두 관점이 갈렸다'인지 '한쪽이 죽었다'인지가 다르다.
+     * 후자가 계속 쌓이면 고칠 것은 프롬프트가 아니라 코드인데, 저장된 값만 보면 둘이 같아 보인다.
+     */
+    private void logFailedViews(List<ViewResultDto> results) {
+        if (results == null) {
+            return;
+        }
+        results.stream()
+                .filter(Objects::nonNull)
+                .filter(result -> result.error() != null)
+                .forEach(result -> log.warn("L5 관점 실패 — view={} error={}", result.view(), result.error()));
     }
 
     /*
