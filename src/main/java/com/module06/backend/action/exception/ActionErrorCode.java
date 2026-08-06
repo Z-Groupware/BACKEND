@@ -28,7 +28,8 @@ public enum ActionErrorCode implements ErrorCode {
     NOT_ACTION_ASSIGNEE(HttpStatus.FORBIDDEN, "AC-002", "담당자만 수행할 수 있습니다."),
     NOT_TEAM_LEADER(HttpStatus.FORBIDDEN, "AC-003", "해당 팀의 리더만 수행할 수 있습니다."),
     CHECKLIST_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-004", "존재하지 않는 체크리스트 항목입니다."),
-    INVALID_ACTION_TYPE_SHAPE(HttpStatus.BAD_REQUEST, "AC-005", "액션 종류(TEAM/PERSONAL)에 맞지 않는 필드 조합입니다.");
+    INVALID_ACTION_TYPE_SHAPE(HttpStatus.BAD_REQUEST, "AC-005", "액션 종류(TEAM/PERSONAL)에 맞지 않는 필드 조합입니다."),
+    ACTION_PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-006", "존재하지 않거나 접근할 수 없는 프로젝트입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
