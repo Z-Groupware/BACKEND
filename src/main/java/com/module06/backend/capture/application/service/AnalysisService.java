@@ -41,8 +41,20 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     private final MeetingSummaryRepository meetingSummaryRepository;
     private final MeetingParticipantProvider participantProvider;
 
+    /*
+     * 회사 스코프 관문. 세 유스케이스가 **전부** 이걸 먼저 지난다.
+     *
+     * 각자 조회 조건에 회사를 끼워 넣는 방식으로 두면 언젠가 한 곳이 빠지고 그 API 만 조용히
+     * 뚫린다 — CAP-06 이 실제로 그랬다(companyId 를 받아놓고 쓰지 않았다 · 이슈 #100).
+     * SecurityConfig(기본 잠금)와 @PreAuthorize(역할)는 "이 회의가 그 사람 회사 것인가"를
+     * 보지 않는다. 그 층이 여기다.
+     */
+    private final MeetingAccessGuard meetingAccessGuard;
+
     @Override
     public AnalysisOutcome run(long companyId, long meetingId, boolean force) {
+        meetingAccessGuard.requireAccessible(companyId, meetingId);
+
         ProcessingStatus current = ProcessingStatus.of(layerProgress(meetingId));
 
         if (current.status() == ProcessingStatus.OverallStatus.RUNNING) {
@@ -64,12 +76,18 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     @Override
     @Transactional(readOnly = true)
     public ProcessingStatus getProcessingStatus(long companyId, long meetingId) {
+        // analysis_layer 에는 company_id 가 없다. 그래서 조회 조건으로는 회사를 막을 수 없고,
+        // 관문을 먼저 지나는 것이 유일한 방법이다(이 검증이 빠져 뚫려 있던 자리다).
+        meetingAccessGuard.requireAccessible(companyId, meetingId);
+
         return ProcessingStatus.of(layerProgress(meetingId));
     }
 
     @Override
     @Transactional(readOnly = true)
     public MeetingSummaryView getSummary(long companyId, long meetingId) {
+        meetingAccessGuard.requireAccessible(companyId, meetingId);
+
         // 분석 전이면 빈 요약을 지어내지 않고 404 다. 빈 결과를 200 으로 돌려주면
         // 화면이 "요약할 내용이 없는 회의"로 읽고, 분석이 안 돌았다는 사실이 사라진다.
         return meetingSummaryRepository.findByMeeting(companyId, meetingId)
