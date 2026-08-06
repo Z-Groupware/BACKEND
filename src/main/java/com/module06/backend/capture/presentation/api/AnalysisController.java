@@ -14,9 +14,11 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
+import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
@@ -48,6 +50,7 @@ public class AnalysisController {
     private final RunAnalysisUseCase runAnalysisUseCase;
     private final GetProcessingStatusUseCase getProcessingStatusUseCase;
     private final GetSummaryUseCase getSummaryUseCase;
+    private final GetActionReviewUseCase getActionReviewUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -87,6 +90,34 @@ public class AnalysisController {
                 "처리 상태를 조회했습니다.",
                 ProcessingStatusResponse.from(
                         getProcessingStatusUseCase.getProcessingStatus(me.getCompanyId(), meetingId)));
+    }
+
+    /*
+     * RVW-01 · 액션 분배 검토 조회.
+     *
+     * 파이프라인 산출물을 **사람이 처음 보는 자리**다. L7 이 가른 두 묶음(「AI 확신도 높음」 ·
+     * 「AI 확인 필요」)이 여기서 화면으로 나간다.
+     *
+     * ⚠ 분배(RVW-05)가 아직 없어 dispatchedAt 은 항상 null 이다. 자동 확정 건도 분배
+     * 전까지는 아무 데도 가 있지 않다는 뜻이 그 값으로 드러난다.
+     */
+    @Operation(
+            summary = "액션 분배 검토 조회 (RVW-01)",
+            description = "회의에서 도출된 액션을 담당자별로 묶어 조회한다. "
+                    + "게이트 신호와 근거 발화를 함께 내려주며, 모델이 말한 확신도 숫자는 없다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping("/review")
+    public ApiResponse<ActionReviewResponse> getReview(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Parameter(description = "PENDING 으로 검토 대상만 필터. 생략하면 전체")
+            @RequestParam(required = false) String reviewStatus
+    ) {
+        return ApiResponse.success(
+                "조회 성공",
+                ActionReviewResponse.from(
+                        getActionReviewUseCase.getReview(me.getCompanyId(), meetingId, reviewStatus)));
     }
 
     /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */
