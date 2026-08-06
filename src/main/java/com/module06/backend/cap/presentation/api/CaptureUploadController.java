@@ -45,8 +45,6 @@ public class CaptureUploadController {
             summary = "청크 업로드 URL 배치 발급",
             description = "청크를 올릴 수 있는 presigned URL을 count개 발급합니다. 첫 호출자가 자동으로 녹음자가 됩니다."
     )
-    // SecurityConfig authenticated()와 이중 방어(anyRequest permitAll 기본값 사고 방지). "현재 녹음자" 검증은
-    // 서비스가 담당하므로, Spring 층에선 "로그인한 사용자 누구나"를 base role 전부 나열로 표현한다.
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @PostMapping("/presign")
     public ApiResponse<PresignedPartsResponse> presign(

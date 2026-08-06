@@ -130,6 +130,11 @@ class CapturePartStatusServiceTest {
             }
 
             @Override
+            public boolean isHost(Long meetingId, Long memberId) {
+                return false;
+            }
+
+            @Override
             public Optional<Long> findCompanyId(Long meetingId) {
                 return Optional.of(1L);
             }

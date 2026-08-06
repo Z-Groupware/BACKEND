@@ -15,6 +15,9 @@ public interface MeetingReferenceRepository {
     /** 이 사람이 회의 참석자 명단에 있는지 */
     boolean isAttendee(Long meetingId, Long memberId);
 
+    /** 이 사람이 회의 담당자(Host)인지 — 수동 녹음 업로드(CAP-10)는 Host만 가능. */
+    boolean isHost(Long meetingId, Long memberId);
+
     /** S3 키 경로(org-{companyId}/meeting-{meetingId}/...) 조립용. 회의가 없으면 empty. */
     Optional<Long> findCompanyId(Long meetingId);
 }

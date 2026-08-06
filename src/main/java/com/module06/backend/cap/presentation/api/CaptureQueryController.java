@@ -29,9 +29,6 @@ public class CaptureQueryController {
                     + "첫 단추이며, canTakeover가 true면 다른 참석자가 이어받기(presign 호출)를 할 수 있습니다. "
                     + "진행 중인 캡처가 없으면 data는 null입니다."
     )
-    // 참석자 전원 가능(명세). "누구나 로그인 사용자" 표현은 코드베이스 관용구인 base role 전부 나열로 맞춘다.
-    // SecurityConfig의 authenticated()와 이중 방어 — anyRequest가 permitAll이라, 경로 등록을 빠뜨려도
-    // 이 어노테이션이 컨트롤러에 붙어 있어 무방비 공개를 막는다(회의 참석자 스코프는 조회 쿼리가 담당).
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @GetMapping("/active")
     public ApiResponse<ActiveCaptureResponse> active(

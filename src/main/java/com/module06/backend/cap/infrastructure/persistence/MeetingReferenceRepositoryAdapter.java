@@ -30,6 +30,14 @@ public class MeetingReferenceRepositoryAdapter implements MeetingReferenceReposi
         return springDataCapMeetingAttendeeReferenceRepository.existsById(new MeetingAttendeeId(meetingId, memberId));
     }
 
+    // meeting.host_member_id와 비교 — 이 사람이 회의 담당자(Host)인지 확인
+    @Override
+    public boolean isHost(Long meetingId, Long memberId) {
+        return springDataCapMeetingReferenceRepository.findById(meetingId)
+                .map(meeting -> memberId != null && memberId.equals(meeting.getHostMemberId()))
+                .orElse(false);
+    }
+
     // meeting 테이블에서 company_id(조직 id)만 뽑아옴 — S3 키 조립용
     @Override
     public Optional<Long> findCompanyId(Long meetingId) {
