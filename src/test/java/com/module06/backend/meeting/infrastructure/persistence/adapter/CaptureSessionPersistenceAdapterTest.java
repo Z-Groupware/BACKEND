@@ -27,13 +27,16 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.module06.backend.global.exception.BusinessException;
-import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.application.command.PauseCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.ResumeCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
-import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
 import com.module06.backend.meeting.application.result.CaptureSessionPauseResult;
+import com.module06.backend.meeting.application.result.CaptureSessionResumeResult;
+import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
 import com.module06.backend.meeting.application.usecase.PauseCaptureSessionUseCase;
+import com.module06.backend.meeting.application.usecase.ResumeCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
@@ -44,13 +47,13 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingReservationSlotRepository;
 
 /*
- * CAP-01의 실제 JPA 저장과 meeting_id UNIQUE 동시성 관문을 H2 스키마에서 검증한다.
+ * CAP-01~03의 실제 JPA 저장과 UNIQUE·상태 전이 동시성 관문을 H2 스키마에서 검증한다.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:cap01db;MODE=MySQL;LOCK_TIMEOUT=10000;DB_CLOSE_DELAY=-1"
 })
-@DisplayName("CAP-01 캡처 세션 영속성 어댑터")
+@DisplayName("CAP-01~03 캡처 세션 영속성 어댑터")
 class CaptureSessionPersistenceAdapterTest {
 
     /* 실제 트랜잭션 프록시를 거쳐 CAP-01 전체 흐름을 실행하는 인바운드 Port다. */
@@ -60,6 +63,10 @@ class CaptureSessionPersistenceAdapterTest {
     /* 실제 트랜잭션과 세션 행 잠금을 거쳐 CAP-02 상태 전이를 실행하는 인바운드 Port다. */
     @Autowired
     private PauseCaptureSessionUseCase pauseCaptureSessionUseCase;
+
+    /* 실제 트랜잭션과 세션 행 잠금을 거쳐 CAP-03 상태 전이를 실행하는 인바운드 Port다. */
+    @Autowired
+    private ResumeCaptureSessionUseCase resumeCaptureSessionUseCase;
 
     /* 테스트용 회의와 예약 슬롯·참석자를 원자적으로 저장하는 도메인 저장소다. */
     @Autowired
@@ -198,6 +205,44 @@ class CaptureSessionPersistenceAdapterTest {
                 });
     }
 
+    /* 저장된 PAUSED 세션을 실제 잠금 조회 후 ACTIVE 상태로 갱신하는지 검증한다. */
+    @Test
+    @DisplayName("PAUSED 캡처 세션을 잠그고 ACTIVE 상태로 재개한다")
+    void resumesPersistedCaptureSession() {
+        /* 진행 중 회의를 만들고 CAP-01·02로 실제 PAUSED 캡처 세션을 먼저 저장한다. */
+        Meeting meeting = saveInProgressMeeting();
+        CaptureSessionStartResult started = startCaptureSessionUseCase.startCaptureSession(
+                new StartCaptureSessionCommand(10L, 3L, meeting.getId())
+        );
+        pauseCaptureSessionUseCase.pauseCaptureSession(
+                new PauseCaptureSessionCommand(10L, 3L, meeting.getId())
+        );
+
+        /* 같은 host가 CAP-03을 호출해 저장된 세션을 ACTIVE로 재개한다. */
+        CaptureSessionResumeResult resumed = resumeCaptureSessionUseCase.resumeCaptureSession(
+                new ResumeCaptureSessionCommand(10L, 3L, meeting.getId())
+        );
+
+        /* 세션 ID는 유지되고 공개 결과가 ACTIVE·isPaused false를 반환해야 한다. */
+        assertThat(resumed.captureSessionId()).isEqualTo(started.captureSessionId());
+        assertThat(resumed.status().name()).isEqualTo("ACTIVE");
+        assertThat(resumed.isPaused()).isFalse();
+        assertThat(resumed.resumedAt()).isNotNull();
+
+        /* 실제 capture_session 행도 ACTIVE이며 시작 시간축은 유지되고 pausedAt만 비워져야 한다. */
+        assertThat(springDataCaptureSessionRepository.findById(started.captureSessionId()))
+                .get()
+                .satisfies(entity -> {
+                    /* CAP-03은 새 행을 만들지 않고 기존 세션의 생명주기 값만 갱신한다. */
+                    assertThat(entity.getStatus().name()).isEqualTo("ACTIVE");
+                    assertThat(entity.getPausedAt()).isNull();
+                    assertThat(entity.getStartedAtEpochMs()).isEqualTo(started.startedAtEpochMs());
+                    assertThat(entity.getUpdatedAt())
+                            .isCloseTo(resumed.resumedAt(), within(1L, ChronoUnit.MICROS));
+                    assertThat(entity.getEndedAt()).isNull();
+                });
+    }
+
     /* 같은 ACTIVE 세션의 동시 일시정지가 성공 1건과 CS-004 1건으로 수렴하는지 검증한다. */
     @Test
     @DisplayName("동일 세션 동시 일시정지는 성공 1건과 CS-004 1건으로 직렬화한다")
@@ -237,6 +282,50 @@ class CaptureSessionPersistenceAdapterTest {
         assertThat(springDataCaptureSessionRepository.findAll())
                 .singleElement()
                 .satisfies(entity -> assertThat(entity.getStatus().name()).isEqualTo("PAUSED"));
+    }
+
+    /* 같은 PAUSED 세션의 동시 재개가 성공 1건과 CS-005 1건으로 수렴하는지 검증한다. */
+    @Test
+    @DisplayName("동일 세션 동시 재개는 성공 1건과 CS-005 1건으로 직렬화한다")
+    void allowsOnlyOneConcurrentResumeTransition() throws Exception {
+        /* 진행 중 회의와 PAUSED 캡처 세션을 실제 데이터베이스에 먼저 커밋한다. */
+        Meeting meeting = saveInProgressMeeting();
+        startCaptureSessionUseCase.startCaptureSession(
+                new StartCaptureSessionCommand(10L, 3L, meeting.getId())
+        );
+        pauseCaptureSessionUseCase.pauseCaptureSession(
+                new PauseCaptureSessionCommand(10L, 3L, meeting.getId())
+        );
+        ResumeCaptureSessionCommand command = new ResumeCaptureSessionCommand(10L, 3L, meeting.getId());
+
+        /* 두 요청이 준비된 뒤 같은 순간에 CAP-03 트랜잭션을 열도록 시작 장벽을 만든다. */
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        /* 첫 번째 재개 요청의 성공 또는 공개 오류 코드를 비동기로 수집한다. */
+        CompletableFuture<String> first = CompletableFuture.supplyAsync(
+                () -> executeConcurrentResume(command, ready, start),
+                executorService
+        );
+
+        /* 두 번째 요청도 같은 host와 회의로 동시에 실행한다. */
+        CompletableFuture<String> second = CompletableFuture.supplyAsync(
+                () -> executeConcurrentResume(command, ready, start),
+                executorService
+        );
+
+        /* 두 작업이 공통 시작선에 도달하면 잠금을 놓고 경쟁하게 한다. */
+        assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+
+        /* 세션 행 잠금으로 한 요청만 전이하고 다른 요청은 최신 ACTIVE를 읽어 CS-005가 돼야 한다. */
+        assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                .containsExactlyInAnyOrder("SUCCESS", "CS-005");
+
+        /* 경합 뒤에도 세션은 하나이며 최종 상태는 ACTIVE여야 한다. */
+        assertThat(springDataCaptureSessionRepository.findAll())
+                .singleElement()
+                .satisfies(entity -> assertThat(entity.getStatus().name()).isEqualTo("ACTIVE"));
     }
 
     /* 같은 회의에 동시에 들어온 두 시작 요청이 하나의 세션만 만드는지 검증한다. */
@@ -321,6 +410,33 @@ class CaptureSessionPersistenceAdapterTest {
             return "SUCCESS";
         } catch (BusinessException exception) {
             /* 두 번째 요청은 잠금 이후 최신 PAUSED 상태를 보고 CS-004를 반환해야 한다. */
+            return exception.getErrorCode().getCode();
+        } catch (InterruptedException exception) {
+            /* 인터럽트 상태를 복원해 테스트 실행기의 종료 신호를 잃지 않게 한다. */
+            Thread.currentThread().interrupt();
+            return "INTERRUPTED";
+        }
+    }
+
+    /* 동시 CAP-03 요청 하나를 실행하고 성공 또는 BusinessException 공개 코드를 반환한다. */
+    private String executeConcurrentResume(
+            ResumeCaptureSessionCommand command,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) {
+        try {
+            /* 현재 스레드가 준비됐음을 알리고 두 요청의 공통 시작 신호를 기다린다. */
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                /* 장벽 시간 초과를 비즈니스 오류와 구분해 테스트 실패 결과로 반환한다. */
+                return "START_TIMEOUT";
+            }
+
+            /* Spring 프록시의 실제 트랜잭션 안에서 CAP-03을 실행한다. */
+            resumeCaptureSessionUseCase.resumeCaptureSession(command);
+            return "SUCCESS";
+        } catch (BusinessException exception) {
+            /* 두 번째 요청은 잠금 이후 최신 ACTIVE 상태를 보고 CS-005를 반환해야 한다. */
             return exception.getErrorCode().getCode();
         } catch (InterruptedException exception) {
             /* 인터럽트 상태를 복원해 테스트 실행기의 종료 신호를 잃지 않게 한다. */

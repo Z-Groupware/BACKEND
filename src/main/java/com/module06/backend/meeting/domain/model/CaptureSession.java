@@ -30,7 +30,7 @@ public class CaptureSession {
     /* 모든 자막·청크 오프셋이 공유하는 서버 기준 Unix epoch 밀리초다. */
     private final long startedAtEpochMs;
 
-    /* 마지막 일시정지 시각이며 아직 일시정지되지 않았으면 null이다. */
+    /* 현재 PAUSED 상태가 시작된 시각이며 ACTIVE·ENDED 상태에서는 null일 수 있다. */
     private final LocalDateTime pausedAt;
 
     /* 세션 종료 시각이며 종료 전에는 null이다. */
@@ -163,6 +163,38 @@ public class CaptureSession {
                 endedAt,
                 createdAt,
                 pausedAt
+        );
+    }
+
+    /* PAUSED 세션을 같은 식별자와 시간축을 유지한 ACTIVE 상태로 전이한다. */
+    public CaptureSession resume(LocalDateTime resumedAt) {
+        /* 이미 ACTIVE인 세션에 재개를 반복하는 잘못된 내부 호출을 차단한다. */
+        if (status == CaptureSessionStatus.ACTIVE) {
+            throw new IllegalStateException("이미 활성 상태인 캡처 세션입니다.");
+        }
+
+        /* 종료된 세션을 다시 활성 상태로 되돌리는 상태 역행을 차단한다. */
+        if (status == CaptureSessionStatus.ENDED) {
+            throw new IllegalStateException("종료된 캡처 세션은 재개할 수 없습니다.");
+        }
+
+        /* 재개 시각은 마지막 일시정지 시각보다 빠를 수 없고 null일 수도 없다. */
+        if (resumedAt == null || pausedAt == null || resumedAt.isBefore(pausedAt)) {
+            throw new IllegalArgumentException("캡처 재개 시각은 마지막 일시정지 시각 이후여야 합니다.");
+        }
+
+        /* 세션 ID·시간축·시작자는 유지하고 상태와 수정 시각만 현재 재개 시점으로 변경한다. */
+        return new CaptureSession(
+                id,
+                meetingId,
+                startedBy,
+                CaptureSessionStatus.ACTIVE,
+                startedAt,
+                startedAtEpochMs,
+                null,
+                endedAt,
+                createdAt,
+                resumedAt
         );
     }
 }
