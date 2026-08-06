@@ -113,14 +113,14 @@ class TeamControllerTest {
     }
 
     @Test
-    @DisplayName("부서명이 5자를 넘으면 400으로 거절한다")
-    void createRejectsNameLongerThanFiveChars() throws Exception {
+    @DisplayName("부서명이 10자를 넘으면 400으로 거절한다")
+    void createRejectsNameLongerThanTenChars() throws Exception {
         authenticateAs(1L);
 
         mockMvc.perform(post("/api/teams")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                { "name": "여섯글자이름", "parentTeamId": null }
+                                { "name": "열한글자짜리부서이름입니다", "parentTeamId": null }
                                 """))
                 .andExpect(status().isBadRequest());
 

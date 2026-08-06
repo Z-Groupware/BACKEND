@@ -7,9 +7,9 @@ import jakarta.validation.constraints.Size;
 @Schema(description = "부서 이름 수정")
 public record RenameTeamRequest(
 
-        @Schema(description = "부서명 (5자 이하)", example = "제품개발팀")
+        @Schema(description = "부서명 (10자 이하)", example = "제품개발팀")
         @NotBlank(message = "부서명을 입력해 주세요.")
-        @Size(max = 5, message = "부서명은 5자 이하로 입력해 주세요.")
+        @Size(max = 10, message = "부서명은 10자 이하로 입력해 주세요.")
         String name
 ) {
 }
