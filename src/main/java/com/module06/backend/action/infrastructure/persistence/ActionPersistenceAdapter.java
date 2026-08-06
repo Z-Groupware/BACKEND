@@ -18,7 +18,11 @@ import lombok.RequiredArgsConstructor;
 /* comment.
     domain의 ActionRepository 계약을 JPA로 구현하는 어댑터(의존성 역전의 실행 지점).
     책임 두 가지 — Spring Data 호출 위임, 그리고 ActionJpaEntity ↔ Action 변환.
-    이번 슬라이스(ActionReassignPort 배선)에 필요한 메서드만 우선 구현.
+    착수한 슬라이스에 필요한 메서드만 구현해 나간다.
+
+    saveAll은 AI 분배(ActionDistributionPort)의 벌크 생성용이다. Spring Data의 saveAll이
+    입력 iteration 순서대로 결과를 돌려주므로 그 순서를 그대로 흘려보낸다 — 호출자가 채번된
+    id를 원본 분배 입력과 인덱스로 짝짓기 때문에 여기서 정렬을 바꾸면 안 된다.
 
     findHandoverablePersonalActions·findTeamActionsByLeaderMemberId는 원래 JPQL로 다른
     엔티티와 직접 조인했으나 CI Gate 1(QUERY_002, 신규 @Query 금지)에 걸려 2단계 파생 쿼리로
@@ -43,23 +47,18 @@ public class ActionPersistenceAdapter implements ActionRepository {
 
     @Override
     public Action save(Action action) {
-        ActionJpaEntity entity = ActionJpaEntity.builder()
-                .id(action.getId())
-                .companyId(action.getCompanyId())
-                .projectId(action.getProjectId())
-                .parentActionId(action.getParentActionId())
-                .sourceMeetingId(action.getSourceMeetingId())
-                .teamId(action.getTeamId())
-                .assigneeMemberId(action.getAssigneeMemberId())
-                .actionType(action.getActionType())
-                .title(action.getTitle())
-                .description(action.getDescription())
-                .status(action.getStatus())
-                .dueDate(action.getDueDate())
-                .confirmedAt(action.getConfirmedAt())
-                .build();
+        return toDomain(springDataActionRepository.save(toEntity(action)));
+    }
 
-        return toDomain(springDataActionRepository.save(entity));
+    @Override
+    public List<Action> saveAll(List<Action> actions) {
+        if (actions.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionRepository.saveAll(actions.stream().map(this::toEntity).toList()).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     @Override
@@ -102,6 +101,30 @@ public class ActionPersistenceAdapter implements ActionRepository {
                 .toList();
     }
 
+    private ActionJpaEntity toEntity(Action action) {
+        return ActionJpaEntity.builder()
+                .id(action.getId())
+                .companyId(action.getCompanyId())
+                .projectId(action.getProjectId())
+                .parentActionId(action.getParentActionId())
+                .sourceMeetingId(action.getSourceMeetingId())
+                .teamId(action.getTeamId())
+                .assigneeMemberId(action.getAssigneeMemberId())
+                .actionType(action.getActionType())
+                .title(action.getTitle())
+                .description(action.getDescription())
+                .status(action.getStatus())
+                .dueDate(action.getDueDate())
+                .dueDateDefaulted(action.isDueDateDefaulted())
+                .reviewStatus(action.getReviewStatus())
+                .assigneeSource(action.getAssigneeSource())
+                .evidenceTranscriptId(action.getEvidenceTranscriptId())
+                .gateSignals(action.getGateSignals())
+                .isManual(action.isManual())
+                .confirmedAt(action.getConfirmedAt())
+                .build();
+    }
+
     private Action toDomain(ActionJpaEntity entity) {
         return Action.reconstitute(
                 entity.getId(),
@@ -116,6 +139,12 @@ public class ActionPersistenceAdapter implements ActionRepository {
                 entity.getDescription(),
                 entity.getStatus(),
                 entity.getDueDate(),
+                entity.isDueDateDefaulted(),
+                entity.getReviewStatus(),
+                entity.getAssigneeSource(),
+                entity.getEvidenceTranscriptId(),
+                entity.getGateSignals(),
+                entity.isManual(),
                 entity.getConfirmedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
