@@ -59,17 +59,18 @@ import com.module06.backend.capture.domain.model.Utterance;
  * → meeting_summary·meeting_decision 저장 → 주제마다 L3.5(확정/논의 게이트) → gate_status 반영
  * → 주제마다 L4(tuple 추출) → meeting_assignment_tuple 저장
  * → tuple 마다 L5(관점 다변화 검증) → 그 행에 판정 반영
- * → L6(규칙·모순 검사) → L7(자동확정 게이트).
+ * → L6(규칙·모순 검사) → L7(자동확정 게이트) → 분배(action 생성 · DIST).
  * **파이프라인은 여기서 끝난다.**
  *
  * 호출 단위가 계층마다 다르다 — 회의당 1회(L1·L1.5·L2·L6·L7) · 주제당 1회(L3·L3.5·L4) ·
  * tuple 당 1회(L5). 단위는 각 계층의 Python 요청이 무엇을 하나로 받는지가 정하고,
  * 코드 계층은 그 판정이 무엇을 한꺼번에 봐야 하는지가 정한다(L6 의 중복 검사가 그렇다).
  *
- * <h2>파이프라인이 끝나도 action 은 만들어지지 않는다</h2>
- * L7 은 tuple 을 「AI 확신도 높음」과 「AI 확인 필요」로 가르는 것까지다. 자동 확정 건도
- * **분배 전까지는 아무 데도 가 있지 않다**(명세 RVW-01). 실제 분배는 RVW-05 가 사람의
- * 확인을 받아 하고, action 은 C 도메인 소유라 전이 메서드도 그쪽 것이다.
+ * <h2>파이프라인이 끝나면 분배가 이어진다</h2>
+ * L7 이 tuple 을 「AI 확신도 높음」과 「AI 확인 필요」로 가르고, 그 두 묶음이 **전부** action
+ * 으로 만들어진다(08/05 확정 · ActionDistributionPort 주석). 만들어진 액션은 PENDING 이고
+ * 보드 노출은 review_status 로 걸러진다 — 자동 확정 건도 **RVW-05 의 확정 전까지는 아무 데도
+ * 가 있지 않다**(명세 RVW-01). 액션을 만드는 것 자체는 C 도메인이 하고, A 는 그 포트를 부른다.
  *
  * L1·L6·L7 이 **코드 계층**이다(LLM 아님 · 토큰 0). 나머지는 Python 계층 호출이다.
  * 계층을 하나 붙일 때 바꾸는 곳은 {@link #run} 안의 호출 순서와 {@link #RUN_LAYERS} 두 곳이고,
@@ -106,7 +107,7 @@ public class AnalysisOrchestrator {
      * 빠뜨리면 "전부 완료" 판정이 새 계층을 안 보고 생략을 결정한다. */
     private static final Set<LayerName> RUN_LAYERS = Set.of(
             LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
-            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7);
+            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
 
     private final TranscriptRepository transcriptRepository;
     private final CaptionRepository captionRepository;
@@ -117,6 +118,7 @@ public class AnalysisOrchestrator {
     private final SpeakerAttributionResolver speakerAttributionResolver;
     private final ConflictDetector conflictDetector;
     private final AutoConfirmGate autoConfirmGate;
+    private final TupleDistributionService tupleDistributionService;
     private final AiLayerPort aiLayerPort;
 
     /*
@@ -530,24 +532,23 @@ public class AnalysisOrchestrator {
 
         // ── L7 · 자동확정 게이트 (코드 계층 · LLM 아님) ─────────────────────────
         /*
-         * 파이프라인의 마지막이다. 여기서 가른 두 묶음이 곧 검토 화면의
+         * 계층의 마지막이다. 여기서 가른 두 묶음이 곧 검토 화면의
          * 「AI 확신도 높음」과 「AI 확인 필요」다.
          *
-         * <h2>action 을 만들지 않는다</h2>
-         * 자동 확정 건도 **분배 전까지는 아무 데도 가 있지 않다**(명세 RVW-01). 실제 분배는
-         * RVW-05 가 사람의 확인을 받아 하고, 그때 action_id 가 채워진다. 여기서 action 을
-         * 만들면 검토를 거치지 않은 배정이 사람의 보드에 꽂히고, 되돌리려면 이미 알림이 나간
-         * 액션을 지워야 한다. action 은 C 도메인 소유라 전이 메서드도 그쪽 것이다.
+         * <h2>action 을 만들지 않는다 — 만드는 것은 다음 단계(DIST)다</h2>
+         * 여기서 액션까지 만들면 게이트 판정과 분배가 한 잠금 안에 묶인다. 판정은 우리 데이터로
+         * 언제든 다시 낼 수 있지만 액션은 이미 만들어진 것을 회수해야 하므로, 두 단계를 나눠
+         * 각자의 잠금과 상태를 갖게 한다 — 분배가 실패해도 게이트 결과는 DONE 으로 남는다.
          *
          * <h2>L6 뒤에 도는 이유</h2>
          * 모순이 있으면 신호 넷과 무관하게 자동확정하지 않는다. 순서를 뒤집으면 모순을 모르는
          * 채로 게이트를 통과시키게 된다.
          */
-        LayerOutcome<Integer> gated7 = runLayer(meetingId, LayerName.L7, sink -> {
+        LayerOutcome<Map<Long, AutoConfirmGate.Verdict>> gated7 = runLayer(meetingId, LayerName.L7, sink -> {
             List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
             if (stored.isEmpty()) {
                 log.info("L7 생략 — 판정할 tuple 이 없다. meetingId={}", meetingId);
-                return new Accumulated<>(0, LayerRun.empty());
+                return new Accumulated<>(Map.of(), LayerRun.empty());
             }
 
             Map<Long, AutoConfirmGate.Verdict> verdicts = autoConfirmGate.evaluate(
@@ -563,18 +564,41 @@ public class AnalysisOrchestrator {
                         meetingId, rows.size(), applied);
             }
 
-            long autoConfirmed = verdicts.values().stream()
-                    .filter(AutoConfirmGate.Verdict::autoConfirmed).count();
-            return new Accumulated<>((int) autoConfirmed, LayerRun.empty());
+            return new Accumulated<>(verdicts, LayerRun.empty());
         });
         if (!gated7.succeeded()) {
             return gated7.toAnalysisOutcome(LayerName.L7);
         }
 
-        log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건 자동확정 {}건",
+        // ── DIST · 액션 분배 (코드 단계 · LLM 아님) ──────────────────────────────
+        /*
+         * tuple 을 action 으로 넘긴다. 파이프라인 산출물이 **처음 A 밖으로 나가는 자리**다.
+         * 08/05 확정대로 분석 직후에 만들고, 보드 노출은 review_status 가 막는다.
+         *
+         * <h2>두 묶음을 모두 넘긴다</h2>
+         * 게이트를 통과한 것만 만들면 「AI 확인 필요」 묶음이 검토 화면에 아예 나타나지 않는다 —
+         * 사람이 봐야 하는 쪽이 그쪽인데 볼 방법이 없어진다.
+         *
+         * <h2>계층이 아니지만 runLayer 로 감싼다</h2>
+         * 잠금이 필요하다. SQS 는 at-least-once 라 같은 회의가 두 번 들어오는 일이 언젠가
+         * 반드시 있고, 그때 만들어지는 것은 사람 보드에 두 번 꽂히는 액션이다. 상태를 남기는
+         * 이유도 같다 — "분석은 완료인데 액션이 없는" 회의가 왜 그런지 CAP-06 으로 보여야 한다.
+         */
+        LayerOutcome<Integer> distributed = runLayer(meetingId, LayerName.DIST, sink ->
+                // 토큰을 쓰지 않는다. 모델을 부르지 않으므로 실제로 0 이다.
+                new Accumulated<>(
+                        tupleDistributionService.distribute(companyId, meetingId, gated7.value()),
+                        LayerRun.empty()));
+        if (!distributed.succeeded()) {
+            return distributed.toAnalysisOutcome(LayerName.DIST);
+        }
+
+        long autoConfirmed = gated7.value().values().stream()
+                .filter(AutoConfirmGate.Verdict::autoConfirmed).count();
+        log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건 자동확정 {}건 액션 {}건",
                 meetingId, decisions.size(),
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
-                extracted.value(), verified.value(), gated7.value());
+                extracted.value(), verified.value(), autoConfirmed, distributed.value());
         return AnalysisOutcome.done(decisions.size());
     }
 

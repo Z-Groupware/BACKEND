@@ -162,4 +162,35 @@ public class MeetingAssignmentTuplePersistenceAdapter implements AssignmentTuple
         }
         return applied;
     }
+
+    /*
+     * 분배 결과를 되짚는다. 이미 action_id 가 있는 행은 엔티티가 거절하므로(applyDistribution)
+     * 반영 건수가 요청보다 적을 수 있다 — 그건 "이미 분배된 행이 섞여 있었다"는 뜻이고,
+     * 호출부가 그 차이를 보고 경고를 남긴다.
+     */
+    @Override
+    @Transactional
+    public int applyDistribution(long meetingId, List<TupleDistribution> distributions) {
+        Map<Long, TupleDistribution> byTupleId = new LinkedHashMap<>();
+        for (TupleDistribution distribution : distributions) {
+            if (distribution.tupleId() != null) {
+                byTupleId.put(distribution.tupleId(), distribution);
+            }
+        }
+        if (byTupleId.isEmpty()) {
+            return 0;
+        }
+
+        List<MeetingAssignmentTupleJpaEntity> rows =
+                tupleRepository.findByMeetingIdAndIdIn(meetingId, byTupleId.keySet());
+
+        int applied = 0;
+        for (MeetingAssignmentTupleJpaEntity row : rows) {
+            TupleDistribution distribution = byTupleId.get(row.getId());
+            if (distribution != null && row.applyDistribution(distribution.actionId())) {
+                applied++;
+            }
+        }
+        return applied;
+    }
 }
