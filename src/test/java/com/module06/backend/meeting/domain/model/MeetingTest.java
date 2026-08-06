@@ -1,6 +1,7 @@
 package com.module06.backend.meeting.domain.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -76,6 +77,51 @@ class MeetingTest {
         Meeting reentered = inProgress.enter(LocalDateTime.of(2026, 8, 6, 14, 10));
         assertThat(reentered).isSameAs(inProgress);
         assertThat(reentered.getStartedAt()).isEqualTo(firstEntryAt);
+    }
+
+    /* 진행 중 회의 종료가 DONE 상태와 실측 시간을 만드는지 검증한다. */
+    @Test
+    @DisplayName("진행 중 회의를 DONE으로 전이하고 실제 진행 분을 계산한다")
+    void completesInProgressMeetingAndCalculatesDuration() {
+        /* 최초 입장 시각이 13시 58분 12초인 진행 중 회의를 준비한다. */
+        Meeting inProgress = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L, 11L)
+        ).enter(LocalDateTime.of(2026, 8, 6, 13, 58, 12));
+
+        /* 예약 종료와 무관한 실제 15시 2분 40초에 회의를 종료한다. */
+        Meeting completed = inProgress.complete(LocalDateTime.of(2026, 8, 6, 15, 2, 40));
+
+        /* 상태와 실제 종료 시각이 바뀌고 잔여 초를 버린 64분이 반환돼야 한다. */
+        assertThat(completed.getStatus()).isEqualTo(MeetingStatus.DONE);
+        assertThat(completed.getStartedAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 13, 58, 12));
+        assertThat(completed.getEndedAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 15, 2, 40));
+        assertThat(completed.actualDurationMinutes()).isEqualTo(64L);
+
+        /* 종료 전 확정된 참석자 명단은 상태 전이 뒤에도 동일해야 한다. */
+        assertThat(completed.getAttendeeMemberIds()).containsExactly(3L, 7L, 11L);
+    }
+
+    /* 시작되지 않았거나 이미 종료된 회의의 잘못된 완료 전이를 검증한다. */
+    @Test
+    @DisplayName("SCHEDULED와 DONE 회의의 종료 전이를 거절한다")
+    void rejectsInvalidCompletionTransitions() {
+        /* 아직 입장하지 않은 예약 회의는 바로 DONE으로 건너뛸 수 없다. */
+        Meeting scheduled = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L)
+        );
+        assertThatThrownBy(() -> scheduled.complete(LocalDateTime.of(2026, 8, 6, 15, 0)))
+                .isInstanceOf(IllegalStateException.class);
+
+        /* 한 번 완료된 회의는 분석 중복 트리거를 막기 위해 다시 완료할 수 없다. */
+        Meeting completed = scheduled
+                .enter(LocalDateTime.of(2026, 8, 6, 13, 58))
+                .complete(LocalDateTime.of(2026, 8, 6, 15, 0));
+        assertThatThrownBy(() -> completed.complete(LocalDateTime.of(2026, 8, 6, 15, 1)))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     /* 테스트마다 동일한 필수값으로 신규 회의를 생성한다. */

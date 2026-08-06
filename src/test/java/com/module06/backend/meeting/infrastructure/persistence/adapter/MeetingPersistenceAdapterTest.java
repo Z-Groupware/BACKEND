@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
@@ -37,6 +38,10 @@ class MeetingPersistenceAdapterTest {
     /* MEET-07에서 회의 행 잠금 조회와 상태 저장에 사용하는 도메인 저장소 계약이다. */
     @Autowired
     private MeetingEntryRepository meetingEntryRepository;
+
+    /* MEET-08에서 회의 행 잠금 조회와 완료 상태 저장에 사용하는 도메인 저장소 계약이다. */
+    @Autowired
+    private MeetingCompletionRepository meetingCompletionRepository;
 
     /* 저장된 회의 기본 행을 조회하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -179,6 +184,58 @@ class MeetingPersistenceAdapterTest {
 
         /* 상태 저장은 예약 슬롯과 참석자 명단을 변경하면 안 된다. */
         assertThat(springDataMeetingReservationSlotRepository.count()).isEqualTo(2L);
+        assertThat(springDataMeetingAttendeeRepository
+                .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
+                .extracting(attendee -> attendee.getMemberId())
+                .containsExactly(3L, 7L, 11L);
+    }
+
+    /* 완료 저장이 실제 시각만 갱신하고 예약 슬롯과 확정 참석자를 유지하는지 검증한다. */
+    @Test
+    @DisplayName("회의를 잠금 조회하고 DONE 상태를 저장하되 슬롯과 참석자를 유지한다")
+    void locksAndCompletesMeetingWithoutDeletingHistory() {
+        /* 예약 회의를 저장한 뒤 최초 입장으로 IN_PROGRESS 상태를 먼저 만든다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
+                meeting("종료 테스트 회의", List.of(3L, 7L, 11L))
+        ));
+        LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 13, 58, 12);
+        transaction.executeWithoutResult(status -> {
+            /* 실제 MEET-07 저장 경로로 최초 시작 상태를 반영한다. */
+            Meeting locked = meetingEntryRepository.findForEntry(10L, savedMeeting.getId()).orElseThrow();
+            meetingEntryRepository.saveState(locked.enter(startedAt));
+        });
+
+        /* 별도 종료 트랜잭션에서 회사 범위 잠금 조회 후 DONE과 endedAt을 저장한다. */
+        LocalDateTime endedAt = LocalDateTime.of(2026, 8, 6, 15, 2, 40);
+        Meeting completedMeeting = transaction.execute(status -> {
+            Meeting locked = meetingCompletionRepository
+                    .findForCompletion(10L, savedMeeting.getId())
+                    .orElseThrow();
+
+            /* 타 회사 조건에서는 같은 식별자의 회의를 노출하면 안 된다. */
+            assertThat(meetingCompletionRepository.findForCompletion(20L, savedMeeting.getId())).isEmpty();
+
+            /* 도메인 완료 상태를 기존 meeting 행에 저장한다. */
+            return meetingCompletionRepository.saveCompleted(locked.complete(endedAt));
+        });
+
+        /* 저장 결과와 실제 meeting 행은 DONE, 실제 종료 시각, 64분을 가져야 한다. */
+        assertThat(completedMeeting.getStatus()).isEqualTo(MeetingStatus.DONE);
+        assertThat(completedMeeting.getEndedAt()).isEqualTo(endedAt);
+        assertThat(completedMeeting.actualDurationMinutes()).isEqualTo(64L);
+        assertThat(springDataMeetingRepository.findById(savedMeeting.getId()))
+                .get()
+                .satisfies(entity -> {
+                    assertThat(entity.getStatus()).isEqualTo(MeetingStatus.DONE);
+                    assertThat(entity.getStartedAt()).isEqualTo(startedAt);
+                    assertThat(entity.getEndedAt()).isEqualTo(endedAt);
+                });
+
+        /* 종료 뒤에도 예약 이력 슬롯 두 개와 확정 참석자 세 명이 그대로 남아야 한다. */
+        assertThat(springDataMeetingReservationSlotRepository
+                .findAllByMeetingIdOrderBySlotStartAsc(savedMeeting.getId()))
+                .hasSize(2);
         assertThat(springDataMeetingAttendeeRepository
                 .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
                 .extracting(attendee -> attendee.getMemberId())

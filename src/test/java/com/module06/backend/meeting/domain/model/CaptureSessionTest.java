@@ -225,4 +225,70 @@ class CaptureSessionTest {
         assertThatThrownBy(() -> endedSession.resume(pausedAt.plusMinutes(21)))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    /* ACTIVE와 PAUSED 세션이 동일한 ENDED 상태로 전이되는지 검증한다. */
+    @Test
+    @DisplayName("ACTIVE 또는 PAUSED 세션을 ENDED 상태로 전이한다")
+    void endsActiveOrPausedCaptureSession() {
+        /* 14시에 시작한 ACTIVE 세션과 15시 2분 실제 종료 시각을 준비한다. */
+        LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 14, 0);
+        LocalDateTime endedAt = LocalDateTime.of(2026, 8, 6, 15, 2, 40);
+        CaptureSession activeSession = CaptureSession.reconstitute(
+                15L,
+                91L,
+                3L,
+                CaptureSessionStatus.ACTIVE,
+                startedAt,
+                1_785_992_400_000L,
+                null,
+                null,
+                startedAt,
+                startedAt
+        );
+
+        /* ACTIVE 종료는 시간축을 보존하고 상태·종료·수정 시각만 변경해야 한다. */
+        CaptureSession endedActive = activeSession.end(endedAt);
+        assertThat(endedActive.getStatus()).isEqualTo(CaptureSessionStatus.ENDED);
+        assertThat(endedActive.getEndedAt()).isEqualTo(endedAt);
+        assertThat(endedActive.getUpdatedAt()).isEqualTo(endedAt);
+        assertThat(endedActive.getStartedAtEpochMs()).isEqualTo(1_785_992_400_000L);
+
+        /* PAUSED 종료도 마지막 일시정지 기록을 보존한 채 같은 ENDED 상태가 돼야 한다. */
+        LocalDateTime pausedAt = LocalDateTime.of(2026, 8, 6, 14, 31, 8);
+        CaptureSession endedPaused = activeSession.pause(pausedAt).end(endedAt);
+        assertThat(endedPaused.getStatus()).isEqualTo(CaptureSessionStatus.ENDED);
+        assertThat(endedPaused.getPausedAt()).isEqualTo(pausedAt);
+        assertThat(endedPaused.getEndedAt()).isEqualTo(endedAt);
+    }
+
+    /* 이미 종료됐거나 시작 전 시각을 받은 세션의 잘못된 종료 전이를 검증한다. */
+    @Test
+    @DisplayName("ENDED 재종료와 시작 전 종료 시각을 거절한다")
+    void rejectsInvalidEndTransitions() {
+        /* 14시에 시작한 정상 ACTIVE 세션을 준비한다. */
+        LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 14, 0);
+        CaptureSession activeSession = CaptureSession.reconstitute(
+                15L,
+                91L,
+                3L,
+                CaptureSessionStatus.ACTIVE,
+                startedAt,
+                1_785_992_400_000L,
+                null,
+                null,
+                startedAt,
+                startedAt
+        );
+
+        /* null과 세션 시작보다 이른 시각은 종료 시각으로 사용할 수 없다. */
+        assertThatThrownBy(() -> activeSession.end(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> activeSession.end(startedAt.minusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        /* 한 번 ENDED가 된 세션은 다시 종료할 수 없다. */
+        CaptureSession endedSession = activeSession.end(startedAt.plusMinutes(10));
+        assertThatThrownBy(() -> endedSession.end(startedAt.plusMinutes(11)))
+                .isInstanceOf(IllegalStateException.class);
+    }
 }

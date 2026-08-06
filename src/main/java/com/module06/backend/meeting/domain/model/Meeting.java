@@ -1,5 +1,6 @@
 package com.module06.backend.meeting.domain.model;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -256,5 +257,55 @@ public class Meeting {
                 createdAt,
                 updatedAt
         );
+    }
+
+    /* 진행 중 회의를 실제 종료 시각과 함께 완료 상태로 전이한다. */
+    public Meeting complete(LocalDateTime completedAt) {
+        /* 이미 완료된 회의를 다시 완료해 후속 분석 이벤트가 중복 발행되는 것을 막는다. */
+        if (status == MeetingStatus.DONE) {
+            throw new IllegalStateException("이미 종료된 회의입니다.");
+        }
+
+        /* 입장되지 않은 예약 회의는 종료 상태로 건너뛸 수 없다. */
+        if (status == MeetingStatus.SCHEDULED) {
+            throw new IllegalStateException("시작되지 않은 회의입니다.");
+        }
+
+        /* 종료 시각이 없거나 실제 시작보다 빠르면 실측 회의 시간을 만들 수 없다. */
+        if (completedAt == null || startedAt == null || completedAt.isBefore(startedAt)) {
+            throw new IllegalArgumentException("회의 종료 시각은 실제 시작 시각 이후여야 합니다.");
+        }
+
+        /* 예약·참석자 원본은 보존하고 완료 상태와 실제 종료·수정 시각만 변경한다. */
+        return new Meeting(
+                id,
+                companyId,
+                projectId,
+                teamId,
+                meetingRoomId,
+                hostMemberId,
+                title,
+                MeetingStatus.DONE,
+                startAt,
+                endAt,
+                recordingConsent,
+                relatedActionId,
+                attendeeMemberIds,
+                startedAt,
+                completedAt,
+                createdAt,
+                completedAt
+        );
+    }
+
+    /* 실제 입장부터 종료까지 흐른 시간을 명세의 내림 분 단위로 계산한다. */
+    public long actualDurationMinutes() {
+        /* 완료되지 않은 회의에서는 성공 응답용 실측 시간을 만들 수 없다. */
+        if (startedAt == null || endedAt == null || endedAt.isBefore(startedAt)) {
+            throw new IllegalStateException("완료된 회의의 실제 시작·종료 시각이 필요합니다.");
+        }
+
+        /* Duration의 분 변환으로 60초 미만 잔여 시간을 버려 명세의 정수 분을 반환한다. */
+        return Duration.between(startedAt, endedAt).toMinutes();
     }
 }

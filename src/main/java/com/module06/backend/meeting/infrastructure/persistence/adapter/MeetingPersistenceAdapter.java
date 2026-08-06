@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
@@ -30,7 +31,10 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
  */
 @Component
 @RequiredArgsConstructor
-public class MeetingPersistenceAdapter implements MeetingRepository, MeetingEntryRepository {
+public class MeetingPersistenceAdapter implements
+        MeetingRepository,
+        MeetingEntryRepository,
+        MeetingCompletionRepository {
 
     /* meeting 기본 행을 저장하고 데이터베이스 생성 식별자를 받는 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -83,6 +87,30 @@ public class MeetingPersistenceAdapter implements MeetingRepository, MeetingEntr
         MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(MeetingJpaEntity.from(meeting));
 
         /* 상태 저장은 참석자 행을 변경하지 않으므로 도메인이 가진 최신 명단과 저장 결과를 합친다. */
+        return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
+    }
+
+    /* 회사 범위의 회의를 잠그고 종료 응답과 A 스냅숏에 필요한 최신 참석자까지 복원한다. */
+    @Override
+    public Optional<Meeting> findForCompletion(Long companyId, Long meetingId) {
+        /* 회의 행 잠금을 먼저 획득해 CAP 시작과 중복 종료 요청을 하나씩 처리한다. */
+        return springDataMeetingRepository.findLockedByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> meeting.toDomain(
+                        springDataMeetingAttendeeRepository
+                                .findAllByMeetingIdOrderByMemberIdAsc(meeting.getId())
+                                .stream()
+                                .map(MeetingAttendeeJpaEntity::getMemberId)
+                                .toList()
+                ));
+    }
+
+    /* 완료된 회의의 DONE 상태와 endedAt을 저장하고 최신 영속성 값을 복원한다. */
+    @Override
+    public Meeting saveCompleted(Meeting meeting) {
+        /* 식별자가 있는 meeting 행을 갱신하고 종료 상태를 트랜잭션 안에서 즉시 반영한다. */
+        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(MeetingJpaEntity.from(meeting));
+
+        /* 종료 시점에 확정된 참석자 명단은 변경하지 않고 도메인 결과에 그대로 유지한다. */
         return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
     }
 
