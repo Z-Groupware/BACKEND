@@ -54,4 +54,14 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
     interface MemberIdProjection {
         Long getId();
     }
+
+    /**
+     * 회의 참석자 roster 배치 조회용(MEET-01, {@code MemberQueryPort}). 다른 회사·삭제된
+     * 구성원은 조건에서 자연히 빠진다 — 호출자가 따로 걸러낼 필요가 없다.
+     *
+     * <p>team 을 함께 읽는 이유: roster 응답에 teamName 이 들어가는데, 지연 프록시에 기대면
+     * N+1 이 붙는다({@link #findByCompanyIdAndEmail} 과 같은 이유).
+     */
+    @EntityGraph(attributePaths = {"team"})
+    List<MemberJpaEntity> findByCompanyIdAndIdInAndDeletedAtIsNull(Long companyId, List<Long> ids);
 }
