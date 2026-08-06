@@ -53,7 +53,17 @@ public enum AuthErrorCode implements ErrorCode {
     TEAM_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-016", "같은 상위 부서에 이미 있는 이름입니다."),
     TEAM_HAS_MEMBERS(HttpStatus.CONFLICT, "AU-017", "소속된 구성원이 있어 삭제할 수 없습니다."),
     TEAM_HAS_CHILDREN(HttpStatus.CONFLICT, "AU-018", "하위 부서가 있어 삭제할 수 없습니다."),
-    TEAM_HAS_PROJECTS(HttpStatus.CONFLICT, "AU-019", "연결된 프로젝트가 있어 삭제할 수 없습니다.");
+    TEAM_HAS_PROJECTS(HttpStatus.CONFLICT, "AU-019", "연결된 프로젝트가 있어 삭제할 수 없습니다."),
+
+    /*
+     * 직급 CRUD(§6-6~6-9). POSITION_ROLE_NOT_ASSIGNABLE 은 member 발급 흐름(§5-1)의
+     * 동명 규칙과 코드를 공유하지 않는다 — 그쪽은 403(OWNER 승격 우회 차단), 여기는
+     * 400(입력값 검증)으로 HTTP 상태가 달라 같은 enum 상수를 못 쓴다.
+     */
+    POSITION_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-020", "직급을 찾을 수 없습니다."),
+    POSITION_ROLE_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "AU-021", "직급에는 리더 또는 멤버 권한만 지정할 수 있습니다."),
+    POSITION_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-022", "이미 있는 직급명입니다."),
+    POSITION_IN_USE(HttpStatus.CONFLICT, "AU-023", "해당 직급인 구성원이 있어 삭제할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
