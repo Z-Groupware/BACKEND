@@ -205,6 +205,28 @@ class MeetingRoomPersistenceAdapterTest {
                 .isEmpty();
     }
 
+    /* ROOM-05 소프트 삭제 상태가 기존 행에 반영되고 활성 조회에서 제외되는지 검증한다. */
+    @Test
+    @DisplayName("회의실 비활성화 시 deletedAt을 저장하고 활성 조회에서 제외한다")
+    void savesDeactivatedMeetingRoomAsSoftDeleted() {
+        /* 활성 회의실을 저장하고 운영 저장 경로에서 사용하는 도메인 객체로 잠금 조회한다. */
+        MeetingRoomJpaEntity entity = springDataMeetingRoomRepository.save(meetingRoom(10L, "회의실 B", null));
+        MeetingRoom activeRoom = meetingRoomCommandRepository
+                .findActiveByIdForUpdate(10L, entity.getId())
+                .orElseThrow();
+
+        /* 고정된 시각으로 소프트 삭제한 도메인 상태를 명령 저장소에 저장한다. */
+        LocalDateTime deactivatedAt = LocalDateTime.of(2026, 8, 6, 9, 0);
+        MeetingRoom saved = meetingRoomCommandRepository.save(activeRoom.deactivate(deactivatedAt));
+
+        /* 저장 결과와 실제 DB 행에 deletedAt이 기록되고 활성 조회에서는 제외돼야 한다. */
+        assertThat(saved.isActive()).isFalse();
+        assertThat(saved.getDeletedAt()).isEqualTo(deactivatedAt);
+        MeetingRoomJpaEntity persisted = springDataMeetingRoomRepository.findById(entity.getId()).orElseThrow();
+        assertThat(persisted.getDeletedAt()).isEqualTo(deactivatedAt);
+        assertThat(meetingRoomRepository.findActiveById(10L, entity.getId())).isEmpty();
+    }
+
     /*
      * 식별자와 회사가 모두 일치하는 활성 회의실만 단건 조회되는지 검증한다(ROOM-02 회의실 필터).
      */

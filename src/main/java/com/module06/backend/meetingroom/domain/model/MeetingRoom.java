@@ -133,6 +133,31 @@ public class MeetingRoom {
         );
     }
 
+    /* 기존 속성을 유지하면서 지정된 시각에 회의실을 비활성화한 새 상태를 만든다. */
+    public MeetingRoom deactivate(LocalDateTime deactivatedAt) {
+        /* 비활성화 시각이 없으면 소프트 삭제 상태를 표현할 수 없으므로 도메인 경계에서 거절한다. */
+        if (deactivatedAt == null) {
+            throw new IllegalArgumentException("회의실 비활성화 시각은 필수입니다.");
+        }
+
+        /* 이미 비활성인 객체를 다시 전이시키는 잘못된 내부 호출을 허용하지 않는다. */
+        if (!isActive()) {
+            throw new IllegalStateException("이미 비활성화된 회의실입니다.");
+        }
+
+        /* 식별자와 회사·표시·운영 속성은 그대로 두고 deletedAt만 전달된 시각으로 변경한다. */
+        return new MeetingRoom(
+                id,
+                companyId,
+                name,
+                location,
+                capacity,
+                availableFrom,
+                availableTo,
+                deactivatedAt
+        );
+    }
+
     /*
      * 회의실이 현재 활성 상태인지 판단한다.
      *
