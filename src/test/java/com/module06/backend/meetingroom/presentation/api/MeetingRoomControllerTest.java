@@ -9,6 +9,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.response.ApiResponse;
@@ -87,6 +88,21 @@ class MeetingRoomControllerTest {
         /* 200 성공 상태를 유지하면서 빈 meetingRooms 목록이 반환되는지 확인한다. */
         assertThat(response.getHttpStatus()).isEqualTo(200);
         assertThat(response.getData().meetingRooms()).isEmpty();
+    }
+
+    /* 최신 권한 매트릭스대로 ADMIN도 ROOM-01 목록을 조회할 수 있는지 선언을 검증한다. */
+    @Test
+    @DisplayName("ROOM-01 · 모든 인증 역할에 목록 조회를 허용한다")
+    void allowsAllAuthenticatedRolesToListMeetingRooms() throws NoSuchMethodException {
+        /* 실제 ROOM-01 Controller 메서드에 선언된 역할 표현식을 조회한다. */
+        PreAuthorize preAuthorize = MeetingRoomController.class
+                .getDeclaredMethod("getMeetingRooms", Long.class)
+                .getAnnotation(PreAuthorize.class);
+
+        /* OWNER·ADMIN·LEADER·MEMBER가 모두 빠짐없이 포함돼야 한다. */
+        assertThat(preAuthorize).isNotNull();
+        assertThat(preAuthorize.value())
+                .contains("OWNER", "ADMIN", "LEADER", "MEMBER");
     }
 
     /*

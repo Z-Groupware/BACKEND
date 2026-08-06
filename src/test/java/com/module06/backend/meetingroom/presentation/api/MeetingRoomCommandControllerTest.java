@@ -17,6 +17,8 @@ import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.meetingroom.application.command.CreateMeetingRoomCommand;
 import com.module06.backend.meetingroom.application.result.MeetingRoomCreationResult;
 import com.module06.backend.meetingroom.application.usecase.CreateMeetingRoomUseCase;
+import com.module06.backend.meetingroom.application.usecase.DeactivateMeetingRoomUseCase;
+import com.module06.backend.meetingroom.application.usecase.UpdateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.presentation.api.request.CreateMeetingRoomRequest;
 import com.module06.backend.meetingroom.presentation.api.response.CreateMeetingRoomResponse;
 
@@ -25,6 +27,16 @@ import com.module06.backend.meetingroom.presentation.api.response.CreateMeetingR
  */
 @DisplayName("ROOM-03 회의실 등록 Controller")
 class MeetingRoomCommandControllerTest {
+
+    /* ROOM-03 테스트에서 호출되면 실패하는 ROOM-04 수정 유스케이스 대역이다. */
+    private static final UpdateMeetingRoomUseCase UNUSED_UPDATE_USE_CASE = command -> {
+        throw new AssertionError("ROOM-03 등록에서는 수정 유스케이스를 호출하면 안 됩니다.");
+    };
+
+    /* ROOM-03 테스트에서 호출되면 실패하는 ROOM-05 비활성화 유스케이스 대역이다. */
+    private static final DeactivateMeetingRoomUseCase UNUSED_DEACTIVATE_USE_CASE = command -> {
+        throw new AssertionError("ROOM-03 등록에서는 비활성화 유스케이스를 호출하면 안 됩니다.");
+    };
 
     /* 요청 DTO 제약을 실제 Bean Validation으로 확인하는 검증기다. */
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
@@ -41,7 +53,11 @@ class MeetingRoomCommandControllerTest {
             capturedCommand[0] = command;
             return new MeetingRoomCreationResult(101L);
         };
-        MeetingRoomCommandController controller = new MeetingRoomCommandController(useCase);
+        MeetingRoomCommandController controller = new MeetingRoomCommandController(
+                useCase,
+                UNUSED_UPDATE_USE_CASE,
+                UNUSED_DEACTIVATE_USE_CASE
+        );
 
         /* 인증 principal의 회사 식별자와 명세 형식의 본문으로 Controller 메서드를 호출한다. */
         CreateMeetingRoomRequest request = new CreateMeetingRoomRequest(

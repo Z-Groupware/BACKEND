@@ -156,6 +156,77 @@ class MeetingRoomPersistenceAdapterTest {
                 .isFalse();
     }
 
+    /* ROOM-04 이름 중복 조회가 현재 수정 대상 ID를 제외하는지 검증한다. */
+    @Test
+    @DisplayName("현재 회의실을 제외한 다른 활성 이름만 중복으로 판단한다")
+    void checksDuplicateNameExcludingCurrentMeetingRoom() {
+        /* 같은 회사에 이름이 다른 활성 회의실 두 개를 저장한다. */
+        MeetingRoomJpaEntity current = springDataMeetingRoomRepository.save(meetingRoom(10L, "회의실 B", null));
+        MeetingRoomJpaEntity other = springDataMeetingRoomRepository.save(meetingRoom(10L, "대회의실", null));
+
+        /* 자기 이름은 자기 ID를 제외하면 중복이 아니어야 한다. */
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndNameExcludingId(
+                10L,
+                "회의실 B",
+                current.getId()
+        )).isFalse();
+
+        /* 다른 활성 회의실 이름은 현재 ID를 제외해도 중복이어야 한다. */
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndNameExcludingId(
+                10L,
+                "대회의실",
+                current.getId()
+        )).isTrue();
+
+        /* 이름을 가진 회의실 본인을 제외하면 다시 중복이 아니어야 한다. */
+        assertThat(meetingRoomCommandRepository.existsActiveByCompanyIdAndNameExcludingId(
+                10L,
+                "대회의실",
+                other.getId()
+        )).isFalse();
+    }
+
+    /* ROOM-04 수정용 잠금 조회가 회사와 활성 조건을 적용하는지 검증한다. */
+    @Test
+    @DisplayName("수정용 잠금 조회는 같은 회사의 활성 회의실만 반환한다")
+    void findsActiveMeetingRoomForUpdateWithinCompany() {
+        /* 활성 회의실과 비활성 회의실을 각각 저장한다. */
+        MeetingRoomJpaEntity active = springDataMeetingRoomRepository.save(meetingRoom(10L, "회의실 B", null));
+        MeetingRoomJpaEntity inactive = springDataMeetingRoomRepository.save(
+                meetingRoom(10L, "폐쇄 회의실", LocalDateTime.of(2026, 8, 6, 9, 0))
+        );
+
+        /* 같은 회사의 활성 회의실만 잠금 조회 결과로 반환돼야 한다. */
+        assertThat(meetingRoomCommandRepository.findActiveByIdForUpdate(10L, active.getId()))
+                .isPresent();
+        assertThat(meetingRoomCommandRepository.findActiveByIdForUpdate(20L, active.getId()))
+                .isEmpty();
+        assertThat(meetingRoomCommandRepository.findActiveByIdForUpdate(10L, inactive.getId()))
+                .isEmpty();
+    }
+
+    /* ROOM-05 소프트 삭제 상태가 기존 행에 반영되고 활성 조회에서 제외되는지 검증한다. */
+    @Test
+    @DisplayName("회의실 비활성화 시 deletedAt을 저장하고 활성 조회에서 제외한다")
+    void savesDeactivatedMeetingRoomAsSoftDeleted() {
+        /* 활성 회의실을 저장하고 운영 저장 경로에서 사용하는 도메인 객체로 잠금 조회한다. */
+        MeetingRoomJpaEntity entity = springDataMeetingRoomRepository.save(meetingRoom(10L, "회의실 B", null));
+        MeetingRoom activeRoom = meetingRoomCommandRepository
+                .findActiveByIdForUpdate(10L, entity.getId())
+                .orElseThrow();
+
+        /* 고정된 시각으로 소프트 삭제한 도메인 상태를 명령 저장소에 저장한다. */
+        LocalDateTime deactivatedAt = LocalDateTime.of(2026, 8, 6, 9, 0);
+        MeetingRoom saved = meetingRoomCommandRepository.save(activeRoom.deactivate(deactivatedAt));
+
+        /* 저장 결과와 실제 DB 행에 deletedAt이 기록되고 활성 조회에서는 제외돼야 한다. */
+        assertThat(saved.isActive()).isFalse();
+        assertThat(saved.getDeletedAt()).isEqualTo(deactivatedAt);
+        MeetingRoomJpaEntity persisted = springDataMeetingRoomRepository.findById(entity.getId()).orElseThrow();
+        assertThat(persisted.getDeletedAt()).isEqualTo(deactivatedAt);
+        assertThat(meetingRoomRepository.findActiveById(10L, entity.getId())).isEmpty();
+    }
+
     /*
      * 식별자와 회사가 모두 일치하는 활성 회의실만 단건 조회되는지 검증한다(ROOM-02 회의실 필터).
      */

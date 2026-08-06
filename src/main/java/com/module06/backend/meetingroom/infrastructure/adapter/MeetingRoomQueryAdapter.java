@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
+import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepository;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomRepository;
 
 /*
@@ -23,11 +24,14 @@ public class MeetingRoomQueryAdapter implements MeetingRoomQueryPort {
     /* 회사와 활성 상태 조건을 포함하는 회의실 도메인 저장소 계약이다. */
     private final MeetingRoomRepository meetingRoomRepository;
 
+    /* MEET-01 예약과 ROOM-04 운영 시간 변경을 같은 회의실 행 잠금으로 직렬화하는 명령 저장소다. */
+    private final MeetingRoomCommandRepository meetingRoomCommandRepository;
+
     /* 요청 회사에 속한 활성 회의실을 MEET-01 읽기 모델로 변환한다. */
     @Override
     public Optional<MeetingRoomSnapshot> findActiveMeetingRoom(Long companyId, Long meetingRoomId) {
         /* 타 회사 또는 비활성 회의실은 빈 결과가 되어 상위 계층에서 MR-001로 처리된다. */
-        return meetingRoomRepository.findActiveById(companyId, meetingRoomId)
+        return meetingRoomCommandRepository.findActiveByIdForUpdate(companyId, meetingRoomId)
                 .map(this::toSnapshot);
     }
 

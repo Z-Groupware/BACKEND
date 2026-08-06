@@ -107,6 +107,57 @@ public class MeetingRoom {
         );
     }
 
+    /* 검증된 최종 속성으로 식별자와 활성 상태를 유지한 새 회의실 상태를 만든다. */
+    public MeetingRoom update(
+            String name,
+            String location,
+            int capacity,
+            LocalTime availableFrom,
+            LocalTime availableTo
+    ) {
+        /* 빈 위치는 미등록 상태인 null로 통일하고 그 외 문자열의 가장자리 공백을 제거한다. */
+        String normalizedLocation = location == null || location.trim().isEmpty()
+                ? null
+                : location.trim();
+
+        /* 수정은 기존 식별자·회사·비활성화 상태를 바꾸지 않고 관리 가능한 속성만 교체한다. */
+        return new MeetingRoom(
+                id,
+                companyId,
+                name.trim(),
+                normalizedLocation,
+                capacity,
+                availableFrom,
+                availableTo,
+                deletedAt
+        );
+    }
+
+    /* 기존 속성을 유지하면서 지정된 시각에 회의실을 비활성화한 새 상태를 만든다. */
+    public MeetingRoom deactivate(LocalDateTime deactivatedAt) {
+        /* 비활성화 시각이 없으면 소프트 삭제 상태를 표현할 수 없으므로 도메인 경계에서 거절한다. */
+        if (deactivatedAt == null) {
+            throw new IllegalArgumentException("회의실 비활성화 시각은 필수입니다.");
+        }
+
+        /* 이미 비활성인 객체를 다시 전이시키는 잘못된 내부 호출을 허용하지 않는다. */
+        if (!isActive()) {
+            throw new IllegalStateException("이미 비활성화된 회의실입니다.");
+        }
+
+        /* 식별자와 회사·표시·운영 속성은 그대로 두고 deletedAt만 전달된 시각으로 변경한다. */
+        return new MeetingRoom(
+                id,
+                companyId,
+                name,
+                location,
+                capacity,
+                availableFrom,
+                availableTo,
+                deactivatedAt
+        );
+    }
+
     /*
      * 회의실이 현재 활성 상태인지 판단한다.
      *

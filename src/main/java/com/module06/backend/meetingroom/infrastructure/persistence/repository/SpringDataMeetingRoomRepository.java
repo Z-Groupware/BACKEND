@@ -3,7 +3,10 @@ package com.module06.backend.meetingroom.infrastructure.persistence.repository;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 
 import com.module06.backend.meetingroom.infrastructure.persistence.entity.MeetingRoomJpaEntity;
 
@@ -17,6 +20,13 @@ public interface SpringDataMeetingRoomRepository extends JpaRepository<MeetingRo
 
     /* 같은 회사의 활성 회의실 중 정규화된 이름이 같은 행이 존재하는지 확인한다. */
     boolean existsByCompanyIdAndNameAndDeletedAtIsNull(Long companyId, String name);
+
+    /* 현재 회의실을 제외하고 같은 회사의 활성 이름이 존재하는지 확인한다. */
+    boolean existsByCompanyIdAndNameAndDeletedAtIsNullAndIdNot(Long companyId, String name, Long id);
+
+    /* 수정·예약 트랜잭션 동안 활성 회의실 행을 쓰기 잠금으로 조회한다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<MeetingRoomJpaEntity> findForUpdateByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
 
     /*
      * 회사 식별자가 일치하고 삭제 시각이 없는 회의실을 이름과 식별자 오름차순으로 조회한다.

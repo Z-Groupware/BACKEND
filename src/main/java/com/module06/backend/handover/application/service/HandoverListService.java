@@ -1,6 +1,7 @@
 package com.module06.backend.handover.application.service;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
@@ -16,30 +17,41 @@ import java.util.List;
 public class HandoverListService implements GetHandoverListUseCase {
 
     private final HandoverRepository handoverRepository;
+    private final OrgQueryPort orgQueryPort;
 
-    public HandoverListService(HandoverRepository handoverRepository) {
+    public HandoverListService(HandoverRepository handoverRepository, OrgQueryPort orgQueryPort) {
         this.handoverRepository = handoverRepository;
+        this.orgQueryPort = orgQueryPort;
     }
 
     @Override
     public List<HandoverSummary> list(HandoverListQuery query) {
-        boolean byWriter = query != null && query.writerMemberId() != null;
-        boolean byTeam = query != null && query.teamId() != null;
-        if (!byWriter && !byTeam) {
+        if (query == null || query.scope() == null) {
             throw new BusinessException(HandoverErrorCode.HO_LIST_SCOPE_REQUIRED);
         }
-        if (byWriter && byTeam) {
-            throw new BusinessException(HandoverErrorCode.HO_LIST_SCOPE_AMBIGUOUS);
-        }
 
-        List<Handover> handovers = byWriter
-                ? handoverRepository.findByWriterMemberId(query.writerMemberId())
-                : handoverRepository.findByTeamId(query.teamId());
+        List<Handover> handovers = switch (query.scope()) {
+            case SELF -> handoverRepository.findByWriterMemberId(requireId(query.memberId()));
+            case TEAM -> handoverRepository.findByTeamId(requireId(query.teamId()));
+            // 오너·어드민 회사 전체(A안): handover에 company_id가 없어, 조직(B) 포트로 회사 멤버 id를
+            // 받아 그들이 작성한 인수인계를 조회한다. 멤버가 없으면 IN () 쿼리를 피해 즉시 빈 목록.
+            case COMPANY -> {
+                List<Long> memberIds = orgQueryPort.findMemberIdsByCompany(requireId(query.companyId()));
+                yield memberIds.isEmpty() ? List.of() : handoverRepository.findByWriterMemberIdIn(memberIds);
+            }
+        };
 
         return handovers.stream()
                 .filter(handover -> query.status() == null || handover.getStatus() == query.status())
                 .map(this::toSummary)
                 .toList();
+    }
+
+    private Long requireId(Long id) {
+        if (id == null) {
+            throw new BusinessException(HandoverErrorCode.HO_LIST_SCOPE_REQUIRED);
+        }
+        return id;
     }
 
     private HandoverSummary toSummary(Handover handover) {
