@@ -1,5 +1,8 @@
 package com.module06.backend.project.presentation.api.request;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+
 /* comment.
     첨부파일 업로드 URL 발급 요청 DTO. 파일명·파일 크기를 담는다.
     여기서는 shape 검증만 한다(파일명 비어있지 않음, 크기 > 0).
@@ -9,5 +12,8 @@ package com.module06.backend.project.presentation.api.request;
     - ProjectAttachmentController      : 이 DTO를 받는 진입점
     - IssueAttachmentUploadUrlCommand  : 이 DTO가 변환되는 application 명령
 */
-public record IssueUploadUrlRequest() {
+public record IssueUploadUrlRequest(
+        @NotBlank String fileName,
+        @Positive long fileSize
+) {
 }
