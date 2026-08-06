@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
+import com.module06.backend.capture.application.port.out.CaptionRepository;
 import com.module06.backend.capture.application.port.out.ExtractTuplesResult;
 import com.module06.backend.capture.application.port.out.GateResult;
 import com.module06.backend.capture.application.port.out.LayerRun;
@@ -20,9 +21,11 @@ import com.module06.backend.capture.application.port.out.MeetingSummaryRepositor
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
+import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.CaptionChunk;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.ItemType;
@@ -272,6 +275,81 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("L1 이 화자를 이식하고, 뒤 계층은 이식된 화자를 본다")
+    void L1이_이식한_화자가_뒤_계층에_보인다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+
+        // 발화 2번(5~8초)은 화자가 null 이다. 참석자 전원(42)이 자막을 보내면 판정된다.
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+        FakeCaptionRepository captions = new FakeCaptionRepository(
+                new CaptionChunk(42L, 5_000, 8_000, new java.math.BigDecimal("-18.00")));
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, captions, new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        // 정본에 이식됐다.
+        assertThat(transcripts.applied)
+                .extracting(SpeakerAttributionResolver.Attribution::speakerMemberId)
+                .containsOnly(42L);
+        // 그리고 L2 가 보는 발화에 그 화자가 들어 있다 — 이식 후 다시 읽지 않으면 여기가 null 이다.
+        assertThat(ai.segmentUtterances)
+                .filteredOn(utterance -> utterance.utteranceId() == 2L)
+                .extracting(Utterance::speakerMemberId)
+                .containsExactly(42L);
+    }
+
+    @Test
+    @DisplayName("자막이 없어도 분석은 끝까지 돈다 — CAP-11 미구현 상태의 정상 경로")
+    void 자막이_없어도_파이프라인은_완주한다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 판정 0건이지만 실패가 아니다. 화자 미정은 정상 동작이고, 뒤 계층은 그대로 돈다.
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(transcripts.applied).isEmpty();
+        assertThat(ai.extractRequests).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("재판정이 기권하면 예전 화자를 지운다 — 불확실해진 화자가 확정으로 굳으면 안 된다")
+    void 기권한_발화의_예전_화자를_지운다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+
+        // 발화 1 에는 예전 실행이 심어 둔 화자(42)가 남아 있다. 이번엔 자막이 없어 전원 기권이다.
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        // 뒤 계층은 화자 없는 발화를 본다. 남아 있으면 L4 가 근거 없는 담당자를 확정한다.
+        assertThat(ai.segmentUtterances).extracting(Utterance::speakerMemberId)
+                .containsOnlyNulls();
+    }
+
+    @Test
     @DisplayName("완료 판정은 RUN_LAYERS 기준이다 — 예전 계층만 DONE 이면 완료가 아니다")
     void 완료_판정은_RUN_LAYERS를_본다() {
         FakeLayerRepository layers = new FakeLayerRepository();
@@ -286,9 +364,11 @@ class AnalysisOrchestratorTest {
 
         layers.done.add(LayerName.L1_5);
         layers.done.add(LayerName.L3_5);
+        layers.done.add(LayerName.L4);
+        // L1 이 빠져 있다. 계층을 붙일 때 이 판정을 갱신하지 않으면 여기서 걸린다.
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isFalse();
 
-        layers.done.add(LayerName.L4);
+        layers.done.add(LayerName.L1);
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isTrue();
     }
 
@@ -298,8 +378,9 @@ class AnalysisOrchestratorTest {
         RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
-                meetingId -> List.of(), new FakeLayerRepository(), new FakeSummaryRepository(),
-                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
+                new FakeTranscriptRepository(List.of()), new FakeCaptionRepository(),
+                new FakeLayerRepository(), new FakeSummaryRepository(), new FakeTupleRepository(),
+                meetingId -> Optional.of(MEETING_DATE), new SpeakerAttributionResolver(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
@@ -315,8 +396,9 @@ class AnalysisOrchestratorTest {
                 decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
-                meetingId -> utterances(), new FakeLayerRepository(), summaries,
-                new FakeTupleRepository(), meetingId -> Optional.empty(), ai)
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeLayerRepository(), summaries, new FakeTupleRepository(),
+                meetingId -> Optional.empty(), new SpeakerAttributionResolver(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -337,14 +419,17 @@ class AnalysisOrchestratorTest {
                                               RecordingAiLayerPort ai,
                                               FakeLayerRepository layers) {
         return new AnalysisOrchestrator(
-                meetingId -> utterances(), layers, summaries, tuples,
-                meetingId -> Optional.of(MEETING_DATE), ai);
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
+                // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
+                new SpeakerAttributionResolver(), ai);
     }
 
     private static List<Utterance> utterances() {
         return List.of(
-                new Utterance(1L, 42L, 0, "로드맵 정리합시다"),
-                new Utterance(2L, null, 5_000, "그거 그분한테 맡기죠"));
+                new Utterance(1L, 42L, 0, 3_000, "로드맵 정리합시다"),
+                new Utterance(2L, null, 5_000, 8_000, "그거 그분한테 맡기죠"));
     }
 
     private static com.module06.backend.capture.domain.model.TopicItem item(
@@ -501,6 +586,61 @@ class AnalysisOrchestratorTest {
                     .map(ItemView::id)
                     .findFirst()
                     .orElseThrow();
+        }
+    }
+
+    /*
+     * 정본 저장소. L1 이 이식한 화자를 기록하고, 이식 후 재조회에서 그 값을 반영해 돌려준다 —
+     * 오케스트레이터가 "이식 후 다시 읽는다"를 실제로 하는지 이 가짜가 드러낸다.
+     */
+    private static final class FakeTranscriptRepository implements TranscriptRepository {
+
+        private final List<Utterance> utterances;
+        private final List<SpeakerAttributionResolver.Attribution> applied = new ArrayList<>();
+
+        private FakeTranscriptRepository(List<Utterance> utterances) {
+            this.utterances = new ArrayList<>(utterances);
+        }
+
+        @Override
+        public List<Utterance> findByMeetingOrderByOffset(long meetingId) {
+            return List.copyOf(utterances);
+        }
+
+        /*
+         * 실물과 같은 계약이다 — **이번 판정이 그 회의의 화자 상태 전부다.** 목록에 없는 발화는
+         * 화자를 NULL 로 되돌린다. 덮어쓰기만 흉내내면 "기권했는데 예전 판정이 남는" 버그가
+         * 이 가짜에서는 재현되지 않아 테스트가 통과해 버린다.
+         */
+        @Override
+        public int applySpeakerAttributions(long meetingId, List<SpeakerAttributionResolver.Attribution> attributions) {
+            applied.addAll(attributions);
+
+            Map<Long, SpeakerAttributionResolver.Attribution> byUtteranceId = new LinkedHashMap<>();
+            attributions.forEach(attribution -> byUtteranceId.put(attribution.utteranceId(), attribution));
+
+            utterances.replaceAll(utterance -> {
+                SpeakerAttributionResolver.Attribution attribution = byUtteranceId.get(utterance.utteranceId());
+                return new Utterance(utterance.utteranceId(),
+                        attribution != null ? attribution.speakerMemberId() : null,
+                        utterance.startOffsetMs(), utterance.endOffsetMs(), utterance.text());
+            });
+            return attributions.size();
+        }
+    }
+
+    /* CAP-11 이 미구현이라 기본값은 자막 0건이다 — 실제 운영 상태와 같다. */
+    private static final class FakeCaptionRepository implements CaptionRepository {
+
+        private final List<CaptionChunk> captions;
+
+        private FakeCaptionRepository(CaptionChunk... captions) {
+            this.captions = List.of(captions);
+        }
+
+        @Override
+        public List<CaptionChunk> findByMeeting(long meetingId) {
+            return captions;
         }
     }
 

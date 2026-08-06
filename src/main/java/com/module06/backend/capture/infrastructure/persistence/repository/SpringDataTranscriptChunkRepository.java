@@ -28,5 +28,16 @@ public interface SpringDataTranscriptChunkRepository extends JpaRepository<Trans
             Sort.Order.asc("offsetMs").nullsLast(),
             Sort.Order.asc("seq"));
 
+    /*
+     * 조회와 L1 이식이 **같은 메서드를 쓴다.**
+     *
+     * 이식에 판정 대상만 골라 읽는 메서드를 따로 두지 않는다. 그러면 이번에 기권한 발화가
+     * 조회에서 빠져 예전 판정이 컬럼에 그대로 남는다 — 근거가 약해졌는데 화자는 확정으로
+     * 굳는 경로다(TranscriptRepository#applySpeakerAttributions 주석).
+     *
+     * meetingId 로 범위를 잡는 것이 회사 스코프이기도 하다. 판정 결과가 실어 온 id 만으로
+     * 갱신하면 다른 회의(다른 회사)의 정본에 화자를 심을 수 있는데, 갱신은 성공하므로
+     * 아무도 오류를 못 본다.
+     */
     List<TranscriptChunkJpaEntity> findByMeetingId(Long meetingId, Sort sort);
 }
