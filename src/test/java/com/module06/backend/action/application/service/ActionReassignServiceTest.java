@@ -175,7 +175,6 @@ class ActionReassignServiceTest {
                 "Content " + id,
                 status,
                 LocalDate.of(2026, 8, 20),
-                false,
                 null,
                 LocalDateTime.of(2026, 8, 1, 10, 0),
                 LocalDateTime.of(2026, 8, 1, 10, 0)
@@ -196,7 +195,6 @@ class ActionReassignServiceTest {
                 "Team Content " + id,
                 ActionStatus.IN_PROGRESS,
                 LocalDate.of(2026, 8, 30),
-                false,
                 null,
                 LocalDateTime.of(2026, 8, 1, 10, 0),
                 LocalDateTime.of(2026, 8, 1, 10, 0)

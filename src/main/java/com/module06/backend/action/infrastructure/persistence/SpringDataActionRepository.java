@@ -1,10 +1,9 @@
 package com.module06.backend.action.infrastructure.persistence;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
@@ -14,8 +13,8 @@ import com.module06.backend.action.domain.model.ActionType;
     도메인 계층은 이 인터페이스를 모른다 — 어댑터만 안다.
     개인 액션 목록(assignee 스코프)·팀 액션 목록(teamId 스코프)·타임라인(parentActionId 기준)이
     모두 이 인터페이스의 쿼리 메서드로 갈린다 — N+1이 터지기 쉬운 지점이라 fetch join / projection 검토 필요.
-    인수인계 고아경보 소스(findDistinctParentTeamActionsByAssignee)는 parent_action_id self-join으로
-    퇴사자 개인 액션의 부모 TEAM 액션을 distinct로 뽑는다.
+    인수인계 고아경보 소스는 팀 규칙 QUERY_002(신규 쿼리 애노테이션 금지)를 지키려고 파생 쿼리 2단으로 뽑는다 —
+    개인 액션(전 status) 조회 → parent_action_id 수집 → findAllByIdInAndActionType으로 부모 TEAM 조회.
 
     연결된 클래스
     - ActionJpaEntity          : 다루는 엔티티
@@ -34,14 +33,8 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
             ActionType actionType
     );
 
-    @Query("""
-            select distinct parent
-            from ActionJpaEntity personal, ActionJpaEntity parent
-            where personal.assigneeMemberId = :memberId
-              and personal.actionType = com.module06.backend.action.domain.model.ActionType.PERSONAL
-              and parent.id = personal.parentActionId
-              and parent.actionType = com.module06.backend.action.domain.model.ActionType.TEAM
-            order by parent.id asc
-            """)
-    List<ActionJpaEntity> findDistinctParentTeamActionsByAssignee(@Param("memberId") Long memberId);
+    List<ActionJpaEntity> findAllByIdInAndActionTypeOrderByIdAsc(
+            Collection<Long> ids,
+            ActionType actionType
+    );
 }

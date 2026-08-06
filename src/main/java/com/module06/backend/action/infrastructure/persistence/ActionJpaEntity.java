@@ -79,9 +79,6 @@ public class ActionJpaEntity {
     @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
 
-    @Column(name = "needs_review", nullable = false)
-    private boolean needsReview;
-
     @Column(name = "confirmed_at")
     private LocalDateTime confirmedAt;
 
@@ -104,7 +101,6 @@ public class ActionJpaEntity {
             String description,
             ActionStatus status,
             LocalDate dueDate,
-            boolean needsReview,
             LocalDateTime confirmedAt,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
@@ -121,7 +117,6 @@ public class ActionJpaEntity {
         this.description = description;
         this.status = status;
         this.dueDate = dueDate;
-        this.needsReview = needsReview;
         this.confirmedAt = confirmedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -141,7 +136,6 @@ public class ActionJpaEntity {
                 action.getDescription(),
                 action.getStatus(),
                 action.getDueDate(),
-                action.isNeedsReview(),
                 action.getConfirmedAt(),
                 action.getCreatedAt(),
                 action.getUpdatedAt()
@@ -162,7 +156,6 @@ public class ActionJpaEntity {
                 description,
                 status,
                 dueDate,
-                needsReview,
                 confirmedAt,
                 createdAt,
                 updatedAt

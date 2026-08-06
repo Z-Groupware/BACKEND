@@ -1,6 +1,7 @@
 package com.module06.backend.action.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.stereotype.Component;
@@ -68,7 +69,20 @@ public class ActionPersistenceAdapter implements ActionRepository {
 
     @Override
     public List<Action> findParentTeamActionsByAssignee(Long memberId) {
-        return springDataActionRepository.findDistinctParentTeamActionsByAssignee(memberId)
+        // QUERY_002(신규 쿼리 애노테이션 금지) 준수: self-join JPQL 대신 파생 쿼리 2단으로 부모 TEAM 액션을 뽑는다.
+        // 1) 퇴사자 개인 액션(전 status) 조회 → 2) parent_action_id 중복 제거 → 3) TEAM 부모 조회.
+        List<Long> parentIds = springDataActionRepository
+                .findAllByAssigneeMemberIdAndActionTypeOrderByDueDateAscIdAsc(memberId, ActionType.PERSONAL)
+                .stream()
+                .map(ActionJpaEntity::getParentActionId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (parentIds.isEmpty()) {
+            return List.of();
+        }
+        return springDataActionRepository
+                .findAllByIdInAndActionTypeOrderByIdAsc(parentIds, ActionType.TEAM)
                 .stream()
                 .map(ActionJpaEntity::toDomain)
                 .toList();

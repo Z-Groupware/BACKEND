@@ -101,16 +101,22 @@ class ActionPersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("findParentTeamActionsByAssignee delegates to self-join query")
+    @DisplayName("findParentTeamActionsByAssignee collects parent ids then fetches TEAM parents (no @Query)")
     void findParentTeamActionsByAssigneeDelegates() {
-        when(springDataActionRepository.findDistinctParentTeamActionsByAssignee(10L))
+        // entity(_, PERSONAL)의 parentActionId=500L → parentIds=[500L] → TEAM 부모 조회
+        when(springDataActionRepository.findAllByAssigneeMemberIdAndActionTypeOrderByDueDateAscIdAsc(
+                10L, ActionType.PERSONAL))
+                .thenReturn(List.of(entity(3L, ActionType.PERSONAL)));
+        when(springDataActionRepository.findAllByIdInAndActionTypeOrderByIdAsc(
+                List.of(500L), ActionType.TEAM))
                 .thenReturn(List.of(entity(6L, ActionType.TEAM)));
 
         List<Action> result = adapter.findParentTeamActionsByAssignee(10L);
 
         assertThat(result).extracting(Action::getId).containsExactly(6L);
         assertThat(result.get(0).getActionType()).isEqualTo(ActionType.TEAM);
-        verify(springDataActionRepository).findDistinctParentTeamActionsByAssignee(10L);
+        verify(springDataActionRepository).findAllByIdInAndActionTypeOrderByIdAsc(
+                List.of(500L), ActionType.TEAM);
     }
 
     private Action domain(Long id, ActionType actionType) {
@@ -127,7 +133,6 @@ class ActionPersistenceAdapterTest {
                 "Content " + id,
                 ActionStatus.TODO,
                 LocalDate.of(2026, 8, 20),
-                false,
                 null,
                 LocalDateTime.of(2026, 8, 1, 10, 0),
                 LocalDateTime.of(2026, 8, 1, 10, 0)
@@ -148,7 +153,6 @@ class ActionPersistenceAdapterTest {
                 "Content " + id,
                 ActionStatus.TODO,
                 LocalDate.of(2026, 8, 20),
-                false,
                 null,
                 LocalDateTime.of(2026, 8, 1, 10, 0),
                 LocalDateTime.of(2026, 8, 1, 10, 0)
