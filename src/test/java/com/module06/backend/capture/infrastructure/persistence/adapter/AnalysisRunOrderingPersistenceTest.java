@@ -30,7 +30,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 믿는 대로 동작한다) 여기서는 실물 어댑터를 쓴다.
  *
  * ⚠ H2 다. 행 잠금 의미가 MySQL 과 완전히 같지는 않으므로, "동시 실행이 서로 다른 번호를
- * 받는다"까지만 확인하고 그 이상의 잠금 세부는 주장하지 않는다.
+ * 받는다"·"같은 계층은 하나만 잡는다"까지만 확인하고 그 이상의 잠금 세부는 주장하지 않는다.
+ *
+ * ⚠ **마이그레이션을 검증하는 테스트가 아니다.** 테스트 스키마는 Hibernate create-drop 이
+ * 소유하고(테스트 application.yaml · Flyway 는 꺼져 있다), V5.16 DDL 이 실제로 도는지는
+ * CI 의 「Schema Migration Validation (real MySQL)」 잡이 본다. 여기서 Flyway 를 켜면
+ * MySQL 전용 DDL(ENGINE=InnoDB · ENUM 등)이 H2 에서 깨진다.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
@@ -119,6 +124,35 @@ class AnalysisRunOrderingPersistenceTest {
     }
 
     @Test
+    @DisplayName("같은 계층을 동시에 잡으면 하나만 성공한다 — INSERT 경합이 잠금 실패로 바뀐다")
+    void 없는_계층을_동시에_잡으면_하나만_성공한다() throws Exception {
+        long meetingId = 9_108L;
+        long runSeq = analysisRunRepository.begin(meetingId).orElseThrow();
+        executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        /*
+         * 계층 행이 **아직 없는** 상태에서 둘이 동시에 들어간다. 둘 다 "행이 없다"를 보고
+         * INSERT 로 가는 경로이고, 진 쪽은 UNIQUE(meeting_id, layer) 에 걸린다.
+         *
+         * 그 충돌은 **커밋 시점에** 터지므로 잠금을 잡는 트랜잭션 안에서는 잡히지 않는다.
+         * 어댑터가 트랜잭션 경계 밖에서 잡아 ALREADY_RUNNING 으로 옮기는 것을 여기서 고정한다 —
+         * 안 옮기면 정상적인 중복 방어가 500 으로 보고된다.
+         */
+        List<CompletableFuture<LockResult>> futures = List.of(
+                lockWhenReleased(meetingId, runSeq, start), lockWhenReleased(meetingId, runSeq, start));
+
+        start.countDown();
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).get(10, TimeUnit.SECONDS);
+
+        List<LockResult> results = futures.stream().map(CompletableFuture::join).toList();
+
+        assertThat(results).containsExactlyInAnyOrder(LockResult.ACQUIRED, LockResult.ALREADY_RUNNING);
+        // 행은 하나뿐이다 — 둘 다 들어갔으면 계층 상태가 두 벌이 된다.
+        assertThat(analysisLayerRepository.findStates(meetingId)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("동시에 시작한 두 실행이 같은 번호를 받지 않는다 — 같으면 둘 다 자기가 최신이라고 판단한다")
     void 동시에_시작해도_번호가_겹치지_않는다() throws Exception {
         long meetingId = 9_107L;
@@ -143,15 +177,27 @@ class AnalysisRunOrderingPersistenceTest {
         assertThat(numbers).isNotEmpty();
     }
 
+    private CompletableFuture<LockResult> lockWhenReleased(long meetingId, long runSeq,
+                                                           CountDownLatch start) {
+        return CompletableFuture.supplyAsync(() -> {
+            awaitStart(start);
+            return analysisLayerRepository.tryLock(meetingId, LayerName.L4, runSeq);
+        }, executor);
+    }
+
     private CompletableFuture<OptionalLong> beginWhenReleased(long meetingId, CountDownLatch start) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                start.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(e);
-            }
+            awaitStart(start);
             return analysisRunRepository.begin(meetingId);
         }, executor);
+    }
+
+    private static void awaitStart(CountDownLatch start) {
+        try {
+            start.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 }
