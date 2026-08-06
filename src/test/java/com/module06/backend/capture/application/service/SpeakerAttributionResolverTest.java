@@ -212,6 +212,50 @@ class SpeakerAttributionResolverTest {
         assertThat(result).isEmpty();
     }
 
+    @Test
+    @DisplayName("명단 밖 자막은 후보가 아니다 — 참석자가 아닌 사람이 화자로 확정되면 안 된다")
+    void 명단_밖_자막은_후보가_아니다() {
+        // CAROL 은 참석자가 아닌데 자막이 들어와 있고, 게다가 가장 크다.
+        // (회의 도중 나간 사람의 늦게 도착한 자막 · 잘못된 세션에 실린 자막이 이 모양이다.)
+        List<Attribution> result = resolver.resolve(
+                List.of(utterance(1L, 10_000, 12_000)),
+                List.of(caption(CAROL, 10_000, 12_000, "-10.00"),
+                        caption(ALICE, 10_000, 12_000, "-18.00"),
+                        caption(BOB, 10_000, 12_000, "-30.00")),
+                Set.of(ALICE, BOB));
+
+        // CAROL 이 아니라 ALICE 다. 명단 밖 자막이 걸러지고 남은 둘로 판정한다.
+        assertThat(result).containsExactly(new Attribution(1L, ALICE, SpeakerSource.SELF_STREAM));
+    }
+
+    @Test
+    @DisplayName("명단 밖 자막은 '전원 자막' 판단도 부풀리지 않는다")
+    void 명단_밖_자막은_전원_자막_판단에_끼지_않는다() {
+        // BOB 은 자막을 안 켰고, 대신 명단 밖 CAROL 의 자막이 들어와 있다.
+        // 후보는 ALICE 한 명뿐인데, 전원 자막이 아니므로 단독 후보를 믿으면 안 된다.
+        List<Attribution> result = resolver.resolve(
+                List.of(utterance(1L, 10_000, 12_000)),
+                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
+                        caption(CAROL, 10_000, 12_000, "-30.00")),
+                Set.of(ALICE, BOB));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("명단 밖 자막은 소거법 판단도 흔들지 않는다")
+    void 명단_밖_자막은_소거법을_흔들지_않는다() {
+        // 참석자 2명(ALICE·BOB) 중 ALICE 만 자막을 보냈다 → 자막 없는 구간은 BOB 이다.
+        // 명단 밖 CAROL 의 자막이 그 구간에 있어도 소거법은 그대로 성립해야 한다.
+        List<Attribution> result = resolver.resolve(
+                List.of(utterance(1L, 50_000, 52_000)),
+                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
+                        caption(CAROL, 50_000, 52_000, "-12.00")),
+                Set.of(ALICE, BOB));
+
+        assertThat(result).containsExactly(new Attribution(1L, BOB, SpeakerSource.ELIMINATION));
+    }
+
     private static Utterance utterance(long id, int startMs, int endMs) {
         return new Utterance(id, null, startMs, endMs, "발화 " + id);
     }

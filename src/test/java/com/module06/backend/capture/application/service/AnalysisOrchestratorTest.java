@@ -327,6 +327,29 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("재판정이 기권하면 예전 화자를 지운다 — 불확실해진 화자가 확정으로 굳으면 안 된다")
+    void 기권한_발화의_예전_화자를_지운다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+
+        // 발화 1 에는 예전 실행이 심어 둔 화자(42)가 남아 있다. 이번엔 자막이 없어 전원 기권이다.
+        FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        // 뒤 계층은 화자 없는 발화를 본다. 남아 있으면 L4 가 근거 없는 담당자를 확정한다.
+        assertThat(ai.segmentUtterances).extracting(Utterance::speakerMemberId)
+                .containsOnlyNulls();
+    }
+
+    @Test
     @DisplayName("완료 판정은 RUN_LAYERS 기준이다 — 예전 계층만 DONE 이면 완료가 아니다")
     void 완료_판정은_RUN_LAYERS를_본다() {
         FakeLayerRepository layers = new FakeLayerRepository();
@@ -584,15 +607,24 @@ class AnalysisOrchestratorTest {
             return List.copyOf(utterances);
         }
 
+        /*
+         * 실물과 같은 계약이다 — **이번 판정이 그 회의의 화자 상태 전부다.** 목록에 없는 발화는
+         * 화자를 NULL 로 되돌린다. 덮어쓰기만 흉내내면 "기권했는데 예전 판정이 남는" 버그가
+         * 이 가짜에서는 재현되지 않아 테스트가 통과해 버린다.
+         */
         @Override
         public int applySpeakerAttributions(long meetingId, List<SpeakerAttributionResolver.Attribution> attributions) {
             applied.addAll(attributions);
-            for (SpeakerAttributionResolver.Attribution attribution : attributions) {
-                utterances.replaceAll(utterance -> utterance.utteranceId().equals(attribution.utteranceId())
-                        ? new Utterance(utterance.utteranceId(), attribution.speakerMemberId(),
-                                utterance.startOffsetMs(), utterance.endOffsetMs(), utterance.text())
-                        : utterance);
-            }
+
+            Map<Long, SpeakerAttributionResolver.Attribution> byUtteranceId = new LinkedHashMap<>();
+            attributions.forEach(attribution -> byUtteranceId.put(attribution.utteranceId(), attribution));
+
+            utterances.replaceAll(utterance -> {
+                SpeakerAttributionResolver.Attribution attribution = byUtteranceId.get(utterance.utteranceId());
+                return new Utterance(utterance.utteranceId(),
+                        attribution != null ? attribution.speakerMemberId() : null,
+                        utterance.startOffsetMs(), utterance.endOffsetMs(), utterance.text());
+            });
             return attributions.size();
         }
     }

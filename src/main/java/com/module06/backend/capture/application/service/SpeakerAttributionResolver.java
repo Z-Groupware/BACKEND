@@ -73,7 +73,9 @@ public class SpeakerAttributionResolver {
     public List<Attribution> resolve(List<Utterance> utterances, List<CaptionChunk> captions,
                                      Set<Long> attendeeMemberIds) {
 
-        Set<Long> captioningMembers = captioningMembers(captions);
+        List<CaptionChunk> scoped = scopedToAttendees(captions, attendeeMemberIds);
+
+        Set<Long> captioningMembers = captioningMembers(scoped);
         boolean everyAttendeeCaptioned = !attendeeMemberIds.isEmpty()
                 && captioningMembers.containsAll(attendeeMemberIds);
 
@@ -83,7 +85,7 @@ public class SpeakerAttributionResolver {
         List<Attribution> attributions = new ArrayList<>();
         for (Utterance utterance : utterances) {
             Attribution attribution = resolveOne(
-                    utterance, captions, everyAttendeeCaptioned, eliminationTarget);
+                    utterance, scoped, everyAttendeeCaptioned, eliminationTarget);
             if (attribution != null) {
                 attributions.add(attribution);
             }
@@ -92,6 +94,35 @@ public class SpeakerAttributionResolver {
         log.info("L1 화자 귀속 — 발화 {}건 중 {}건 판정 (전원자막={} 소거법대상={})",
                 utterances.size(), attributions.size(), everyAttendeeCaptioned, eliminationTarget);
         return attributions;
+    }
+
+    /*
+     * 자막 후보를 **참석자 명단 안으로 좁힌다.** 판정에 들어가기 전에 한 번에 거른다.
+     *
+     * 왜 필요한가 — caption_chunk 의 member_id 가 명단 안이라는 보장이 없다. 회의 도중 나간
+     * 사람의 늦게 도착한 자막, 참석 처리 전에 먼저 붙은 자막, 잘못된 세션에 실린 자막이
+     * 모두 이 테이블에 들어올 수 있다. 그 값을 그대로 후보로 쓰면 **참석자가 아닌 사람이
+     * 화자로 확정되고**, 그 발화를 근거로 만들어진 액션이 그 사람에게 배정된다.
+     *
+     * 명단 밖 자막이 "전원 자막" 판단에도 섞이면 안 된다. 명단 밖 발신자가 하나 있으면
+     * captioningMembers 가 부풀어, 후보 한 명을 확정해도 되는지 판단하는 근거가 흔들린다.
+     * 그래서 여기서 한 번 거르고 아래 전부가 좁혀진 목록만 본다.
+     *
+     * ⚠ 명단이 비어 있으면 모든 자막이 걸러지고 전원 판정 포기가 된다. 그게 맞다 —
+     * 참석자를 모르는 채로는 어떤 자막도 "참석자가 말한 것"임을 확인할 수 없다.
+     */
+    private List<CaptionChunk> scopedToAttendees(List<CaptionChunk> captions, Set<Long> attendeeMemberIds) {
+        List<CaptionChunk> scoped = captions.stream()
+                .filter(caption -> caption.memberId() != null)
+                .filter(caption -> attendeeMemberIds.contains(caption.memberId()))
+                .toList();
+
+        if (scoped.size() != captions.size()) {
+            // 조용히 버리지 않는다. 명단 밖 자막이 꾸준히 들어온다는 것은 참석자 명단과
+            // 자막 전송(CAP-11)이 어긋났다는 신호이고, 그건 판정 품질이 아니라 코드 문제다.
+            log.warn("명단 밖 자막을 판정에서 제외한다 — 전체={} 사용={}", captions.size(), scoped.size());
+        }
+        return scoped;
     }
 
     private Attribution resolveOne(Utterance utterance, List<CaptionChunk> captions,
@@ -153,6 +184,7 @@ public class SpeakerAttributionResolver {
      * 자막 조각이 여러 개 걸쳐 있어도 사람이 두 배로 크게 말한 것은 아니다. 합을 쓰면 자막을
      * 잘게 보내는 브라우저가 항상 이긴다 — 판정이 말한 사람이 아니라 청크 분할 방식으로 정해진다.
      */
+    /* captions 는 이미 명단 안으로 좁혀진 목록이다(scopedToAttendees). */
     private Map<Long, BigDecimal> loudestByMember(Utterance utterance, List<CaptionChunk> captions) {
         int windowStart = utterance.startOffsetMs() - WINDOW_MS;
         // 종료 오프셋이 없으면 시작 지점만 쓴다. NULL 을 허용하는 컬럼이고(V5.3), 그때 발화를

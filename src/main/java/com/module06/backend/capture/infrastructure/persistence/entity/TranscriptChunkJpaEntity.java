@@ -82,4 +82,18 @@ public class TranscriptChunkJpaEntity {
         this.speakerMemberId = speakerMemberId;
         this.speakerSource = speakerSource;
     }
+
+    /*
+     * 화자를 미정으로 되돌린다. **재판정이 기권한 발화를 위한 자리다.**
+     *
+     * 자막이 더 도착해 1·2등 차이가 3dB 아래로 좁아지면 resolver 는 기권하는데, 그때 예전
+     * 판정을 남겨 두면 근거가 약해진 화자가 확정으로 굳는다. 기권은 컬럼에도 기권으로 남아야
+     * 한다 — NULL 이 판정 포기이고 정상 동작이다(V5.3 주석).
+     *
+     * 둘을 함께 비운다. 근거만 남기면 "화자는 모르는데 판정 경로는 안다"가 되어 뜻이 없다.
+     */
+    public void clearSpeaker() {
+        this.speakerMemberId = null;
+        this.speakerSource = null;
+    }
 }

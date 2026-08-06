@@ -1,6 +1,5 @@
 package com.module06.backend.capture.infrastructure.persistence.repository;
 
-import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Sort;
@@ -29,14 +28,16 @@ public interface SpringDataTranscriptChunkRepository extends JpaRepository<Trans
             Sort.Order.asc("offsetMs").nullsLast(),
             Sort.Order.asc("seq"));
 
-    List<TranscriptChunkJpaEntity> findByMeetingId(Long meetingId, Sort sort);
-
     /*
-     * L1 판정을 이식할 발화를 가져온다.
+     * 조회와 L1 이식이 **같은 메서드를 쓴다.**
      *
-     * meetingId 를 조건에 **함께** 넣는다. 판정 결과가 실어 온 id 만으로 갱신하면 다른 회의
-     * (다른 회사)의 정본에 화자를 심을 수 있다 — 갱신은 성공하므로 아무도 오류를 못 본다.
-     * 파생 쿼리로 두는 것은 신규 @Query 금지(QUERY_002) 때문이다.
+     * 이식에 판정 대상만 골라 읽는 메서드를 따로 두지 않는다. 그러면 이번에 기권한 발화가
+     * 조회에서 빠져 예전 판정이 컬럼에 그대로 남는다 — 근거가 약해졌는데 화자는 확정으로
+     * 굳는 경로다(TranscriptRepository#applySpeakerAttributions 주석).
+     *
+     * meetingId 로 범위를 잡는 것이 회사 스코프이기도 하다. 판정 결과가 실어 온 id 만으로
+     * 갱신하면 다른 회의(다른 회사)의 정본에 화자를 심을 수 있는데, 갱신은 성공하므로
+     * 아무도 오류를 못 본다.
      */
-    List<TranscriptChunkJpaEntity> findByMeetingIdAndIdIn(Long meetingId, Collection<Long> ids);
+    List<TranscriptChunkJpaEntity> findByMeetingId(Long meetingId, Sort sort);
 }

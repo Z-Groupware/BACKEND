@@ -179,10 +179,13 @@ public class AnalysisOrchestrator {
          * 이식 후의 정본을 다시 읽는다. 판정 결과를 메모리에서 합치지 않는 이유는 L4 가 게이트
          * 반영 후 값을 다시 읽는 것과 같다 — 이식되지 않은 판정(그 회의에 없는 id)까지 화자가
          * 채워진 것으로 취급하면 DB 와 프롬프트가 서로 다른 말을 하게 된다.
+         *
+         * ⚠ 판정 0건이어도 다시 읽는다. L1 은 이번에 기권한 발화의 화자를 NULL 로 되돌리므로
+         * (applySpeakerAttributions), 판정이 하나도 없어도 DB 는 바뀔 수 있다 — 예전 판정이
+         * 전부 지워지는 경우가 정확히 그것이다. loaded 를 재사용하면 이미 지워진 화자를
+         * 뒤 계층에 그대로 넘기게 된다.
          */
-        List<Utterance> rawUtterances = attributed.value() > 0
-                ? transcriptRepository.findByMeetingOrderByOffset(meetingId)
-                : loaded;
+        List<Utterance> rawUtterances = transcriptRepository.findByMeetingOrderByOffset(meetingId);
 
         // ── L1.5 · 지시어 해소 ──────────────────────────────────────────────────
         /*

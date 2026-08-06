@@ -44,6 +44,17 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
      * L1 판정을 이식한다. 조회한 엔티티를 고치고 트랜잭션 종료 시 더티 체킹으로 반영한다 —
      * 벌크 UPDATE 로 하면 신규 @Query 가 필요하고(QUERY_002 금지), 이식 건수를 세려면 어차피
      * 행을 읽어야 한다.
+     *
+     * <h2>회의 전체를 먼저 비우고 판정된 것만 쓴다</h2>
+     * 이번 판정이 그 회의의 화자 상태 전부다(포트 주석). 판정된 것만 덮어쓰면, 자막이 더
+     * 도착해 근거가 약해져 **기권한** 발화에 예전 판정이 그대로 남는다 — 불확실해진 화자가
+     * 확정으로 굳고 L1.5·L4 가 그걸 확정된 화자로 읽는다.
+     *
+     * 같은 @Transactional 안이라 비우기와 쓰기가 함께 커밋된다. 나누면 지운 뒤 쓰기가 실패했을
+     * 때 화자가 통째로 사라진 회의가 남는다.
+     *
+     * 회의 전체를 읽는 비용을 감수한다 — 어차피 바로 앞에서 findByMeetingOrderByOffset 으로
+     * 같은 행을 읽었고, 판정 대상만 읽으면 "지워야 할 행"을 알 방법이 없다.
      */
     @Override
     @Transactional
@@ -54,14 +65,11 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
                 byUtteranceId.put(attribution.utteranceId(), attribution);
             }
         }
-        if (byUtteranceId.isEmpty()) {
-            return 0;
-        }
 
-        // meetingId 를 조건에 함께 넣는다 — 판정 결과의 id 만으로 갱신하면 다른 회의(다른 회사)의
-        // 정본을 고칠 수 있다. 조회에 없는 id 는 그냥 반영되지 않는다.
-        List<TranscriptChunkJpaEntity> rows =
-                repository.findByMeetingIdAndIdIn(meetingId, byUtteranceId.keySet());
+        // meetingId 로만 읽는다 — 판정 결과의 id 로 범위를 잡으면 이번에 기권한 발화가
+        // 조회에서 빠져 예전 판정이 남는다. 그게 고치려는 문제 자체다.
+        List<TranscriptChunkJpaEntity> rows = repository.findByMeetingId(
+                meetingId, SpringDataTranscriptChunkRepository.ORDER);
 
         int applied = 0;
         for (TranscriptChunkJpaEntity row : rows) {
@@ -69,6 +77,10 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
             if (attribution != null) {
                 row.attributeSpeaker(attribution.speakerMemberId(), attribution.speakerSource());
                 applied++;
+            } else {
+                // 이번 판정에 없는 발화다. 기권했거나 애초에 판정 대상이 아니었다 —
+                // 어느 쪽이든 화자를 확정할 근거가 지금은 없다는 뜻이다.
+                row.clearSpeaker();
             }
         }
         return applied;
