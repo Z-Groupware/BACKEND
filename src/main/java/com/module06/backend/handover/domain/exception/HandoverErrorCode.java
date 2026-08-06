@@ -40,7 +40,7 @@ public enum HandoverErrorCode implements ErrorCode {
     HO_LIST_SCOPE_AMBIGUOUS(HttpStatus.BAD_REQUEST, "HO-024", "인수인계 목록 조회 범위는 하나만 지정할 수 있습니다."),
 
     // auth(B) 도입 전이라 요청 시점 AuthPrincipal companyId가 없을 때. 타입화된 신호(500 방지).
-    HO_COMPANY_CONTEXT_REQUIRED(HttpStatus.UNAUTHORIZED, "HO-025", "회사 컨텍스트(AuthPrincipal)를 확인할 수 없습니다. auth(B) 도입 후 해결됩니다.");
+    HO_COMPANY_CONTEXT_REQUIRED(HttpStatus.UNAUTHORIZED, "HO-025", "회사 컨텍스트가 필요합니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
