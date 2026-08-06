@@ -12,6 +12,7 @@ import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.application.usecase.CreateMeetingUseCase;
+import com.module06.backend.meeting.application.usecase.EnterMeetingUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.presentation.api.request.CreateMeetingRequest;
 import com.module06.backend.meeting.presentation.api.response.CreateMeetingResponse;
@@ -21,6 +22,11 @@ import com.module06.backend.meeting.presentation.api.response.CreateMeetingRespo
  */
 @DisplayName("MEET-01 회의 예약 Controller")
 class MeetingControllerTest {
+
+    /* MEET-01 테스트에서 호출되면 실패하는 MEET-07 입장 유스케이스 대역이다. */
+    private static final EnterMeetingUseCase UNUSED_ENTRY_USE_CASE = command -> {
+        throw new AssertionError("MEET-01 예약에서는 입장 유스케이스를 호출하면 안 됩니다.");
+    };
 
     /* 인증 principal 값과 요청 본문이 유스케이스에 전달되고 응답으로 변환되는지 확인한다. */
     @Test
@@ -34,7 +40,7 @@ class MeetingControllerTest {
             capturedCommand[0] = command;
             return result();
         };
-        MeetingController controller = new MeetingController(useCase);
+        MeetingController controller = new MeetingController(useCase, UNUSED_ENTRY_USE_CASE);
 
         /* 녹음 동의 값을 생략하고 개설자가 없는 참석자 요청을 준비한다. */
         CreateMeetingRequest request = new CreateMeetingRequest(
