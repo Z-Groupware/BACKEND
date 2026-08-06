@@ -5,6 +5,8 @@ import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,10 +18,13 @@ import jakarta.validation.Valid;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
+import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
+import com.module06.backend.identity.team.application.usecase.RenameTeamUseCase;
 import com.module06.backend.identity.team.presentation.api.dto.request.CreateTeamRequest;
+import com.module06.backend.identity.team.presentation.api.dto.request.RenameTeamRequest;
 import com.module06.backend.identity.team.presentation.api.dto.response.TeamNodeResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -32,6 +37,7 @@ public class TeamController {
 
     private final GetTeamTreeUseCase getTeamTreeUseCase;
     private final CreateTeamUseCase createTeamUseCase;
+    private final RenameTeamUseCase renameTeamUseCase;
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
@@ -53,5 +59,16 @@ public class TeamController {
         TeamNode node = createTeamUseCase.create(
                 new CreateTeamCommand(companyId, request.name(), request.parentTeamId()));
         return ApiResponse.created("부서를 생성했습니다", TeamNodeResponse.from(node));
+    }
+
+    @PatchMapping("/{teamId}")
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<TeamNodeResponse> rename(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long teamId,
+            @Valid @RequestBody RenameTeamRequest request) {
+        TeamNode node = renameTeamUseCase.rename(new RenameTeamCommand(companyId, teamId, request.name()));
+        return ApiResponse.success("부서 이름을 수정했습니다", TeamNodeResponse.from(node));
     }
 }

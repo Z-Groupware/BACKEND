@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
+import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.domain.model.Team;
@@ -134,6 +135,55 @@ class TeamServiceTest {
                 .create(new CreateTeamCommand(1L, "1팀", parentB.id()));
 
         assertThat(node.name()).isEqualTo("1팀");
+    }
+
+    @Test
+    @DisplayName("이름을 바꾼다")
+    void renamesTeam() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team team = repository.create(1L, null, "본부");
+
+        TeamNode node = service(repository, new FakeMemberQueryPort())
+                .rename(new RenameTeamCommand(1L, team.id(), "새이름"));
+
+        assertThat(node.name()).isEqualTo("새이름");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 부서면 404 로 거절한다")
+    void rejectsRenamingMissingTeam() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort())
+                .rename(new RenameTeamCommand(1L, 999L, "새이름")))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("바꾸려는 이름이 같은 부모의 다른 부서와 겹치면 거절한다")
+    void rejectsRenamingToDuplicateSiblingName() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team parent = repository.create(1L, null, "본부");
+        Team teamA = repository.create(1L, parent.id(), "1팀");
+        repository.create(1L, parent.id(), "2팀");
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort())
+                .rename(new RenameTeamCommand(1L, teamA.id(), "2팀")))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_NAME_DUPLICATED);
+    }
+
+    @Test
+    @DisplayName("이름을 그대로 다시 저장해도 자기 자신과는 중복 처리하지 않는다")
+    void allowsRenamingToSameName() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team team = repository.create(1L, null, "본부");
+
+        TeamNode node = service(repository, new FakeMemberQueryPort())
+                .rename(new RenameTeamCommand(1L, team.id(), "본부"));
+
+        assertThat(node.name()).isEqualTo("본부");
     }
 
     private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort) {

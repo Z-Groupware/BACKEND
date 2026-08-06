@@ -11,11 +11,13 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
+import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort.TeamMemberSummary;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
+import com.module06.backend.identity.team.application.usecase.RenameTeamUseCase;
 import com.module06.backend.identity.team.domain.model.Team;
 import com.module06.backend.identity.team.domain.repository.TeamRepository;
 
@@ -23,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase {
+public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, RenameTeamUseCase {
 
     private final TeamRepository teamRepository;
     private final TeamMemberQueryPort memberQueryPort;
@@ -67,6 +69,21 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase {
 
         Team created = teamRepository.create(command.companyId(), command.parentTeamId(), command.name());
         return new TeamNode(created.id(), created.name(), created.parentTeamId(), null, null, 0L, List.of());
+    }
+
+    @Override
+    @Transactional
+    public TeamNode rename(RenameTeamCommand command) {
+        Team team = teamRepository.findByIdAndCompanyId(command.teamId(), command.companyId())
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
+
+        boolean renamingToOtherName = !command.name().equals(team.name());
+        if (renamingToOtherName && isDuplicateName(command.companyId(), team.parentTeamId(), command.name())) {
+            throw new BusinessException(AuthErrorCode.TEAM_NAME_DUPLICATED);
+        }
+
+        teamRepository.rename(team.id(), command.name());
+        return new TeamNode(team.id(), command.name(), team.parentTeamId(), team.leaderMemberId(), null, 0L, List.of());
     }
 
     /**

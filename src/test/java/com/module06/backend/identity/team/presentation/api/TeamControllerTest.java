@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,9 +26,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
+import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
+import com.module06.backend.identity.team.application.usecase.RenameTeamUseCase;
 
 import java.util.List;
 
@@ -49,6 +52,8 @@ class TeamControllerTest {
     private GetTeamTreeUseCase getTeamTreeUseCase;
     @MockitoBean
     private CreateTeamUseCase createTeamUseCase;
+    @MockitoBean
+    private RenameTeamUseCase renameTeamUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -100,6 +105,27 @@ class TeamControllerTest {
         verify(createTeamUseCase).create(captor.capture());
         assertThat(captor.getValue().companyId()).isEqualTo(1L);
         assertThat(captor.getValue().name()).isEqualTo("사업본부");
+    }
+
+    @Test
+    @DisplayName("이름 수정은 경로의 팀 id와 토큰의 회사로 요청한다")
+    void renameTakesTeamIdFromPathAndCompanyFromToken() throws Exception {
+        authenticateAs(1L);
+        when(renameTeamUseCase.rename(any())).thenReturn(
+                new TeamNode(10L, "제품개발팀", null, null, null, 0L, List.of()));
+
+        mockMvc.perform(patch("/api/teams/10")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "제품개발팀" }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<RenameTeamCommand> captor = ArgumentCaptor.forClass(RenameTeamCommand.class);
+        verify(renameTeamUseCase).rename(captor.capture());
+        assertThat(captor.getValue().companyId()).isEqualTo(1L);
+        assertThat(captor.getValue().teamId()).isEqualTo(10L);
+        assertThat(captor.getValue().name()).isEqualTo("제품개발팀");
     }
 
     private void authenticateAs(Long companyId) {
