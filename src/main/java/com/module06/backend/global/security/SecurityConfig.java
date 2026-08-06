@@ -53,8 +53,11 @@ public class SecurityConfig {
                         // ── 공개: 로그인 전 화면 ──
                         // 토큰을 받으러 오는 경로다. 여기에 인증을 걸면 아무도 로그인할 수 없다.
                         // refresh 는 갱신표 자체가 신분증이라 액세스 토큰을 요구하지 않는다.
+                        // registrations 는 회사가 아직 없는 사람이 부른다 — 토큰을 줄 계정 자체가
+                        // 없으므로 인증을 걸면 아무도 회사를 만들 수 없다.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/companies/lookup",
+                                "/api/companies/registrations",
                                 "/api/auth/login",
                                 "/api/auth/refresh").permitAll()
 
