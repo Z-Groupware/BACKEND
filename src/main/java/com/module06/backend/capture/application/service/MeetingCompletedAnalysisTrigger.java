@@ -1,0 +1,118 @@
+package com.module06.backend.capture.application.service;
+
+import java.time.Duration;
+import java.util.Optional;
+
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+import com.module06.backend.capture.application.result.AnalysisOutcome;
+import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
+import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.meeting.application.event.MeetingCompletionRequestedEvent;
+
+/*
+ * MEET-08(회의 종료)이 발행한 이벤트를 받아 분석을 시작한다. **파이프라인의 자동 입구**다.
+ *
+ * 여기가 붙기 전까지 분석을 부르는 경로는 ANLZ-01(사람이 누르는 것) 하나뿐이었다 —
+ * D 는 이벤트를 발행하고 있었지만 받는 쪽이 없어서, 회의를 끝내도 아무 일도 일어나지 않았다.
+ *
+ * <h2>왜 AFTER_COMMIT 인가</h2>
+ * 회의 DONE 저장이 **커밋된 뒤에만** 분석한다. 커밋 전에 시작하면 우리는 아직 IN_PROGRESS 인
+ * 회의를 읽고, 그 트랜잭션이 롤백되면 **일어나지 않은 회의 종료에 토큰을 태운 것**이 된다.
+ * D 쪽 발행부도 그 전제로 쓰여 있다(SpringMeetingCompletionEventPublisher 주석).
+ *
+ * <h2>왜 비동기인가</h2>
+ * 분석은 분 단위로 돈다(계층 9개 · 모델 호출 7회). 동기로 두면 MEET-08 의 HTTP 응답이 그만큼
+ * 붙잡히는데, 그 API 는 **"분석 완료를 기다리지 않는다"**를 계약으로 내놨다. 큐가 없는 지금은
+ * 전용 스레드 풀이 그 자리를 대신한다(AnalysisAsyncConfig).
+ *
+ * <h2>D 를 부르지 않는다 · D 도 우리를 부르지 않는다</h2>
+ * 이 클래스는 이벤트 레코드 하나만 안다. D 는 A 의 유스케이스를 직접 부르지 않는 것이 계약이고
+ * (MeetingCompletionService 주석), 그래서 한쪽을 고쳐도 다른 쪽이 컴파일에서 깨지지 않는다.
+ *
+ * <h2>여기서 던지지 않는다</h2>
+ * 예외를 그대로 올리면 갈 곳이 없다. AFTER_COMMIT 리스너의 예외는 이미 커밋된 트랜잭션을
+ * 되돌리지 못하고, 비동기 스레드에서는 요청자에게 닿지도 않는다 — 아무도 못 보는 스택 트레이스
+ * 하나가 남을 뿐이다. 실패는 로그와 analysis_layer 상태로 남기고, 사람이 ANLZ-01 로 다시 돌린다.
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class MeetingCompletedAnalysisTrigger {
+
+    /*
+     * 자동 실행 하한이다. 이보다 짧은 회의는 부르지 않는다(명세 ANLZ-01 SKIPPED_TOO_SHORT).
+     *
+     * 자동 트리거는 비용 통제를 약하게 만든다 — 테스트로 만든 회의, 들어왔다 바로 나온 회의까지
+     * 전부 모델을 태운다. 3분 미만에서 "누가·무엇을·언제까지"가 나올 일도 드물다.
+     * 걸러진 회의도 사람이 원하면 ANLZ-01 로 돌릴 수 있다.
+     */
+    private static final Duration MIN_LENGTH_FOR_AUTO_RUN = Duration.ofMinutes(3);
+
+    private final RunAnalysisUseCase runAnalysisUseCase;
+    private final MeetingLengthProvider meetingLengthProvider;
+
+    @Async("analysisTaskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onMeetingCompleted(MeetingCompletionRequestedEvent event) {
+        long companyId = event.companyId();
+        long meetingId = event.meetingId();
+
+        try {
+            if (tooShortForAutoRun(meetingId)) {
+                return;
+            }
+
+            /*
+             * force 는 false 다. 이미 완료된 회의를 자동 경로가 다시 태우면 재과금이고,
+             * 강제 재실행은 별도 권한과 확인 모달을 요구하는 **사람의 판단**이다(명세 ANLZ-01).
+             *
+             * 유스케이스를 부른다(오케스트레이터가 아니라). 회사 스코프 관문·중복 실행 판정·
+             * 참석자 조회가 거기 있고, 자동 경로만 그것들을 건너뛰면 두 입구가 서로 다른 규칙으로
+             * 돌게 된다 — 그 갈림이 정확히 이 저장소가 겪은 사고다(#100).
+             */
+            AnalysisOutcome outcome = runAnalysisUseCase.run(companyId, meetingId, false);
+
+            log.info("회의 종료 자동 분석 — meetingId={} status={} 주제={}",
+                    meetingId, outcome.status(), outcome.topicCount());
+
+        } catch (BusinessException e) {
+            /*
+             * "이미 진행 중"·"이미 완료"가 여기로 온다. 오류가 아니라 **중복이 걸러진 정상 동작**이다 —
+             * 회의를 두 번 끝내려는 시도나, 사람이 먼저 ANLZ-01 을 눌러둔 경우다.
+             */
+            log.info("회의 종료 자동 분석 생략 — meetingId={} 사유={}", meetingId, e.getMessage());
+        } catch (RuntimeException e) {
+            // 던져봐야 갈 곳이 없다(클래스 주석). 어디서 멈췄는지는 analysis_layer 에 남는다.
+            log.error("회의 종료 자동 분석 실패 — meetingId={}", meetingId, e);
+        }
+    }
+
+    /*
+     * 실측 길이로 자동 실행 여부를 가른다.
+     *
+     * 길이를 **못 읽으면 돌린다.** 모르는 것과 짧은 것은 다르고, 모를 때 건너뛰면 멀쩡한 회의의
+     * 분석이 조용히 사라진다 — 사람은 분석이 안 됐다는 사실조차 모른다. 반대 방향의 손해는
+     * 토큰이고, 그건 로그로 보인다.
+     */
+    private boolean tooShortForAutoRun(long meetingId) {
+        Optional<Duration> length = meetingLengthProvider.actualLengthOf(meetingId);
+        if (length.isEmpty()) {
+            log.warn("회의 길이를 읽지 못해 하한 검사를 건너뛴다 — meetingId={}", meetingId);
+            return false;
+        }
+
+        if (length.get().compareTo(MIN_LENGTH_FOR_AUTO_RUN) < 0) {
+            log.info("회의 종료 자동 분석 생략 — {}초짜리 회의다(하한 {}분). meetingId={}",
+                    length.get().toSeconds(), MIN_LENGTH_FOR_AUTO_RUN.toMinutes(), meetingId);
+            return true;
+        }
+        return false;
+    }
+}
