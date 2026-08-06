@@ -60,9 +60,16 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
         if (current.status() == ProcessingStatus.OverallStatus.RUNNING) {
             throw new BusinessException(CaptureErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
-        if (current.status() == ProcessingStatus.OverallStatus.DONE && !force) {
-            // force 없이 재실행을 막는 것이 비용 방어다. 같은 회의를 다시 돌리면 토큰이
-            // 그대로 두 배가 된다 — 그래서 명세도 별도 권한과 확인 모달을 요구한다.
+        /*
+         * force 없이 재실행을 막는 것이 비용 방어다. 같은 회의를 다시 돌리면 토큰이 그대로
+         * 두 배가 된다 — 그래서 명세도 별도 권한과 확인 모달을 요구한다.
+         *
+         * ⚠ 판정을 오케스트레이터에 묻는다. ProcessingStatus.DONE("기록된 계층 행이 전부 DONE")을
+         * 쓰면 안 된다 — 계층이 새로 붙었을 때 예전에 분석된 회의는 그 시절 행만 DONE 이라
+         * "완료"로 읽히고, 새 계층은 force 없이는 영원히 돌지 않는다. 실제로 L2·L3 만 돌던
+         * 회의가 L1.5·L3.5·L4 를 못 받는 상태였다. 완료 판정은 RUN_LAYERS 를 아는 쪽이 한다.
+         */
+        if (!force && orchestrator.isFullyAnalyzed(meetingId)) {
             throw new BusinessException(CaptureErrorCode.ANALYSIS_ALREADY_DONE);
         }
 

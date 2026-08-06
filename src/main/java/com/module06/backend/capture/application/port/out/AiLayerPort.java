@@ -1,7 +1,10 @@
 package com.module06.backend.capture.application.port.out;
 
+import java.time.LocalDate;
 import java.util.List;
 
+import com.module06.backend.capture.domain.model.GateStatus;
+import com.module06.backend.capture.domain.model.ItemType;
 import com.module06.backend.capture.domain.model.Utterance;
 
 /*
@@ -19,6 +22,27 @@ import com.module06.backend.capture.domain.model.Utterance;
  * 흘리면 오케스트레이터가 HTTP 라이브러리에 묶이고, 재시도 여부 판정도 그쪽으로 샌다.
  */
 public interface AiLayerPort {
+
+    /*
+     * AI-02 · L1.5 지시어 해소. 회의당 한 번 부른다.
+     *
+     * 주제별로 나눠 부르지 않는 이유: 선행사는 주제 경계를 넘는다("아까 그 얘기"). 주제 안에서만
+     * 찾으면 경계를 넘는 지시어가 통째로 UNRESOLVED 가 되는데, 그건 계층이 기권한 것이 아니라
+     * 우리가 문맥을 잘라 보낸 결과다.
+     *
+     * 그래서 L2 **앞에** 돈다. 해소 결과가 L2·L3·L4 가 보는 발화에 반영되어야 하고, 순서를
+     * 뒤집으면 L4 가 이미 담당자를 정한 뒤에 대명사가 풀린다.
+     *
+     * @param targetUtteranceIds 해소 대상. 비워 보내면 전체 발화를 대상으로 본다 —
+     *                           지시어 후보를 추리는 코드가 아직 없어 지금은 항상 비운다.
+     */
+    ResolveReferenceResult resolveReference(
+            long tenantId,
+            long meetingId,
+            List<Utterance> utterances,
+            List<Long> targetUtteranceIds,
+            List<Participant> participants
+    );
 
     /* AI-03 · L2 주제 분할. 오버랩 3발화는 Python 후처리가 붙여서 돌려준다. */
     SegmentTopicsResult segmentTopics(long tenantId, long meetingId, List<Utterance> utterances);
@@ -39,9 +63,76 @@ public interface AiLayerPort {
     );
 
     /*
+     * AI-05 · L3.5 확정/논의 게이트. 주제마다 한 번 부른다.
+     *
+     * L3 산출을 **저장한 뒤에** 부른다. 판정을 meeting_decision.gate_status 에 적어야 하고,
+     * 저장 전에 부르면 응답을 어느 행에 적용할지 임시 순번으로 맞춰야 한다 — 그 맞추기가
+     * 틀리면 A 항목의 판정이 B 항목에 저장되는데, 조회는 성공하므로 아무도 오류를 못 본다.
+     *
+     * @param candidates 판정 대상. 근거 발화가 없는 항목은 넣을 수 없다(GateCandidate 주석).
+     */
+    GateResult gate(
+            long tenantId,
+            long meetingId,
+            String topic,
+            List<GateCandidate> candidates,
+            List<Utterance> utterances,
+            List<Participant> participants
+    );
+
+    /*
+     * AI-06 · L4 assignment tuple 추출. 주제마다 한 번 부른다(명세 「세그먼트별 호출」).
+     *
+     * items 는 **L3.5 가 CONFIRMED 로 판정한 항목만** 넣는다. Python 쪽 요청 스키마가
+     * gateStatus 를 Literal["CONFIRMED"] 로 요구하므로 다른 값은 422 로 거절되는데,
+     * 거절되기 때문에 안전한 것이 아니라 **거절되도록 만들어 둔 것**이다 — 게이트를 지나지
+     * 않은 항목으로 tuple 을 뽑으면 아직 합의도 안 된 논의가 담당자에게 배정된다.
+     *
+     * @param meetingDate 상대 표현("다음 주까지")을 절대 날짜로 바꾸는 기준점. null 이면
+     *                    계층이 상대 표현을 계산하지 않고 dueDate 를 null 로 둔다 — 기준일을
+     *                    모르는 채 계산하면 그럴듯하게 틀린 마감이 보드에 꽂힌다.
+     */
+    ExtractTuplesResult extractTuples(
+            long tenantId,
+            long meetingId,
+            String topic,
+            List<ConfirmedItem> items,
+            List<Utterance> utterances,
+            List<Participant> participants,
+            LocalDate meetingDate
+    );
+
+    /*
      * 계층의 닫힌 목록에 들어갈 참석자다. personId 가 null 인 항목이 unknown_person 탈출구다.
      * 탈출구가 없으면 모델이 명단 안에서 억지로 하나를 고른다(명세 AI-06).
      */
     record Participant(Long personId, String name) {
+    }
+
+    /*
+     * L3.5 게이트에 넘길 판정 대상 하나.
+     *
+     * evidenceUtteranceId 가 필수다. Python 쪽 GateCandidate 가 non-nullable int 로 받으므로
+     * null 을 실으면 422 다. 그래서 근거 없는 항목(자막 폴백·사람이 직접 추가한 항목)은
+     * 게이트를 부르지 않고 미판정(NULL)으로 남는다 — 근거를 확인할 수 없는 항목이
+     * 확정으로 올라가지 않는 쪽이 안전한 방향이다.
+     *
+     * decisionId 가 곧 itemKey 다. 응답을 이 값으로 되짚는다.
+     */
+    record GateCandidate(Long decisionId, ItemType itemType, String content, long evidenceUtteranceId) {
+    }
+
+    /*
+     * L4 에 넘길 확정 항목 하나.
+     *
+     * gateStatus 를 필드로 들고 다닌다 — 호출자가 CONFIRMED 만 넣었다고 주석으로 약속하는
+     * 대신 값으로 확인할 수 있게 둔다. 어댑터가 이 값을 그대로 실어 보내므로, CONFIRMED 가
+     * 아닌 것이 섞이면 Python 이 422 로 거절한다. 조용히 통과하는 경로를 만들지 않는다.
+     *
+     * evidenceUtteranceIds 는 이 항목의 근거 발화다. 채워 보내면 tuple 의 근거도 그 안에서만
+     * 고를 수 있게 좁혀진다(Python 이 응답 스키마 enum 으로 박는다).
+     */
+    record ConfirmedItem(ItemType itemType, GateStatus gateStatus, String content,
+                         List<Long> evidenceUtteranceIds) {
     }
 }

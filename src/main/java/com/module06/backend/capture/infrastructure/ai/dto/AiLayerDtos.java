@@ -46,6 +46,41 @@ public final class AiLayerDtos {
         }
     }
 
+    // ── AI-02 · L1.5 지시어 해소 ────────────────────────────────────────────────
+
+    /*
+     * targetUtteranceIds 를 **빈 배열로라도 반드시 보낸다.** Python 쪽은 default_factory 가
+     * 있어 생략해도 되지만, null 을 실으면 Jackson 이 `"targetUtteranceIds": null` 로 직렬화하고
+     * pydantic 은 list 자리의 None 을 422 로 거절한다(default 는 "키가 없을 때"만 쓰인다).
+     */
+    public record ResolveReferenceRequestDto(
+            Long tenantId,
+            Long meetingId,
+            List<UtteranceDto> utterances,
+            List<Long> targetUtteranceIds,
+            List<ParticipantDto> participants,
+            String queryText
+    ) {
+    }
+
+    public record ResolvedReferenceDto(
+            Long utteranceId,
+            String surface,
+            String referenceType,
+            Long resolvedPersonId,
+            String resolvedText,
+            Long evidenceUtteranceId
+    ) {
+    }
+
+    public record ResolveReferenceResponseDto(
+            List<ResolvedReferenceDto> references,
+            UsageDto usage,
+            String model,
+            String promptVersion
+    ) {
+    }
+
     // ── AI-03 · L2 주제 분할 ────────────────────────────────────────────────────
 
     public record SegmentTopicsRequestDto(
@@ -99,6 +134,102 @@ public final class AiLayerDtos {
             String topic,
             String summary,
             List<TopicItemDto> items,
+            UsageDto usage,
+            String model,
+            String promptVersion
+    ) {
+    }
+
+    // ── AI-05 · L3.5 확정/논의 게이트 ───────────────────────────────────────────
+
+    /*
+     * itemKey 가 문자열인 것은 Python 계약이다(meeting_decision.id 를 문자열로 넣어도 되고
+     * 임시 순번을 넣어도 된다). 우리는 항상 decision id 를 쓴다 — 응답을 그 행에 바로
+     * 적용할 수 있고, 임시 순번을 쓰면 응답과 행을 다시 맞춰야 한다.
+     */
+    public record GateCandidateDto(
+            String itemKey,
+            String itemType,
+            String content,
+            Long evidenceUtteranceId
+    ) {
+    }
+
+    public record GateRequestDto(
+            Long tenantId,
+            Long meetingId,
+            String topic,
+            List<GateCandidateDto> items,
+            List<UtteranceDto> utterances,
+            List<ParticipantDto> participants,
+            String queryText
+    ) {
+    }
+
+    public record GateVerdictDto(
+            String itemKey,
+            String gateStatus,
+            String reason
+    ) {
+    }
+
+    public record GateResponseDto(
+            List<GateVerdictDto> verdicts,
+            UsageDto usage,
+            String model,
+            String promptVersion
+    ) {
+    }
+
+    // ── AI-06 · L4 assignment tuple 추출 ────────────────────────────────────────
+
+    /*
+     * gateStatus 는 Python 쪽에서 Literal["CONFIRMED"] 다. 다른 값이면 422 이고, 그것이 이
+     * 필드의 목적이다 — 게이트를 지나지 않은 항목이 tuple 추출로 흘러가는 경로를 스키마로 막는다.
+     *
+     * evidenceUtteranceIds 는 null 로 보내지 않는다(위 targetUtteranceIds 와 같은 이유).
+     */
+    public record ConfirmedItemDto(
+            String itemType,
+            String gateStatus,
+            String content,
+            List<Long> evidenceUtteranceIds
+    ) {
+    }
+
+    /*
+     * meetingDate 는 "YYYY-MM-DD" 문자열로 보낸다. Python 이 date 로 받으므로 형식이 어긋나면
+     * 422 다 — LocalDate 를 그대로 넘기면 Jackson 설정에 따라 배열([2026,8,6])로 직렬화될
+     * 여지가 있어, 어댑터에서 ISO 문자열로 고정한다.
+     *
+     * view 를 항상 "EXTRACT" 로 보낸다. EXTRACT_NARROW 는 L5 관점 다변화의 한쪽이고,
+     * 그건 L5 를 붙일 때 Python 이 내부에서 쓴다 — 여기서 미리 보내면 관점 하나만 쓴 결과를
+     * 검증된 것처럼 저장하게 된다.
+     */
+    public record ExtractTuplesRequestDto(
+            Long tenantId,
+            Long meetingId,
+            String topic,
+            List<ConfirmedItemDto> items,
+            List<UtteranceDto> utterances,
+            List<ParticipantDto> participants,
+            String queryText,
+            String meetingDate,
+            String view
+    ) {
+    }
+
+    public record AssignmentTupleDto(
+            String title,
+            Long assigneeCandidatePersonId,
+            String assigneeSource,
+            String dueDate,
+            Long evidenceUtteranceId
+    ) {
+    }
+
+    public record ExtractTuplesResponseDto(
+            List<AssignmentTupleDto> tuples,
             UsageDto usage,
             String model,
             String promptVersion

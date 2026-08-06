@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.port.out;
 import java.util.List;
 import java.util.Optional;
 
+import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.ItemType;
 import com.module06.backend.capture.domain.model.TopicItem;
 
@@ -26,6 +27,20 @@ public interface MeetingSummaryRepository {
      */
     void replace(long companyId, long meetingId, String overview, List<TopicDecisions> topics,
                  String modelName, String promptVersion);
+
+    /*
+     * L3.5 판정을 meeting_decision.gate_status 에 반영한다.
+     *
+     * 판정이 없는 항목은 **건드리지 않는다.** NULL 로 남는 것이 "게이트가 판정하지 못했다"는
+     * 뜻이고, 그 항목은 L4 로 넘어가지 않는다. 여기서 기본값을 채우면 미판정과 판정이 한 값으로
+     * 뭉쳐서, 게이트를 부르지 못한 회의와 게이트가 논의로 판정한 회의를 구분할 수 없게 된다.
+     *
+     * meetingId 를 함께 받는 이유는 회사 스코프다. verdict 의 decisionId 는 계층 응답에서
+     * 온 값이므로, 그것만으로 갱신하면 다른 회의(다른 회사)의 항목을 고칠 수 있는 경로가 생긴다.
+     *
+     * @return 실제로 반영된 건수. 요청 판정 수와 다르면 되짚지 못한 항목이 있었다는 뜻이다.
+     */
+    int applyGateVerdicts(long meetingId, List<GateVerdict> verdicts);
 
     /* ANLZ-03 조회. 분석 전이면 비어 있다 — 빈 요약을 만들어 돌려주지 않는다. */
     /*
