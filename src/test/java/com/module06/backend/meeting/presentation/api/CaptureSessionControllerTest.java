@@ -13,23 +13,27 @@ import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.meeting.application.command.PauseCaptureSessionCommand;
 import com.module06.backend.meeting.application.command.ResumeCaptureSessionCommand;
 import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
+import com.module06.backend.meeting.application.query.GetCaptureSessionQuery;
 import com.module06.backend.meeting.application.result.CaptureSessionPauseResult;
 import com.module06.backend.meeting.application.result.CaptureSessionResumeResult;
+import com.module06.backend.meeting.application.result.CaptureSessionStateResult;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult.RosterEntry;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult.RosterType;
+import com.module06.backend.meeting.application.usecase.GetCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.PauseCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.ResumeCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
 import com.module06.backend.meeting.domain.model.CaptureSessionStatus;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionPauseResponse;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionResumeResponse;
+import com.module06.backend.meeting.presentation.api.response.CaptureSessionStateResponse;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionStartResponse;
 
 /*
- * CAP-01~03 Controller의 AuthPrincipal·Path 전달과 명세 응답 변환을 검증한다.
+ * CAP-01~03·10 Controller의 AuthPrincipal·Path 전달과 명세 응답 변환을 검증한다.
  */
-@DisplayName("CAP-01~03 캡처 세션 Controller")
+@DisplayName("CAP-01~03·10 캡처 세션 Controller")
 class CaptureSessionControllerTest {
 
     /* CAP-01 테스트에서 호출되면 실패하는 CAP-02 일시정지 유스케이스 대역이다. */
@@ -48,6 +52,12 @@ class CaptureSessionControllerTest {
     private static final ResumeCaptureSessionUseCase UNUSED_RESUME_USE_CASE = command -> {
         /* 시작·일시정지 API가 재개 유스케이스로 잘못 연결되면 테스트를 즉시 실패시킨다. */
         throw new AssertionError("CAP-01·02에서는 재개 유스케이스를 호출하면 안 됩니다.");
+    };
+
+    /* CAP-01~03 테스트에서 호출되면 실패하는 CAP-10 조회 유스케이스 대역이다. */
+    private static final GetCaptureSessionUseCase UNUSED_GET_USE_CASE = query -> {
+        /* 상태 변경 API가 조회 유스케이스로 잘못 연결되면 테스트를 즉시 실패시킨다. */
+        throw new AssertionError("CAP-01~03에서는 조회 유스케이스를 호출하면 안 됩니다.");
     };
 
     /* 인증 principal과 Path가 시작 명령이 되고 명세 응답으로 변환되는지 검증한다. */
@@ -75,7 +85,8 @@ class CaptureSessionControllerTest {
         CaptureSessionController controller = new CaptureSessionController(
                 useCase,
                 UNUSED_PAUSE_USE_CASE,
-                UNUSED_RESUME_USE_CASE
+                UNUSED_RESUME_USE_CASE,
+                UNUSED_GET_USE_CASE
         );
 
         /* 회사 10의 host 3번 principal로 91번 회의 캡처 세션을 시작한다. */
@@ -123,7 +134,8 @@ class CaptureSessionControllerTest {
         CaptureSessionController controller = new CaptureSessionController(
                 UNUSED_START_USE_CASE,
                 pauseUseCase,
-                UNUSED_RESUME_USE_CASE
+                UNUSED_RESUME_USE_CASE,
+                UNUSED_GET_USE_CASE
         );
 
         /* 회사 10의 host 3번 principal로 91번 회의 캡처 일시정지를 호출한다. */
@@ -163,7 +175,8 @@ class CaptureSessionControllerTest {
         CaptureSessionController controller = new CaptureSessionController(
                 UNUSED_START_USE_CASE,
                 UNUSED_PAUSE_USE_CASE,
-                resumeUseCase
+                resumeUseCase,
+                UNUSED_GET_USE_CASE
         );
 
         /* 회사 10의 host 3번 principal로 91번 회의 캡처 재개를 호출한다. */
@@ -180,5 +193,72 @@ class CaptureSessionControllerTest {
         assertThat(response.getData().status()).isEqualTo("ACTIVE");
         assertThat(response.getData().isPaused()).isFalse();
         assertThat(response.getData().resumedAt()).isEqualTo("2026-08-06T14:36:22");
+    }
+
+    /* 인증 principal과 Path가 조회 조건이 되고 PAUSED 세션의 200 응답으로 변환되는지 검증한다. */
+    @Test
+    @DisplayName("참석자가 현재 캡처 세션 상태와 시간축을 조회한다")
+    void getsCurrentCaptureSessionAndReturnsOkResponse() {
+        /* 조회 유스케이스에 전달된 조건을 기록할 공간을 준비한다. */
+        GetCaptureSessionQuery[] capturedQuery = new GetCaptureSessionQuery[1];
+
+        /* 조건을 기록하고 CAP-10 명세 예시 결과를 반환하는 유스케이스 대역을 만든다. */
+        GetCaptureSessionUseCase getUseCase = query -> {
+            /* 토큰과 Path가 결합된 조건을 이후 검증을 위해 기록한다. */
+            capturedQuery[0] = query;
+            return new CaptureSessionStateResult(
+                    15L,
+                    CaptureSessionStatus.PAUSED,
+                    true,
+                    1_785_891_600_000L,
+                    LocalDateTime.of(2026, 8, 6, 13, 58, 12),
+                    LocalDateTime.of(2026, 8, 6, 14, 31, 8)
+            );
+        };
+        CaptureSessionController controller = new CaptureSessionController(
+                UNUSED_START_USE_CASE,
+                UNUSED_PAUSE_USE_CASE,
+                UNUSED_RESUME_USE_CASE,
+                getUseCase
+        );
+
+        /* 회사 10의 참석자 7번 principal로 91번 회의 캡처 세션을 조회한다. */
+        AuthPrincipal principal = new AuthPrincipal(7L, 10L, "MEMBER", false, 100L);
+        ApiResponse<CaptureSessionStateResponse> response = controller.getCaptureSession(principal, 91L);
+
+        /* 토큰 회사·구성원과 Path 회의 ID가 정확한 CAP-10 조건으로 결합돼야 한다. */
+        assertThat(capturedQuery[0]).isEqualTo(new GetCaptureSessionQuery(10L, 7L, 91L));
+
+        /* 명세의 200 메시지와 PAUSED 상태·공통 시간축을 반환해야 한다. */
+        assertThat(response.getHttpStatus()).isEqualTo(200);
+        assertThat(response.getMessage()).isEqualTo("캡처 세션 조회에 성공했습니다.");
+        assertThat(response.getData().captureSessionId()).isEqualTo(15L);
+        assertThat(response.getData().status()).isEqualTo("PAUSED");
+        assertThat(response.getData().isPaused()).isTrue();
+        assertThat(response.getData().startedAtEpochMs()).isEqualTo(1_785_891_600_000L);
+        assertThat(response.getData().startedAt()).isEqualTo("2026-08-06T13:58:12");
+        assertThat(response.getData().pausedAt()).isEqualTo("2026-08-06T14:31:08");
+    }
+
+    /* ACTIVE 세션 응답에서 isPaused와 nullable pausedAt 계약이 함께 유지되는지 검증한다. */
+    @Test
+    @DisplayName("ACTIVE 캡처 세션은 isPaused false와 pausedAt null을 반환한다")
+    void returnsNullPausedAtForActiveCaptureSession() {
+        /* ACTIVE 상태와 null pausedAt을 가진 CAP-10 결과를 응답으로 변환한다. */
+        CaptureSessionStateResponse response = CaptureSessionStateResponse.from(
+                new CaptureSessionStateResult(
+                        15L,
+                        CaptureSessionStatus.ACTIVE,
+                        false,
+                        1_785_891_600_000L,
+                        LocalDateTime.of(2026, 8, 6, 13, 58, 12),
+                        null
+                )
+        );
+
+        /* 현재 일시정지 상태가 아니므로 false와 JSON null 원본이 함께 유지돼야 한다. */
+        assertThat(response.status()).isEqualTo("ACTIVE");
+        assertThat(response.isPaused()).isFalse();
+        assertThat(response.pausedAt()).isNull();
     }
 }

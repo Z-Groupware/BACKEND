@@ -20,4 +20,7 @@ public interface SpringDataCaptureSessionRepository extends JpaRepository<Captur
     /* CAP-02·03·MEET-08 상태 경합을 직렬화하도록 회의의 캡처 세션 행을 쓰기 잠금 조회한다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<CaptureSessionJpaEntity> findByMeetingId(Long meetingId);
+
+    /* CAP-10 조회가 상태 변경 트랜잭션을 막지 않도록 별도의 비잠금 파생 쿼리를 제공한다. */
+    Optional<CaptureSessionJpaEntity> findFirstByMeetingId(Long meetingId);
 }
