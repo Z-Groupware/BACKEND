@@ -1,5 +1,6 @@
 package com.module06.backend.capture.infrastructure.persistence.repository;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Sort;
@@ -29,4 +30,13 @@ public interface SpringDataTranscriptChunkRepository extends JpaRepository<Trans
             Sort.Order.asc("seq"));
 
     List<TranscriptChunkJpaEntity> findByMeetingId(Long meetingId, Sort sort);
+
+    /*
+     * L1 판정을 이식할 발화를 가져온다.
+     *
+     * meetingId 를 조건에 **함께** 넣는다. 판정 결과가 실어 온 id 만으로 갱신하면 다른 회의
+     * (다른 회사)의 정본에 화자를 심을 수 있다 — 갱신은 성공하므로 아무도 오류를 못 본다.
+     * 파생 쿼리로 두는 것은 신규 @Query 금지(QUERY_002) 때문이다.
+     */
+    List<TranscriptChunkJpaEntity> findByMeetingIdAndIdIn(Long meetingId, Collection<Long> ids);
 }

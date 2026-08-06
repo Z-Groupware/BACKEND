@@ -19,6 +19,7 @@ import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleRow;
+import com.module06.backend.capture.application.port.out.CaptionRepository;
 import com.module06.backend.capture.application.port.out.ExtractTuplesResult;
 import com.module06.backend.capture.application.port.out.GateResult;
 import com.module06.backend.capture.application.port.out.LayerRun;
@@ -33,6 +34,7 @@ import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.CaptionChunk;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.LayerName;
@@ -47,10 +49,12 @@ import com.module06.backend.capture.domain.model.Utterance;
  * 계층 안에서 무엇을 판단하는지는 Python 몫이다(명세 「내부 API」 머리말).
  *
  * <h2>지금 도는 구간</h2>
- * L1.5(지시어 해소) → L2(주제 분할) → 주제마다 L3(정리) → meeting_summary·meeting_decision 저장
- * → 주제마다 L3.5(확정/논의 게이트) → gate_status 반영 → 주제마다 L4(tuple 추출)
- * → meeting_assignment_tuple 저장.
- * L1(화자 귀속) · L5(검증) · L6(모순 검사) · L7(자동확정 게이트)은 아직 붙지 않았다.
+ * L1(화자 귀속) → L1.5(지시어 해소) → L2(주제 분할) → 주제마다 L3(정리)
+ * → meeting_summary·meeting_decision 저장 → 주제마다 L3.5(확정/논의 게이트) → gate_status 반영
+ * → 주제마다 L4(tuple 추출) → meeting_assignment_tuple 저장.
+ * L5(검증) · L6(모순 검사) · L7(자동확정 게이트)은 아직 붙지 않았다.
+ *
+ * L1 만 **코드 계층**이다(rms·명단으로 판정 · LLM 아님). 나머지는 Python 계층 호출이다.
  * 계층을 하나 붙일 때 바꾸는 곳은 {@link #run} 안의 호출 순서와 {@link #RUN_LAYERS} 두 곳이고,
  * 잠금·상태 기록·토큰 집계는 {@link #runLayer} 가 공통으로 갖는다.
  *
@@ -83,14 +87,16 @@ public class AnalysisOrchestrator {
 
     /* 이 오케스트레이터가 실제로 도는 계층. 계층을 붙이면 여기도 같이 늘린다 —
      * 빠뜨리면 "전부 완료" 판정이 새 계층을 안 보고 생략을 결정한다. */
-    private static final Set<LayerName> RUN_LAYERS =
-            Set.of(LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5, LayerName.L4);
+    private static final Set<LayerName> RUN_LAYERS = Set.of(
+            LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5, LayerName.L4);
 
     private final TranscriptRepository transcriptRepository;
+    private final CaptionRepository captionRepository;
     private final AnalysisLayerRepository analysisLayerRepository;
     private final MeetingSummaryRepository meetingSummaryRepository;
     private final AssignmentTupleRepository assignmentTupleRepository;
     private final MeetingDateProvider meetingDateProvider;
+    private final SpeakerAttributionResolver speakerAttributionResolver;
     private final AiLayerPort aiLayerPort;
 
     /*
@@ -116,14 +122,67 @@ public class AnalysisOrchestrator {
             return AnalysisOutcome.skipped("이미 분석이 완료된 회의입니다.");
         }
 
-        List<Utterance> rawUtterances = transcriptRepository.findByMeetingOrderByOffset(meetingId);
-        if (rawUtterances.isEmpty()) {
+        List<Utterance> loaded = transcriptRepository.findByMeetingOrderByOffset(meetingId);
+        if (loaded.isEmpty()) {
             // 발화가 없으면 계층을 부르지 않는다. 빈 입력으로 돌리면 빈 결과에 돈만 쓰고,
             // 그 빈 결과가 "분석 완료"로 기록돼 자막·STT 쪽 사고를 가린다.
             // (명세 ANLZ-01 의 SKIPPED_NO_CAPTION 과 같은 성질이다.)
             log.info("분석 생략 — 발화 0건 meetingId={}", meetingId);
             return AnalysisOutcome.skipped("발화가 없어 분석을 건너뛰었습니다.");
         }
+
+        // ── L1 · 화자 귀속 (코드 계층 · LLM 아님) ────────────────────────────────
+        /*
+         * 파이프라인의 **첫** 계층이다. 자막(caption_chunk)과 정본을 ±1.5초 창에서 맞춰
+         * rms 최대인 참석자를 화자로 정하고, 그 결과를 정본에 이식한다. 모델이 아니라 산수다.
+         *
+         * 여기가 먼저여야 하는 이유 — 뒤 계층 전부가 화자를 본다. L1.5 는 "그분"을 풀 때,
+         * L4 는 1인칭 발화("제가 할게요")의 담당자를 정할 때 speakerMemberId 를 쓴다.
+         * 나중에 돌리면 이미 담당자가 정해진 뒤에 화자가 밝혀진다.
+         *
+         * ⚠ **CAP-11(자막 청크 전송)이 아직 구현되지 않았다.** caption_chunk 가 비어 있으면
+         * 전원 판정 포기로 끝난다 — 지금과 같은 상태이고, 정상 동작이다. CAP-11 이 붙는 순간
+         * 이 계층이 실제로 화자를 채우기 시작한다.
+         */
+        LayerOutcome<Integer> attributed = runLayer(meetingId, LayerName.L1, sink -> {
+            List<CaptionChunk> captions = captionRepository.findByMeeting(meetingId);
+
+            // 명단 밖 탈출구(personId=null)는 제외한다 — 소거법과 "전원 자막" 판단의 분모가
+            // 실제 참석자 수여야 한다. 탈출구를 포함하면 참석자가 2명인 회의가 3명으로 보여
+            // 소거법이 성립하지 않는다.
+            Set<Long> attendeeMemberIds = participants.stream()
+                    .map(AiLayerPort.Participant::personId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            List<SpeakerAttributionResolver.Attribution> attributions =
+                    speakerAttributionResolver.resolve(loaded, captions, attendeeMemberIds);
+
+            int applied = transcriptRepository.applySpeakerAttributions(meetingId, attributions);
+            if (applied != attributions.size()) {
+                // 그 회의에 없는 발화 id 가 섞였다. 오류로 올리지 않는다 — 이식되지 않은 발화는
+                // 화자가 미정으로 남아 안전한 방향이고, 여기서 회의 전체를 실패시키면 발화
+                // 하나 때문에 분석을 못 하게 된다.
+                log.warn("화자 이식 건수가 판정 수와 다르다 — meetingId={} 판정={} 이식={}",
+                        meetingId, attributions.size(), applied);
+            }
+
+            // 토큰을 쓰지 않는 코드 계층이다. LayerRun.empty() 를 기록하는 것이 맞다 —
+            // 0 을 채우는 것이 아니라 실제로 0 이다(모델을 부르지 않았다).
+            return new Accumulated<>(applied, LayerRun.empty());
+        });
+        if (!attributed.succeeded()) {
+            return attributed.toAnalysisOutcome(LayerName.L1);
+        }
+
+        /*
+         * 이식 후의 정본을 다시 읽는다. 판정 결과를 메모리에서 합치지 않는 이유는 L4 가 게이트
+         * 반영 후 값을 다시 읽는 것과 같다 — 이식되지 않은 판정(그 회의에 없는 id)까지 화자가
+         * 채워진 것으로 취급하면 DB 와 프롬프트가 서로 다른 말을 하게 된다.
+         */
+        List<Utterance> rawUtterances = attributed.value() > 0
+                ? transcriptRepository.findByMeetingOrderByOffset(meetingId)
+                : loaded;
 
         // ── L1.5 · 지시어 해소 ──────────────────────────────────────────────────
         /*
@@ -533,7 +592,8 @@ public class AnalysisOrchestrator {
             annotated.add(matched == null
                     ? utterance
                     : new Utterance(utterance.utteranceId(), utterance.speakerMemberId(),
-                            utterance.startOffsetMs(), withAnnotations(utterance, matched, nameByPersonId)));
+                            utterance.startOffsetMs(), utterance.endOffsetMs(),
+                            withAnnotations(utterance, matched, nameByPersonId)));
         }
         return annotated;
     }
