@@ -5,6 +5,8 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,10 +19,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.meetingroom.application.result.MeetingRoomCreationResult;
+import com.module06.backend.meetingroom.application.result.MeetingRoomUpdateResult;
 import com.module06.backend.meetingroom.application.usecase.CreateMeetingRoomUseCase;
+import com.module06.backend.meetingroom.application.usecase.UpdateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.presentation.api.request.CreateMeetingRoomRequest;
+import com.module06.backend.meetingroom.presentation.api.request.UpdateMeetingRoomRequest;
 import com.module06.backend.meetingroom.presentation.api.response.CreateMeetingRoomResponse;
+import com.module06.backend.meetingroom.presentation.api.response.UpdateMeetingRoomResponse;
 
 /*
  * 회의실 등록·수정·비활성화 명령 REST API의 진입점이다.
@@ -35,6 +42,9 @@ public class MeetingRoomCommandController {
 
     /* ROOM-03 프레젠테이션 계층과 등록 서비스 사이의 인바운드 Port다. */
     private final CreateMeetingRoomUseCase createMeetingRoomUseCase;
+
+    /* ROOM-04 프레젠테이션 계층과 수정 서비스 사이의 인바운드 Port다. */
+    private final UpdateMeetingRoomUseCase updateMeetingRoomUseCase;
 
     /* 인증 사용자의 회사에 새로운 활성 회의실을 등록한다. */
     @Operation(
@@ -58,6 +68,32 @@ public class MeetingRoomCommandController {
         return ApiResponse.created(
                 "회의실을 등록했습니다.",
                 CreateMeetingRoomResponse.from(result)
+        );
+    }
+
+    /* OWNER·ADMIN이 자기 회사의 활성 회의실 정보를 부분 수정한다. */
+    @Operation(
+            summary = "회의실 정보 수정",
+            description = "회의실 이름·위치·수용 인원·이용 가능 시간을 부분 수정합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    @PatchMapping("/{meetingRoomId}")
+    public ApiResponse<UpdateMeetingRoomResponse> updateMeetingRoom(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal AuthPrincipal me,
+            @Parameter(description = "수정할 회의실 식별자", required = true, example = "2")
+            @PathVariable Long meetingRoomId,
+            @Valid @RequestBody UpdateMeetingRoomRequest request
+    ) {
+        /* 인증 토큰의 회사·역할과 Path·본문을 결합해 ROOM-04 유스케이스를 실행한다. */
+        MeetingRoomUpdateResult result = updateMeetingRoomUseCase.updateMeetingRoom(
+                request.toCommand(me.getCompanyId(), me.getRole(), meetingRoomId)
+        );
+
+        /* 수정된 전체 회의실 상태를 명세의 200 OK 공통 응답으로 반환한다. */
+        return ApiResponse.success(
+                "회의실 정보를 수정했습니다.",
+                UpdateMeetingRoomResponse.from(result)
         );
     }
 }

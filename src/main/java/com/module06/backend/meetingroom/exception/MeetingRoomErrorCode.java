@@ -32,7 +32,7 @@ public enum MeetingRoomErrorCode implements ErrorCode {
     /* ROOM-03·04 — 이용 가능 종료 시각이 시작 시각보다 빠르거나 같은 경우다. */
     INVALID_AVAILABLE_TIME_RANGE(HttpStatus.BAD_REQUEST, "MR-003", "이용 가능 종료 시각은 시작 시각보다 늦어야 합니다."),
 
-    /* ROOM-03·04·05 — OWNER·ADMIN이 아닌 요청자가 회의실을 관리하려는 경우다. */
+    /* ROOM-04·05 — OWNER·ADMIN이 아닌 요청자가 회의실을 관리하려는 경우다. */
     MEETING_ROOM_MANAGEMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "MR-004", "회의실 관리 권한이 없습니다."),
 
     /* ROOM-05 — 미래 SCHEDULED 예약이 남아 있어 비활성화할 수 없는 경우다. */

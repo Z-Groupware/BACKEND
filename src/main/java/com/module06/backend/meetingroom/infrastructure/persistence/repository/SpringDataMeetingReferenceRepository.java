@@ -1,5 +1,6 @@
 package com.module06.backend.meetingroom.infrastructure.persistence.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,4 +23,13 @@ public interface SpringDataMeetingReferenceRepository extends JpaRepository<Meet
      * @return 요청 회사에 속한 회의 참조 엔티티 목록
      */
     List<MeetingReferenceEntity> findAllByIdInAndCompanyId(List<Long> ids, Long companyId);
+
+    /* 회사·회의실·SCHEDULED 상태와 시작 시각 조건에 맞는 미래 예약을 시작순으로 조회한다. */
+    List<MeetingReferenceEntity>
+    findAllByCompanyIdAndMeetingRoomIdAndStatusAndStartAtGreaterThanEqualOrderByStartAtAsc(
+            Long companyId,
+            Long meetingRoomId,
+            String status,
+            LocalDateTime fromInclusive
+    );
 }

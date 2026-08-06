@@ -39,6 +39,27 @@ public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository, Mee
         return springDataMeetingRoomRepository.existsByCompanyIdAndNameAndDeletedAtIsNull(companyId, name);
     }
 
+    /* 회사의 활성 회의실을 수정·예약 트랜잭션 동안 쓰기 잠금으로 조회한다. */
+    @Override
+    public Optional<MeetingRoom> findActiveByIdForUpdate(Long companyId, Long meetingRoomId) {
+        /* 회사·활성 조건을 쿼리에 포함하고 잠긴 영속성 결과를 도메인 객체로 변환한다. */
+        return springDataMeetingRoomRepository
+                .findForUpdateByIdAndCompanyIdAndDeletedAtIsNull(meetingRoomId, companyId)
+                .map(this::toDomain);
+    }
+
+    /* 현재 수정 대상 이외에 동일한 활성 이름이 존재하는지 확인한다. */
+    @Override
+    public boolean existsActiveByCompanyIdAndNameExcludingId(
+            Long companyId,
+            String name,
+            Long excludedMeetingRoomId
+    ) {
+        /* 회사·활성·이름 조건에 ID 제외 조건까지 포함한 파생 쿼리를 실행한다. */
+        return springDataMeetingRoomRepository
+                .existsByCompanyIdAndNameAndDeletedAtIsNullAndIdNot(companyId, name, excludedMeetingRoomId);
+    }
+
     /* 신규 회의실을 저장하고 데이터베이스 생성 식별자가 반영된 도메인 객체를 반환한다. */
     @Override
     public MeetingRoom save(MeetingRoom meetingRoom) {
