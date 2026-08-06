@@ -42,4 +42,10 @@ public class CapMeetingReferenceEntity {
 
     @Column(name = "host_member_id")
     private Long hostMemberId;
+
+    // meeting.status ENUM('SCHEDULED','IN_PROGRESS','DONE')을 문자열로 읽는다 — "진행 중 캡처" 판정에
+    // 회의가 IN_PROGRESS인지만 확인하면 되므로, 회의 도메인의 MeetingStatus enum에 의존하지 않고
+    // read-model 안에서 문자열로 다룬다(파생 쿼리 findByIdInAndStatus로 필터).
+    @Column(name = "status")
+    private String status;
 }

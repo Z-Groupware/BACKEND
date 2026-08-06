@@ -1,5 +1,6 @@
 package com.module06.backend.identity.member.infrastructure.persistence;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -36,4 +37,21 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
     @Override
     @EntityGraph(attributePaths = {"team"})
     Optional<MemberJpaEntity> findById(Long id);
+
+    /**
+     * 회사 소속 구성원의 id 만. 오너·어드민의 "회사 전체" 인수인계 조회 범위로 쓴다.
+     *
+     * <p>엔티티가 아니라 프로젝션으로 받는 이유: id 만 필요한데 엔티티를 읽으면 비밀번호 해시까지
+     * 메모리에 올라온다. 신규 {@code @Query} 는 Gate 1(QUERY_002)이 막으므로 파생 메서드로 푼다 —
+     * {@code CompanyId} 는 {@code company.id} 로 해석된다({@link #findByCompanyIdAndEmail} 과 같다).
+     *
+     * <p>퇴사자를 걸러내지 않는다. 오프보딩이 끝난 작성자를 빼면 방금 승인한 인수인계가 목록에서
+     * 사라져 감사 흔적을 볼 수 없다 — 진행 중 여부는 호출자가 status 로 가른다.
+     */
+    List<MemberIdProjection> findByCompanyId(Long companyId);
+
+    /** id 한 컬럼만 읽는 닫힌 프로젝션. */
+    interface MemberIdProjection {
+        Long getId();
+    }
 }

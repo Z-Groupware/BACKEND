@@ -212,5 +212,10 @@ class HandoverInsightFinalizeServiceTest {
         public List<ReassignCandidate> findReassignCandidates(Long teamId, Long excludeMemberId) {
             return List.of();
         }
+
+        @Override
+        public List<Long> findMemberIdsByCompany(Long companyId) {
+            return List.of();
+        }
     }
 }
