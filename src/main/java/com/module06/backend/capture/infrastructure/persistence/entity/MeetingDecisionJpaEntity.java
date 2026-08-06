@@ -13,6 +13,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.ItemType;
 
 /*
@@ -23,8 +24,9 @@ import com.module06.backend.capture.domain.model.ItemType;
  * 저장해 id 를 받은 다음 그 id 와 **같은 회의의** meeting_id 를 함께 넣어야 한다.
  * 어긋나면 저장이 FK 로 막힌다 — 그게 이 제약의 목적이다(다른 회의의 결정이 섞이는 것 차단).
  *
- * gate_status 는 이 슬라이스에서 항상 NULL 이다. L3.5 게이트가 아직 붙지 않았고,
- * 임의로 CONFIRMED 를 넣으면 게이트를 지나지 않은 항목이 L4 로 흘러간다.
+ * gate_status 는 L3.5 게이트만 채운다({@link #applyGate}). 저장 시점에는 항상 NULL 이고,
+ * 그 NULL 이 "아직 판정되지 않았다"는 뜻이다 — 임의로 CONFIRMED 를 넣으면 게이트를 지나지
+ * 않은 항목이 L4 로 흘러가고, 아직 합의도 안 된 논의가 담당자에게 배정된다.
  */
 @Entity
 @Table(name = "meeting_decision")
@@ -64,7 +66,7 @@ public class MeetingDecisionJpaEntity {
     @Column(name = "evidence_transcript_id")
     private Long evidenceTranscriptId;
 
-    /* L3.5 판정. 이 슬라이스에서는 NULL — 게이트가 아직 없다. */
+    /* L3.5 판정. NULL 은 미판정이며 DISCUSSED 와 다르다 — L4 로 넘어가지 않는 건 같지만 이유가 다르다. */
     @Column(name = "gate_status", length = 20)
     private String gateStatus;
 
@@ -85,6 +87,19 @@ public class MeetingDecisionJpaEntity {
         entity.evidenceTranscriptId = evidenceTranscriptId;
         entity.sortOrder = sortOrder;
         return entity;
+    }
+
+    /*
+     * L3.5 판정을 기록한다. 이 값만 갱신 대상이다 — 게이트는 항목의 내용을 고치지 않는다.
+     *
+     * enum 을 받아 name() 을 넣는다. 문자열을 그대로 받으면 계층 응답의 알 수 없는 값이
+     * 그대로 컬럼에 들어가고, gate_status 는 DB ENUM 이라 저장 단계에서 회의 전체가 실패한다.
+     */
+    public void applyGate(GateStatus status) {
+        if (status == null) {
+            return;
+        }
+        this.gateStatus = status.name();
     }
 
     /*

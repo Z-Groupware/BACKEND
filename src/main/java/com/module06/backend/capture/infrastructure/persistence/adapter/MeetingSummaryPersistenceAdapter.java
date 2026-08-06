@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository;
+import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.TopicItem;
 import com.module06.backend.capture.infrastructure.persistence.entity.MeetingDecisionJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.entity.MeetingSummaryJpaEntity;
@@ -64,6 +65,40 @@ public class MeetingSummaryPersistenceAdapter implements MeetingSummaryRepositor
             }
         }
         decisionRepository.saveAll(rows);
+    }
+
+    /*
+     * L3.5 판정을 반영한다. 조회한 엔티티를 고치고 트랜잭션 종료 시 더티 체킹으로 반영한다 —
+     * 벌크 UPDATE 로 하면 신규 @Query 가 필요하고(QUERY_002 금지), 판정 건수를 세려면
+     * 어차피 항목을 읽어야 한다.
+     */
+    @Override
+    @Transactional
+    public int applyGateVerdicts(long meetingId, List<GateVerdict> verdicts) {
+        Map<Long, GateVerdict> byDecisionId = new LinkedHashMap<>();
+        for (GateVerdict verdict : verdicts) {
+            if (verdict.decisionId() != null && verdict.gateStatus() != null) {
+                byDecisionId.put(verdict.decisionId(), verdict);
+            }
+        }
+        if (byDecisionId.isEmpty()) {
+            return 0;
+        }
+
+        // meetingId 를 조건에 함께 넣는다 — 계층 응답이 실어 온 id 만으로 갱신하면 다른 회의의
+        // 항목을 고칠 수 있다. 조회 결과에 없는 id 는 그냥 반영되지 않는다(미판정으로 남는다).
+        List<MeetingDecisionJpaEntity> rows =
+                decisionRepository.findByMeetingIdAndIdIn(meetingId, byDecisionId.keySet());
+
+        int applied = 0;
+        for (MeetingDecisionJpaEntity row : rows) {
+            GateVerdict verdict = byDecisionId.get(row.getId());
+            if (verdict != null) {
+                row.applyGate(verdict.gateStatus());
+                applied++;
+            }
+        }
+        return applied;
     }
 
     @Override
