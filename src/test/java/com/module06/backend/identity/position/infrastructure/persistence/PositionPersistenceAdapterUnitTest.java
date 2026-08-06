@@ -40,7 +40,8 @@ class PositionPersistenceAdapterUnitTest {
     @DisplayName("수정 시 이름 유일성 제약 위반을 AU-022로 변환한다")
     void translatesNameConstraintViolationOnUpdate() {
         SpringDataPositionRepository repository = mock(SpringDataPositionRepository.class);
-        when(repository.findById(1L)).thenReturn(java.util.Optional.empty());
+        when(repository.findById(1L))
+                .thenReturn(java.util.Optional.of(PositionJpaEntity.create(1L, "사원", Authority.MEMBER, "설명")));
         doThrow(new DataIntegrityViolationException(
                 "Duplicate entry for key 'UK_POSITION_COMPANY_NAME'"
         )).when(repository).flush();
@@ -50,6 +51,19 @@ class PositionPersistenceAdapterUnitTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
                 .isEqualTo("AU-022");
+    }
+
+    @Test
+    @DisplayName("수정 대상이 없으면(동시 삭제 등) AU-020으로 실패한다")
+    void throwsNotFoundWhenUpdateTargetIsGone() {
+        SpringDataPositionRepository repository = mock(SpringDataPositionRepository.class);
+        when(repository.findById(1L)).thenReturn(java.util.Optional.empty());
+        PositionPersistenceAdapter adapter = new PositionPersistenceAdapter(repository);
+
+        assertThatThrownBy(() -> adapter.update(1L, "사원", Authority.MEMBER, "설명"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo("AU-020");
     }
 
     @Test
