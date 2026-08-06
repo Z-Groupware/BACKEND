@@ -1,12 +1,17 @@
 package com.module06.backend.action.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionRepository;
+import com.module06.backend.project.domain.model.ProjectStatus;
 
 import lombok.RequiredArgsConstructor;
 
@@ -15,17 +20,26 @@ import lombok.RequiredArgsConstructor;
     책임 두 가지 — Spring Data 호출 위임, 그리고 ActionJpaEntity ↔ Action 변환.
     이번 슬라이스(ActionReassignPort 배선)에 필요한 메서드만 우선 구현.
 
+    findHandoverablePersonalActions·findTeamActionsByLeaderMemberId는 원래 JPQL로 다른
+    엔티티와 직접 조인했으나 CI Gate 1(QUERY_002, 신규 @Query 금지)에 걸려 2단계 파생 쿼리로
+    바꿨다 — 완료된 프로젝트 제외, 팀장 소속 판별을 이 어댑터가 자바 레벨에서 처리한다
+    (2026-08-06).
+
     연결된 클래스
-    - ActionRepository           : 구현하는 도메인 계약
-    - SpringDataActionRepository : 실제 쿼리 위임 대상
-    - ActionJpaEntity            : 변환 대상 엔티티
-    - Action                     : 변환 결과 도메인 모델
+    - ActionRepository                        : 구현하는 도메인 계약
+    - SpringDataActionRepository               : action 조회 위임 대상
+    - SpringDataProjectReferenceRepository     : 완료된 프로젝트 제외 필터용
+    - SpringDataActionTeamReferenceRepository  : 팀장 소속 팀 조회용
+    - ActionJpaEntity                          : 변환 대상 엔티티
+    - Action                                   : 변환 결과 도메인 모델
 */
 @Component
 @RequiredArgsConstructor
 public class ActionPersistenceAdapter implements ActionRepository {
 
     private final SpringDataActionRepository springDataActionRepository;
+    private final SpringDataProjectReferenceRepository springDataProjectReferenceRepository;
+    private final SpringDataActionTeamReferenceRepository springDataActionTeamReferenceRepository;
 
     @Override
     public Action save(Action action) {
@@ -42,7 +56,6 @@ public class ActionPersistenceAdapter implements ActionRepository {
                 .description(action.getDescription())
                 .status(action.getStatus())
                 .dueDate(action.getDueDate())
-                .needsReview(action.isNeedsReview())
                 .confirmedAt(action.getConfirmedAt())
                 .build();
 
@@ -56,14 +69,35 @@ public class ActionPersistenceAdapter implements ActionRepository {
 
     @Override
     public List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions) {
-        return springDataActionRepository.findHandoverablePersonalActions(memberId, includeDoneActions).stream()
+        List<ActionJpaEntity> candidates =
+                springDataActionRepository.findAllByActionTypeAndAssigneeMemberId(ActionType.PERSONAL, memberId);
+
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, ProjectStatus> projectStatusById = springDataProjectReferenceRepository.findAllById(
+                candidates.stream().map(ActionJpaEntity::getProjectId).distinct().toList()
+        ).stream().collect(Collectors.toMap(ProjectReferenceEntity::getId, ProjectReferenceEntity::getStatus));
+
+        return candidates.stream()
+                .filter(a -> projectStatusById.get(a.getProjectId()) != ProjectStatus.DONE)
+                .filter(a -> includeDoneActions || a.getStatus() != ActionStatus.DONE)
                 .map(this::toDomain)
                 .toList();
     }
 
     @Override
     public List<Action> findTeamActionsByLeaderMemberId(Long leaderMemberId) {
-        return springDataActionRepository.findTeamActionsByLeaderMemberId(leaderMemberId).stream()
+        List<Long> teamIds = springDataActionTeamReferenceRepository.findAllByLeaderMemberId(leaderMemberId).stream()
+                .map(ActionTeamReferenceEntity::getId)
+                .toList();
+
+        if (teamIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, teamIds).stream()
                 .map(this::toDomain)
                 .toList();
     }
@@ -82,7 +116,6 @@ public class ActionPersistenceAdapter implements ActionRepository {
                 entity.getDescription(),
                 entity.getStatus(),
                 entity.getDueDate(),
-                entity.isNeedsReview(),
                 entity.getConfirmedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()

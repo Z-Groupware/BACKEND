@@ -11,11 +11,13 @@ import lombok.Getter;
     PERSONAL은 담당자(assignee) 1명과 상위 TEAM 액션(parentActionId)을 가진다.
     사용자는 액션을 직접 만들지 않는다 — A도메인이 ActionDistributionPort로 생성하며,
     AI가 놓친 액션만 "+" 버튼으로 사람이 예외적으로 수동 추가한다(FR-AC-01).
-    needsReview는 담당자의 최초 PATCH로 확정되며, 이후 재요청은 멱등하게 무시한다(FR-AC-04).
     지정 부서·담당자·프로젝트는 다른 도메인 엔티티를 참조하지 않고 id 값만 가진다(0절 절대규칙 1항).
 
     이번 슬라이스(ActionReassignPort 배선)엔 reconstitute()·reassignTo()만 필요해 그것만
     구현했다 — create()·상태변경·리뷰확정 등은 각 유스케이스 착수 시 추가.
+    review_status·is_manual·assignee_source 등 review 관련 컬럼(V2.6.1~2)은 리뷰확정
+    유스케이스 착수 시 매핑 추가 — needsReview(V1)는 V2.6.3에서 이미 review_status로
+    대체돼 드롭됐으므로 여기 넣지 않는다(2026-08-06 CI 스키마 검증으로 확인).
 
     연결된 클래스
     - ActionType               : TEAM/PERSONAL 구분 (FR-AC-06, FR-AC-02)
@@ -40,7 +42,6 @@ public class Action {
     private final String description;
     private final ActionStatus status;
     private final LocalDate dueDate;
-    private final boolean needsReview;
     private final LocalDateTime confirmedAt;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
@@ -58,7 +59,6 @@ public class Action {
             String description,
             ActionStatus status,
             LocalDate dueDate,
-            boolean needsReview,
             LocalDateTime confirmedAt,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
@@ -75,7 +75,6 @@ public class Action {
         this.description = description;
         this.status = status;
         this.dueDate = dueDate;
-        this.needsReview = needsReview;
         this.confirmedAt = confirmedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -95,14 +94,13 @@ public class Action {
             String description,
             ActionStatus status,
             LocalDate dueDate,
-            boolean needsReview,
             LocalDateTime confirmedAt,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
         return new Action(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                actionType, title, description, status, dueDate, needsReview, confirmedAt, createdAt, updatedAt
+                actionType, title, description, status, dueDate, confirmedAt, createdAt, updatedAt
         );
     }
 
