@@ -71,7 +71,21 @@ public enum CaptureErrorCode implements ErrorCode {
      * 있다. 명단 밖 담당자를 넣으면 그 액션은 회의에 참석하지 않은 사람의 보드로 가고,
      * **그 값이 정답 라벨로 학습된다** — 틀린 배정을 AI 에게 가르치는 셈이다.
      */
-    REVIEW_ASSIGNEE_NOT_IN_ROSTER(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_1", "참석자 명단에 없는 담당자입니다.");
+    REVIEW_ASSIGNEE_NOT_IN_ROSTER(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_1", "참석자 명단에 없는 담당자입니다."),
+
+    /*
+     * RVW-02 — CONFIRM 에 담당자·기한을 함께 보냈다.
+     *
+     * CONFIRM 은 "AI 값이 그대로 정답"이라는 뜻이고, 그래서 라벨의 human_value 가 null 이다
+     * (llm_output 과 같다는 표시). 값을 함께 받아 반영하면 **액션은 바뀌는데 라벨에는 그 변경이
+     * 남지 않는다** — 나중에 그 행을 보면 "AI 가 맞혔다"고 읽히지만 실제 정답은 사람이 고친
+     * 다른 값이다. 그 라벨은 틀린 값을 정답으로 가르치고, 정확도 숫자도 실제보다 높게 나온다.
+     *
+     * 값을 무시하지 않고 422 로 되돌리는 이유 — 무시하면 사람이 고친 담당자가 조용히 사라져
+     * 화면과 DB 가 갈린다. 값을 고쳤다면 MODIFY 로 사유와 함께 보내야 한다.
+     */
+    REVIEW_CONFIRM_WITH_VALUE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_4",
+            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

@@ -70,7 +70,7 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
     @Transactional
     public ReviewDecisionOutcome apply(ReviewDecisionCommand command) {
         meetingAccessGuard.requireAccessible(command.companyId(), command.meetingId());
-        requireReason(command);
+        requireDecisionShape(command);
 
         ReviewTarget target = actionReviewQueryPort
                 .findOne(command.companyId(), command.meetingId(), command.actionId())
@@ -111,16 +111,26 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
     }
 
     /*
-     * MODIFY·REJECT 에는 사유가 필수이고, CONFIRM 에는 붙을 수 없다.
+     * 판정과 나머지 칸의 조합이 성립하는지 본다.
      *
-     * 양쪽을 다 막는다. 사유 없는 반려는 어느 계층을 고쳐야 할지 가리키지 못하고, 사유 붙은
-     * CONFIRM 은 "맞혔는데 틀렸다"는 모순이다. DB CHECK 가 같은 규칙을 강제하지만 여기서
-     * 먼저 막아야 사용자에게 이유가 보인다 — DB 까지 내려가면 500 이 된다.
+     * <b>사유</b> — MODIFY·REJECT 에는 필수이고, CONFIRM 에는 붙을 수 없다. 양쪽을 다 막는다.
+     * 사유 없는 반려는 어느 계층을 고쳐야 할지 가리키지 못하고, 사유 붙은 CONFIRM 은 "맞혔는데
+     * 틀렸다"는 모순이다. DB CHECK 가 같은 규칙을 강제하지만 여기서 먼저 막아야 사용자에게
+     * 이유가 보인다 — DB 까지 내려가면 500 이 된다.
+     *
+     * <b>값</b> — CONFIRM 에는 담당자·기한을 함께 보낼 수 없다. CONFIRM 의 human_value 는
+     * null(= llm_output 과 같다)인데 값을 반영하면 **액션은 바뀌고 라벨에는 그 변경이 남지
+     * 않는다.** 그 행은 나중에 "AI 가 맞혔다"로 읽히지만 정답은 사람이 고친 다른 값이다 —
+     * 틀린 값을 정답으로 가르치고 정확도 숫자도 부풀린다. 값을 고쳤으면 MODIFY 로 와야 한다.
      */
-    private void requireReason(ReviewDecisionCommand command) {
+    private void requireDecisionShape(ReviewDecisionCommand command) {
         boolean needsReason = command.decision() != ReviewDecision.CONFIRM;
         if (needsReason == (command.rejectReason() == null)) {
             throw new BusinessException(CaptureErrorCode.REVIEW_REASON_REQUIRED);
+        }
+        if (command.decision() == ReviewDecision.CONFIRM
+                && (command.assignee() != null || command.dueDate() != null)) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_WITH_VALUE);
         }
     }
 

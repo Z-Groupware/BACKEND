@@ -231,10 +231,17 @@ public class Action {
         /*
          * 확정 시각은 확정일 때만 찍는다. 반려에도 찍으면 "담당자가 분배 확정한 시각"이라는
          * 컬럼 뜻(V1 주석)과 갈리고, 보드로 가지 않은 액션이 확정된 것으로 집계된다.
+         *
+         * 확정이 아니면 **이전 확정 시각을 지운다.** 한 번 확정한 액션을 뒤늦게 반려하는 경로가
+         * 있어(사람이 마음을 바꾼 것도 판정이다), 안 지우면 reviewStatus=HUMAN_REJECTED 와
+         * confirmedAt != null 이 함께 저장된다 — 그 행은 확정 집계에도 잡히고 반려 목록에도
+         * 잡혀 두 숫자가 서로 맞지 않게 된다.
          */
         if (newReviewStatus == ActionReviewStatus.HUMAN_CONFIRMED
                 || newReviewStatus == ActionReviewStatus.AUTO_CONFIRMED) {
             this.confirmedAt = LocalDateTime.now();
+        } else {
+            this.confirmedAt = null;
         }
     }
 }

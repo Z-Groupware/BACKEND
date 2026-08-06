@@ -158,6 +158,35 @@ class ApplyReviewDecisionServiceTest {
     }
 
     @Test
+    @DisplayName("CONFIRM 에 담당자가 붙으면 422 — 액션만 바뀌고 라벨에는 안 남는 것을 막는다")
+    void 값이_붙은_승인은_거절한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        assertThatThrownBy(() -> service(target(), applied, logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.CONFIRM, null, BOB, null)))
+                .isInstanceOf(BusinessException.class);
+
+        // CONFIRM 의 human_value 는 null 이라, 값을 반영하면 액션은 바뀌는데 라벨에는 그 변경이
+        // 남지 않는다 — 나중에 "AI 가 맞혔다"로 읽히지만 정답은 사람이 고친 값이다.
+        assertThat(applied.called).isFalse();
+        assertThat(logs.entries).isEmpty();
+    }
+
+    @Test
+    @DisplayName("CONFIRM 에 기한이 붙어도 422 — 값을 조용히 버리면 화면과 DB 가 갈린다")
+    void 기한이_붙은_승인도_거절한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        assertThatThrownBy(() -> service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.CONFIRM, null, null, LocalDate.of(2026, 8, 20))))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(applied.called).isFalse();
+    }
+
+    @Test
     @DisplayName("참석자 명단 밖 담당자는 422 — 틀린 배정을 정답 라벨로 학습시키면 안 된다")
     void 명단_밖_담당자는_거절한다() {
         RecordingApplyPort applied = new RecordingApplyPort();
