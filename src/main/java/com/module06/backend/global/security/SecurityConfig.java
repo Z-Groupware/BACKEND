@@ -70,6 +70,10 @@ public class SecurityConfig {
                         // ROOM-03 회의실 등록은 principal의 companyId를 사용하므로 인자 해석 전에 익명 요청을 401로 차단한다.
                         .requestMatchers(HttpMethod.POST, "/api/v1/meeting-rooms").authenticated()
 
+                        // CAP 진행 중 캡처 조회 — 토큰의 memberId로 참석 회의를 찾으므로 반드시 인증돼야 한다
+                        // (anyRequest가 permitAll이라 명시하지 않으면 principal이 null이 되어 NPE).
+                        .requestMatchers(HttpMethod.GET, "/api/captures/active").authenticated()
+
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();

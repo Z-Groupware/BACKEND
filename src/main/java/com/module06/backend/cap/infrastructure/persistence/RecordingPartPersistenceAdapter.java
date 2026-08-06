@@ -7,6 +7,8 @@ import com.module06.backend.global.exception.BusinessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 // domain의 RecordingPartRepository 계약을 JPA로 구현하는 어댑터.
 @Repository
 public class RecordingPartPersistenceAdapter implements RecordingPartRepository {
@@ -29,5 +31,14 @@ public class RecordingPartPersistenceAdapter implements RecordingPartRepository 
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(CapErrorCode.CAP_PART_ALREADY_REGISTERED);
         }
+    }
+
+    // 현재 세그먼트에 행이 존재하는 청크 순번 목록 (seq만 뽑는 프로젝션 → 상태 무관, missingSeqs 계산용)
+    @Override
+    public List<Integer> findSeqsInSegment(Long meetingId, int segmentSeq) {
+        return springDataRecordingPartRepository.findByMeetingIdAndSegmentSeq(meetingId, segmentSeq)
+                .stream()
+                .map(SpringDataRecordingPartRepository.SeqView::getSeq)
+                .toList();
     }
 }

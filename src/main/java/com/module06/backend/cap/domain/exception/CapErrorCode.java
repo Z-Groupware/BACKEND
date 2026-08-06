@@ -15,6 +15,7 @@ public enum CapErrorCode implements ErrorCode {
     CAP_REQUIRED_TEXT(HttpStatus.BAD_REQUEST, "CAP-007", "필수 텍스트가 누락되었습니다."),
     CAP_INVALID_PART_SIZE(HttpStatus.BAD_REQUEST, "CAP-008", "청크 크기가 올바르지 않습니다."),
     CAP_PART_KEY_MISMATCH(HttpStatus.BAD_REQUEST, "CAP-009", "청크 경로가 서버가 발급한 값과 일치하지 않습니다."),
+    CAP_INVALID_SEQ(HttpStatus.BAD_REQUEST, "CAP-011", "청크 순번이 올바르지 않습니다."),
 
     CAP_MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "CAP-002", "회의를 찾을 수 없습니다."),
 
