@@ -4,18 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort.TeamMemberSummary;
 
 @SpringBootTest
+@Transactional
 @DisplayName("Team-Member 크로스 도메인 읽기 어댑터")
 class TeamMemberQueryAdapterTest {
 
@@ -35,20 +36,6 @@ class TeamMemberQueryAdapterTest {
                 "INSERT INTO company (id, code, name) VALUES (?, ?, ?)",
                 COMPANY_ID, "TESTCO-" + COMPANY_ID, "테스트회사");
         ensureSystemRoleSeeded();
-    }
-
-    /**
-     * 이 클래스가 시딩한 member·team 행은 트랜잭션 롤백 없이 JdbcTemplate 으로 직접 커밋된다.
-     * {@code @SpringBootTest} 컨텍스트는 다른 테스트 클래스와 공유되므로, 마지막 테스트
-     * 메서드가 끝난 뒤에도 이 행들이 남아 있으면 다른 클래스의 정리 로직을 방해한다 —
-     * 실제로 {@code TeamPersistenceAdapterTest.clear()}(springDataTeamRepository.deleteAll())가
-     * 남은 member 행이 참조하는 team 행을 지우지 못해 FK 위반으로 통째로 깨졌다. 그래서 매
-     * 테스트 뒤에 직접 되돌린다.
-     */
-    @AfterEach
-    void cleanup() {
-        jdbcTemplate.update("DELETE FROM member WHERE company_id = ?", COMPANY_ID);
-        jdbcTemplate.update("DELETE FROM team WHERE id IN (1, 5)");
     }
 
     /**

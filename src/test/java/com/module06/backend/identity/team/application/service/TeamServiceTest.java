@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
+import com.module06.backend.identity.team.application.port.out.TeamProjectQueryPort;
 import com.module06.backend.identity.team.domain.model.Team;
 import com.module06.backend.identity.team.domain.repository.TeamRepository;
 
@@ -187,6 +190,28 @@ class TeamServiceTest {
     }
 
     @Test
+    @DisplayName("부모 이름을 바꿔도 응답에 하위 부서·구성원 수·리더 이름이 실데이터로 채워진다")
+    void renameReturnsRealTreeStateNotFabricatedDefaults() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team parent = repository.create(1L, null, "본부");
+        Team child = repository.create(1L, parent.id(), "1팀");
+        repository.setLeader(child.id(), 2L);
+
+        FakeMemberQueryPort memberQueryPort = new FakeMemberQueryPort();
+        memberQueryPort.addActiveMember(2L, child.id(), "김서준");
+
+        TeamNode node = service(repository, memberQueryPort)
+                .rename(new RenameTeamCommand(1L, parent.id(), "새이름"));
+
+        assertThat(node.name()).isEqualTo("새이름");
+        assertThat(node.children()).hasSize(1);
+        TeamNode childNode = node.children().get(0);
+        assertThat(childNode.name()).isEqualTo("1팀");
+        assertThat(childNode.leaderName()).isEqualTo("김서준");
+        assertThat(childNode.memberCount()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("구성원도 하위 부서도 없으면 삭제된다")
     void deletesEmptyTeam() {
         FakeTeamRepository repository = new FakeTeamRepository();
@@ -234,8 +259,28 @@ class TeamServiceTest {
         assertThat(repository.findByIdAndCompanyId(parent.id(), 1L)).isPresent();
     }
 
+    @Test
+    @DisplayName("연결된 프로젝트가 있으면 삭제를 거절한다")
+    void rejectsDeletingTeamWithProjects() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team team = repository.create(1L, null, "본부");
+        FakeProjectQueryPort projectQueryPort = new FakeProjectQueryPort();
+        projectQueryPort.addProject(team.id());
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort(), projectQueryPort)
+                .delete(1L, team.id()))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_HAS_PROJECTS);
+        assertThat(repository.findByIdAndCompanyId(team.id(), 1L)).isPresent();
+    }
+
     private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort) {
-        return new TeamService(repository, memberQueryPort);
+        return service(repository, memberQueryPort, new FakeProjectQueryPort());
+    }
+
+    private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort,
+                                 TeamProjectQueryPort projectQueryPort) {
+        return new TeamService(repository, memberQueryPort, projectQueryPort);
     }
 
     /* ── 테스트 더블 ──────────────────────────────────────────────────── */
@@ -316,6 +361,20 @@ class TeamServiceTest {
         @Override
         public boolean hasActiveMembers(Long teamId) {
             return members.stream().anyMatch(m -> teamId.equals(m.teamId()));
+        }
+    }
+
+    static final class FakeProjectQueryPort implements TeamProjectQueryPort {
+
+        private final Set<Long> teamIdsWithProjects = new HashSet<>();
+
+        void addProject(Long teamId) {
+            teamIdsWithProjects.add(teamId);
+        }
+
+        @Override
+        public boolean hasProjects(Long teamId) {
+            return teamIdsWithProjects.contains(teamId);
         }
     }
 }

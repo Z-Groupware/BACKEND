@@ -5,16 +5,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Optional;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.identity.team.domain.model.Team;
 import com.module06.backend.identity.team.domain.repository.TeamRepository;
 
 @SpringBootTest
+@Transactional
 @DisplayName("Team 영속성 어댑터")
 class TeamPersistenceAdapterTest {
 
@@ -23,11 +24,6 @@ class TeamPersistenceAdapterTest {
 
     @Autowired
     private SpringDataTeamRepository springDataTeamRepository;
-
-    @BeforeEach
-    void clear() {
-        springDataTeamRepository.deleteAll();
-    }
 
     @Test
     @DisplayName("생성한 팀을 회사·id로 다시 찾을 수 있다")

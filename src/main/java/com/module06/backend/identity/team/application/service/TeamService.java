@@ -15,6 +15,7 @@ import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort.TeamMemberSummary;
+import com.module06.backend.identity.team.application.port.out.TeamProjectQueryPort;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.DeleteTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
@@ -30,26 +31,18 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
 
     private final TeamRepository teamRepository;
     private final TeamMemberQueryPort memberQueryPort;
+    private final TeamProjectQueryPort projectQueryPort;
 
     @Override
     @Transactional(readOnly = true)
     public List<TeamNode> getTree(Long companyId) {
         List<Team> teams = teamRepository.findByCompanyId(companyId);
-        List<TeamMemberSummary> members = memberQueryPort.findActiveMembersByCompany(companyId);
-
-        Map<Long, Long> memberCountByTeam = members.stream()
-                .filter(m -> m.teamId() != null)
-                .collect(Collectors.groupingBy(TeamMemberSummary::teamId, Collectors.counting()));
-        Map<Long, String> nameByMemberId = members.stream()
-                .collect(Collectors.toMap(TeamMemberSummary::memberId, TeamMemberSummary::name));
-        Map<Long, List<Team>> childrenByParent = teams.stream()
-                .filter(t -> t.parentTeamId() != null)
-                .collect(Collectors.groupingBy(Team::parentTeamId));
+        Context context = buildContext(companyId, teams);
 
         return teams.stream()
                 .filter(t -> t.parentTeamId() == null)
                 .sorted(Comparator.comparing(Team::id))
-                .map(t -> toNode(t, childrenByParent, memberCountByTeam, nameByMemberId))
+                .map(t -> toNode(t, context))
                 .toList();
     }
 
@@ -72,6 +65,10 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
         return new TeamNode(created.id(), created.name(), created.parentTeamId(), null, null, 0L, List.of());
     }
 
+    /**
+     * 이름을 바꾼 뒤 실제 상태(리더·구성원 수·하위 팀)를 다시 조립해 응답한다 — 고정된 null/0/빈 목록을
+     * 돌려주면 낙관적 갱신을 하는 프론트가 하위 팀·구성원 수를 순간적으로 지운 것처럼 보이게 된다.
+     */
     @Override
     @Transactional
     public TeamNode rename(RenameTeamCommand command) {
@@ -84,7 +81,11 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
         }
 
         teamRepository.rename(team.id(), command.name());
-        return new TeamNode(team.id(), command.name(), team.parentTeamId(), team.leaderMemberId(), null, 0L, List.of());
+
+        Team renamed = new Team(team.id(), team.companyId(), command.name(), team.parentTeamId(), team.leaderMemberId());
+        List<Team> teams = teamRepository.findByCompanyId(command.companyId());
+        Context context = buildContext(command.companyId(), teams);
+        return toNode(renamed, context);
     }
 
     @Override
@@ -99,6 +100,9 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
         if (teamRepository.existsByParentTeamId(team.id())) {
             throw new BusinessException(AuthErrorCode.TEAM_HAS_CHILDREN);
         }
+        if (projectQueryPort.hasProjects(team.id())) {
+            throw new BusinessException(AuthErrorCode.TEAM_HAS_PROJECTS);
+        }
         teamRepository.delete(team.id());
     }
 
@@ -112,15 +116,33 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
                 : teamRepository.existsByCompanyIdAndParentTeamIdAndName(companyId, parentTeamId, name);
     }
 
-    private TeamNode toNode(Team team, Map<Long, List<Team>> childrenByParent,
-                            Map<Long, Long> memberCountByTeam, Map<Long, String> nameByMemberId) {
-        List<TeamNode> children = childrenByParent.getOrDefault(team.id(), List.of()).stream()
+    private Context buildContext(Long companyId, List<Team> teams) {
+        List<TeamMemberSummary> members = memberQueryPort.findActiveMembersByCompany(companyId);
+        Map<Long, Long> memberCountByTeam = members.stream()
+                .filter(m -> m.teamId() != null)
+                .collect(Collectors.groupingBy(TeamMemberSummary::teamId, Collectors.counting()));
+        Map<Long, String> nameByMemberId = members.stream()
+                .collect(Collectors.toMap(TeamMemberSummary::memberId, TeamMemberSummary::name));
+        Map<Long, List<Team>> childrenByParent = teams.stream()
+                .filter(t -> t.parentTeamId() != null)
+                .collect(Collectors.groupingBy(Team::parentTeamId));
+        return new Context(childrenByParent, memberCountByTeam, nameByMemberId);
+    }
+
+    private TeamNode toNode(Team team, Context context) {
+        List<TeamNode> children = context.childrenByParent().getOrDefault(team.id(), List.of()).stream()
                 .sorted(Comparator.comparing(Team::id))
-                .map(child -> toNode(child, childrenByParent, memberCountByTeam, nameByMemberId))
+                .map(child -> toNode(child, context))
                 .toList();
-        String leaderName = team.leaderMemberId() == null ? null : nameByMemberId.get(team.leaderMemberId());
-        long memberCount = memberCountByTeam.getOrDefault(team.id(), 0L);
+        String leaderName = team.leaderMemberId() == null ? null : context.nameByMemberId().get(team.leaderMemberId());
+        long memberCount = context.memberCountByTeam().getOrDefault(team.id(), 0L);
         return new TeamNode(team.id(), team.name(), team.parentTeamId(), team.leaderMemberId(),
                 leaderName, memberCount, children);
+    }
+
+    private record Context(
+            Map<Long, List<Team>> childrenByParent,
+            Map<Long, Long> memberCountByTeam,
+            Map<Long, String> nameByMemberId) {
     }
 }

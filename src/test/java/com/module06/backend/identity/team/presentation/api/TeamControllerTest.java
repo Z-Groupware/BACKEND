@@ -3,6 +3,7 @@ package com.module06.backend.identity.team.presentation.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -103,12 +104,27 @@ class TeamControllerTest {
                         .content("""
                                 { "name": "사업본부", "parentTeamId": null }
                                 """))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         ArgumentCaptor<CreateTeamCommand> captor = ArgumentCaptor.forClass(CreateTeamCommand.class);
         verify(createTeamUseCase).create(captor.capture());
         assertThat(captor.getValue().companyId()).isEqualTo(1L);
         assertThat(captor.getValue().name()).isEqualTo("사업본부");
+    }
+
+    @Test
+    @DisplayName("부서명이 5자를 넘으면 400으로 거절한다")
+    void createRejectsNameLongerThanFiveChars() throws Exception {
+        authenticateAs(1L);
+
+        mockMvc.perform(post("/api/teams")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "여섯글자이름", "parentTeamId": null }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(createTeamUseCase);
     }
 
     @Test
