@@ -10,6 +10,9 @@ import com.module06.backend.meeting.domain.model.Meeting;
  */
 public interface CaptureSessionRepository {
 
+    /* B 도메인 조회 전에 회사 범위 회의와 예약 참석자를 잠금 없이 미리 읽는다. */
+    Optional<Meeting> findMeeting(Long companyId, Long meetingId);
+
     /* 회사 범위의 회의를 잠그고 host·상태·예약 참석자 명단을 포함해 조회한다. */
     Optional<Meeting> findMeetingForStart(Long companyId, Long meetingId);
 

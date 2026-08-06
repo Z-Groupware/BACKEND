@@ -34,6 +34,20 @@ public class CaptureSessionPersistenceAdapter implements CaptureSessionRepositor
     /* 캡처 세션의 존재 확인과 저장을 수행하는 기술 저장소다. */
     private final SpringDataCaptureSessionRepository springDataCaptureSessionRepository;
 
+    /* 회사 범위 회의와 참석자 명단을 잠금 없이 읽어 B 도메인 조회용 사전 스냅샷을 만든다. */
+    @Override
+    public Optional<Meeting> findMeeting(Long companyId, Long meetingId) {
+        /* 원격 또는 타 도메인 호출 전에 필요한 ID만 읽으며 meeting 행의 쓰기 잠금은 획득하지 않는다. */
+        return springDataMeetingRepository.findByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> meeting.toDomain(
+                        springDataMeetingAttendeeRepository
+                                .findAllByMeetingIdOrderByMemberIdAsc(meeting.getId())
+                                .stream()
+                                .map(MeetingAttendeeJpaEntity::getMemberId)
+                                .toList()
+                ));
+    }
+
     /* 회사 범위 회의를 잠그고 host·상태·최신 참석자 명단을 가진 도메인으로 복원한다. */
     @Override
     public Optional<Meeting> findMeetingForStart(Long companyId, Long meetingId) {

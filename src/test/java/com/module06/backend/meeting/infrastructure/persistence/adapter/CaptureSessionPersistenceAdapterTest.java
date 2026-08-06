@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -41,6 +42,9 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
  * CAP-01의 실제 JPA 저장과 meeting_id UNIQUE 동시성 관문을 H2 스키마에서 검증한다.
  */
 @SpringBootTest
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:h2:mem:cap01db;MODE=MySQL;LOCK_TIMEOUT=10000;DB_CLOSE_DELAY=-1"
+})
 @DisplayName("CAP-01 캡처 세션 영속성 어댑터")
 class CaptureSessionPersistenceAdapterTest {
 

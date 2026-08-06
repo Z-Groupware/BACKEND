@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,13 @@ class CaptureSessionTest {
     void startsActiveCaptureSession() {
         /* KST 시작 일시와 동일 순간의 epoch 밀리초를 준비한다. */
         LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 14, 0);
-        long startedAtEpochMs = 1_786_064_400_000L;
+        long startedAtEpochMs = startedAt
+                .atZone(ZoneId.of("Asia/Seoul"))
+                .toInstant()
+                .toEpochMilli();
+
+        /* fixture 자체가 문서화한 2026-08-06 14:00 KST 순간과 일치하는지도 고정값으로 확인한다. */
+        assertThat(startedAtEpochMs).isEqualTo(1_785_992_400_000L);
 
         /* 91번 회의의 host 3번이 신규 캡처 세션을 시작한다. */
         CaptureSession captureSession = CaptureSession.start(91L, 3L, startedAt, startedAtEpochMs);

@@ -1,15 +1,11 @@
 package com.module06.backend.meeting.application.service;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
 
@@ -42,23 +38,66 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
     /* 예약 참석자 식별자를 표시 이름으로 일괄 해석하는 B 도메인 조회 Port다. */
     private final MemberQueryPort memberQueryPort;
 
-    /* KST 시작 일시와 epoch 밀리초를 같은 순간에서 생성하기 위한 서버 시계다. */
-    private final Clock clock;
+    /* meeting 행 잠금과 캡처 세션 저장만 짧은 트랜잭션으로 실행하는 내부 서비스다. */
+    private final CaptureSessionCreationService captureSessionCreationService;
 
     /* 진행 중인 회의의 host 요청으로 회의당 하나의 ACTIVE 캡처 세션을 생성한다. */
     @Override
-    @Transactional
     public CaptureSessionStartResult startCaptureSession(StartCaptureSessionCommand command) {
         /* Controller를 우회한 호출도 잘못된 인증·Path 값으로 저장소를 조회하지 못하게 한다. */
         validateCommand(command);
 
-        /* 같은 회의의 동시 시작을 직렬화하고 타 회사 회의 존재 여부를 숨긴다. */
-        Meeting meeting = captureSessionRepository
-                .findMeetingForStart(command.companyId(), command.meetingId())
-                .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
+        /* 명단 교체 경합이 한 번 발생하면 새 스냅샷과 이름으로 전체 흐름을 한 번 재시도한다. */
+        for (int attempt = 0; attempt < 2; attempt++) {
+            /* B 조회에 필요한 회의와 참석자 ID를 meeting 행 잠금 없이 먼저 읽는다. */
+            Meeting meeting = captureSessionRepository
+                    .findMeeting(command.companyId(), command.meetingId())
+                    .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
 
+            /* 불필요한 B 호출 전에 사전 스냅샷으로 host·상태·기존 세션을 빠르게 검증한다. */
+            validateHostAndStatus(meeting, command.requesterMemberId());
+            if (captureSessionRepository.existsByMeetingId(meeting.getId())) {
+                throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_ALREADY_EXISTS);
+            }
+
+            /* 잠금 밖에서 B 원본 이름과 명단 외 sentinel을 합쳐 닫힌 roster를 만든다. */
+            List<RosterEntry> roster = createRoster(
+                    command.companyId(),
+                    meeting.getAttendeeMemberIds()
+            );
+
+            try {
+                /* 짧은 별도 트랜잭션에서 명단 일치 확인과 세션 INSERT만 수행한다. */
+                CaptureSession savedSession = captureSessionCreationService.create(
+                        command,
+                        meeting.getAttendeeMemberIds()
+                );
+
+                /* 프레젠테이션에는 현재 녹음자가 아닌 세션 원본과 검증된 roster만 전달한다. */
+                return new CaptureSessionStartResult(
+                        savedSession.getId(),
+                        savedSession.getStatus(),
+                        savedSession.isPaused(),
+                        savedSession.getStartedBy(),
+                        savedSession.getStartedAtEpochMs(),
+                        roster
+                );
+            } catch (CaptureSessionRosterChangedException exception) {
+                /* 첫 경합은 최신 참석자로 다시 해석하고 두 번 연속 변경되면 안전하게 요청을 거절한다. */
+                if (attempt == 1) {
+                    throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+                }
+            }
+        }
+
+        /* 반복문은 성공 반환 또는 두 번째 경합 예외로 끝나므로 이 경로는 방어적 오류 처리다. */
+        throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+    }
+
+    /* 잠금 없는 사전 스냅샷에서 host와 회의 상태를 검증해 불필요한 B 호출을 줄인다. */
+    private void validateHostAndStatus(Meeting meeting, Long requesterMemberId) {
         /* 화면 역할과 무관하게 실제 회의 개설자만 세션 생명주기를 제어할 수 있다. */
-        if (!meeting.isHost(command.requesterMemberId())) {
+        if (!meeting.isHost(requesterMemberId)) {
             throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_HOST_ONLY);
         }
 
@@ -71,39 +110,6 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
         if (meeting.getStatus() == MeetingStatus.DONE) {
             throw new BusinessException(MeetingErrorCode.MEETING_ALREADY_DONE);
         }
-
-        /* 사용자 친화적 오류를 먼저 반환하되 최종 중복 방지는 DB UNIQUE 제약에 맡긴다. */
-        if (captureSessionRepository.existsByMeetingId(meeting.getId())) {
-            throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_ALREADY_EXISTS);
-        }
-
-        /* 로컬 일시와 epoch가 어긋나지 않도록 서버 시계의 현재 순간을 한 번만 읽는다. */
-        Instant startedInstant = clock.instant();
-        LocalDateTime startedAt = LocalDateTime.ofInstant(startedInstant, clock.getZone());
-
-        /* D 소유 값만 가진 세션을 만들고 데이터베이스 생성 식별자를 반영한다. */
-        CaptureSession savedSession = captureSessionRepository.save(CaptureSession.start(
-                meeting.getId(),
-                command.requesterMemberId(),
-                startedAt,
-                startedInstant.toEpochMilli()
-        ));
-
-        /* B 도메인의 원본 이름과 명단 외 sentinel을 합쳐 세션 시작 시점의 닫힌 roster를 만든다. */
-        List<RosterEntry> roster = createRoster(
-                command.companyId(),
-                meeting.getAttendeeMemberIds()
-        );
-
-        /* 프레젠테이션 계층에는 현재 녹음자가 아닌 세션 원본과 고정 roster만 전달한다. */
-        return new CaptureSessionStartResult(
-                savedSession.getId(),
-                savedSession.getStatus(),
-                savedSession.isPaused(),
-                savedSession.getStartedBy(),
-                savedSession.getStartedAtEpochMs(),
-                roster
-        );
     }
 
     /* 인증 식별자와 Path 회의 식별자의 기본 형식을 저장소 호출 전에 검증한다. */

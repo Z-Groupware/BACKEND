@@ -50,7 +50,7 @@ class CaptureSessionCommandServiceTest {
         CaptureSessionCommandService service = new CaptureSessionCommandService(
                 repository,
                 memberQueryPort,
-                START_CLOCK
+                new CaptureSessionCreationService(repository, START_CLOCK)
         );
 
         /* 회사 10의 host 3번이 91번 회의 캡처 세션을 시작한다. */
@@ -80,6 +80,34 @@ class CaptureSessionCommandServiceTest {
         assertThat(repository.savedCaptureSession.getMeetingId()).isEqualTo(91L);
         assertThat(repository.savedCaptureSession.getStartedBy()).isEqualTo(3L);
         assertThat(repository.savedCaptureSession.getStatus()).isEqualTo(CaptureSessionStatus.ACTIVE);
+    }
+
+    /* B 조회 중 참석자가 교체되면 오래된 roster를 저장하지 않고 최신 명단으로 재시도하는지 검증한다. */
+    @Test
+    @DisplayName("roster 조회 중 명단이 바뀌면 잠금 트랜잭션을 롤백하고 최신 명단으로 재시도한다")
+    void retriesWhenAttendeeRosterChangesBeforeLock() {
+        /* 첫 스냅샷은 3·7·11, 잠금 시점부터는 3·7·15인 경합 저장소를 준비한다. */
+        ChangingRosterRepository repository = new ChangingRosterRepository(
+                meeting(MeetingStatus.IN_PROGRESS, List.of(3L, 7L, 11L)),
+                meeting(MeetingStatus.IN_PROGRESS, List.of(3L, 7L, 15L))
+        );
+        CaptureSessionCommandService service = new CaptureSessionCommandService(
+                repository,
+                new RecordingMemberQueryPort(),
+                new CaptureSessionCreationService(repository, START_CLOCK)
+        );
+
+        /* host의 CAP-01 요청을 실행해 첫 명단 불일치 뒤 자동 재시도를 유도한다. */
+        CaptureSessionStartResult result = service.startCaptureSession(command(3L));
+
+        /* 응답은 오래된 11번이 아니라 잠금으로 확인한 최신 15번을 포함해야 한다. */
+        assertThat(result.roster())
+                .extracting(CaptureSessionStartResult.RosterEntry::personKey)
+                .containsExactly("member:3", "member:7", "member:15", "unknown_person");
+
+        /* 첫 경합은 저장 없이 롤백되고 두 번째 잠금에서 세션 하나만 저장돼야 한다. */
+        assertThat(repository.lockCalls).isEqualTo(2);
+        assertThat(repository.saveCalls).isEqualTo(1);
     }
 
     /* 회사 범위에서 회의를 찾지 못하면 존재 여부를 숨기는지 검증한다. */
@@ -172,7 +200,11 @@ class CaptureSessionCommandServiceTest {
     /* 테스트별 저장소 대역과 정상 구성원 Port를 가진 서비스를 만든다. */
     private CaptureSessionCommandService service(RecordingCaptureSessionRepository repository) {
         /* 참석자 ID를 모두 정상 구성원으로 해석하는 B Port 대역을 사용한다. */
-        return new CaptureSessionCommandService(repository, new RecordingMemberQueryPort(), START_CLOCK);
+        return new CaptureSessionCommandService(
+                repository,
+                new RecordingMemberQueryPort(),
+                new CaptureSessionCreationService(repository, START_CLOCK)
+        );
     }
 
     /* 요청자만 달리해 회사 10의 91번 회의 시작 명령을 만든다. */
@@ -183,7 +215,13 @@ class CaptureSessionCommandServiceTest {
 
     /* 상태를 지정한 91번 회의 애그리거트를 복원한다. */
     private Meeting meeting(MeetingStatus status) {
-        /* host 3번과 참석자 7·11번이 있는 회의를 테스트 원본으로 사용한다. */
+        /* 기본 테스트는 host 3번과 참석자 7·11번 명단을 사용한다. */
+        return meeting(status, List.of(3L, 7L, 11L));
+    }
+
+    /* 상태와 참석자 목록을 지정한 91번 회의 애그리거트를 복원한다. */
+    private Meeting meeting(MeetingStatus status, List<Long> attendeeMemberIds) {
+        /* host 3번을 포함한 전달 명단으로 상태별 회의 원본을 만든다. */
         return Meeting.reconstitute(
                 91L,
                 10L,
@@ -197,7 +235,7 @@ class CaptureSessionCommandServiceTest {
                 LocalDateTime.of(2026, 8, 6, 15, 0),
                 true,
                 305L,
-                List.of(3L, 7L, 11L),
+                attendeeMemberIds,
                 status == MeetingStatus.SCHEDULED ? null : LocalDateTime.of(2026, 8, 6, 13, 58),
                 status == MeetingStatus.DONE ? LocalDateTime.of(2026, 8, 6, 14, 50) : null,
                 LocalDateTime.of(2026, 8, 5, 9, 0),
@@ -239,11 +277,18 @@ class CaptureSessionCommandServiceTest {
             this.captureSessionExists = captureSessionExists;
         }
 
-        /* 회사 범위 잠금 조회 호출을 기록하고 준비된 회의를 반환한다. */
+        /* B 조회용 회사 범위 스냅샷 호출을 기록하고 준비된 회의를 반환한다. */
+        @Override
+        public Optional<Meeting> findMeeting(Long companyId, Long meetingId) {
+            /* 입력 검증이 저장소보다 먼저인지 확인할 수 있게 사전 조회 횟수를 기록한다. */
+            findCalls++;
+            return Optional.ofNullable(meeting);
+        }
+
+        /* 짧은 저장 트랜잭션의 회사 범위 잠금 조회 결과로 같은 회의를 반환한다. */
         @Override
         public Optional<Meeting> findMeetingForStart(Long companyId, Long meetingId) {
-            /* 입력 검증이 저장소보다 먼저인지 확인할 수 있게 호출 횟수를 기록한다. */
-            findCalls++;
+            /* 단위 테스트에서는 사전 스냅샷과 잠금 시점의 명단이 같은 정상 흐름을 사용한다. */
             return Optional.ofNullable(meeting);
         }
 
@@ -298,6 +343,70 @@ class CaptureSessionCommandServiceTest {
                             "플랫폼팀"
                     ))
                     .toList();
+        }
+    }
+
+    /* 첫 스냅샷과 잠금 시점의 참석자 명단을 다르게 반환해 MEET-09 경합을 재현하는 저장소다. */
+    private static final class ChangingRosterRepository implements CaptureSessionRepository {
+
+        /* B 이름 조회에 처음 사용될 과거 참석자 스냅샷이다. */
+        private final Meeting initialMeeting;
+
+        /* 잠금 시점과 재시도에서 사용될 최신 참석자 스냅샷이다. */
+        private final Meeting updatedMeeting;
+
+        /* 잠금 조회 호출 횟수다. */
+        private int lockCalls;
+
+        /* 실제 캡처 세션 저장 호출 횟수다. */
+        private int saveCalls;
+
+        /* 서로 다른 최초·최신 명단으로 경합 저장소를 만든다. */
+        private ChangingRosterRepository(Meeting initialMeeting, Meeting updatedMeeting) {
+            /* 첫 비잠금 조회 뒤에는 최신 명단만 보이도록 두 스냅샷을 보관한다. */
+            this.initialMeeting = initialMeeting;
+            this.updatedMeeting = updatedMeeting;
+        }
+
+        /* 첫 호출만 과거 명단을 주고 자동 재시도부터 최신 명단을 반환한다. */
+        @Override
+        public Optional<Meeting> findMeeting(Long companyId, Long meetingId) {
+            /* 아직 잠금 시도가 없으면 과거 스냅샷이고 이후에는 최신 스냅샷이다. */
+            return Optional.of(lockCalls == 0 ? initialMeeting : updatedMeeting);
+        }
+
+        /* 모든 잠금 조회에서 최신 명단을 반환해 첫 시도만 명단 불일치를 발생시킨다. */
+        @Override
+        public Optional<Meeting> findMeetingForStart(Long companyId, Long meetingId) {
+            /* 재시도 횟수 검증을 위해 잠금 호출을 기록한다. */
+            lockCalls++;
+            return Optional.of(updatedMeeting);
+        }
+
+        /* 이 시나리오에는 기존 캡처 세션이 없다고 응답한다. */
+        @Override
+        public boolean existsByMeetingId(Long meetingId) {
+            /* 명단 경합만 검증하도록 중복 세션 분기를 비활성화한다. */
+            return false;
+        }
+
+        /* 두 번째 시도의 캡처 세션을 저장하고 ID가 반영된 도메인으로 반환한다. */
+        @Override
+        public CaptureSession save(CaptureSession captureSession) {
+            /* 첫 명단 불일치에서는 이 메서드가 호출되지 않아야 한다. */
+            saveCalls++;
+            return CaptureSession.reconstitute(
+                    15L,
+                    captureSession.getMeetingId(),
+                    captureSession.getStartedBy(),
+                    captureSession.getStatus(),
+                    captureSession.getStartedAt(),
+                    captureSession.getStartedAtEpochMs(),
+                    captureSession.getPausedAt(),
+                    captureSession.getEndedAt(),
+                    captureSession.getCreatedAt(),
+                    captureSession.getUpdatedAt()
+            );
         }
     }
 }
