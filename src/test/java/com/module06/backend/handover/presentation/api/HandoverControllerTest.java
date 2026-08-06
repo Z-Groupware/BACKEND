@@ -80,15 +80,14 @@ class HandoverControllerTest {
     private OrgQueryPort orgQueryPort;
 
     @Test
-    void createMapsRequestToCommandAndReturnsCreatedApiResponse() throws Exception {
+    void createTakesWriterAndTeamFromToken() throws Exception {
+        authenticateAs(WRITER); // 토큰: memberId=WRITER, teamId=TEAM
         when(createHandoverUseCase.create(any(CreateHandoverCommand.class))).thenReturn(submitted());
 
         mockMvc.perform(post("/api/handovers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "writerMemberId": 1,
-                                  "teamId": 10,
                                   "handoverType": "VACATION",
                                   "leaveStartAt": "2026-08-10T09:00:00",
                                   "leaveEndAt": "2026-08-20T18:00:00",
@@ -106,6 +105,39 @@ class HandoverControllerTest {
         assertThat(captor.getValue().teamId()).isEqualTo(TEAM);
         assertThat(captor.getValue().handoverType()).isEqualTo(HandoverType.VACATION);
         assertThat(captor.getValue().selectedActionIds()).containsExactly(ACTION);
+    }
+
+    /*
+     * 본문에 남의 사번·팀을 넣어도 토큰 값이 쓰인다 — 이게 막으려던 구멍(#101·#102). 인계서는
+     * writerNameSnap 이 박히는 기록물이라 신분 위조가 곧 기록 위조가 된다. project 생성과 같은 잠금.
+     */
+    @Test
+    void createIgnoresSpoofedWriterAndTeamInBody() throws Exception {
+        authenticateAs(WRITER); // 토큰: memberId=WRITER=1, teamId=TEAM=10
+        when(createHandoverUseCase.create(any(CreateHandoverCommand.class))).thenReturn(submitted());
+
+        mockMvc.perform(post("/api/handovers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "writerMemberId": 999,
+                                  "teamId": 999,
+                                  "handoverType": "VACATION",
+                                  "leaveStartAt": "2026-08-10T09:00:00",
+                                  "leaveEndAt": "2026-08-20T18:00:00",
+                                  "selectedActionIds": [100]
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<CreateHandoverCommand> captor = ArgumentCaptor.forClass(CreateHandoverCommand.class);
+        verify(createHandoverUseCase).create(captor.capture());
+        assertThat(captor.getValue().writerMemberId())
+                .as("본문의 999 가 아니라 토큰의 WRITER 여야 한다")
+                .isEqualTo(WRITER);
+        assertThat(captor.getValue().teamId())
+                .as("본문의 999 가 아니라 토큰의 TEAM 이어야 한다")
+                .isEqualTo(TEAM);
     }
 
     @Test
@@ -208,7 +240,8 @@ class HandoverControllerTest {
     }
 
     @Test
-    void listMapsQueryParamsAndReturnsSummaries() throws Exception {
+    void listPassesCompanyFromTokenAndQueryParams() throws Exception {
+        authenticateAs(WRITER); // 토큰: companyId=1
         when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
                 .thenReturn(List.of(summary()));
 
@@ -220,6 +253,9 @@ class HandoverControllerTest {
         ArgumentCaptor<GetHandoverListUseCase.HandoverListQuery> captor =
                 ArgumentCaptor.forClass(GetHandoverListUseCase.HandoverListQuery.class);
         verify(getHandoverListUseCase).list(captor.capture());
+        assertThat(captor.getValue().companyId())
+                .as("회사 스코프는 쿼리가 아니라 토큰에서 온다")
+                .isEqualTo(1L);
         assertThat(captor.getValue().teamId()).isEqualTo(TEAM);
         assertThat(captor.getValue().writerMemberId()).isNull();
     }

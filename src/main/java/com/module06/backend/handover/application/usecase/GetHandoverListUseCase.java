@@ -12,6 +12,7 @@ public interface GetHandoverListUseCase {
     List<HandoverSummary> list(HandoverListQuery query);
 
     record HandoverListQuery(
+            Long companyId,
             Long writerMemberId,
             Long teamId,
             HandoverStatus status
