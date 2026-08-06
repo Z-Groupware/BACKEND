@@ -50,7 +50,9 @@ public enum AuthErrorCode implements ErrorCode {
      */
     TEAM_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-014", "부서를 찾을 수 없습니다."),
     TEAM_DEPTH_EXCEEDED(HttpStatus.BAD_REQUEST, "AU-015", "하위 부서 아래에는 부서를 만들 수 없습니다."),
-    TEAM_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-016", "같은 상위 부서에 이미 있는 이름입니다.");
+    TEAM_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-016", "같은 상위 부서에 이미 있는 이름입니다."),
+    TEAM_HAS_MEMBERS(HttpStatus.CONFLICT, "AU-017", "소속된 구성원이 있어 삭제할 수 없습니다."),
+    TEAM_HAS_CHILDREN(HttpStatus.CONFLICT, "AU-018", "하위 부서가 있어 삭제할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

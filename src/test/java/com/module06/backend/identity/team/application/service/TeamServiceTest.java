@@ -186,6 +186,54 @@ class TeamServiceTest {
         assertThat(node.name()).isEqualTo("본부");
     }
 
+    @Test
+    @DisplayName("구성원도 하위 부서도 없으면 삭제된다")
+    void deletesEmptyTeam() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team team = repository.create(1L, null, "본부");
+
+        service(repository, new FakeMemberQueryPort()).delete(1L, team.id());
+
+        assertThat(repository.findByIdAndCompanyId(team.id(), 1L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 부서면 404 로 거절한다")
+    void rejectsDeletingMissingTeam() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort()).delete(1L, 999L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("소속 구성원이 있으면 삭제를 거절한다")
+    void rejectsDeletingTeamWithMembers() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team team = repository.create(1L, null, "본부");
+        FakeMemberQueryPort memberQueryPort = new FakeMemberQueryPort();
+        memberQueryPort.addActiveMember(2L, team.id(), "김서준");
+
+        assertThatThrownBy(() -> service(repository, memberQueryPort).delete(1L, team.id()))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_HAS_MEMBERS);
+        assertThat(repository.findByIdAndCompanyId(team.id(), 1L)).isPresent();
+    }
+
+    @Test
+    @DisplayName("하위 부서가 있으면 삭제를 거절한다")
+    void rejectsDeletingTeamWithChildren() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team parent = repository.create(1L, null, "본부");
+        repository.create(1L, parent.id(), "1팀");
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort()).delete(1L, parent.id()))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_HAS_CHILDREN);
+        assertThat(repository.findByIdAndCompanyId(parent.id(), 1L)).isPresent();
+    }
+
     private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort) {
         return new TeamService(repository, memberQueryPort);
     }

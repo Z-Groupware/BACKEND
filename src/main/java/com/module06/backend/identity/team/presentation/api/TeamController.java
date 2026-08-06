@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +22,7 @@ import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
+import com.module06.backend.identity.team.application.usecase.DeleteTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
 import com.module06.backend.identity.team.application.usecase.RenameTeamUseCase;
 import com.module06.backend.identity.team.presentation.api.dto.request.CreateTeamRequest;
@@ -38,6 +40,7 @@ public class TeamController {
     private final GetTeamTreeUseCase getTeamTreeUseCase;
     private final CreateTeamUseCase createTeamUseCase;
     private final RenameTeamUseCase renameTeamUseCase;
+    private final DeleteTeamUseCase deleteTeamUseCase;
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
@@ -70,5 +73,15 @@ public class TeamController {
             @Valid @RequestBody RenameTeamRequest request) {
         TeamNode node = renameTeamUseCase.rename(new RenameTeamCommand(companyId, teamId, request.name()));
         return ApiResponse.success("부서 이름을 수정했습니다", TeamNodeResponse.from(node));
+    }
+
+    @DeleteMapping("/{teamId}")
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<Void> delete(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long teamId) {
+        deleteTeamUseCase.delete(companyId, teamId);
+        return ApiResponse.successWithoutData("부서를 삭제했습니다");
     }
 }

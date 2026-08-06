@@ -16,6 +16,7 @@ import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort.TeamMemberSummary;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
+import com.module06.backend.identity.team.application.usecase.DeleteTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
 import com.module06.backend.identity.team.application.usecase.RenameTeamUseCase;
 import com.module06.backend.identity.team.domain.model.Team;
@@ -25,7 +26,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, RenameTeamUseCase {
+public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, RenameTeamUseCase, DeleteTeamUseCase {
 
     private final TeamRepository teamRepository;
     private final TeamMemberQueryPort memberQueryPort;
@@ -84,6 +85,21 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
 
         teamRepository.rename(team.id(), command.name());
         return new TeamNode(team.id(), command.name(), team.parentTeamId(), team.leaderMemberId(), null, 0L, List.of());
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long companyId, Long teamId) {
+        Team team = teamRepository.findByIdAndCompanyId(teamId, companyId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
+
+        if (memberQueryPort.hasActiveMembers(team.id())) {
+            throw new BusinessException(AuthErrorCode.TEAM_HAS_MEMBERS);
+        }
+        if (teamRepository.existsByParentTeamId(team.id())) {
+            throw new BusinessException(AuthErrorCode.TEAM_HAS_CHILDREN);
+        }
+        teamRepository.delete(team.id());
     }
 
     /**

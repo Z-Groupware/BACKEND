@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,6 +30,7 @@ import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.command.RenameTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
+import com.module06.backend.identity.team.application.usecase.DeleteTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
 import com.module06.backend.identity.team.application.usecase.RenameTeamUseCase;
 
@@ -54,6 +56,8 @@ class TeamControllerTest {
     private CreateTeamUseCase createTeamUseCase;
     @MockitoBean
     private RenameTeamUseCase renameTeamUseCase;
+    @MockitoBean
+    private DeleteTeamUseCase deleteTeamUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -126,6 +130,17 @@ class TeamControllerTest {
         assertThat(captor.getValue().companyId()).isEqualTo(1L);
         assertThat(captor.getValue().teamId()).isEqualTo(10L);
         assertThat(captor.getValue().name()).isEqualTo("제품개발팀");
+    }
+
+    @Test
+    @DisplayName("삭제는 경로의 팀 id와 토큰의 회사로 요청한다")
+    void deleteTakesTeamIdFromPathAndCompanyFromToken() throws Exception {
+        authenticateAs(1L);
+
+        mockMvc.perform(delete("/api/teams/10"))
+                .andExpect(status().isOk());
+
+        verify(deleteTeamUseCase).delete(1L, 10L);
     }
 
     private void authenticateAs(Long companyId) {
