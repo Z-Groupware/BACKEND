@@ -31,6 +31,13 @@ public interface ActionReferenceRepository {
     // dueDate가 비어 들어온 액션의 마감일 기본값(프로젝트 마감일)을 찾는다.
     List<ProjectReference> findProjectReferences(List<Long> projectIds);
 
+    // 수동 생성(FR-AC-01 예외 경로)에서 TEAM 액션의 teamId가 같은 회사 소속인지 검증한다
+    // — 아니면 다른 회사 팀에 액션을 붙이는 IDOR이 된다.
+    boolean existsTeamInCompany(Long teamId, Long companyId);
+
+    // 수동 생성에서 PERSONAL 액션의 assigneeMemberId가 같은 회사 소속인지 검증한다.
+    boolean existsMemberInCompany(Long memberId, Long companyId);
+
     // teamId는 OWNER 개설 회의면 null, relatedActionId는 팀 액션을 낳는 프로젝트 회의면 null이다.
     record MeetingReference(Long meetingId, Long teamId, Long relatedActionId) {
     }

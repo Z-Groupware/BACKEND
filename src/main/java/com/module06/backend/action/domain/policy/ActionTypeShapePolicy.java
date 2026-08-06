@@ -29,6 +29,9 @@ public class ActionTypeShapePolicy {
             if (assigneeMemberId == null) {
                 throw new IllegalArgumentException("PERSONAL 액션은 담당자가 필요합니다.");
             }
+            if (teamId != null) {
+                throw new IllegalArgumentException("PERSONAL 액션은 팀을 가질 수 없습니다.");
+            }
         }
     }
 

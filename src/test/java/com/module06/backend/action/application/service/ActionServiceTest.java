@@ -12,6 +12,7 @@ import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
@@ -20,6 +21,7 @@ import com.module06.backend.project.application.port.ProjectQueryPort;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,16 +36,20 @@ class ActionServiceTest {
     private ActionRepository actionRepository;
 
     @Mock
+    private ActionReferenceRepository actionReferenceRepository;
+
+    @Mock
     private ProjectQueryPort projectQueryPort;
 
     private ActionService actionService() {
-        return new ActionService(actionRepository, projectQueryPort);
+        return new ActionService(actionRepository, actionReferenceRepository, projectQueryPort);
     }
 
     @Test
     void createSavesManualPersonalActionAsHumanConfirmed() {
         ActionService service = actionService();
         when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+        when(actionReferenceRepository.existsMemberInCompany(5L, COMPANY)).thenReturn(true);
         when(actionRepository.save(any(Action.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Action saved = service.create(new CreateActionCommand(
@@ -61,6 +67,7 @@ class ActionServiceTest {
     void createSavesManualTeamAction() {
         ActionService service = actionService();
         when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+        when(actionReferenceRepository.existsTeamInCompany(7L, COMPANY)).thenReturn(true);
         when(actionRepository.save(any(Action.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Action saved = service.create(new CreateActionCommand(
@@ -87,7 +94,7 @@ class ActionServiceTest {
     @Test
     void createThrowsWhenPersonalActionMissingAssignee() {
         ActionService service = actionService();
-        when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+        lenient().when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
 
         assertThatThrownBy(() -> service.create(new CreateActionCommand(
                 COMPANY, PROJECT, ActionType.PERSONAL, null, null, "제목", null, LocalDate.now()
@@ -97,13 +104,53 @@ class ActionServiceTest {
     }
 
     @Test
+    void createThrowsWhenPersonalActionAlsoCarriesTeamId() {
+        ActionService service = actionService();
+        lenient().when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.create(new CreateActionCommand(
+                COMPANY, PROJECT, ActionType.PERSONAL, 9L, 5L, "제목", null, LocalDate.now()
+        ))).isInstanceOf(IllegalArgumentException.class);
+
+        verify(actionRepository, never()).save(any());
+    }
+
+    @Test
     void createThrowsWhenTeamActionMissingTeamId() {
         ActionService service = actionService();
-        when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+        lenient().when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
 
         assertThatThrownBy(() -> service.create(new CreateActionCommand(
                 COMPANY, PROJECT, ActionType.TEAM, null, null, "제목", null, LocalDate.now()
         ))).isInstanceOf(IllegalArgumentException.class);
+
+        verify(actionRepository, never()).save(any());
+    }
+
+    @Test
+    void createThrowsWhenAssigneeBelongsToAnotherCompany() {
+        ActionService service = actionService();
+        when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+        when(actionReferenceRepository.existsMemberInCompany(5L, COMPANY)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.create(new CreateActionCommand(
+                COMPANY, PROJECT, ActionType.PERSONAL, null, 5L, "제목", null, LocalDate.now()
+        ))).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+
+        verify(actionRepository, never()).save(any());
+    }
+
+    @Test
+    void createThrowsWhenTeamBelongsToAnotherCompany() {
+        ActionService service = actionService();
+        when(projectQueryPort.existsActiveProject(COMPANY, PROJECT)).thenReturn(true);
+        when(actionReferenceRepository.existsTeamInCompany(7L, COMPANY)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.create(new CreateActionCommand(
+                COMPANY, PROJECT, ActionType.TEAM, 7L, null, "제목", null, LocalDate.now()
+        ))).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_TEAM_NOT_FOUND);
 
         verify(actionRepository, never()).save(any());
     }

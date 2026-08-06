@@ -12,7 +12,9 @@ import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.application.usecase.ReviewActionUseCase;
 import com.module06.backend.action.application.usecase.UpdateActionStatusUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.policy.ActionTypeShapePolicy;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
@@ -32,9 +34,9 @@ import lombok.RequiredArgsConstructor;
     동일 원칙 적용.
 
     create(FR-AC-01 예외 경로)는 project(C)가 선언한 ProjectQueryPort로 프로젝트가 같은 회사
-    소속이고 활성 상태인지만 확인한다 — meeting(D)이 회의 개설 시 쓰는 것과 동일한 검증이다.
-    teamId·assigneeMemberId가 실제로 같은 회사 소속인지까지는 검증하지 않는다(FE가 이미
-    소속 목록에서만 고르게 하고, AI 분배 경로도 이 검증까지는 하지 않는 것과 동일 수준).
+    소속이고 활성 상태인지 확인하고(meeting(D)이 회의 개설 시 쓰는 것과 동일한 검증), teamId·
+    assigneeMemberId도 ActionReferenceRepository로 같은 회사 소속인지 검증한다 — 아니면
+    다른 회사 팀·구성원에 액션을 붙이는 IDOR이 된다(2026-08-06 CodeRabbit PR #151 지적).
 
     연결된 클래스
     - CreateActionUseCase · GetMyActionsUseCase · GetActionDetailUseCase · UpdateActionStatusUseCase ·
@@ -42,6 +44,7 @@ import lombok.RequiredArgsConstructor;
     - PersonalActionAssigneeOnlyPolicy : 담당자 본인 검사
     - ActionTypeShapePolicy            : 수동 생성 시 종류별 필드 조합 검증 (domain.policy)
     - ActionRepository                 : 저장·조회
+    - ActionReferenceRepository        : teamId·assigneeMemberId 회사 소속 검증
     - ProjectQueryPort                 : project(C)가 선언한 프로젝트 존재·활성 검증 포트
 */
 @Service
@@ -59,6 +62,7 @@ public class ActionService implements
     private static final ActionTypeShapePolicy ACTION_TYPE_SHAPE_POLICY = new ActionTypeShapePolicy();
 
     private final ActionRepository actionRepository;
+    private final ActionReferenceRepository actionReferenceRepository;
     private final ProjectQueryPort projectQueryPort;
 
     @Override
@@ -69,6 +73,14 @@ public class ActionService implements
         }
 
         ACTION_TYPE_SHAPE_POLICY.check(command.actionType(), command.teamId(), command.assigneeMemberId());
+
+        if (command.actionType() == ActionType.TEAM) {
+            if (!actionReferenceRepository.existsTeamInCompany(command.teamId(), command.companyId())) {
+                throw new BusinessException(ActionErrorCode.ACTION_TEAM_NOT_FOUND);
+            }
+        } else if (!actionReferenceRepository.existsMemberInCompany(command.assigneeMemberId(), command.companyId())) {
+            throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+        }
 
         Action action = Action.createManual(
                 command.companyId(),
