@@ -41,6 +41,10 @@ public class CapRecordingJpaEntity {
     @Column(name = "duration_sec")
     private Integer durationSec;
 
+    // CAP-15 삭제 차단 판정용 — stt_block 0건이 "미시작"인지 "완료"인지 구분한다(V4.2.2).
+    @Column(name = "stt_triggered", nullable = false)
+    private boolean sttTriggered;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -61,11 +65,12 @@ public class CapRecordingJpaEntity {
         entity.fileUrl = recording.getFileUrl();
         entity.fileSize = recording.getSizeBytes();
         entity.durationSec = recording.getDurationSec();
+        entity.sttTriggered = recording.isSttTriggered();
         return entity;
     }
 
     // JPA 엔티티 → 도메인 모델 (DB에서 읽어온 직후)
     Recording toDomain() {
-        return Recording.restore(id, meetingId, fileName, fileUrl, fileSize, durationSec, createdAt, updatedAt);
+        return Recording.restore(id, meetingId, fileName, fileUrl, fileSize, durationSec, sttTriggered, createdAt, updatedAt);
     }
 }

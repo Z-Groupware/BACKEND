@@ -14,7 +14,7 @@ import com.module06.backend.cap.domain.repository.ProcessingCompletionRepository
 
 /*
  * CAP-15 삭제 차단 판정(hasUnfinishedProcessing)이 stt_block·analysis_layer 실제 행에 대해
- * 파생 쿼리(existsByMeetingIdAndStatusNot/In)로 올바르게 동작하는지 검증한다.
+ * 파생 쿼리(existsByMeetingIdAndStatusNot/In/existsByMeetingId)로 올바르게 동작하는지 검증한다.
  *
  * stt_block·analysis_layer는 이태연(capture) 소유 테이블이라 cap은 읽기 전용
  * @Immutable 참조 엔티티만 갖고 있다(쓰기 엔티티 없음). 그래서 테스트 데이터는
@@ -37,11 +37,19 @@ class ProcessingCompletionRepositoryAdapterTest {
         jdbcTemplate.update("DELETE FROM analysis_layer");
     }
 
-    /* 두 테이블 모두 행이 없으면(STT 시작 전) 미완료로 보지 않는지 검증한다. */
+    /* STT가 애초에 트리거된 적 없으면(sttTriggered=false) 행이 없어도 완료로 보는지 검증한다. */
     @Test
-    @DisplayName("아무 행도 없으면 완료로 본다")
-    void treatsNoRowsAsFinished() {
-        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L)).isFalse();
+    @DisplayName("STT 대상이 아니면 행이 없어도 완료로 본다")
+    void treatsNoRowsAsFinishedWhenSttNotTriggered() {
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, false)).isFalse();
+    }
+
+    /* STT가 트리거됐는데(sttTriggered=true) 아직 블록이 0건이면 "진행 중"으로 보고 미완료 처리하는지 검증한다.
+       (CodeRabbit 리뷰로 드러난 갭 — 등록 직후~첫 블록 생성 전 창구에서 confirm 없이 삭제되는 것을 막는다.) */
+    @Test
+    @DisplayName("STT가 트리거됐는데 블록이 0건이면 미완료다")
+    void unfinishedWhenSttTriggeredButNoBlocksYet() {
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, true)).isTrue();
     }
 
     /* DONE이 아닌 STT 블록이 하나라도 있으면 미완료인지 검증한다. */
@@ -50,7 +58,7 @@ class ProcessingCompletionRepositoryAdapterTest {
     void unfinishedWhenSttBlockNotDone() {
         insertSttBlock(500L, "RUNNING");
 
-        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L)).isTrue();
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, true)).isTrue();
     }
 
     /* STT 블록이 모두 DONE이고 분석 계층이 없으면 완료인지 검증한다. */
@@ -60,7 +68,7 @@ class ProcessingCompletionRepositoryAdapterTest {
         insertSttBlock(500L, "DONE");
         insertSttBlock(500L, "DONE");
 
-        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L)).isFalse();
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, true)).isFalse();
     }
 
     /* PENDING/RUNNING/FAILED 분석 계층이 있으면 미완료인지 검증한다. */
@@ -70,7 +78,7 @@ class ProcessingCompletionRepositoryAdapterTest {
         insertSttBlock(500L, "DONE");
         insertAnalysisLayer(500L, "L2", "RUNNING");
 
-        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L)).isTrue();
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, true)).isTrue();
     }
 
     /* 분석 계층이 DONE·SKIPPED뿐이면 완료로 보는지 검증한다(SKIPPED도 종결 상태). */
@@ -81,7 +89,7 @@ class ProcessingCompletionRepositoryAdapterTest {
         insertAnalysisLayer(500L, "L1", "DONE");
         insertAnalysisLayer(500L, "L2", "SKIPPED");
 
-        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L)).isFalse();
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, true)).isFalse();
     }
 
     /* 다른 회의의 미완료 행은 이 회의 판정에 영향을 주지 않는지 검증한다. */
@@ -91,7 +99,8 @@ class ProcessingCompletionRepositoryAdapterTest {
         insertSttBlock(999L, "RUNNING");
         insertAnalysisLayer(999L, "L2", "RUNNING");
 
-        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L)).isFalse();
+        // 500L 자체는 STT 대상이 아니므로(sttTriggered=false) 0건이 완료로 읽힌다.
+        assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, false)).isFalse();
     }
 
     // H2 test 스키마는 create-drop이라 CapSttBlockReferenceEntity가 매핑한 컬럼(id/meeting_id/status)만

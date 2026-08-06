@@ -56,15 +56,19 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
                 .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_RECORDING_NOT_FOUND));
 
         // STT/분석이 안 끝났으면 confirm 없이는 차단(409) — 미확인 구간이 있는데 오디오를 지우면 재처리가 불가능해진다.
-        if (!confirm && processingCompletionRepository.hasUnfinishedProcessing(meetingId)) {
+        if (!confirm && processingCompletionRepository.hasUnfinishedProcessing(meetingId, recording.isSttTriggered())) {
             throw new BusinessException(CapErrorCode.CAP_STT_NOT_CONFIRMED);
         }
 
-        // 하드 삭제(되돌릴 수 없음): S3 오디오 → recording_part 조각 → recording 행. freedBytes는 지운 파일 크기.
-        capObjectStoragePort.deleteRecording(recording.getFileUrl());
-        recordingPartRepository.deleteByMeetingId(meetingId);
+        // 하드 삭제(되돌릴 수 없음): DB(recording_part → recording) 먼저, S3는 마지막.
+        // DB와 S3는 하나의 트랜잭션으로 묶이지 않는다 — S3를 먼저 지우면 그 뒤 DB 삭제가 실패했을 때
+        // 트랜잭션은 롤백되는데(recording 행이 복원) 파일은 이미 사라진 "고아 참조"가 남는다.
+        // DB를 먼저 지우면 실패 방향이 반대로 뒤집힌다: DB 삭제 실패 → S3 호출 전이라 아무 일도 없고,
+        // S3 삭제 실패 → 트랜잭션 전체가 롤백되어(DB도 되돌아감) 파일도 그대로 남아 재시도할 수 있다.
         long freedBytes = recording.getSizeBytes();
+        recordingPartRepository.deleteByMeetingId(meetingId);
         recordingRepository.deleteByMeetingId(meetingId);
+        capObjectStoragePort.deleteRecording(recording.getFileUrl());
 
         return new Result(LocalDateTime.now(), freedBytes);
     }

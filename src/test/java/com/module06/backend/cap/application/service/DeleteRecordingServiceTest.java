@@ -99,6 +99,23 @@ class DeleteRecordingServiceTest {
         assertAllDeleted();
     }
 
+    /* recording.sttTriggered가 완료 판정 저장소로 그대로 전달되는지 검증한다(0건=완료 오판 방지, #11 코드리뷰 반영). */
+    @Test
+    @DisplayName("recording의 sttTriggered를 완료 판정에 그대로 넘긴다")
+    void passesSttTriggeredToCompletionCheck() {
+        boolean[] receivedSttTriggered = new boolean[1];
+        Recording triggered = Recording.register(500L, "recording.ogg", KEY, 15_000_000L, true);
+        DeleteRecordingService service = service(Optional.of(1L), Optional.of(triggered), false,
+                (meetingId, sttTriggered) -> {
+                    receivedSttTriggered[0] = sttTriggered;
+                    return false;
+                });
+
+        service.deleteRecording(500L, 1L, false);
+
+        assertThat(receivedSttTriggered[0]).isTrue();
+    }
+
     private Recording recording() {
         return Recording.register(500L, "recording.ogg", KEY, 15_000_000L);
     }
@@ -118,6 +135,12 @@ class DeleteRecordingServiceTest {
     // 회의 companyId·녹음본·미완료여부를 지정해 서비스를 조립한다. 삭제 부수효과를 기록한다.
     private DeleteRecordingService service(Optional<Long> companyId, Optional<Recording> recording,
                                           boolean unfinished) {
+        return service(companyId, recording, unfinished, null);
+    }
+
+    // 완료 판정 저장소를 직접 지정하고 싶을 때(예: sttTriggered 전달값 검증)를 위한 오버로드.
+    private DeleteRecordingService service(Optional<Long> companyId, Optional<Recording> recording,
+                                          boolean unfinished, ProcessingCompletionRepository completionOverride) {
         storageDeleted[0] = false;
         partsDeleted[0] = false;
         recordingDeleted[0] = false;
@@ -180,7 +203,9 @@ class DeleteRecordingServiceTest {
                 partsDeleted[0] = true;
             }
         };
-        ProcessingCompletionRepository completion = meetingId -> unfinished;
+        ProcessingCompletionRepository completion = completionOverride != null
+                ? completionOverride
+                : (meetingId, sttTriggered) -> unfinished;
         CapObjectStoragePort storage = new CapObjectStoragePort() {
             @Override
             public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {

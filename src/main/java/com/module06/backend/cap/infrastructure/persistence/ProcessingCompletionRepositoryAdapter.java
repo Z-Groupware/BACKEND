@@ -7,7 +7,12 @@ import java.util.List;
 
 /* comment.
     ProcessingCompletionRepository 계약을 stt_block·analysis_layer read-model 두 개의 존재 쿼리로 구현.
-    STT: DONE 아닌 블록이 있으면 미완료. 분석: PENDING/RUNNING/FAILED 계층이 있으면 미완료(SKIPPED/DONE은 OK).
+    STT: DONE 아닌 블록이 있거나(sttTriggered인데) 블록이 아직 0건이면 미완료. 분석: PENDING/RUNNING/FAILED
+    계층이 있으면 미완료(SKIPPED/DONE은 OK).
+
+    ⚠️ stt_block 0건은 "완료"와 동의어가 아니다 — sttTriggered=true인데 0건이면 STT가 트리거만 되고 아직
+    블록이 안 생긴 "진행 중" 상태다(CodeRabbit 리뷰로 드러난 갭, #11). sttTriggered=false일 때만 0건을
+    "이 회의는 STT 대상이 아님"으로 읽어 완료로 본다.
 */
 @Repository
 public class ProcessingCompletionRepositoryAdapter implements ProcessingCompletionRepository {
@@ -27,8 +32,12 @@ public class ProcessingCompletionRepositoryAdapter implements ProcessingCompleti
     }
 
     @Override
-    public boolean hasUnfinishedProcessing(Long meetingId) {
-        return sttBlockRepository.existsByMeetingIdAndStatusNot(meetingId, STT_DONE)
+    public boolean hasUnfinishedProcessing(Long meetingId, boolean sttTriggered) {
+        boolean sttUnfinished = sttTriggered
+                ? !sttBlockRepository.existsByMeetingId(meetingId)
+                        || sttBlockRepository.existsByMeetingIdAndStatusNot(meetingId, STT_DONE)
+                : sttBlockRepository.existsByMeetingIdAndStatusNot(meetingId, STT_DONE);
+        return sttUnfinished
                 || analysisLayerRepository.existsByMeetingIdAndStatusIn(meetingId, ANALYSIS_UNFINISHED);
     }
 }

@@ -59,7 +59,9 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
         }
 
         // 메타 등록(durationSec은 파이프라인이 async로 채움) + 단일 블록 STT 트리거(스텁).
-        recordingRepository.save(Recording.register(command.meetingId(), fileName, s3Key, command.sizeBytes()));
+        // sttTriggered=true로 등록 — 트리거 직후엔 stt_block이 아직 0건이라, CAP-15 삭제 차단 판정이
+        // 이를 "완료"가 아니라 "진행 중"으로 읽게 한다.
+        recordingRepository.save(Recording.register(command.meetingId(), fileName, s3Key, command.sizeBytes(), true));
         meetingRecordingSttPort.triggerWholeFileStt(command.meetingId(), s3Key);
 
         // durationMs=0(파이프라인이 채움), status="DONE"(제출=완료 리터럴, meeting.status는 D 소유라 쓰지 않음).

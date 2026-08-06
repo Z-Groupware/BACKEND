@@ -10,6 +10,9 @@ public interface ProcessingCompletionRepository {
     /**
      * 이 회의의 STT/분석이 아직 안 끝났는지 — 하나라도 미완료면 true(삭제 차단 근거).
      * "미완료" = DONE 아닌 stt_block이 있거나, PENDING/RUNNING/FAILED인 analysis_layer가 있음.
+     *
+     * @param sttTriggered STT가 실제로 트리거된 녹음인지. stt_block이 0건이어도, 트리거는 됐는데
+     *                      아직 블록이 안 생겼을 뿐인 "진행 중"과 애초에 STT 대상이 아닌 상태를 구분한다.
      */
-    boolean hasUnfinishedProcessing(Long meetingId);
+    boolean hasUnfinishedProcessing(Long meetingId, boolean sttTriggered);
 }
