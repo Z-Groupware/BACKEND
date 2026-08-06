@@ -11,8 +11,9 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.CaptureSession;
 import com.module06.backend.meeting.domain.model.Meeting;
-import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.domain.repository.CaptureSessionControlRepository;
+import com.module06.backend.meeting.domain.repository.CaptureSessionQueryRepository;
+import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.exception.CaptureSessionErrorCode;
 import com.module06.backend.meeting.infrastructure.persistence.entity.CaptureSessionJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
@@ -27,7 +28,8 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class CaptureSessionPersistenceAdapter implements
         CaptureSessionRepository,
-        CaptureSessionControlRepository {
+        CaptureSessionControlRepository,
+        CaptureSessionQueryRepository {
 
     /* 회사 범위 회의 행을 잠금 조회하는 기존 회의 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -86,6 +88,14 @@ public class CaptureSessionPersistenceAdapter implements
     public Optional<CaptureSession> findByMeetingIdForUpdate(Long meetingId) {
         /* 잠긴 JPA 엔티티를 애플리케이션 밖으로 노출하지 않고 순수 도메인으로 변환한다. */
         return springDataCaptureSessionRepository.findByMeetingId(meetingId)
+                .map(CaptureSessionJpaEntity::toDomain);
+    }
+
+    /* 회의당 하나인 현재 캡처 세션을 CAP-10 조회용 비잠금 경로로 읽는다. */
+    @Override
+    public Optional<CaptureSession> findByMeetingId(Long meetingId) {
+        /* 상태 제어용 findByMeetingId와 분리된 파생 쿼리로 읽고 순수 도메인으로 변환한다. */
+        return springDataCaptureSessionRepository.findFirstByMeetingId(meetingId)
                 .map(CaptureSessionJpaEntity::toDomain);
     }
 
