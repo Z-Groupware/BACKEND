@@ -27,6 +27,8 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
 
     private final ActionMeetingReferenceRepository actionMeetingReferenceRepository;
     private final SpringDataProjectReferenceRepository springDataProjectReferenceRepository;
+    private final SpringDataActionTeamReferenceRepository springDataActionTeamReferenceRepository;
+    private final SpringDataMemberReferenceRepository springDataMemberReferenceRepository;
 
     @Override
     public List<MeetingReference> findMeetingReferences(List<Long> meetingIds) {
@@ -52,5 +54,15 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         return springDataProjectReferenceRepository.findAllById(projectIds).stream()
                 .map(project -> new ProjectReference(project.getId(), project.getDueDate()))
                 .toList();
+    }
+
+    @Override
+    public boolean existsTeamInCompany(Long teamId, Long companyId) {
+        return springDataActionTeamReferenceRepository.existsByIdAndCompanyId(teamId, companyId);
+    }
+
+    @Override
+    public boolean existsMemberInCompany(Long memberId, Long companyId) {
+        return springDataMemberReferenceRepository.existsByIdAndCompanyId(memberId, companyId);
     }
 }

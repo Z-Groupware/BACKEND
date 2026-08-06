@@ -37,7 +37,10 @@ public enum HandoverErrorCode implements ErrorCode {
     HO_ITEMS_NOT_FULLY_REASSIGNED(HttpStatus.CONFLICT, "HO-021", "필수 인수인계 항목이 모두 재배정되지 않았습니다."),
     HO_CONFLICT(HttpStatus.CONFLICT, "HO-022", "인수인계 처리 중 충돌이 발생했습니다."),
     HO_LIST_SCOPE_REQUIRED(HttpStatus.BAD_REQUEST, "HO-023", "인수인계 목록 조회 범위가 필요합니다."),
-    HO_LIST_SCOPE_AMBIGUOUS(HttpStatus.BAD_REQUEST, "HO-024", "인수인계 목록 조회 범위는 하나만 지정할 수 있습니다.");
+    HO_LIST_SCOPE_AMBIGUOUS(HttpStatus.BAD_REQUEST, "HO-024", "인수인계 목록 조회 범위는 하나만 지정할 수 있습니다."),
+
+    // auth(B) 도입 전이라 요청 시점 AuthPrincipal companyId가 없을 때. 타입화된 신호(500 방지).
+    HO_COMPANY_CONTEXT_REQUIRED(HttpStatus.UNAUTHORIZED, "HO-025", "회사 컨텍스트가 필요합니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

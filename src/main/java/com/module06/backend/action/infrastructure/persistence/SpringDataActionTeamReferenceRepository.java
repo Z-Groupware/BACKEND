@@ -12,4 +12,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SpringDataActionTeamReferenceRepository extends JpaRepository<ActionTeamReferenceEntity, Long> {
 
     List<ActionTeamReferenceEntity> findAllByLeaderMemberId(Long leaderMemberId);
+
+    boolean existsByIdAndCompanyId(Long id, Long companyId);
 }
