@@ -809,6 +809,44 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("프로젝트를 못 읽으면 DIST 가 FAILED 로 남는다 — 액션 없는 회의가 완료로 닫히면 안 된다")
+    void 프로젝트를_못_읽으면_DIST가_실패로_남는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new TupleDistributionService(tuples, actions,
+                        // meeting.project_id 는 NOT NULL 이라, 비었다는 것은 회의 행을 못 읽은
+                        // 것이다 — 분배할 것이 없는 정상 상태가 아니라 데이터 오류다.
+                        meetingId -> Optional.empty(),
+                        (companyId, meetingId) -> false, new ObjectMapper()),
+                ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        /*
+         * DONE 으로 닫으면 isFullyAnalyzed 가 true 가 되고, 액션이 하나도 없는 회의가 force
+         * 없이는 다시 돌지 않는다. FAILED 로 남겨야 ANLZ-02 가 이어서 돌릴 수 있다.
+         */
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.FAILED);
+        assertThat(outcome.failedLayer()).isEqualTo(LayerName.DIST);
+        assertThat(layers.failed).containsKey(LayerName.DIST);
+        assertThat(layers.done).doesNotContain(LayerName.DIST);
+        // 앞 계층은 DONE 으로 남는다 — 판정을 다시 만들지 않고 분배만 다시 시도할 수 있다.
+        assertThat(layers.done).contains(LayerName.L7);
+        assertThat(actions.items).isEmpty();
+    }
+
+    @Test
     @DisplayName("tuple 이 없으면 분배도 없고, 그래도 DIST 는 DONE 이다 — 대상 0건은 실패가 아니다")
     void tuple이_없으면_분배하지_않는다() {
         FakeSummaryRepository summaries = new FakeSummaryRepository();

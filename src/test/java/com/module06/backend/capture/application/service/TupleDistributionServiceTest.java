@@ -40,16 +40,21 @@ class TupleDistributionServiceTest {
     private static final long PROJECT = 31L;
 
     @Test
-    @DisplayName("회의의 프로젝트를 못 읽으면 분배하지 않는다 — 엉뚱한 프로젝트 보드에 꽂히면 안 된다")
-    void 프로젝트를_모르면_분배하지_않는다() {
+    @DisplayName("회의의 프로젝트를 못 읽으면 던진다 — 조용히 0 을 주면 DIST 가 완료로 닫힌다")
+    void 프로젝트를_모르면_던진다() {
         FakeTupleRepository tuples = new FakeTupleRepository(
                 stored(1L, tuple("로드맵 초안 작성", 42L)));
         RecordingDistributionPort actions = new RecordingDistributionPort();
 
-        int distributed = service(tuples, actions, meetingId -> Optional.empty(), false)
-                .distribute(COMPANY, MEETING, Map.of());
+        /*
+         * meeting.project_id 는 NOT NULL 이므로 이 값이 비었다는 것은 회의 행을 못 읽었다는
+         * 뜻이다 — 분배할 것이 없는 정상 상태가 아니라 데이터 오류다. 0 을 돌려주면 DIST 가
+         * DONE 으로 닫히고, 액션이 하나도 없는 회의가 "분석 완료"가 되어 재실행되지 않는다.
+         */
+        assertThatThrownBy(() -> service(tuples, actions, meetingId -> Optional.empty(), false)
+                .distribute(COMPANY, MEETING, Map.of()))
+                .isInstanceOf(IllegalStateException.class);
 
-        assertThat(distributed).isZero();
         assertThat(actions.items).isEmpty();
         // 되짚을 것도 없다. tuple 은 대기실에 그대로 남는다.
         assertThat(tuples.applied).isEmpty();

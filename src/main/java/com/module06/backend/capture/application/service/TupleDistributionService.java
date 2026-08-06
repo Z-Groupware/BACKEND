@@ -92,15 +92,19 @@ public class TupleDistributionService {
         }
 
         /*
-         * 프로젝트를 못 읽으면 분배하지 않는다. action.project_id 는 NOT NULL 이고, 임의의
-         * 값으로 채우면 그 액션이 엉뚱한 프로젝트 보드에 꽂힌다. 마감일 기본값도 프로젝트에서
+         * 프로젝트를 못 읽으면 **던진다.** action.project_id 는 NOT NULL 이고, 임의의 값으로
+         * 채우면 그 액션이 엉뚱한 프로젝트 보드에 꽂힌다. 마감일 기본값도 프로젝트에서
          * 계산되므로 기한까지 함께 틀린다.
+         *
+         * 조용히 0 을 돌려주지 않는 이유 — 그러면 DIST 가 DONE 으로 닫히고 회의가 "완료"가
+         * 된다. 액션은 하나도 없는데 force 없이는 다시 돌지 않는다. 분배할 tuple 이 없는 것
+         * (정상)과 회의에 프로젝트가 없는 것(데이터 오류)은 성질이 다르다 — meeting.project_id
+         * 는 NOT NULL 이므로 이 값이 비었다는 것은 그 회의 행을 못 읽었다는 뜻이다.
+         * 던지면 runLayer 가 DIST 를 FAILED 로 남기고 ANLZ-02 가 이어서 돌릴 수 있다.
+         * (CodeRabbit PR #160 지적)
          */
-        Long projectId = meetingProjectProvider.projectIdOf(meetingId).orElse(null);
-        if (projectId == null) {
-            log.warn("분배 생략 — 회의의 프로젝트를 읽지 못했다. meetingId={}", meetingId);
-            return 0;
-        }
+        Long projectId = meetingProjectProvider.projectIdOf(meetingId).orElseThrow(() ->
+                new IllegalStateException("회의의 프로젝트를 읽지 못해 분배할 수 없습니다. meetingId=" + meetingId));
 
         List<StoredTuple> distributable = new ArrayList<>();
         List<ActionDistributionItem> items = new ArrayList<>();
