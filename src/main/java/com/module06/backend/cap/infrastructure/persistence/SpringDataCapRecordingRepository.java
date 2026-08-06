@@ -13,4 +13,7 @@ public interface SpringDataCapRecordingRepository extends JpaRepository<CapRecor
 
     // 이 회의의 녹음본 조회 — UNIQUE(meeting_id)라 최대 1건(파생 쿼리, QUERY_002 준수).
     Optional<CapRecordingJpaEntity> findByMeetingId(Long meetingId);
+
+    // 이 회의의 녹음본 삭제(하드 삭제) — 파생 삭제 쿼리(QUERY_002 준수). 트랜잭션 안에서 호출.
+    void deleteByMeetingId(Long meetingId);
 }

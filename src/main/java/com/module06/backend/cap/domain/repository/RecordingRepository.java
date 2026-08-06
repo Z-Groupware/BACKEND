@@ -15,4 +15,7 @@ public interface RecordingRepository {
 
     /** 이 회의의 녹음본을 조회한다(회의당 1건, UNIQUE(meeting_id)). 재생 URL 발급용. */
     Optional<Recording> findByMeetingId(Long meetingId);
+
+    /** 이 회의의 녹음본 메타를 삭제한다(하드 삭제, CAP-15). */
+    void deleteByMeetingId(Long meetingId);
 }

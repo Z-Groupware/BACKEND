@@ -41,4 +41,10 @@ public class RecordingPartPersistenceAdapter implements RecordingPartRepository 
                 .map(SpringDataRecordingPartRepository.SeqView::getSeq)
                 .toList();
     }
+
+    // 이 회의의 잔여 청크 조각을 모두 삭제(하드 삭제).
+    @Override
+    public void deleteByMeetingId(Long meetingId) {
+        springDataRecordingPartRepository.deleteByMeetingId(meetingId);
+    }
 }

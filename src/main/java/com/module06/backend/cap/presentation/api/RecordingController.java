@@ -1,10 +1,12 @@
 package com.module06.backend.cap.presentation.api;
 
+import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.presentation.api.dto.request.ManualRecordingRequest;
 import com.module06.backend.cap.presentation.api.dto.request.StartRecordingAssemblyRequest;
+import com.module06.backend.cap.presentation.api.dto.response.DeleteRecordingResponse;
 import com.module06.backend.cap.presentation.api.dto.response.ManualRecordingResponse;
 import com.module06.backend.cap.presentation.api.dto.response.PlaybackUrlResponse;
 import com.module06.backend.cap.presentation.api.dto.response.RecordingAssemblyResponse;
@@ -16,11 +18,13 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,13 +36,16 @@ public class RecordingController {
     private final StartRecordingAssemblyUseCase startRecordingAssemblyUseCase;
     private final RegisterManualRecordingUseCase registerManualRecordingUseCase;
     private final GetPlaybackUrlUseCase getPlaybackUrlUseCase;
+    private final DeleteRecordingUseCase deleteRecordingUseCase;
 
     public RecordingController(StartRecordingAssemblyUseCase startRecordingAssemblyUseCase,
                               RegisterManualRecordingUseCase registerManualRecordingUseCase,
-                              GetPlaybackUrlUseCase getPlaybackUrlUseCase) {
+                              GetPlaybackUrlUseCase getPlaybackUrlUseCase,
+                              DeleteRecordingUseCase deleteRecordingUseCase) {
         this.startRecordingAssemblyUseCase = startRecordingAssemblyUseCase;
         this.registerManualRecordingUseCase = registerManualRecordingUseCase;
         this.getPlaybackUrlUseCase = getPlaybackUrlUseCase;
+        this.deleteRecordingUseCase = deleteRecordingUseCase;
     }
 
     // 녹음 종료(조립 트리거) (CAP-05)
@@ -97,5 +104,23 @@ public class RecordingController {
                 new GetPlaybackUrlUseCase.Requester(memberId, companyId, role, isAdmin);
         GetPlaybackUrlUseCase.Result result = getPlaybackUrlUseCase.getPlaybackUrl(meetingId, requester);
         return ApiResponse.success("재생 URL이 발급되었습니다.", PlaybackUrlResponse.from(result));
+    }
+
+    // 녹음 삭제 (CAP-15)
+    @Operation(
+            summary = "녹음 삭제",
+            description = "녹음본(S3 오디오·recording·잔여 recording_part)을 하드 삭제합니다. 되돌릴 수 없습니다. "
+                    + "owner/admin만 가능하며, STT·분석이 끝나지 않았으면 409로 막고 ?confirm=true로만 강행합니다."
+    )
+    // 이 엔드포인트만 실제 role gate — owner/admin만. 같은 회사 검증은 서비스가 담당.
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    @DeleteMapping
+    public ApiResponse<DeleteRecordingResponse> delete(
+            @Parameter(description = "회의 ID") @PathVariable Long meetingId,
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @RequestParam(name = "confirm", required = false, defaultValue = "false") boolean confirm) {
+        // 회사는 토큰에서, 미확인 STT 강행 여부는 ?confirm 쿼리로. 실제 삭제 가부는 서비스가 판정.
+        DeleteRecordingUseCase.Result result = deleteRecordingUseCase.deleteRecording(meetingId, companyId, confirm);
+        return ApiResponse.success("녹음 파일이 삭제되었습니다.", DeleteRecordingResponse.from(result));
     }
 }

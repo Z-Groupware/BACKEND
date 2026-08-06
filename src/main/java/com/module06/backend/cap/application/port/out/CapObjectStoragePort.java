@@ -12,6 +12,9 @@ public interface CapObjectStoragePort {
     /** 이 s3Key의 녹음본을 재생할 presigned GET URL 하나 발급 (HTTP Range 지원 — 탐색바 seek 가능) */
     IssuedPlaybackUrl issuePlaybackUrl(String s3Key);
 
+    /** 이 s3Key의 객체를 삭제한다 (녹음 삭제 CAP-15 — 되돌릴 수 없음) */
+    void deleteRecording(String s3Key);
+
     record IssuedPartUploadUrl(String presignedUrl, int expiresInSeconds) {
     }
 

@@ -150,6 +150,10 @@ class ManualRecordingServiceTest {
             public Optional<Recording> findByMeetingId(Long meetingId) {
                 return Optional.empty();
             }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+            }
         };
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
         ManualRecordingService service = new ManualRecordingService(meetingRef, recordingRepo, sttPort);
@@ -203,6 +207,10 @@ class ManualRecordingServiceTest {
             @Override
             public Optional<Recording> findByMeetingId(Long meetingId) {
                 return Optional.empty();
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
             }
         };
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;

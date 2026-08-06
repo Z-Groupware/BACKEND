@@ -20,11 +20,12 @@ public class Recording {
     private final String fileUrl;
     private final long sizeBytes;
     private final Integer durationSec;
+    private final boolean sttTriggered;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
 
     private Recording(Long id, Long meetingId, String fileName, String fileUrl, long sizeBytes,
-                      Integer durationSec, LocalDateTime createdAt, LocalDateTime updatedAt) {
+                      Integer durationSec, boolean sttTriggered, LocalDateTime createdAt, LocalDateTime updatedAt) {
         if (meetingId == null) {
             throw new BusinessException(CapErrorCode.CAP_REQUIRED_ID);
         }
@@ -40,19 +41,35 @@ public class Recording {
         this.fileUrl = fileUrl;
         this.sizeBytes = sizeBytes;
         this.durationSec = durationSec;
+        this.sttTriggered = sttTriggered;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
-    // 신규 등록 — 수동 업로드/조립 완료본을 recording 테이블에 처음 기록할 때. durationSec는 파이프라인이 나중에 채운다.
+    // 신규 등록(STT 트리거 없음 — 기본값). 실제로 저장 직후 STT를 트리거하는 경로는 아래 5-인자 오버로드를 쓴다.
     public static Recording register(Long meetingId, String fileName, String fileUrl, long sizeBytes) {
-        return new Recording(null, meetingId, fileName, fileUrl, sizeBytes, null, null, null);
+        return register(meetingId, fileName, fileUrl, sizeBytes, false);
     }
 
-    // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델)
+    // 신규 등록 — 수동 업로드/조립 완료본을 recording 테이블에 처음 기록할 때. durationSec는 파이프라인이 나중에 채운다.
+    // sttTriggered: 저장 직후 STT 트리거를 실제로 호출하는 경로면 true로 등록한다 — stt_block이 아직 0건이어도
+    // "미시작"과 "완료"를 구분하기 위한 신호다(CAP-15 삭제 차단 판정용).
+    public static Recording register(Long meetingId, String fileName, String fileUrl, long sizeBytes,
+                                     boolean sttTriggered) {
+        return new Recording(null, meetingId, fileName, fileUrl, sizeBytes, null, sttTriggered, null, null);
+    }
+
+    // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델). sttTriggered 없이 호출하는 기존 테스트 호환용.
     public static Recording restore(Long id, Long meetingId, String fileName, String fileUrl, long sizeBytes,
                                     Integer durationSec, LocalDateTime createdAt, LocalDateTime updatedAt) {
-        return new Recording(id, meetingId, fileName, fileUrl, sizeBytes, durationSec, createdAt, updatedAt);
+        return restore(id, meetingId, fileName, fileUrl, sizeBytes, durationSec, false, createdAt, updatedAt);
+    }
+
+    // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델).
+    public static Recording restore(Long id, Long meetingId, String fileName, String fileUrl, long sizeBytes,
+                                    Integer durationSec, boolean sttTriggered,
+                                    LocalDateTime createdAt, LocalDateTime updatedAt) {
+        return new Recording(id, meetingId, fileName, fileUrl, sizeBytes, durationSec, sttTriggered, createdAt, updatedAt);
     }
 
     private static boolean isBlank(String value) {
@@ -65,6 +82,7 @@ public class Recording {
     public String getFileUrl() { return fileUrl; }
     public long getSizeBytes() { return sizeBytes; }
     public Integer getDurationSec() { return durationSec; }
+    public boolean isSttTriggered() { return sttTriggered; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

@@ -39,4 +39,9 @@ public class RecordingPersistenceAdapter implements RecordingRepository {
     public Optional<Recording> findByMeetingId(Long meetingId) {
         return springDataCapRecordingRepository.findByMeetingId(meetingId).map(CapRecordingJpaEntity::toDomain);
     }
+
+    @Override
+    public void deleteByMeetingId(Long meetingId) {
+        springDataCapRecordingRepository.deleteByMeetingId(meetingId);
+    }
 }

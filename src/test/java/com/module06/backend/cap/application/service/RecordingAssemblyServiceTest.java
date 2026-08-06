@@ -193,6 +193,10 @@ class RecordingAssemblyServiceTest {
             public List<Integer> findSeqsInSegment(Long meetingId, int segmentSeq) {
                 return seqsBySegment.getOrDefault(segmentSeq, List.of());
             }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+            }
         };
         RecordingAssemblyPort assemblyPort = (meetingId, lastSegmentSeq, lastSeq) -> assemblyTriggered[0] = true;
         return new RecordingAssemblyService(meetingRef, stateRepo, partRepo, assemblyPort);
