@@ -110,6 +110,9 @@ public class Action {
 
     // 담당자 교체 — 인수인계(E) 재분배 전용. TEAM 액션은 담당자 개념이 없어 대상 아님.
     public void reassignTo(Long newAssigneeMemberId) {
+        if (newAssigneeMemberId == null) {
+            throw new IllegalArgumentException("newAssigneeMemberId는 null일 수 없습니다.");
+        }
         if (!isPersonal()) {
             throw new IllegalStateException("TEAM 액션은 담당자를 교체할 수 없습니다.");
         }
