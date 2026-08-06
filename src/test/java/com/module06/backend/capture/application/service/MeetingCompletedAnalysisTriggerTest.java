@@ -31,6 +31,7 @@ class MeetingCompletedAnalysisTriggerTest {
 
     private static final long COMPANY = 7L;
     private static final long MEETING = 500L;
+    private static final LocalDateTime COMPLETED_AT = LocalDateTime.of(2026, 8, 6, 15, 2, 40);
 
     @Test
     @DisplayName("회의가 끝나면 분석을 부른다 — force 없이 부른다")
@@ -118,8 +119,9 @@ class MeetingCompletedAnalysisTriggerTest {
         return new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.of(length));
     }
 
+    /* 종료 시각은 고정값이다 — 트리거가 이 값을 판정에 쓰지 않으므로 흐르는 시간일 이유가 없다. */
     private MeetingCompletionRequestedEvent event() {
-        return new MeetingCompletionRequestedEvent(COMPANY, MEETING, 900L, LocalDateTime.now());
+        return new MeetingCompletionRequestedEvent(COMPANY, MEETING, 900L, COMPLETED_AT);
     }
 
     /* 무엇을 실어 불렀는지가 검증 대상이다 — 특히 force 다. */

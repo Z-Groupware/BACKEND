@@ -45,6 +45,7 @@ class MeetingCompletedAnalysisTriggerWiringTest {
 
     private static final long COMPANY = 7L;
     private static final long MEETING = 4_242L;
+    private static final LocalDateTime COMPLETED_AT = LocalDateTime.of(2026, 8, 6, 15, 2, 40);
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
@@ -121,7 +122,8 @@ class MeetingCompletedAnalysisTriggerWiringTest {
                 .isFalse();
     }
 
+    /* 종료 시각은 고정값이다 — 배선 검증에 흐르는 시간이 필요 없다. */
     private MeetingCompletionRequestedEvent event(long meetingId) {
-        return new MeetingCompletionRequestedEvent(COMPANY, meetingId, 900L, LocalDateTime.now());
+        return new MeetingCompletionRequestedEvent(COMPANY, meetingId, 900L, COMPLETED_AT);
     }
 }
