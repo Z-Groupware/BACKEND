@@ -27,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 public class OrgQueryAdapter implements OrgQueryPort {
 
     private final SpringDataMemberRepository memberRepository;
-    private final SpringDataTeamRepository teamRepository;
+    private final SpringDataMemberTeamReferenceRepository teamRepository;
 
     @Override
     public Long findTeamLeaderId(Long teamId) {
