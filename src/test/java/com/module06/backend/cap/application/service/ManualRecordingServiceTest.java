@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
 import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
+import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
@@ -104,6 +105,52 @@ class ManualRecordingServiceTest {
 
         // STT 트리거됨.
         assertThat(sttTriggered[0]).isTrue();
+    }
+
+    /* 선검사(existsByMeetingId)를 통과한 뒤 저장 단계에서 UNIQUE 위반으로 CAP-014가 나는 경쟁 경로도
+       그대로 전파하고, STT는 트리거되지 않는지(save가 트리거보다 앞) 검증한다. */
+    @Test
+    @DisplayName("저장 단계 UNIQUE 위반(경쟁)도 CAP-014로 전파하고 STT를 트리거하지 않는다")
+    void propagatesSaveTimeDuplicateAndSkipsStt() {
+        sttTriggered[0] = false;
+        MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
+            @Override
+            public boolean existsById(Long meetingId) {
+                return true;
+            }
+
+            @Override
+            public boolean isAttendee(Long meetingId, Long memberId) {
+                return true;
+            }
+
+            @Override
+            public boolean isHost(Long meetingId, Long memberId) {
+                return true;
+            }
+
+            @Override
+            public Optional<Long> findCompanyId(Long meetingId) {
+                return Optional.of(1L);
+            }
+        };
+        // 선검사는 통과(false)하지만 저장에서 제약위반 → 어댑터가 CAP-014로 변환하는 상황을 재현.
+        RecordingRepository recordingRepo = new RecordingRepository() {
+            @Override
+            public Recording save(Recording recording) {
+                throw new BusinessException(CapErrorCode.CAP_RECORDING_ALREADY_SUBMITTED);
+            }
+
+            @Override
+            public boolean existsByMeetingId(Long meetingId) {
+                return false;
+            }
+        };
+        MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
+        ManualRecordingService service = new ManualRecordingService(meetingRef, recordingRepo, sttPort);
+
+        assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 100L)), "CAP-014");
+        assertThat(sttTriggered[0]).isFalse();
     }
 
     // meetingId 500, callerId 7 고정 명령.
