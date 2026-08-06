@@ -13,6 +13,10 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.StoredTuple;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleConflicts;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleGateVerdict;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleVerification;
 import com.module06.backend.capture.application.port.out.CaptionRepository;
 import com.module06.backend.capture.application.port.out.ExtractTuplesResult;
 import com.module06.backend.capture.application.port.out.GateResult;
@@ -27,6 +31,7 @@ import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
 import com.module06.backend.capture.domain.model.CaptionChunk;
+import com.module06.backend.capture.domain.model.ConflictType;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.ItemType;
@@ -292,7 +297,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 transcripts, captions, new FakeLayerRepository(), summaries,
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), ai)
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -319,7 +324,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), ai)
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         // 판정 0건이지만 실패가 아니다. 화자 미정은 정상 동작이고, 뒤 계층은 그대로 돈다.
@@ -342,7 +347,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), ai)
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -375,6 +380,11 @@ class AnalysisOrchestratorTest {
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isFalse();
 
         layers.done.add(LayerName.L5);
+        // L6·L7 이 빠져 있다. 계층을 붙일 때마다 이 자리가 조용히 재발한다.
+        assertThat(orchestrator.isFullyAnalyzed(MEETING)).isFalse();
+
+        layers.done.add(LayerName.L6);
+        layers.done.add(LayerName.L7);
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isTrue();
     }
 
@@ -386,7 +396,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(List.of()), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeSummaryRepository(), new FakeTupleRepository(),
-                meetingId -> Optional.of(MEETING_DATE), new SpeakerAttributionResolver(), ai)
+                meetingId -> Optional.of(MEETING_DATE), new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
@@ -404,7 +414,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
                 new FakeLayerRepository(), summaries, new FakeTupleRepository(),
-                meetingId -> Optional.empty(), new SpeakerAttributionResolver(), ai)
+                meetingId -> Optional.empty(), new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -546,6 +556,136 @@ class AnalysisOrchestratorTest {
         assertThat(tuples.verifications).isEmpty();
     }
 
+    // ── L6 · L7 · 코드 계층 게이트 ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("L7 이 tuple 을 자동확정과 검토 필요로 가른다 — 검토 화면의 두 묶음이다")
+    void L7이_두_묶음으로_가른다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L),
+                        item(ItemType.DECISION, "일정 확정", 2L)),
+                decisionIds -> decisionIds.stream()
+                        .map(id -> new GateVerdict(id, GateStatus.CONFIRMED, "합의됨"))
+                        .toList());
+        ai.tuples = List.of(
+                // 명시적 호명 + 명단 안 + 근거 있음 → 신호 넷을 다 만족할 수 있다.
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L),
+                // 담당자가 명단 밖(unknown_person) → 조건2 에서 걸린다.
+                new AssignmentTuple("일정표 공유", null, AssigneeSource.EXPLICIT_CALL, null, 2L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+
+        AssignmentTupleRepository.TupleGateVerdict passed = tuples.gateOfTitle("로드맵 초안 작성");
+        assertThat(passed.autoConfirmed()).isTrue();
+
+        AssignmentTupleRepository.TupleGateVerdict blocked = tuples.gateOfTitle("일정표 공유");
+        assertThat(blocked.autoConfirmed()).isFalse();
+        // 어느 조건에서 걸렸는지가 남아야 게이트를 조일지 풀지 판단할 수 있다.
+        assertThat(blocked.signals().assigneeInRoster()).isFalse();
+        assertThat(blocked.signals().hasEvidence()).isTrue();
+    }
+
+    @Test
+    @DisplayName("L5 가 갈렸다고 한 tuple 은 자동확정하지 않는다")
+    void 관점이_갈린_tuple은_자동확정되지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        ai.verifyResults = tuple -> new VerifyTupleResult(false, List.of("assigneeCandidatePersonId"),
+                VerifyVerdict.REJECT, "담당자 지목 없음", RecordingAiLayerPort.RUN);
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        AssignmentTupleRepository.TupleGateVerdict verdict = tuples.gateOfTitle("로드맵 초안 작성");
+        assertThat(verdict.signals().viewsAgree()).isFalse();
+        assertThat(verdict.autoConfirmed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("L6 이 중복을 잡으면 신호가 다 통과해도 자동확정하지 않는다")
+    void 중복_tuple은_자동확정되지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        // 같은 근거 발화(1)에서 tuple 이 둘 나왔다 — L2 오버랩의 부산물이다.
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L),
+                new AssignmentTuple("로드맵 정리", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(tuples.conflictsOfTitle("로드맵 초안 작성"))
+                .containsExactly(ConflictType.DUPLICATE_EVIDENCE);
+
+        AssignmentTupleRepository.TupleGateVerdict verdict = tuples.gateOfTitle("로드맵 초안 작성");
+        // 신호 넷은 전부 통과했다 — 모순 때문에 걸린 것이라 둘을 따로 세야 한다.
+        assertThat(verdict.signals().allPassed()).isTrue();
+        assertThat(verdict.autoConfirmed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("모순이 없는 tuple 도 L6 결과에 담는다 — '검사했고 깨끗함'이 남아야 한다")
+    void 모순이_없어도_검사_결과를_남긴다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(tuples.conflictsOfTitle("로드맵 초안 작성")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("tuple 이 없어도 L6·L7 은 DONE 으로 닫힌다 — 대상 0건은 실패가 아니다")
+    void tuple이_없어도_코드_계층은_완료된다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DISCUSSION, "가격 논의", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.DISCUSSED, "결론 없음")));
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai, layers).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(layers.done).contains(LayerName.L6, LayerName.L7);
+        assertThat(layers.failed).isEmpty();
+    }
+
+    @Test
+    @DisplayName("L7 은 action 을 만들지 않는다 — 분배는 RVW-05 가 사람 확인을 받아 한다")
+    void L7은_action을_만들지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 자동확정됐지만 tuple 은 여전히 대기실에 있다. 자동 확정 건도 분배 전까지는
+        // 아무 데도 가 있지 않다(명세 RVW-01) — action 은 C 도메인 소유다.
+        assertThat(tuples.gateOfTitle("로드맵 초안 작성").autoConfirmed()).isTrue();
+        assertThat(tuples.saved).hasSize(1);
+    }
+
     // ── 조립 ────────────────────────────────────────────────────────────────────
 
     private AnalysisOrchestrator orchestrator(FakeSummaryRepository summaries,
@@ -563,7 +703,7 @@ class AnalysisOrchestratorTest {
                 layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
                 // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
                 // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
-                new SpeakerAttributionResolver(), ai);
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai);
     }
 
     private static List<Utterance> utterances() {
@@ -814,6 +954,8 @@ class AnalysisOrchestratorTest {
         private final List<TupleRow> saved = new ArrayList<>();
         private final Map<Long, StoredTuple> storedById = new LinkedHashMap<>();
         private final Map<Long, TupleVerification> verifications = new LinkedHashMap<>();
+        private final Map<Long, List<ConflictType>> conflicts = new LinkedHashMap<>();
+        private final Map<Long, TupleGateVerdict> gateVerdicts = new LinkedHashMap<>();
         private int replaceCalls;
         private long nextId = 9_000L;
 
@@ -827,9 +969,12 @@ class AnalysisOrchestratorTest {
             // 검증받지 않은 배정이 검증된 것으로 보인다.
             storedById.clear();
             verifications.clear();
+            conflicts.clear();
+            gateVerdicts.clear();
             for (TupleRow row : rows) {
                 long id = nextId++;
-                storedById.put(id, new StoredTuple(id, row.tuple(), row.topicSeq(), row.topic()));
+                // 저장 시점의 verify_agree 는 항상 NULL 이다 — L5 가 아직 안 돌았다.
+                storedById.put(id, new StoredTuple(id, row.tuple(), row.topicSeq(), row.topic(), null));
             }
         }
 
@@ -838,12 +983,44 @@ class AnalysisOrchestratorTest {
             return List.copyOf(storedById.values());
         }
 
+        /*
+         * 판정을 그 행에 되짚어 반영한다. **verify_agree 를 StoredTuple 에 실제로 반영하는
+         * 것**이 요점이다 — L7 이 그 값을 네 번째 조건으로 읽으므로, 반영하지 않으면 게이트가
+         * 언제나 미검증으로 보고 아무것도 자동확정하지 않는다.
+         */
         @Override
         public int applyVerifications(long meetingId, List<TupleVerification> incoming) {
             int applied = 0;
             for (TupleVerification verification : incoming) {
-                if (storedById.containsKey(verification.tupleId())) {
+                StoredTuple existing = storedById.get(verification.tupleId());
+                if (existing != null) {
                     verifications.put(verification.tupleId(), verification);
+                    storedById.put(existing.id(), new StoredTuple(existing.id(), existing.tuple(),
+                            existing.topicSeq(), existing.topic(), verification.agree()));
+                    applied++;
+                }
+            }
+            return applied;
+        }
+
+        @Override
+        public int applyConflicts(long meetingId, List<TupleConflicts> incoming) {
+            int applied = 0;
+            for (TupleConflicts conflict : incoming) {
+                if (storedById.containsKey(conflict.tupleId())) {
+                    conflicts.put(conflict.tupleId(), conflict.conflicts());
+                    applied++;
+                }
+            }
+            return applied;
+        }
+
+        @Override
+        public int applyGateVerdicts(long meetingId, List<TupleGateVerdict> incoming) {
+            int applied = 0;
+            for (TupleGateVerdict verdict : incoming) {
+                if (storedById.containsKey(verdict.tupleId())) {
+                    gateVerdicts.put(verdict.tupleId(), verdict);
                     applied++;
                 }
             }
@@ -851,9 +1028,21 @@ class AnalysisOrchestratorTest {
         }
 
         private TupleVerification verificationOfTitle(String title) {
+            return verifications.get(idOfTitle(title));
+        }
+
+        private TupleGateVerdict gateOfTitle(String title) {
+            return gateVerdicts.get(idOfTitle(title));
+        }
+
+        private List<ConflictType> conflictsOfTitle(String title) {
+            return conflicts.get(idOfTitle(title));
+        }
+
+        private Long idOfTitle(String title) {
             return storedById.values().stream()
                     .filter(stored -> title.equals(stored.tuple().title()))
-                    .map(stored -> verifications.get(stored.id()))
+                    .map(StoredTuple::id)
                     .findFirst()
                     .orElseThrow();
         }

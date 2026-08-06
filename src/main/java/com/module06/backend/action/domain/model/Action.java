@@ -13,19 +13,26 @@ import lombok.Getter;
     AI가 놓친 액션만 "+" 버튼으로 사람이 예외적으로 수동 추가한다(FR-AC-01).
     지정 부서·담당자·프로젝트는 다른 도메인 엔티티를 참조하지 않고 id 값만 가진다(0절 절대규칙 1항).
 
-    이번 슬라이스(ActionReassignPort 배선)엔 reconstitute()·reassignTo()만 필요해 그것만
-    구현했다 — create()·상태변경·리뷰확정 등은 각 유스케이스 착수 시 추가.
-    review_status·is_manual·assignee_source 등 review 관련 컬럼(V2.6.1~2)은 리뷰확정
-    유스케이스 착수 시 매핑 추가 — needsReview(V1)는 V2.6.3에서 이미 review_status로
-    대체돼 드롭됐으므로 여기 넣지 않는다(2026-08-06 CI 스키마 검증으로 확인).
+    create()는 AI 분배(ActionDistributionPort)의 생성 경로다. 상태는 항상 TODO, 검토 상태는
+    항상 PENDING으로 시작한다 — 자동확정(AUTO_CONFIRMED) 판정은 review(A)의 책임이라 C가
+    분배 시점에 올려두지 않는다(결정로그 25번).
+    dueDate는 컬럼이 NOT NULL이라 AI가 기한을 비워 보내면 프로젝트 마감일로 채워서 들어오며,
+    그렇게 채운 경우 dueDateDefaulted=true로 표시한다 — review의 WRONG_DUE 반려 판정이
+    "AI가 정한 기한"과 "기본값으로 채운 기한"을 섞어 보지 않게 하기 위함이다(V2.6.4).
+    gateSignals는 자동확정 4조건의 판정 결과 JSON을 C가 해석하지 않고 그대로 보관하는 값이라
+    String으로 둔다(V2.6.1).
+    상태변경·리뷰확정·체크리스트는 각 유스케이스 착수 시 추가한다.
+    pendingHandoverAck(V2.6.5)는 acknowledge 엔드포인트 착수 시 매핑 — 아직 필드로 두지 않는다.
 
     연결된 클래스
-    - ActionType               : TEAM/PERSONAL 구분 (FR-AC-06, FR-AC-02)
-    - ActionStatus              : 상태 값(TODO/IN_PROGRESS/DONE)
-    - ActionChecklistItem      : 이 액션에 딸린 체크리스트 항목(FR-AC-05)
-    - ActionTypeShapePolicy    : TEAM↔PERSONAL 필드 제약 규칙
-    - ActionRepository         : 저장소 계약
-    - ActionJpaEntity          : 영속화 매핑 (infrastructure.persistence)
+    - ActionType            : TEAM/PERSONAL 구분 (FR-AC-06, FR-AC-02)
+    - ActionStatus          : 상태 값(TODO/IN_PROGRESS/DONE)
+    - ActionReviewStatus    : AI 분배 검토 상태 (FR-AC-04)
+    - AssigneeSource        : AI가 담당자를 특정한 근거
+    - ActionChecklistItem   : 이 액션에 딸린 체크리스트 항목(FR-AC-05)
+    - ActionTypeShapePolicy : TEAM↔PERSONAL 필드 제약 규칙
+    - ActionRepository      : 저장소 계약
+    - ActionJpaEntity       : 영속화 매핑 (infrastructure.persistence)
 */
 @Getter
 public class Action {
@@ -42,6 +49,12 @@ public class Action {
     private final String description;
     private final ActionStatus status;
     private final LocalDate dueDate;
+    private final boolean dueDateDefaulted;
+    private final ActionReviewStatus reviewStatus;
+    private final AssigneeSource assigneeSource;
+    private final Long evidenceTranscriptId;
+    private final String gateSignals;
+    private final boolean isManual;
     private final LocalDateTime confirmedAt;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
@@ -59,6 +72,12 @@ public class Action {
             String description,
             ActionStatus status,
             LocalDate dueDate,
+            boolean dueDateDefaulted,
+            ActionReviewStatus reviewStatus,
+            AssigneeSource assigneeSource,
+            Long evidenceTranscriptId,
+            String gateSignals,
+            boolean isManual,
             LocalDateTime confirmedAt,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
@@ -75,9 +94,42 @@ public class Action {
         this.description = description;
         this.status = status;
         this.dueDate = dueDate;
+        this.dueDateDefaulted = dueDateDefaulted;
+        this.reviewStatus = reviewStatus;
+        this.assigneeSource = assigneeSource;
+        this.evidenceTranscriptId = evidenceTranscriptId;
+        this.gateSignals = gateSignals;
+        this.isManual = isManual;
         this.confirmedAt = confirmedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    // AI 분배로 신규 생성(FR-AC-01 정상 경로). id·타임스탬프는 저장소가 채우고,
+    // status는 TODO·reviewStatus는 PENDING·confirmedAt은 null로 고정한다.
+    public static Action create(
+            Long companyId,
+            Long projectId,
+            Long parentActionId,
+            Long sourceMeetingId,
+            Long teamId,
+            Long assigneeMemberId,
+            ActionType actionType,
+            String title,
+            String description,
+            LocalDate dueDate,
+            boolean dueDateDefaulted,
+            AssigneeSource assigneeSource,
+            Long evidenceTranscriptId,
+            String gateSignals,
+            boolean isManual
+    ) {
+        return new Action(
+                null, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
+                actionType, title, description, ActionStatus.TODO, dueDate, dueDateDefaulted,
+                ActionReviewStatus.PENDING, assigneeSource, evidenceTranscriptId, gateSignals, isManual,
+                null, null, null
+        );
     }
 
     // 저장소가 조회 결과를 이 모델로 복원할 때 사용.
@@ -94,13 +146,21 @@ public class Action {
             String description,
             ActionStatus status,
             LocalDate dueDate,
+            boolean dueDateDefaulted,
+            ActionReviewStatus reviewStatus,
+            AssigneeSource assigneeSource,
+            Long evidenceTranscriptId,
+            String gateSignals,
+            boolean isManual,
             LocalDateTime confirmedAt,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
         return new Action(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                actionType, title, description, status, dueDate, confirmedAt, createdAt, updatedAt
+                actionType, title, description, status, dueDate, dueDateDefaulted,
+                reviewStatus, assigneeSource, evidenceTranscriptId, gateSignals, isManual,
+                confirmedAt, createdAt, updatedAt
         );
     }
 

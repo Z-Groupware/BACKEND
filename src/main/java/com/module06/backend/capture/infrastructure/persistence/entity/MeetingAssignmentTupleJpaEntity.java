@@ -126,6 +126,44 @@ public class MeetingAssignmentTupleJpaEntity {
     @Column(name = "verified_at")
     private LocalDateTime verifiedAt;
 
+    /*
+     * ── L6 규칙·모순 검사 결과 (V5.14) ──────────────────────────────────────────
+     *
+     * conflicts 가 NULL 이면 "모순 없음"이고, 검사 여부는 conflictCheckedAt 이 가른다.
+     * 한 컬럼으로 합치면 "검사했는데 깨끗함"과 "아직 안 봄"이 같은 값이 된다.
+     */
+    @Column(name = "conflicts", length = 200)
+    private String conflicts;
+
+    @Column(name = "conflict_checked_at")
+    private LocalDateTime conflictCheckedAt;
+
+    /*
+     * ── L7 자동확정 게이트 결과 (V5.14) ────────────────────────────────────────
+     *
+     * 신호 넷을 개별 컬럼으로 편다. JSON 한 덩어리로 담으면 "어느 조건에서 떨어졌나"를
+     * 묻는 순간 전부 파싱해야 하고, 그 질문이 게이트를 조이는 유일한 근거다.
+     *
+     * 전부 nullable 이고 NULL 이 "L7 미수행"이다 — verifyAgree 와 같은 규칙이다.
+     */
+    @Column(name = "gate_auto_confirmed")
+    private Boolean gateAutoConfirmed;
+
+    @Column(name = "gate_has_evidence")
+    private Boolean gateHasEvidence;
+
+    @Column(name = "gate_assignee_in_roster")
+    private Boolean gateAssigneeInRoster;
+
+    @Column(name = "gate_assignee_source_ok")
+    private Boolean gateAssigneeSourceOk;
+
+    @Column(name = "gate_views_agree")
+    private Boolean gateViewsAgree;
+
+    @Column(name = "gated_at")
+    private LocalDateTime gatedAt;
+
     public static MeetingAssignmentTupleJpaEntity of(long companyId, long meetingId, Long meetingDecisionId,
                                                      int topicSeq, String topic, String title,
                                                      Long assigneeCandidateMemberId, AssigneeSource assigneeSource,
@@ -167,6 +205,29 @@ public class MeetingAssignmentTupleJpaEntity {
         this.verifyModelName = clip(modelName, 60);
         this.verifyPromptVersion = clip(promptVersion, 20);
         this.verifiedAt = LocalDateTime.now();
+    }
+
+    /*
+     * L6 결과를 적는다. 모순이 없어도 부른다 — 시각이 찍혀야 "검사했고 깨끗함"이 되고,
+     * 안 부르면 "아직 안 봄"으로 남는다.
+     */
+    public void applyConflicts(List<String> conflicts) {
+        this.conflicts = clip(joinFields(conflicts), 200);
+        this.conflictCheckedAt = LocalDateTime.now();
+    }
+
+    /*
+     * L7 판정을 적는다. 신호 넷을 **전부** 남긴다 — 하나라도 빠지면 자동확정이 틀렸을 때
+     * 어느 조건이 헐거웠는지 되짚을 수 없다.
+     */
+    public void applyGate(boolean autoConfirmed, boolean hasEvidence, boolean assigneeInRoster,
+                          boolean assigneeSourceOk, boolean viewsAgree) {
+        this.gateAutoConfirmed = autoConfirmed;
+        this.gateHasEvidence = hasEvidence;
+        this.gateAssigneeInRoster = assigneeInRoster;
+        this.gateAssigneeSourceOk = assigneeSourceOk;
+        this.gateViewsAgree = viewsAgree;
+        this.gatedAt = LocalDateTime.now();
     }
 
     /*
