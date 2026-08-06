@@ -42,7 +42,15 @@ public enum AuthErrorCode implements ErrorCode {
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AU-007", "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-008", "구성원을 찾을 수 없습니다."),
     MEMBER_STATUS_TRANSITION_INVALID(HttpStatus.CONFLICT, "AU-009",
-            "지금 상태에서는 처리할 수 없습니다. 화면을 새로 고쳐 확인해 주세요.");
+            "지금 상태에서는 처리할 수 없습니다. 화면을 새로 고쳐 확인해 주세요."),
+
+    /*
+     * 부서 CRUD(API 14~17). 본부→팀 2단계까지만 허용하고, 같은 부모 안에서만 이름 중복을 막는다
+     * (§6-2). 전역 유니크가 아니므로 다른 본부 아래에는 같은 이름의 팀이 있을 수 있다.
+     */
+    TEAM_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-014", "부서를 찾을 수 없습니다."),
+    TEAM_DEPTH_EXCEEDED(HttpStatus.BAD_REQUEST, "AU-015", "하위 부서 아래에는 부서를 만들 수 없습니다."),
+    TEAM_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-016", "같은 상위 부서에 이미 있는 이름입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

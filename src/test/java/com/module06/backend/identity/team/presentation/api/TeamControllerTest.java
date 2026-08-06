@@ -1,9 +1,11 @@
 package com.module06.backend.identity.team.presentation.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -15,13 +17,16 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
+import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
 
 import java.util.List;
@@ -42,6 +47,8 @@ class TeamControllerTest {
 
     @MockitoBean
     private GetTeamTreeUseCase getTeamTreeUseCase;
+    @MockitoBean
+    private CreateTeamUseCase createTeamUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -73,6 +80,26 @@ class TeamControllerTest {
         ArgumentCaptor<Long> captor = ArgumentCaptor.forClass(Long.class);
         verify(getTeamTreeUseCase).getTree(captor.capture());
         assertThat(captor.getValue()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("생성은 토큰의 회사로 부서를 만든다")
+    void createTakesCompanyFromToken() throws Exception {
+        authenticateAs(1L);
+        when(createTeamUseCase.create(any())).thenReturn(
+                new TeamNode(10L, "사업본부", null, null, null, 0L, List.of()));
+
+        mockMvc.perform(post("/api/teams")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "사업본부", "parentTeamId": null }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<CreateTeamCommand> captor = ArgumentCaptor.forClass(CreateTeamCommand.class);
+        verify(createTeamUseCase).create(captor.capture());
+        assertThat(captor.getValue().companyId()).isEqualTo(1L);
+        assertThat(captor.getValue().name()).isEqualTo("사업본부");
     }
 
     private void authenticateAs(Long companyId) {

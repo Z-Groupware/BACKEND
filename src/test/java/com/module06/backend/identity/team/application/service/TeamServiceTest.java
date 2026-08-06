@@ -1,6 +1,7 @@
 package com.module06.backend.identity.team.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,6 +12,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
+import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.domain.model.Team;
@@ -66,6 +70,70 @@ class TeamServiceTest {
         List<TeamNode> tree = service(repository, new FakeMemberQueryPort()).getTree(1L);
 
         assertThat(tree).extracting(TeamNode::name).containsExactly("우리회사팀");
+    }
+
+    @Test
+    @DisplayName("최상위 부서를 만든다")
+    void createsTopLevelTeam() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+
+        TeamNode node = service(repository, new FakeMemberQueryPort())
+                .create(new CreateTeamCommand(1L, "사업본부", null));
+
+        assertThat(node.name()).isEqualTo("사업본부");
+        assertThat(node.parentTeamId()).isNull();
+        assertThat(node.children()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부모가 이미 하위 부서면 깊이 초과로 거절한다")
+    void rejectsCreatingUnderAlreadyNestedTeam() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team topLevel = repository.create(1L, null, "본부");
+        Team nested = repository.create(1L, topLevel.id(), "1팀");
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort())
+                .create(new CreateTeamCommand(1L, "2팀아래", nested.id())))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_DEPTH_EXCEEDED);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 부모면 404 로 거절한다")
+    void rejectsCreatingUnderMissingParent() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort())
+                .create(new CreateTeamCommand(1L, "팀", 999L)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("같은 부모 안 이름이 중복되면 거절한다")
+    void rejectsDuplicateNameUnderSameParent() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team parent = repository.create(1L, null, "본부");
+        repository.create(1L, parent.id(), "1팀");
+
+        assertThatThrownBy(() -> service(repository, new FakeMemberQueryPort())
+                .create(new CreateTeamCommand(1L, "1팀", parent.id())))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.TEAM_NAME_DUPLICATED);
+    }
+
+    @Test
+    @DisplayName("다른 부모 아래라면 같은 이름이어도 허용한다")
+    void allowsSameNameUnderDifferentParents() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team parentA = repository.create(1L, null, "본부A");
+        Team parentB = repository.create(1L, null, "본부B");
+        repository.create(1L, parentA.id(), "1팀");
+
+        TeamNode node = service(repository, new FakeMemberQueryPort())
+                .create(new CreateTeamCommand(1L, "1팀", parentB.id()));
+
+        assertThat(node.name()).isEqualTo("1팀");
     }
 
     private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort) {
