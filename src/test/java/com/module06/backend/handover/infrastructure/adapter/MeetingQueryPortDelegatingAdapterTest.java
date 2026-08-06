@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.application.port.out.MeetingQueryPort;
 import com.module06.backend.meeting.application.result.MeetingAttendeeReferenceResult;
 import com.module06.backend.meeting.application.result.MeetingHistoryResult;
@@ -148,8 +149,8 @@ class MeetingQueryPortDelegatingAdapterTest {
         ));
 
         assertThatThrownBy(() -> adapter.findProjectMeetingsOrdered(200L))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("companyId");
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getErrorCode()).isEqualTo(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED));
 
         verifyNoInteractions(meetingQueryPort);
     }
