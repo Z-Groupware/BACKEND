@@ -206,4 +206,55 @@ public class Meeting {
         /* 슬롯 계산 규칙을 전용 도메인 계산기에 위임한다. */
         return MeetingSlotGrid.slotStarts(startAt, endAt);
     }
+
+    /* 특정 구성원이 예약된 참석자 명단에 포함됐는지 판단한다. */
+    public boolean hasAttendee(Long memberId) {
+        /* 구성원 엔티티를 조회하지 않고 애그리거트가 가진 식별자 명단만 사용한다. */
+        return memberId != null && attendeeMemberIds.contains(memberId);
+    }
+
+    /* 특정 구성원이 회의 개설자인지 판단한다. */
+    public boolean isHost(Long memberId) {
+        /* null 요청자를 개설자로 해석하지 않고 저장된 개설자 식별자와 값으로 비교한다. */
+        return memberId != null && hostMemberId.equals(memberId);
+    }
+
+    /* 예약 회의를 최초 입장 시각과 함께 진행 상태로 전이하고 재입장은 현재 상태를 유지한다. */
+    public Meeting enter(LocalDateTime enteredAt) {
+        /* 실제 시작 시각을 기록할 수 없는 null 값은 도메인 상태 전이에 사용할 수 없다. */
+        if (enteredAt == null) {
+            throw new IllegalArgumentException("회의 입장 시각은 필수입니다.");
+        }
+
+        /* 진행 중 회의의 재입장은 최초 startedAt을 바꾸지 않는 멱등 동작이다. */
+        if (status == MeetingStatus.IN_PROGRESS) {
+            return this;
+        }
+
+        /* 종료된 회의를 다시 진행 상태로 되돌리는 잘못된 내부 호출을 허용하지 않는다. */
+        if (status == MeetingStatus.DONE) {
+            throw new IllegalStateException("종료된 회의에는 입장할 수 없습니다.");
+        }
+
+        /* SCHEDULED 회의의 나머지 예약·참석자 값은 유지하고 상태와 최초 시작 시각만 변경한다. */
+        return new Meeting(
+                id,
+                companyId,
+                projectId,
+                teamId,
+                meetingRoomId,
+                hostMemberId,
+                title,
+                MeetingStatus.IN_PROGRESS,
+                startAt,
+                endAt,
+                recordingConsent,
+                relatedActionId,
+                attendeeMemberIds,
+                enteredAt,
+                endedAt,
+                createdAt,
+                updatedAt
+        );
+    }
 }

@@ -52,6 +52,32 @@ class MeetingTest {
         );
     }
 
+    /* 최초 입장과 재입장이 상태와 startedAt 불변식을 지키는지 검증한다. */
+    @Test
+    @DisplayName("최초 입장만 상태와 startedAt을 변경하고 재입장은 이를 유지한다")
+    void entersMeetingIdempotently() {
+        /* 아직 시작하지 않은 예약 회의와 최초 입장 시각을 준비한다. */
+        Meeting scheduled = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L, 11L)
+        );
+        LocalDateTime firstEntryAt = LocalDateTime.of(2026, 8, 6, 13, 58);
+
+        /* 최초 입장은 진행 상태와 startedAt을 가진 새 도메인 상태를 만든다. */
+        Meeting inProgress = scheduled.enter(firstEntryAt);
+        assertThat(inProgress.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
+        assertThat(inProgress.getStartedAt()).isEqualTo(firstEntryAt);
+        assertThat(inProgress.hasAttendee(7L)).isTrue();
+        assertThat(inProgress.hasAttendee(99L)).isFalse();
+        assertThat(inProgress.isHost(3L)).isTrue();
+
+        /* 이후 재입장 시각을 전달해도 최초 상태 객체와 startedAt이 그대로 유지돼야 한다. */
+        Meeting reentered = inProgress.enter(LocalDateTime.of(2026, 8, 6, 14, 10));
+        assertThat(reentered).isSameAs(inProgress);
+        assertThat(reentered.getStartedAt()).isEqualTo(firstEntryAt);
+    }
+
     /* 테스트마다 동일한 필수값으로 신규 회의를 생성한다. */
     private Meeting createMeeting(
             LocalDateTime startAt,

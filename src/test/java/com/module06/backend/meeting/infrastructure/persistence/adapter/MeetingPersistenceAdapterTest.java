@@ -16,6 +16,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
@@ -31,6 +33,10 @@ class MeetingPersistenceAdapterTest {
     /* 애플리케이션 계층이 사용하는 실제 회의 저장 포트다. */
     @Autowired
     private MeetingRepository meetingRepository;
+
+    /* MEET-07에서 회의 행 잠금 조회와 상태 저장에 사용하는 도메인 저장소 계약이다. */
+    @Autowired
+    private MeetingEntryRepository meetingEntryRepository;
 
     /* 저장된 회의 기본 행을 조회하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -134,6 +140,49 @@ class MeetingPersistenceAdapterTest {
                 .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
                 .extracting(attendee -> attendee.getMemberId())
                 .containsExactly(3L, 11L, 15L);
+    }
+
+    /* 입장용 잠금 조회가 회사 범위와 참석자 명단을 적용하고 상태를 저장하는지 검증한다. */
+    @Test
+    @DisplayName("회의를 잠금 조회하고 최초 입장 상태와 startedAt을 저장한다")
+    void locksMeetingWithAttendeesAndSavesEntryState() {
+        /* 예약 회의를 먼저 커밋해 회의·슬롯·참석자 행을 준비한다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
+                meeting("입장 테스트 회의", List.of(3L, 7L, 11L))
+        ));
+        LocalDateTime enteredAt = LocalDateTime.of(2026, 8, 6, 13, 58);
+
+        /* 별도 트랜잭션에서 회사 범위 잠금 조회 후 도메인 입장 상태를 저장한다. */
+        Meeting enteredMeeting = transaction.execute(status -> {
+            Meeting locked = meetingEntryRepository
+                    .findForEntry(10L, savedMeeting.getId())
+                    .orElseThrow();
+
+            /* 조회 결과는 최신 참석자 명단을 포함하고 타 회사 조건에서는 노출되지 않아야 한다. */
+            assertThat(locked.getAttendeeMemberIds()).containsExactly(3L, 7L, 11L);
+            assertThat(meetingEntryRepository.findForEntry(20L, savedMeeting.getId())).isEmpty();
+
+            /* 최초 입장 도메인 상태를 기존 회의 행에 저장한다. */
+            return meetingEntryRepository.saveState(locked.enter(enteredAt));
+        });
+
+        /* 저장 결과와 실제 meeting 행의 상태·startedAt이 동일해야 한다. */
+        assertThat(enteredMeeting.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
+        assertThat(enteredMeeting.getStartedAt()).isEqualTo(enteredAt);
+        assertThat(springDataMeetingRepository.findById(savedMeeting.getId()))
+                .get()
+                .satisfies(entity -> {
+                    assertThat(entity.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
+                    assertThat(entity.getStartedAt()).isEqualTo(enteredAt);
+                });
+
+        /* 상태 저장은 예약 슬롯과 참석자 명단을 변경하면 안 된다. */
+        assertThat(springDataMeetingReservationSlotRepository.count()).isEqualTo(2L);
+        assertThat(springDataMeetingAttendeeRepository
+                .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
+                .extracting(attendee -> attendee.getMemberId())
+                .containsExactly(3L, 7L, 11L);
     }
 
     /* 테스트 제목과 참석자로 같은 회의실·시간의 신규 회의를 생성한다. */

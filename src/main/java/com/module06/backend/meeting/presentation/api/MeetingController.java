@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,10 +18,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.meeting.application.command.EnterMeetingCommand;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
+import com.module06.backend.meeting.application.result.MeetingEntryResult;
 import com.module06.backend.meeting.application.usecase.CreateMeetingUseCase;
+import com.module06.backend.meeting.application.usecase.EnterMeetingUseCase;
 import com.module06.backend.meeting.presentation.api.request.CreateMeetingRequest;
 import com.module06.backend.meeting.presentation.api.response.CreateMeetingResponse;
+import com.module06.backend.meeting.presentation.api.response.MeetingEntryResponse;
 
 /*
  * 회의 REST API의 진입점이다.
@@ -36,6 +42,9 @@ public class MeetingController {
 
     /* MEET-01 프레젠테이션 계층과 애플리케이션 계층 사이의 인바운드 포트다. */
     private final CreateMeetingUseCase createMeetingUseCase;
+
+    /* MEET-07 프레젠테이션 계층과 회의 입장 서비스 사이의 인바운드 Port다. */
+    private final EnterMeetingUseCase enterMeetingUseCase;
 
     /*
      * 회의실, 시간, 프로젝트와 참석자를 확정해 새 회의를 예약한다.
@@ -72,6 +81,33 @@ public class MeetingController {
         return ApiResponse.created(
                 "회의를 예약했습니다.",
                 CreateMeetingResponse.from(result)
+        );
+    }
+
+    /* 예약 참석자를 회의에 입장시키고 최초 입장이면 회의를 진행 상태로 전이한다. */
+    @Operation(
+            summary = "회의 입장",
+            description = "예약된 참석자가 허용 시간에 입장하며 첫 입장이면 회의를 시작합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/{meetingId}/entry")
+    public ApiResponse<MeetingEntryResponse> enterMeeting(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal AuthPrincipal me,
+            @Parameter(description = "입장할 회의 식별자", required = true, example = "91")
+            @PathVariable Long meetingId
+    ) {
+        /* 인증 토큰의 회사·구성원과 Path 식별자를 결합해 MEET-07 유스케이스를 실행한다. */
+        MeetingEntryResult result = enterMeetingUseCase.enterMeeting(new EnterMeetingCommand(
+                me.getCompanyId(),
+                me.getMemberId(),
+                meetingId
+        ));
+
+        /* 입장 후 상태와 최초 시작 시각, 화면 분기 값을 명세의 200 성공 응답으로 반환한다. */
+        return ApiResponse.success(
+                "회의에 입장했습니다.",
+                MeetingEntryResponse.from(result)
         );
     }
 }
