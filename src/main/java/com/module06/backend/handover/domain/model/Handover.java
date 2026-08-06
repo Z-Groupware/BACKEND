@@ -13,6 +13,7 @@ public class Handover {
     private final Long id;
     private final Long writerMemberId;
     private final Long teamId;
+    private final String teamNameSnap;
     private final HandoverType handoverType;
     private HandoverStatus status;
     private final LocalDateTime leaveStartAt;
@@ -30,7 +31,7 @@ public class Handover {
     private final Long version;
     private final List<HandoverItem> items;
 
-    private Handover(Long id, Long writerMemberId, Long teamId, HandoverType handoverType,
+    private Handover(Long id, Long writerMemberId, Long teamId, String teamNameSnap, HandoverType handoverType,
                      HandoverStatus status, LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
                      LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
                      Long intermediateApproverId, String intermediateApproverNameSnap,
@@ -50,6 +51,7 @@ public class Handover {
         this.id = id;
         this.writerMemberId = writerMemberId;
         this.teamId = teamId;
+        this.teamNameSnap = teamNameSnap;
         this.handoverType = handoverType;
         this.status = status;
         this.leaveStartAt = leaveStartAt;
@@ -72,7 +74,16 @@ public class Handover {
     public static Handover createVacation(Long writerMemberId, Long teamId, String writerNameSnap,
                                           String writerPositionSnap, LocalDateTime leaveStartAt,
                                           LocalDateTime leaveEndAt, List<HandoverItem> items) {
-        return new Handover(null, writerMemberId, teamId, HandoverType.VACATION, HandoverStatus.SUBMITTED,
+        return createVacation(writerMemberId, teamId, null, writerNameSnap, writerPositionSnap, leaveStartAt,
+                leaveEndAt, items);
+    }
+
+    public static Handover createVacation(Long writerMemberId, Long teamId, String teamNameSnap,
+                                          String writerNameSnap, String writerPositionSnap,
+                                          LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
+                                          List<HandoverItem> items) {
+        return new Handover(null, writerMemberId, teamId, teamNameSnap, HandoverType.VACATION,
+                HandoverStatus.SUBMITTED,
                 leaveStartAt, leaveEndAt, null, writerNameSnap, writerPositionSnap,
                 null, null, null, null, null, null, null, null, items);
     }
@@ -80,7 +91,15 @@ public class Handover {
     public static Handover createOffboarding(Long writerMemberId, Long teamId, String writerNameSnap,
                                              String writerPositionSnap, LocalDate lastWorkingDay,
                                              List<HandoverItem> items) {
-        return new Handover(null, writerMemberId, teamId, HandoverType.OFFBOARDING, HandoverStatus.SUBMITTED,
+        return createOffboarding(writerMemberId, teamId, null, writerNameSnap, writerPositionSnap,
+                lastWorkingDay, items);
+    }
+
+    public static Handover createOffboarding(Long writerMemberId, Long teamId, String teamNameSnap,
+                                             String writerNameSnap, String writerPositionSnap,
+                                             LocalDate lastWorkingDay, List<HandoverItem> items) {
+        return new Handover(null, writerMemberId, teamId, teamNameSnap, HandoverType.OFFBOARDING,
+                HandoverStatus.SUBMITTED,
                 null, null, lastWorkingDay, writerNameSnap, writerPositionSnap,
                 null, null, null, null, null, null, null, null, items);
     }
@@ -92,7 +111,21 @@ public class Handover {
                                    LocalDateTime intermediateApprovedAt, String rejectReason,
                                    LocalDateTime finalizedAt, Long finalApproverId, String finalApproverNameSnap,
                                    Long version, List<HandoverItem> items) {
-        return new Handover(id, writerMemberId, teamId, handoverType, status, leaveStartAt, leaveEndAt, lastWorkingDay,
+        return restore(id, writerMemberId, teamId, null, handoverType, status, leaveStartAt, leaveEndAt,
+                lastWorkingDay, writerNameSnap, writerPositionSnap, intermediateApproverId,
+                intermediateApproverNameSnap, intermediateApprovedAt, rejectReason, finalizedAt,
+                finalApproverId, finalApproverNameSnap, version, items);
+    }
+
+    public static Handover restore(Long id, Long writerMemberId, Long teamId, String teamNameSnap,
+                                   HandoverType handoverType, HandoverStatus status,
+                                   LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
+                                   LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
+                                   Long intermediateApproverId, String intermediateApproverNameSnap,
+                                   LocalDateTime intermediateApprovedAt, String rejectReason,
+                                   LocalDateTime finalizedAt, Long finalApproverId, String finalApproverNameSnap,
+                                   Long version, List<HandoverItem> items) {
+        return new Handover(id, writerMemberId, teamId, teamNameSnap, handoverType, status, leaveStartAt, leaveEndAt, lastWorkingDay,
                 writerNameSnap, writerPositionSnap, intermediateApproverId, intermediateApproverNameSnap,
                 intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap, version,
                 items);
@@ -203,6 +236,7 @@ public class Handover {
     public Long getId() { return id; }
     public Long getWriterMemberId() { return writerMemberId; }
     public Long getTeamId() { return teamId; }
+    public String getTeamNameSnap() { return teamNameSnap; }
     public HandoverType getHandoverType() { return handoverType; }
     public HandoverStatus getStatus() { return status; }
     public LocalDateTime getLeaveStartAt() { return leaveStartAt; }

@@ -71,6 +71,7 @@ class HandoverServiceTest {
         handoverService = new HandoverService(handoverRepository, actionReassignPort, orgQueryPort, memberStatusPort,
                 finalizeHandoverInsightsUseCase);
         lenient().when(handoverRepository.save(any(Handover.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(orgQueryPort.findTeamName(TEAM)).thenReturn("Platform Team");
     }
 
     @Test
@@ -87,6 +88,7 @@ class HandoverServiceTest {
 
         assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
         assertThat(handover.getWriterNameSnap()).isEqualTo("Kim");
+        assertThat(handover.getTeamNameSnap()).isEqualTo("Platform Team");
         assertThat(handover.getItems()).singleElement()
                 .satisfies(item -> {
                     assertThat(item.getActionId()).isEqualTo(101L);
@@ -99,6 +101,22 @@ class HandoverServiceTest {
                     assertThat(item.isReassignRequired()).isTrue();
                 });
         verify(memberStatusPort).toWaiting(WRITER);
+        verify(orgQueryPort).findTeamName(TEAM);
+    }
+
+    @Test
+    void createSnapshotsTeamNameFromOrgPort() {
+        when(orgQueryPort.findMember(WRITER)).thenReturn(new OrgQueryPort.MemberSnapshot(WRITER, "Kim", "Manager"));
+        when(orgQueryPort.findTeamName(TEAM)).thenReturn("PDF Team");
+        when(actionReassignPort.findHandoverableActions(WRITER, HandoverType.VACATION))
+                .thenReturn(List.of(action(100L, "A", "TODO")));
+
+        Handover handover = handoverService.create(new CreateHandoverCommand(
+                WRITER, TEAM, HandoverType.VACATION, START, END, null, List.of(100L)
+        ));
+
+        assertThat(handover.getTeamNameSnap()).isEqualTo("PDF Team");
+        verify(orgQueryPort).findTeamName(TEAM);
     }
 
     @Test
