@@ -85,7 +85,48 @@ public enum CaptureErrorCode implements ErrorCode {
      * 화면과 DB 가 갈린다. 값을 고쳤다면 MODIFY 로 사유와 함께 보내야 한다.
      */
     REVIEW_CONFIRM_WITH_VALUE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_4",
-            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다.");
+            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다."),
+
+    /*
+     * RVW-03 — 직접 추가에 담당자·기한이 없다.
+     *
+     * **수동 추가 경로는 담당자를 강제한다**(C 도메인과 2026-08-07 합의). AI 분배 경로는
+     * 담당자 미정을 허용하는데, 그건 검토 화면에서 사람이 고르는 후속 단계가 있기 때문이다.
+     * 직접 추가는 사람이 이미 그 화면 앞에 있으므로 그 자리에서 정하는 것이 맞고, 비워두면
+     * 아무의 보드에도 가지 않는 액션이 조용히 쌓인다.
+     *
+     * 기한도 같다. action.due_date 가 NOT NULL 이고, AI 경로처럼 프로젝트 마감일로 대신
+     * 채우지 않는다 — 사람이 직접 넣는 자리에서 서버가 날짜를 지어내면 그게 사용자가 정한
+     * 기한인지 기본값인지 화면에서 구분되지 않는다.
+     */
+    REVIEW_MANUAL_FIELD_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_5",
+            "직접 추가에는 담당자와 기한이 필요합니다."),
+
+    /*
+     * RVW-04 — AI 가 만든 액션을 삭제하려 했다.
+     *
+     * **AI 생성 액션은 지우는 것이 아니라 반려(RVW-02 REJECT)한다.** 지우면 라벨이 사라진다 —
+     * "AI 가 이런 걸 뽑았고 사람이 아니라고 했다"는 쌍이 개선의 재료인데, 행이 없어지면 그
+     * 사실 자체가 없던 일이 된다. 지나간 회의는 다시 만들 수 없어 복구도 불가능하다.
+     */
+    REVIEW_DELETE_AI_ACTION(HttpStatus.CONFLICT, "MEETING_409_7", "AI 생성 액션은 반려로 처리해야 합니다."),
+
+    /*
+     * RVW-05 — 확인되지 않은 STT 구간이나 미검토 액션이 남아 있다.
+     *
+     * **분배는 되돌리기 어렵다.** 액션이 사람들 보드에 꽂히고 나면 회수 경로가 없다(재분석
+     * 결과가 액션에 반영되지 않는 것과 같은 이유다). 그래서 구멍이 남은 채로는 막고,
+     * ?confirm=true 로만 강행하게 한다 — 강행 여부를 사람이 눈으로 보고 정하는 자리다.
+     */
+    REVIEW_CONFIRM_BLOCKED(HttpStatus.CONFLICT, "MEETING_409_5", "확인되지 않은 STT 구간이 남아 있습니다."),
+
+    /*
+     * RVW-05 — 회의 담당자가 아니다.
+     *
+     * 403 이다. 다른 회사 회의는 404 로 존재를 숨기지만(MEETING_NOT_ACCESSIBLE), 이건 같은
+     * 회사 안에서 **권한**이 갈리는 자리다 — 회의가 있다는 사실은 이미 검토 화면으로 보고 있다.
+     */
+    REVIEW_CONFIRM_HOST_ONLY(HttpStatus.FORBIDDEN, "MEETING_403_1", "회의 담당자만 요청할 수 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
