@@ -2,6 +2,7 @@ package com.module06.backend.capture.presentation.api;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,6 +20,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
+import com.module06.backend.capture.application.usecase.CancelReviewActionUseCase;
+import com.module06.backend.capture.application.usecase.CancelReviewActionUseCase.CancelReviewActionCommand;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
@@ -59,6 +62,7 @@ public class AnalysisController {
     private final GetSummaryUseCase getSummaryUseCase;
     private final GetActionReviewUseCase getActionReviewUseCase;
     private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
+    private final CancelReviewActionUseCase cancelReviewActionUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -156,6 +160,31 @@ public class AnalysisController {
                 "반영되었습니다.",
                 ReviewDecisionResponse.from(applyReviewDecisionUseCase.apply(
                         request.toCommand(me.getCompanyId(), meetingId, actionId, me.getMemberId()))));
+    }
+
+    /*
+     * RVW-04 · 직접 추가한 액션 취소.
+     *
+     * **지울 수 있는 것은 사람이 직접 넣은 액션뿐이다.** AI 가 만든 액션은 반려(RVW-02)로
+     * 처리한다 — 지우면 「AI 가 이런 걸 뽑았고 사람이 아니라고 했다」는 라벨이 사라지고,
+     * 지나간 회의는 다시 만들 수 없어 되돌릴 수도 없다.
+     */
+    @Operation(
+            summary = "직접 추가한 액션 취소 (RVW-04)",
+            description = "검토 화면에서 직접 추가한 액션을 지운다. isManual=true 인 액션만 "
+                    + "지울 수 있고, AI 생성 액션은 409 로 막힌다 — 그쪽은 RVW-02 의 REJECT 다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @DeleteMapping("/review/actions/{actionId}")
+    public ApiResponse<Void> cancelReviewAction(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @PathVariable Long actionId
+    ) {
+        cancelReviewActionUseCase.cancel(new CancelReviewActionCommand(
+                me.getCompanyId(), meetingId, actionId, me.getMemberId()));
+
+        return ApiResponse.success("삭제되었습니다.", null);
     }
 
     /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */

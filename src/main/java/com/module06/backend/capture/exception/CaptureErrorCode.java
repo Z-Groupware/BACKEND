@@ -85,7 +85,16 @@ public enum CaptureErrorCode implements ErrorCode {
      * 화면과 DB 가 갈린다. 값을 고쳤다면 MODIFY 로 사유와 함께 보내야 한다.
      */
     REVIEW_CONFIRM_WITH_VALUE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_4",
-            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다.");
+            "무수정 승인에는 담당자·기한을 함께 보낼 수 없습니다."),
+
+    /*
+     * RVW-04 — AI 가 만든 액션을 삭제하려 했다.
+     *
+     * **AI 생성 액션은 지우는 것이 아니라 반려(RVW-02 REJECT)한다.** 지우면 라벨이 사라진다 —
+     * "AI 가 이런 걸 뽑았고 사람이 아니라고 했다"는 쌍이 개선의 재료인데, 행이 없어지면 그
+     * 사실 자체가 없던 일이 된다. 지나간 회의는 다시 만들 수 없어 복구도 불가능하다.
+     */
+    REVIEW_DELETE_AI_ACTION(HttpStatus.CONFLICT, "MEETING_409_7", "AI 생성 액션은 반려로 처리해야 합니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
