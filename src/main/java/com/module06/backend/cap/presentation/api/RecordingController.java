@@ -1,10 +1,12 @@
 package com.module06.backend.cap.presentation.api;
 
+import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.presentation.api.dto.request.ManualRecordingRequest;
 import com.module06.backend.cap.presentation.api.dto.request.StartRecordingAssemblyRequest;
 import com.module06.backend.cap.presentation.api.dto.response.ManualRecordingResponse;
+import com.module06.backend.cap.presentation.api.dto.response.PlaybackUrlResponse;
 import com.module06.backend.cap.presentation.api.dto.response.RecordingAssemblyResponse;
 import com.module06.backend.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +16,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,11 +31,14 @@ public class RecordingController {
 
     private final StartRecordingAssemblyUseCase startRecordingAssemblyUseCase;
     private final RegisterManualRecordingUseCase registerManualRecordingUseCase;
+    private final GetPlaybackUrlUseCase getPlaybackUrlUseCase;
 
     public RecordingController(StartRecordingAssemblyUseCase startRecordingAssemblyUseCase,
-                              RegisterManualRecordingUseCase registerManualRecordingUseCase) {
+                              RegisterManualRecordingUseCase registerManualRecordingUseCase,
+                              GetPlaybackUrlUseCase getPlaybackUrlUseCase) {
         this.startRecordingAssemblyUseCase = startRecordingAssemblyUseCase;
         this.registerManualRecordingUseCase = registerManualRecordingUseCase;
+        this.getPlaybackUrlUseCase = getPlaybackUrlUseCase;
     }
 
     // 녹음 종료(조립 트리거) (CAP-05)
@@ -70,5 +76,26 @@ public class RecordingController {
         RegisterManualRecordingUseCase.Result result =
                 registerManualRecordingUseCase.registerManualRecording(request.toCommand(meetingId, memberId));
         return ApiResponse.success("녹음 파일이 등록되었습니다.", ManualRecordingResponse.from(result));
+    }
+
+    // 재생용 Presigned GET URL 발급 (CAP-14)
+    @Operation(
+            summary = "재생용 Presigned GET URL 발급",
+            description = "녹음본을 재생할 수 있는 presigned GET URL(HTTP Range 지원, 만료 3시간)을 발급합니다. "
+                    + "회의 참석자, 또는 같은 회사의 owner/admin만 가능합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping("/playback-url")
+    public ApiResponse<PlaybackUrlResponse> playbackUrl(
+            @Parameter(description = "회의 ID") @PathVariable Long meetingId,
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @AuthenticationPrincipal(expression = "role") String role,
+            @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin) {
+        // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자 or 같은 회사 owner/admin)은 서비스가 판정.
+        GetPlaybackUrlUseCase.Requester requester =
+                new GetPlaybackUrlUseCase.Requester(memberId, companyId, role, isAdmin);
+        GetPlaybackUrlUseCase.Result result = getPlaybackUrlUseCase.getPlaybackUrl(meetingId, requester);
+        return ApiResponse.success("재생 URL이 발급되었습니다.", PlaybackUrlResponse.from(result));
     }
 }
