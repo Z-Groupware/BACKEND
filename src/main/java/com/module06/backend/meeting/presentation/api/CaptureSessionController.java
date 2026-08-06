@@ -17,8 +17,12 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.PauseCaptureSessionCommand;
+import com.module06.backend.meeting.application.result.CaptureSessionPauseResult;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
+import com.module06.backend.meeting.application.usecase.PauseCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
+import com.module06.backend.meeting.presentation.api.response.CaptureSessionPauseResponse;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionStartResponse;
 
 /*
@@ -34,6 +38,9 @@ public class CaptureSessionController {
 
     /* CAP-01 프레젠테이션 계층과 캡처 세션 시작 서비스 사이의 인바운드 Port다. */
     private final StartCaptureSessionUseCase startCaptureSessionUseCase;
+
+    /* CAP-02 프레젠테이션 계층과 캡처 일시정지 서비스 사이의 인바운드 Port다. */
+    private final PauseCaptureSessionUseCase pauseCaptureSessionUseCase;
 
     /*
      * 진행 중인 회의의 host 요청으로 회의당 하나의 캡처 세션을 시작한다.
@@ -64,6 +71,37 @@ public class CaptureSessionController {
         return ApiResponse.created(
                 "캡처 세션을 시작했습니다.",
                 CaptureSessionStartResponse.from(result)
+        );
+    }
+
+    /*
+     * 진행 중인 캡처 세션을 host 요청으로 일시정지한다.
+     * 프론트는 마지막 청크 업로드와 CAP-07 완료 통보를 끝낸 뒤 이 API를 호출해야 한다.
+     */
+    @Operation(
+            summary = "캡처 일시정지",
+            description = "회의 개설자가 ACTIVE 캡처 세션을 PAUSED 상태로 전이합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/pause")
+    public ApiResponse<CaptureSessionPauseResponse> pauseCaptureSession(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @Parameter(description = "캡처를 일시정지할 회의 식별자", required = true)
+            @PathVariable Long meetingId
+    ) {
+        /* 토큰의 회사·구성원과 Path 회의 식별자만 사용해 일시정지 명령을 만든다. */
+        PauseCaptureSessionCommand command = new PauseCaptureSessionCommand(
+                principal.getCompanyId(),
+                principal.getMemberId(),
+                meetingId
+        );
+
+        /* PAUSED 상태 전이 결과를 명세의 200 공통 응답 형식으로 변환한다. */
+        CaptureSessionPauseResult result = pauseCaptureSessionUseCase.pauseCaptureSession(command);
+        return ApiResponse.success(
+                "캡처를 일시정지했습니다.",
+                CaptureSessionPauseResponse.from(result)
         );
     }
 }

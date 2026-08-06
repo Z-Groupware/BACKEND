@@ -133,4 +133,36 @@ public class CaptureSession {
         /* 별도 boolean 원본을 두지 않아 상태와 일시정지 여부가 어긋나지 않게 한다. */
         return status == CaptureSessionStatus.PAUSED;
     }
+
+    /* ACTIVE 세션을 같은 식별자와 시간축을 유지한 PAUSED 상태로 전이한다. */
+    public CaptureSession pause(LocalDateTime pausedAt) {
+        /* 일시정지 시각은 세션 시작 시각보다 빠를 수 없고 null일 수도 없다. */
+        if (pausedAt == null || pausedAt.isBefore(startedAt)) {
+            throw new IllegalArgumentException("캡처 일시정지 시각은 세션 시작 시각 이후여야 합니다.");
+        }
+
+        /* 이미 일시정지된 세션에 같은 전이를 반복하는 잘못된 내부 호출을 차단한다. */
+        if (status == CaptureSessionStatus.PAUSED) {
+            throw new IllegalStateException("이미 일시정지된 캡처 세션입니다.");
+        }
+
+        /* 종료된 세션을 다시 제어 가능한 상태로 변경하는 상태 역행을 차단한다. */
+        if (status == CaptureSessionStatus.ENDED) {
+            throw new IllegalStateException("종료된 캡처 세션은 일시정지할 수 없습니다.");
+        }
+
+        /* 세션 ID·시간축·시작자는 유지하고 상태·일시정지·수정 시각만 변경한다. */
+        return new CaptureSession(
+                id,
+                meetingId,
+                startedBy,
+                CaptureSessionStatus.PAUSED,
+                startedAt,
+                startedAtEpochMs,
+                pausedAt,
+                endedAt,
+                createdAt,
+                pausedAt
+        );
+    }
 }
