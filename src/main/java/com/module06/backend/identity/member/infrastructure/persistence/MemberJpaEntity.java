@@ -14,6 +14,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -34,7 +36,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class MemberJpaEntity {
 
+    /*
+     * IDENTITY 다. 지금까지 이 엔티티로 INSERT 한 적이 없어(읽기 전용 어댑터뿐) 전략이 비어 있었고,
+     * 그 상태로 save 하면 id 가 null 인 채 나간다. member.id 는 AUTO_INCREMENT 다(V1).
+     */
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -45,9 +52,9 @@ public class MemberJpaEntity {
     @JoinColumn(name = "team_id")
     private TeamRefEntity team;
 
-    /** 화면의 "역할". 구 sub_team 이다(V2.3.2·V2.3.4). 인가에 쓰지 않는 라벨이다. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "role_id")
+    /** 화면의 "역할". 구 sub_team 이다(V2.3.2·V2.3.4). 인가에 쓰지 않는 라벨이다. role_id 는 NOT NULL 이다(V2.3.10). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "role_id", nullable = false)
     private RoleRefEntity role;
 
     /** 화면의 "직급". 구 job_position 이다(V2.3.3·V2.3.5). */
@@ -87,6 +94,30 @@ public class MemberJpaEntity {
     /** 퇴사 표시. 오프보딩 최종 승인 시 찍히고, 찍힌 회원은 조회되지 않는다. 본인 탈퇴 경로는 없다. */
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    /**
+     * 기업 등록(API 27)이 만드는 오너. 이 경로 말고는 OWNER 가 생기지 않는다.
+     *
+     * <p>{@code isAdmin} 을 인자로 받지 않고 {@code true} 로 고정한다 — 오너가 어드민 기능을 못 쓰는
+     * 상태가 한 순간도 있으면 안 된다(AUTH_AUTHZ_SPEC §2-1-1). 등록 직후에는 회사에 오너뿐이라,
+     * 여기서 켜지 않으면 계정을 만들 사람이 아무도 없어 회사가 잠긴다.
+     *
+     * <p>팀·직급을 받지 않는다. 온보딩 전이라 정해진 값이 없고, 화면에도 오너를 넣는 칸이 없다.
+     * 역할만 "없음"(id 2)으로 채운다 — {@code role_id} 는 NOT NULL 이다(V2.3.10).
+     */
+    static MemberJpaEntity owner(CompanyJpaEntity company, RoleRefEntity noRole,
+                                 String name, String email, String passwordHash) {
+        MemberJpaEntity member = new MemberJpaEntity();
+        member.company = company;
+        member.role = noRole;
+        member.name = name;
+        member.email = email;
+        member.passwordHash = passwordHash;
+        member.authority = Authority.OWNER;
+        member.isAdmin = true;
+        member.status = MemberStatus.ACTIVE;
+        return member;
+    }
 
     /*
      * ── 생애주기 전이 ────────────────────────────────────────────────────────
