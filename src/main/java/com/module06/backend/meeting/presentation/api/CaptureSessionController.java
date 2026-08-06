@@ -3,6 +3,7 @@ package com.module06.backend.meeting.presentation.api;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,13 +17,21 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
-import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.application.command.PauseCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.ResumeCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
+import com.module06.backend.meeting.application.query.GetCaptureSessionQuery;
 import com.module06.backend.meeting.application.result.CaptureSessionPauseResult;
+import com.module06.backend.meeting.application.result.CaptureSessionResumeResult;
+import com.module06.backend.meeting.application.result.CaptureSessionStateResult;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
+import com.module06.backend.meeting.application.usecase.GetCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.PauseCaptureSessionUseCase;
+import com.module06.backend.meeting.application.usecase.ResumeCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionPauseResponse;
+import com.module06.backend.meeting.presentation.api.response.CaptureSessionResumeResponse;
+import com.module06.backend.meeting.presentation.api.response.CaptureSessionStateResponse;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionStartResponse;
 
 /*
@@ -41,6 +50,12 @@ public class CaptureSessionController {
 
     /* CAP-02 프레젠테이션 계층과 캡처 일시정지 서비스 사이의 인바운드 Port다. */
     private final PauseCaptureSessionUseCase pauseCaptureSessionUseCase;
+
+    /* CAP-03 프레젠테이션 계층과 캡처 재개 서비스 사이의 인바운드 Port다. */
+    private final ResumeCaptureSessionUseCase resumeCaptureSessionUseCase;
+
+    /* CAP-10 프레젠테이션 계층과 현재 캡처 세션 조회 서비스 사이의 인바운드 Port다. */
+    private final GetCaptureSessionUseCase getCaptureSessionUseCase;
 
     /*
      * 진행 중인 회의의 host 요청으로 회의당 하나의 캡처 세션을 시작한다.
@@ -102,6 +117,68 @@ public class CaptureSessionController {
         return ApiResponse.success(
                 "캡처를 일시정지했습니다.",
                 CaptureSessionPauseResponse.from(result)
+        );
+    }
+
+    /*
+     * 일시정지된 캡처 세션을 host 요청으로 재개한다.
+     * 새 세션을 만들지 않아 CAP-01에서 발급한 식별자와 공통 시간축을 그대로 유지한다.
+     */
+    @Operation(
+            summary = "캡처 재개",
+            description = "회의 개설자가 PAUSED 캡처 세션을 ACTIVE 상태로 전이합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/resume")
+    public ApiResponse<CaptureSessionResumeResponse> resumeCaptureSession(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @Parameter(description = "캡처를 재개할 회의 식별자", required = true)
+            @PathVariable Long meetingId
+    ) {
+        /* 토큰의 회사·구성원과 Path 회의 식별자만 사용해 재개 명령을 만든다. */
+        ResumeCaptureSessionCommand command = new ResumeCaptureSessionCommand(
+                principal.getCompanyId(),
+                principal.getMemberId(),
+                meetingId
+        );
+
+        /* ACTIVE 상태 전이 결과를 명세의 200 공통 응답 형식으로 변환한다. */
+        CaptureSessionResumeResult result = resumeCaptureSessionUseCase.resumeCaptureSession(command);
+        return ApiResponse.success(
+                "캡처를 재개했습니다.",
+                CaptureSessionResumeResponse.from(result)
+        );
+    }
+
+    /*
+     * 예약 참석자의 새로고침·재접속 화면 복구를 위해 현재 캡처 세션 상태를 조회한다.
+     * 현재 녹음자와 세그먼트·청크 값은 A 도메인 조회 응답에서 별도로 결합한다.
+     */
+    @Operation(
+            summary = "현재 캡처 세션 조회",
+            description = "예약 참석자에게 현재 캡처 세션의 상태와 공통 시간축을 반환합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping
+    public ApiResponse<CaptureSessionStateResponse> getCaptureSession(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @Parameter(description = "현재 캡처 세션을 조회할 회의 식별자", required = true)
+            @PathVariable Long meetingId
+    ) {
+        /* 토큰의 회사·구성원과 Path 회의 식별자만 사용해 조회 조건을 만든다. */
+        GetCaptureSessionQuery query = new GetCaptureSessionQuery(
+                principal.getCompanyId(),
+                principal.getMemberId(),
+                meetingId
+        );
+
+        /* D 소유 캡처 세션 상태를 명세의 200 공통 응답 형식으로 변환한다. */
+        CaptureSessionStateResult result = getCaptureSessionUseCase.getCaptureSession(query);
+        return ApiResponse.success(
+                "캡처 세션 조회에 성공했습니다.",
+                CaptureSessionStateResponse.from(result)
         );
     }
 }

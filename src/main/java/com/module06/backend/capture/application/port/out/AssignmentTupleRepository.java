@@ -11,9 +11,9 @@ import com.module06.backend.capture.domain.model.VerifyVerdict;
  * meeting_assignment_tuple(V5.12) 접근 포트다.
  *
  * 이 테이블은 tuple 의 **대기실**이고 최종 도착지가 아니다. L5(검증) · L6(모순 검사) ·
- * L7(자동확정 게이트)을 지난 행만 action 으로 분배된다 — action 은 C 도메인 소유이고
- * 상태 전이 메서드가 미정이므로, 그 경로가 정해질 때 이 포트에 분배 메서드가 붙는다.
- * 지금 action 에 직접 쓰면 나중에 되돌릴 코드가 된다(V5.12 주석).
+ * L7(자동확정 게이트)을 지난 뒤 action 으로 분배되고, 그 결과가 {@link #applyDistribution}
+ * 으로 이 테이블에 되짚힌다. action 자체는 여전히 C 도메인 소유이고 여기서 쓰지 않는다 —
+ * 생성은 ActionDistributionPort 가 하고, 이 포트는 "어느 action 이 됐는지"만 적는다.
  */
 public interface AssignmentTupleRepository {
 
@@ -74,6 +74,17 @@ public interface AssignmentTupleRepository {
      * @return 실제로 반영된 건수
      */
     int applyGateVerdicts(long meetingId, List<TupleGateVerdict> verdicts);
+
+    /*
+     * 분배 결과(어느 action 이 됐는지)를 각 tuple 행에 적는다.
+     *
+     * **분배와 같은 트랜잭션에서 불러야 한다.** 나누면 action 은 만들어졌는데 tuple 이 그것을
+     * 모르는 상태가 남고, 다음 실행이 같은 tuple 을 다시 분배해 **같은 액션이 두 번 사람 보드에
+     * 꽂힌다.** 그 상태는 되돌리기 어렵다 — 이미 알림이 나간 액션을 지우는 일이 된다.
+     *
+     * @return 실제로 반영된 건수
+     */
+    int applyDistribution(long meetingId, List<TupleDistribution> distributions);
 
     /*
      * 저장할 tuple 한 건. 계층 산출(AssignmentTuple)에 "어디서 나왔는지"를 붙인 것이다.
@@ -154,6 +165,19 @@ public interface AssignmentTupleRepository {
             Long tupleId,
             GateSignals signals,
             boolean autoConfirmed
+    ) {
+    }
+
+    /*
+     * tuple 하나의 분배 결과.
+     *
+     * actionId 가 필수다. 분배되지 않은 tuple 은 이 레코드를 만들지 않는다 — action_id 가
+     * NULL 로 남는 것이 "아직 분배되지 않았다"는 뜻이고, 0 이나 -1 로 채우면 존재하지 않는
+     * 액션을 가리키는 행이 생긴다.
+     */
+    record TupleDistribution(
+            Long tupleId,
+            Long actionId
     ) {
     }
 }

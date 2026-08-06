@@ -1,0 +1,228 @@
+package com.module06.backend.project.application.service;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import com.module06.backend.action.application.port.ActionQueryPort;
+import com.module06.backend.action.application.port.ActionQueryPort.TeamActionSummary;
+import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
+import com.module06.backend.project.application.command.UpdateProjectCommand;
+import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
+import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
+import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
+import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
+import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.domain.model.ProjectStatus;
+import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
+import com.module06.backend.project.domain.repository.ProjectRepository;
+import com.module06.backend.project.exception.ProjectErrorCode;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ProjectServiceTest {
+
+    private static final Long COMPANY = 1L;
+    private static final Long OTHER_COMPANY = 2L;
+    private static final Long PROJECT_ID = 100L;
+    private static final Long OWNER = 3L;
+    private static final Long STRANGER = 4L;
+
+    @Mock
+    private ProjectRepository projectRepository;
+
+    @Mock
+    private ProjectAttachmentRepository projectAttachmentRepository;
+
+    @Mock
+    private ProjectOwnerOnlyPolicy projectOwnerOnlyPolicy;
+
+    @Mock
+    private ProjectTeamOwnershipPolicy projectTeamOwnershipPolicy;
+
+    @Mock
+    private ActionQueryPort actionQueryPort;
+
+    private ProjectService projectService;
+
+    private ProjectService service() {
+        return new ProjectService(projectRepository, projectAttachmentRepository,
+                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort);
+    }
+
+    private Project project(Long companyId) {
+        return Project.create(companyId, "TAG", "이름", "설명", "#16A34A",
+                LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L));
+    }
+
+    // ---------- getDetail ----------
+
+    @Test
+    void getDetailReturnsProjectAndAttachmentsWhenSameCompany() {
+        projectService = service();
+        Project project = project(COMPANY);
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectAttachmentRepository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of());
+
+        ProjectDetailResult result = projectService.getDetail(COMPANY, PROJECT_ID);
+
+        assertThat(result.project()).isEqualTo(project);
+        assertThat(result.attachments()).isEmpty();
+    }
+
+    @Test
+    void getDetailThrowsWhenProjectNotFound() {
+        projectService = service();
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectService.getDetail(COMPANY, PROJECT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+    }
+
+    @Test
+    void getDetailThrowsWhenProjectBelongsToAnotherCompany() {
+        projectService = service();
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project(OTHER_COMPANY)));
+
+        assertThatThrownBy(() -> projectService.getDetail(COMPANY, PROJECT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+    }
+
+    // ---------- update ----------
+
+    @Test
+    void updateAppliesChangesWhenRequesterIsOwner() {
+        projectService = service();
+        Project project = project(COMPANY);
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        lenient().when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Project updated = projectService.update(new UpdateProjectCommand(
+                PROJECT_ID, OWNER, "새 이름", "새 설명", "#000000", LocalDate.of(2027, 1, 1), List.of(5L)
+        ));
+
+        verify(projectOwnerOnlyPolicy).check(project, OWNER);
+        verify(projectTeamOwnershipPolicy).check(List.of(5L), COMPANY);
+        assertThat(updated.getName()).isEqualTo("새 이름");
+        assertThat(updated.getTeamIds()).containsExactly(5L);
+    }
+
+    @Test
+    void updateThrowsWhenProjectNotFound() {
+        projectService = service();
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectService.update(
+                new UpdateProjectCommand(PROJECT_ID, OWNER, "이름", "설명", "#000000", LocalDate.now(), List.of())
+        )).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+    }
+
+    @Test
+    void updateThrowsWhenRequesterIsNotOwner() {
+        projectService = service();
+        Project project = project(COMPANY);
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        org.mockito.Mockito.doThrow(new BusinessException(ProjectErrorCode.NOT_PROJECT_OWNER))
+                .when(projectOwnerOnlyPolicy).check(project, STRANGER);
+
+        assertThatThrownBy(() -> projectService.update(
+                new UpdateProjectCommand(PROJECT_ID, STRANGER, "이름", "설명", "#000000", LocalDate.now(), List.of())
+        )).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.NOT_PROJECT_OWNER);
+    }
+
+    // ---------- bulkUpdateStatus ----------
+
+    @Test
+    void bulkUpdateStatusSavesAllItemsWhenAllOwnedByRequester() {
+        projectService = service();
+        Project projectA = project(COMPANY);
+        Project projectB = project(COMPANY);
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(projectA));
+        when(projectRepository.findById(2L)).thenReturn(Optional.of(projectB));
+
+        projectService.bulkUpdateStatus(new BulkUpdateProjectStatusCommand(OWNER, List.of(
+                new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.IN_PROGRESS),
+                new BulkUpdateProjectStatusCommand.Item(2L, ProjectStatus.DONE)
+        )));
+
+        assertThat(projectA.getStatus()).isEqualTo(ProjectStatus.IN_PROGRESS);
+        assertThat(projectB.getStatus()).isEqualTo(ProjectStatus.DONE);
+        verify(projectRepository).save(projectA);
+        verify(projectRepository).save(projectB);
+    }
+
+    @Test
+    void bulkUpdateStatusSavesNothingWhenAnyItemFailsOwnerCheck() {
+        projectService = service();
+        Project projectA = project(COMPANY);
+        Project projectB = project(COMPANY);
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(projectA));
+        when(projectRepository.findById(2L)).thenReturn(Optional.of(projectB));
+        org.mockito.Mockito.doAnswer(invocation -> {
+            Project checked = invocation.getArgument(0);
+            if (checked == projectB) {
+                throw new BusinessException(ProjectErrorCode.NOT_PROJECT_OWNER);
+            }
+            return null;
+        }).when(projectOwnerOnlyPolicy).check(any(Project.class), eq(OWNER));
+
+        assertThatThrownBy(() -> projectService.bulkUpdateStatus(new BulkUpdateProjectStatusCommand(OWNER, List.of(
+                new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.IN_PROGRESS),
+                new BulkUpdateProjectStatusCommand.Item(2L, ProjectStatus.DONE)
+        )))).isInstanceOf(BusinessException.class);
+
+        verify(projectRepository, never()).save(any(Project.class));
+    }
+
+    // ---------- getTimeline ----------
+
+    @Test
+    void getTimelineMarksOverdueIncompleteActionsAsDelayed() {
+        projectService = service();
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project(COMPANY)));
+        when(actionQueryPort.findTeamActionsByProjectId(PROJECT_ID)).thenReturn(List.of(
+                new TeamActionSummary(10L, "지연된 팀 액션", 1L, "개발팀", ActionStatus.IN_PROGRESS, LocalDate.of(2020, 1, 1)),
+                new TeamActionSummary(11L, "완료된 팀 액션", 1L, "개발팀", ActionStatus.DONE, LocalDate.of(2020, 1, 1)),
+                new TeamActionSummary(12L, "예정된 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2099, 1, 1))
+        ));
+
+        List<TimelineItem> timeline = projectService.getTimeline(COMPANY, PROJECT_ID);
+
+        assertThat(timeline).extracting(TimelineItem::actionId, TimelineItem::isDelayed)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(10L, true),
+                        org.assertj.core.groups.Tuple.tuple(11L, false),
+                        org.assertj.core.groups.Tuple.tuple(12L, false)
+                );
+    }
+
+    @Test
+    void getTimelineThrowsWhenProjectBelongsToAnotherCompany() {
+        projectService = service();
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project(OTHER_COMPANY)));
+
+        assertThatThrownBy(() -> projectService.getTimeline(COMPANY, PROJECT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+    }
+}

@@ -25,4 +25,6 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
     List<ActionJpaEntity> findAllByActionTypeAndAssigneeMemberId(ActionType actionType, Long assigneeMemberId);
 
     List<ActionJpaEntity> findAllByActionTypeAndTeamIdIn(ActionType actionType, List<Long> teamIds);
+
+    List<ActionJpaEntity> findAllByActionTypeAndProjectId(ActionType actionType, Long projectId);
 }

@@ -105,6 +105,28 @@ public class Action {
         this.updatedAt = updatedAt;
     }
 
+    // 사람이 "+"로 직접 추가(FR-AC-01 예외 경로). AI를 거치지 않으므로 검토 자체가 필요 없다 —
+    // reviewStatus를 곧장 HUMAN_CONFIRMED로, confirmedAt을 생성 시각으로 채운다.
+    // sourceMeetingId·parentActionId가 없어 assigneeSource·evidenceTranscriptId·gateSignals도
+    // 유도할 근거가 없으므로 null, dueDate는 사용자가 직접 입력해 defaulted 여지가 없다.
+    public static Action createManual(
+            Long companyId,
+            Long projectId,
+            Long teamId,
+            Long assigneeMemberId,
+            ActionType actionType,
+            String title,
+            String description,
+            LocalDate dueDate
+    ) {
+        return new Action(
+                null, companyId, projectId, null, null, teamId, assigneeMemberId,
+                actionType, title, description, ActionStatus.TODO, dueDate, false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true,
+                LocalDateTime.now(), null, null
+        );
+    }
+
     // AI 분배로 신규 생성(FR-AC-01 정상 경로). id·타임스탬프는 저장소가 채우고,
     // status는 TODO·reviewStatus는 PENDING·confirmedAt은 null로 고정한다.
     public static Action create(

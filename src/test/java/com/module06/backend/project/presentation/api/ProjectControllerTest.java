@@ -16,11 +16,24 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.module06.backend.action.application.port.ActionQueryPort.TeamActionSummary;
+import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
 import com.module06.backend.project.application.command.CreateProjectCommand;
+import com.module06.backend.project.application.command.UpdateProjectCommand;
+import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
+import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
+import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
+import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
+import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
+import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
 import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.domain.model.ProjectStatus;
+import com.module06.backend.project.exception.ProjectErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,7 +41,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /*
@@ -66,6 +81,18 @@ class ProjectControllerTest {
 
     @MockitoBean
     private GetProjectListUseCase getProjectListUseCase;
+
+    @MockitoBean
+    private GetProjectDetailUseCase getProjectDetailUseCase;
+
+    @MockitoBean
+    private UpdateProjectUseCase updateProjectUseCase;
+
+    @MockitoBean
+    private BulkUpdateProjectStatusUseCase bulkUpdateProjectStatusUseCase;
+
+    @MockitoBean
+    private GetProjectTimelineUseCase getProjectTimelineUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -134,6 +161,95 @@ class ProjectControllerTest {
                 .andExpect(status().isOk());
 
         verify(getProjectListUseCase).list(eq(1L));
+    }
+
+    @Test
+    @DisplayName("상세조회는 토큰의 회사로 프로젝트를 조회한다")
+    void getDetailTakesCompanyFromToken() throws Exception {
+        authenticateAs(1L, 3L);
+        when(getProjectDetailUseCase.getDetail(1L, 100L))
+                .thenReturn(new ProjectDetailResult(project(1L), List.of()));
+
+        mockMvc.perform(get("/api/projects/100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("새 프로젝트"));
+
+        verify(getProjectDetailUseCase).getDetail(1L, 100L);
+    }
+
+    @Test
+    @DisplayName("존재하지 않거나 다른 회사 프로젝트를 상세조회하면 예외가 전파된다")
+    void getDetailPropagatesNotFound() throws Exception {
+        authenticateAs(1L, 3L);
+        when(getProjectDetailUseCase.getDetail(1L, 100L))
+                .thenThrow(new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        mockMvc.perform(get("/api/projects/100"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("수정은 토큰의 memberId를 requesterId로 사용한다")
+    void updateTakesRequesterFromToken() throws Exception {
+        authenticateAs(1L, 3L);
+        when(updateProjectUseCase.update(any())).thenReturn(project(1L));
+
+        mockMvc.perform(patch("/api/projects/100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수정된 이름",
+                                  "description": "수정된 설명",
+                                  "color": "#000000",
+                                  "dueDate": "2027-01-01",
+                                  "teamIds": [5]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateProjectCommand> captor = ArgumentCaptor.forClass(UpdateProjectCommand.class);
+        verify(updateProjectUseCase).update(captor.capture());
+        assertThat(captor.getValue().projectId()).isEqualTo(100L);
+        assertThat(captor.getValue().requesterId()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("벌크 상태변경은 토큰의 memberId를 requesterId로 사용한다")
+    void bulkUpdateStatusTakesRequesterFromToken() throws Exception {
+        authenticateAs(1L, 3L);
+
+        mockMvc.perform(patch("/api/projects/status/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "items": [
+                                    { "projectId": 1, "status": "DONE" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<BulkUpdateProjectStatusCommand> captor = ArgumentCaptor.forClass(BulkUpdateProjectStatusCommand.class);
+        verify(bulkUpdateProjectStatusUseCase).bulkUpdateStatus(captor.capture());
+        assertThat(captor.getValue().requesterId()).isEqualTo(3L);
+        assertThat(captor.getValue().items()).containsExactly(
+                new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.DONE));
+    }
+
+    @Test
+    @DisplayName("타임라인은 토큰의 회사로 조회하고 지연 여부를 그대로 내려준다")
+    void getTimelineTakesCompanyFromToken() throws Exception {
+        authenticateAs(1L, 3L);
+        when(getProjectTimelineUseCase.getTimeline(1L, 100L)).thenReturn(List.of(
+                new TimelineItem(10L, "팀 액션", 1L, "개발팀", ActionStatus.IN_PROGRESS, LocalDate.of(2020, 1, 1), true)
+        ));
+
+        mockMvc.perform(get("/api/projects/100/timeline"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].actionId").value(10))
+                .andExpect(jsonPath("$.data[0].isDelayed").value(true));
+
+        verify(getProjectTimelineUseCase).getTimeline(1L, 100L);
     }
 
     /*

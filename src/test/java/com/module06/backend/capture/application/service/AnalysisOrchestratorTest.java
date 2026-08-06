@@ -10,11 +10,19 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import tools.jackson.databind.ObjectMapper;
+
+import com.module06.backend.action.application.port.ActionDistributionPort;
+import com.module06.backend.action.application.port.ActionDistributionPort.ActionDistributionItem;
+import com.module06.backend.action.application.port.ActionDistributionPort.DistributeActionsCommand;
+import com.module06.backend.action.application.port.ActionDistributionPort.DistributedAction;
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.StoredTuple;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleConflicts;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleDistribution;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleGateVerdict;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleVerification;
 import com.module06.backend.capture.application.port.out.CaptionRepository;
@@ -59,6 +67,7 @@ class AnalysisOrchestratorTest {
     private static final long TENANT = 7L;
     private static final long COMPANY = 7L;
     private static final long MEETING = 500L;
+    private static final long PROJECT = 31L;
     private static final LocalDate MEETING_DATE = LocalDate.of(2026, 8, 5);
 
     private static final List<AiLayerPort.Participant> PARTICIPANTS = List.of(
@@ -294,10 +303,9 @@ class AnalysisOrchestratorTest {
         FakeCaptionRepository captions = new FakeCaptionRepository(
                 new CaptionChunk(42L, 5_000, 8_000, new java.math.BigDecimal("-18.00")));
 
-        AnalysisOutcome outcome = new AnalysisOrchestrator(
+        AnalysisOutcome outcome = orchestratorOf(
                 transcripts, captions, new FakeLayerRepository(), summaries,
-                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -321,10 +329,9 @@ class AnalysisOrchestratorTest {
                 decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
         FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
 
-        AnalysisOutcome outcome = new AnalysisOrchestrator(
+        AnalysisOutcome outcome = orchestratorOf(
                 transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
-                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         // 판정 0건이지만 실패가 아니다. 화자 미정은 정상 동작이고, 뒤 계층은 그대로 돈다.
@@ -344,10 +351,9 @@ class AnalysisOrchestratorTest {
         // 발화 1 에는 예전 실행이 심어 둔 화자(42)가 남아 있다. 이번엔 자막이 없어 전원 기권이다.
         FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
 
-        AnalysisOutcome outcome = new AnalysisOrchestrator(
+        AnalysisOutcome outcome = orchestratorOf(
                 transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
-                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -385,6 +391,11 @@ class AnalysisOrchestratorTest {
 
         layers.done.add(LayerName.L6);
         layers.done.add(LayerName.L7);
+        // 분배(DIST)가 빠져 있다. **액션이 만들어지지 않은 회의는 완료가 아니다** —
+        // 여기서 완료로 보면 검토 화면이 영영 빈 목록인 회의가 재실행 대상에서 빠진다.
+        assertThat(orchestrator.isFullyAnalyzed(MEETING)).isFalse();
+
+        layers.done.add(LayerName.DIST);
         assertThat(orchestrator.isFullyAnalyzed(MEETING)).isTrue();
     }
 
@@ -393,10 +404,10 @@ class AnalysisOrchestratorTest {
     void 발화가_없으면_생략한다() {
         RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
 
-        AnalysisOutcome outcome = new AnalysisOrchestrator(
+        AnalysisOutcome outcome = orchestratorOf(
                 new FakeTranscriptRepository(List.of()), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeSummaryRepository(), new FakeTupleRepository(),
-                meetingId -> Optional.of(MEETING_DATE), new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
+                meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
@@ -411,10 +422,10 @@ class AnalysisOrchestratorTest {
                 List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
                 decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
 
-        AnalysisOutcome outcome = new AnalysisOrchestrator(
+        AnalysisOutcome outcome = orchestratorOf(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
                 new FakeLayerRepository(), summaries, new FakeTupleRepository(),
-                meetingId -> Optional.empty(), new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai)
+                meetingId -> Optional.empty(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
@@ -667,9 +678,36 @@ class AnalysisOrchestratorTest {
         assertThat(layers.failed).isEmpty();
     }
 
+    // ── DIST · 액션 분배 ────────────────────────────────────────────────────────
+
     @Test
-    @DisplayName("L7 은 action 을 만들지 않는다 — 분배는 RVW-05 가 사람 확인을 받아 한다")
-    void L7은_action을_만들지_않는다() {
+    @DisplayName("게이트에서 걸린 배정도 분배한다 — 「AI 확인 필요」 묶음이 검토 화면에 있어야 한다")
+    void 자동확정되지_않은_tuple도_분배한다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                // 하나는 자동확정된다(명시적 호명 · 명단 안 · 근거 있음 · 관점 일치).
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L),
+                // 하나는 명단 밖 담당자라 게이트에서 걸린다.
+                new AssignmentTuple("가격표 정리", 99L, AssigneeSource.EXPLICIT_CALL, null, 2L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+
+        orchestrator(summaries, tuples, ai, new FakeLayerRepository(), actions)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 둘 다 액션이 됐다. 통과한 것만 만들면 사람이 봐야 하는 쪽이 화면에 아예 없다.
+        assertThat(actions.items).extracting(ActionDistributionItem::title)
+                .containsExactly("로드맵 초안 작성", "가격표 정리");
+        assertThat(tuples.gateOfTitle("로드맵 초안 작성").autoConfirmed()).isTrue();
+        assertThat(tuples.gateOfTitle("가격표 정리").autoConfirmed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("분배 결과가 tuple 에 되짚힌다 — action_id 가 없으면 다음 실행이 같은 액션을 또 만든다")
+    void 분배된_actionId를_tuple에_적는다() {
         FakeSummaryRepository summaries = new FakeSummaryRepository();
         RecordingAiLayerPort ai = new RecordingAiLayerPort(
                 List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
@@ -680,10 +718,153 @@ class AnalysisOrchestratorTest {
 
         orchestrator(summaries, tuples, ai).run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
-        // 자동확정됐지만 tuple 은 여전히 대기실에 있다. 자동 확정 건도 분배 전까지는
-        // 아무 데도 가 있지 않다(명세 RVW-01) — action 은 C 도메인 소유다.
-        assertThat(tuples.gateOfTitle("로드맵 초안 작성").autoConfirmed()).isTrue();
-        assertThat(tuples.saved).hasSize(1);
+        assertThat(tuples.distributions).hasSize(1);
+        assertThat(tuples.actionIdOfTitle("로드맵 초안 작성")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("분석 경로는 PERSONAL 액션만 만든다 — 수동 추가가 아니고, 출처 회의·프로젝트가 실린다")
+    void 분배_입력은_PERSONAL이고_출처가_실린다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+
+        orchestrator(summaries, new FakeTupleRepository(), ai, new FakeLayerRepository(), actions)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        ActionDistributionItem item = actions.items.get(0);
+        assertThat(item.actionType()).isEqualTo(ActionType.PERSONAL);
+        assertThat(item.isManual()).isFalse();
+        assertThat(item.sourceMeetingId()).isEqualTo(MEETING);
+        assertThat(item.projectId()).isEqualTo(PROJECT);
+        assertThat(item.companyId()).isEqualTo(COMPANY);
+        // 근거 발화가 함께 넘어간다 — 검토 화면이 이 id 로 원문을 인용한다.
+        assertThat(item.evidenceTranscriptId()).isEqualTo(1L);
+        // 게이트 신호는 사본으로 싣는다. 판정까지 함께 있어야 "넷은 통과했는데 모순으로
+        // 걸린 건"이 사본에서 통과한 것처럼 보이지 않는다.
+        assertThat(item.gateSignals()).contains("\"autoConfirmed\":true");
+    }
+
+    @Test
+    @DisplayName("담당자 미정 tuple 은 분배하지 않는다 — PERSONAL 액션은 담당자가 필수다")
+    void 담당자가_없는_tuple은_분배하지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                // 명단 밖을 가리켰거나 담당자를 못 정한 tuple 이다. 이것을 TEAM 으로 돌리면
+                // 다른 종류의 액션을 지어내는 것이 된다(분석 경로는 PERSONAL 만 생산한다).
+                new AssignmentTuple("누군가 정리", null, null, null, 1L),
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 2L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+
+        orchestrator(summaries, tuples, ai, new FakeLayerRepository(), actions)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(actions.items).extracting(ActionDistributionItem::title)
+                .containsExactly("로드맵 초안 작성");
+        // 대기실에는 남아 있다 — 지우지 않는다. 다만 action 이 없어 검토 화면에는 안 보인다.
+        assertThat(tuples.saved).hasSize(2);
+        assertThat(tuples.distributions).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("이미 분배된 회의는 다시 분배하지 않는다 — 같은 일이 보드에 두 번 꽂히면 안 된다")
+    void 이미_분배된_회의는_다시_분배하지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        /*
+         * tuple 은 재실행마다 통째로 갈리므로(replace) action_id 가 사라진다. tuple 만 보면
+         * "아직 분배 안 됨"으로 보이는데, action 쪽에는 이전 벌이 그대로 있는 상태다.
+         */
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
+                        // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
+                        (companyId, meetingId) -> true, new ObjectMapper()),
+                ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 분석은 실패가 아니다. 액션만 만들지 않는다 — 지우는 쪽이 아니라 멈추는 쪽이 안전하다.
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(layers.done).contains(LayerName.DIST);
+        assertThat(actions.items).isEmpty();
+        assertThat(tuples.distributions).isEmpty();
+    }
+
+    @Test
+    @DisplayName("프로젝트를 못 읽으면 DIST 가 FAILED 로 남는다 — 액션 없는 회의가 완료로 닫히면 안 된다")
+    void 프로젝트를_못_읽으면_DIST가_실패로_남는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.tuples = List.of(
+                new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 1L));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = new AnalysisOrchestrator(
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new TupleDistributionService(tuples, actions,
+                        // meeting.project_id 는 NOT NULL 이라, 비었다는 것은 회의 행을 못 읽은
+                        // 것이다 — 분배할 것이 없는 정상 상태가 아니라 데이터 오류다.
+                        meetingId -> Optional.empty(),
+                        (companyId, meetingId) -> false, new ObjectMapper()),
+                ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        /*
+         * DONE 으로 닫으면 isFullyAnalyzed 가 true 가 되고, 액션이 하나도 없는 회의가 force
+         * 없이는 다시 돌지 않는다. FAILED 로 남겨야 ANLZ-02 가 이어서 돌릴 수 있다.
+         */
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.FAILED);
+        assertThat(outcome.failedLayer()).isEqualTo(LayerName.DIST);
+        assertThat(layers.failed).containsKey(LayerName.DIST);
+        assertThat(layers.done).doesNotContain(LayerName.DIST);
+        // 앞 계층은 DONE 으로 남는다 — 판정을 다시 만들지 않고 분배만 다시 시도할 수 있다.
+        assertThat(layers.done).contains(LayerName.L7);
+        assertThat(actions.items).isEmpty();
+    }
+
+    @Test
+    @DisplayName("tuple 이 없으면 분배도 없고, 그래도 DIST 는 DONE 이다 — 대상 0건은 실패가 아니다")
+    void tuple이_없으면_분배하지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DISCUSSION, "가격 논의", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.DISCUSSED, "결론 없음")));
+        FakeLayerRepository layers = new FakeLayerRepository();
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+
+        AnalysisOutcome outcome = orchestrator(
+                summaries, new FakeTupleRepository(), ai, layers, actions)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(layers.done).contains(LayerName.DIST);
+        assertThat(layers.failed).isEmpty();
+        // 빈 요청을 보내지 않는다 — C 쪽에 아무 일도 시키지 않는 호출이다.
+        assertThat(actions.items).isEmpty();
     }
 
     // ── 조립 ────────────────────────────────────────────────────────────────────
@@ -698,12 +879,51 @@ class AnalysisOrchestratorTest {
                                               FakeTupleRepository tuples,
                                               RecordingAiLayerPort ai,
                                               FakeLayerRepository layers) {
+        return orchestrator(summaries, tuples, ai, layers, new RecordingDistributionPort());
+    }
+
+    private AnalysisOrchestrator orchestrator(FakeSummaryRepository summaries,
+                                              FakeTupleRepository tuples,
+                                              RecordingAiLayerPort ai,
+                                              FakeLayerRepository layers,
+                                              RecordingDistributionPort actions) {
+        return orchestratorOf(new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE), ai, actions);
+    }
+
+    private static AnalysisOrchestrator orchestratorOf(FakeTranscriptRepository transcripts,
+                                                       FakeCaptionRepository captions,
+                                                       FakeLayerRepository layers,
+                                                       FakeSummaryRepository summaries,
+                                                       FakeTupleRepository tuples,
+                                                       MeetingDateProvider dates,
+                                                       RecordingAiLayerPort ai) {
+        return orchestratorOf(transcripts, captions, layers, summaries, tuples, dates, ai,
+                new RecordingDistributionPort());
+    }
+
+    private static AnalysisOrchestrator orchestratorOf(FakeTranscriptRepository transcripts,
+                                                       FakeCaptionRepository captions,
+                                                       FakeLayerRepository layers,
+                                                       FakeSummaryRepository summaries,
+                                                       FakeTupleRepository tuples,
+                                                       MeetingDateProvider dates,
+                                                       RecordingAiLayerPort ai,
+                                                       RecordingDistributionPort actions) {
         return new AnalysisOrchestrator(
-                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
-                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                transcripts, captions, layers, summaries, tuples, dates,
                 // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
                 // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(), ai);
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                /*
+                 * 분배 서비스도 실물이다. **같은 tuple 저장소를 넘기는 것이 요점**이다 —
+                 * 분배가 무엇을 읽어 무엇을 만드는지는 tuple 을 공유해야만 검증된다.
+                 * 액션 생성(C 도메인)만 가짜로 막는다.
+                 */
+                new TupleDistributionService(tuples, actions,
+                        meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
+                        new ObjectMapper()),
+                ai);
     }
 
     private static List<Utterance> utterances() {
@@ -956,6 +1176,7 @@ class AnalysisOrchestratorTest {
         private final Map<Long, TupleVerification> verifications = new LinkedHashMap<>();
         private final Map<Long, List<ConflictType>> conflicts = new LinkedHashMap<>();
         private final Map<Long, TupleGateVerdict> gateVerdicts = new LinkedHashMap<>();
+        private final Map<Long, Long> distributions = new LinkedHashMap<>();
         private int replaceCalls;
         private long nextId = 9_000L;
 
@@ -971,6 +1192,7 @@ class AnalysisOrchestratorTest {
             verifications.clear();
             conflicts.clear();
             gateVerdicts.clear();
+            distributions.clear();
             for (TupleRow row : rows) {
                 long id = nextId++;
                 // 저장 시점의 verify_agree 는 항상 NULL 이다 — L5 가 아직 안 돌았다.
@@ -1027,6 +1249,20 @@ class AnalysisOrchestratorTest {
             return applied;
         }
 
+        @Override
+        public int applyDistribution(long meetingId, List<TupleDistribution> incoming) {
+            int applied = 0;
+            for (TupleDistribution distribution : incoming) {
+                // 이미 분배된 행은 거절한다 — 실물 엔티티(applyDistribution)와 같은 규칙이다.
+                if (storedById.containsKey(distribution.tupleId())
+                        && !distributions.containsKey(distribution.tupleId())) {
+                    distributions.put(distribution.tupleId(), distribution.actionId());
+                    applied++;
+                }
+            }
+            return applied;
+        }
+
         private TupleVerification verificationOfTitle(String title) {
             return verifications.get(idOfTitle(title));
         }
@@ -1039,12 +1275,34 @@ class AnalysisOrchestratorTest {
             return conflicts.get(idOfTitle(title));
         }
 
+        private Long actionIdOfTitle(String title) {
+            return distributions.get(idOfTitle(title));
+        }
+
         private Long idOfTitle(String title) {
             return storedById.values().stream()
                     .filter(stored -> title.equals(stored.tuple().title()))
                     .map(StoredTuple::id)
                     .findFirst()
                     .orElseThrow();
+        }
+    }
+
+    /*
+     * 분배 요청을 기록하는 ActionDistributionPort. **무엇을 실어 보냈는지가 검증 대상이다** —
+     * 게이트에서 걸린 배정까지 넘어가는지, 담당자 미정이 빠지는지는 요청 본문으로만 확인된다.
+     */
+    private static final class RecordingDistributionPort implements ActionDistributionPort {
+
+        private final List<ActionDistributionItem> items = new ArrayList<>();
+        private long nextActionId = 700L;
+
+        @Override
+        public List<DistributedAction> distribute(DistributeActionsCommand command) {
+            items.addAll(command.items());
+            return command.items().stream()
+                    .map(item -> new DistributedAction(nextActionId++, item))
+                    .toList();
         }
     }
 

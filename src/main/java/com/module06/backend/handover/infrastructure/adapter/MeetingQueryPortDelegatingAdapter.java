@@ -91,8 +91,10 @@ public class MeetingQueryPortDelegatingAdapter implements MeetingQueryPort {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         Object principal = authentication == null ? null : authentication.getPrincipal();
         if (!(principal instanceof AuthPrincipal authPrincipal) || authPrincipal.getCompanyId() == null) {
-            // Known unimplemented/context-absence signal: E->D adapter requires request-time AuthPrincipal companyId.
-            throw new IllegalStateException("AuthPrincipal companyId is required for handover meeting query delegation.");
+            // 알려진 미구현 대기 신호: auth(B) 도입 전이라 요청 시점 AuthPrincipal companyId가 없을 수 있다.
+            // IllegalState는 GlobalExceptionHandler를 못 타 500으로 샌다(브리프4 PartB) → 타입화된 BusinessException으로 던진다.
+            // silent fallback이 아니라 "auth(B) 대기 중"이라는 명시적 신호.
+            throw new BusinessException(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED);
         }
         return authPrincipal.getCompanyId();
     }

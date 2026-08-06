@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
+import com.module06.backend.action.application.port.ActionQueryPort;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
@@ -39,7 +40,7 @@ import lombok.RequiredArgsConstructor;
 */
 @Component
 @RequiredArgsConstructor
-public class ActionPersistenceAdapter implements ActionRepository {
+public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPort {
 
     private final SpringDataActionRepository springDataActionRepository;
     private final SpringDataProjectReferenceRepository springDataProjectReferenceRepository;
@@ -98,6 +99,31 @@ public class ActionPersistenceAdapter implements ActionRepository {
 
         return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, teamIds).stream()
                 .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<TeamActionSummary> findTeamActionsByProjectId(Long projectId) {
+        List<ActionJpaEntity> teamActions =
+                springDataActionRepository.findAllByActionTypeAndProjectId(ActionType.TEAM, projectId);
+
+        if (teamActions.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, String> teamNameById = springDataActionTeamReferenceRepository.findAllById(
+                teamActions.stream().map(ActionJpaEntity::getTeamId).distinct().toList()
+        ).stream().collect(Collectors.toMap(ActionTeamReferenceEntity::getId, ActionTeamReferenceEntity::getName));
+
+        return teamActions.stream()
+                .map(entity -> new TeamActionSummary(
+                        entity.getId(),
+                        entity.getTitle(),
+                        entity.getTeamId(),
+                        teamNameById.get(entity.getTeamId()),
+                        entity.getStatus(),
+                        entity.getDueDate()
+                ))
                 .toList();
     }
 

@@ -1,11 +1,15 @@
 package com.module06.backend.identity.team.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.team.domain.model.Team;
 import com.module06.backend.identity.team.domain.repository.TeamRepository;
 
@@ -14,6 +18,9 @@ import lombok.RequiredArgsConstructor;
 @Repository
 @RequiredArgsConstructor
 public class TeamPersistenceAdapter implements TeamRepository {
+
+    /* 같은 부모 아래 부서 이름 유일성을 최종 차단하는 데이터베이스 제약 이름이다(V2.3.13). */
+    private static final String TEAM_NAME_UNIQUE_CONSTRAINT = "UK_TEAM_COMPANY_PARENT_NAME";
 
     private final SpringDataTeamRepository repository;
 
@@ -29,7 +36,13 @@ public class TeamPersistenceAdapter implements TeamRepository {
 
     @Override
     public Team create(Long companyId, Long parentTeamId, String name) {
-        TeamJpaEntity saved = repository.saveAndFlush(TeamJpaEntity.create(companyId, parentTeamId, name));
+        TeamJpaEntity saved;
+        try {
+            /* flush까지 실행해 유일성 제약 위반을 이 메서드 경계에서 확인한다. */
+            saved = repository.saveAndFlush(TeamJpaEntity.create(companyId, parentTeamId, name));
+        } catch (DataIntegrityViolationException exception) {
+            throw translateNameDuplicate(exception);
+        }
         return toDomain(saved);
     }
 
@@ -44,6 +57,33 @@ public class TeamPersistenceAdapter implements TeamRepository {
     @Transactional
     public void rename(Long id, String name) {
         repository.findById(id).ifPresent(entity -> entity.rename(name));
+        try {
+            /* 커밋까지 기다리지 않고 이 메서드 경계에서 유일성 제약 위반을 확인한다. */
+            repository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw translateNameDuplicate(exception);
+        }
+    }
+
+    /* 이름 유일성 제약 위반만 공개 계약인 TEAM_NAME_DUPLICATED로 변환하고 다른 무결성 오류는 숨기지 않는다. */
+    private RuntimeException translateNameDuplicate(DataIntegrityViolationException exception) {
+        if (containsConstraintName(exception, TEAM_NAME_UNIQUE_CONSTRAINT)) {
+            return new BusinessException(AuthErrorCode.TEAM_NAME_DUPLICATED, exception);
+        }
+        return exception;
+    }
+
+    /* 예외 원인 체인에 특정 데이터베이스 제약 이름이 포함돼 있는지 확인한다. */
+    private boolean containsConstraintName(Throwable exception, String constraintName) {
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toUpperCase(Locale.ROOT).contains(constraintName.toUpperCase(Locale.ROOT))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @Override

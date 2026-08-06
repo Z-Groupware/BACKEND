@@ -23,10 +23,9 @@ import com.module06.backend.capture.domain.model.VerifyVerdict;
 /*
  * meeting_assignment_tuple(V5.12) 매핑이다.
  *
- * actionId 에 세터를 두지 않는다. 분배(action 생성)는 C 도메인의 상태 전이를 거쳐야 하고
- * 그 경로가 아직 정해지지 않았다 — 지금 세터를 열어 두면 그 경로를 지나지 않고 값을 넣는
- * 코드가 먼저 생긴다. 필드만 매핑해 두는 것은 컬럼이 있는데 엔티티가 모르면
- * ddl-auto=validate 가 부팅을 막기 때문이다.
+ * actionId 는 {@link #applyDistribution} 으로만 채운다. 일반 세터를 두지 않는 이유는
+ * action 생성이 C 도메인(ActionDistributionPort)을 지나야 하기 때문이다 — 세터를 열어 두면
+ * 그 경로를 지나지 않고 값을 넣는 코드가 생기고, 그때 tuple 은 존재하지 않는 액션을 가리킨다.
  *
  * assigneeCandidateMemberId 는 Python 의 assigneeCandidatePersonId 와 같은 값이다.
  * 이 DB 에 person 이 없고 참석자 명단을 member 에서 만들므로 personId = member.id 다.
@@ -86,7 +85,7 @@ public class MeetingAssignmentTupleJpaEntity {
     @Column(name = "prompt_version", length = 20)
     private String promptVersion;
 
-    /* 분배 결과. 이 슬라이스에서는 항상 NULL — 분배 경로가 아직 없다. */
+    /* 분배 결과. NULL 은 "아직 분배되지 않았다"이고, 분석이 끝난 회의에는 값이 있다. */
     @Column(name = "action_id")
     private Long actionId;
 
@@ -228,6 +227,21 @@ public class MeetingAssignmentTupleJpaEntity {
         this.gateAssigneeSourceOk = assigneeSourceOk;
         this.gateViewsAgree = viewsAgree;
         this.gatedAt = LocalDateTime.now();
+    }
+
+    /*
+     * 분배 결과를 적는다. **이미 값이 있으면 덮어쓰지 않는다** — 덮어쓰면 먼저 만들어진 액션이
+     * 어느 tuple 에서 나왔는지 아무 데도 남지 않고, 그 액션은 검토 화면에서 사라진 채 사람
+     * 보드에만 남는다. 재분배가 필요하면 먼저 이전 액션을 회수하는 경로가 있어야 한다.
+     *
+     * @return 실제로 적었는지. false 면 이미 분배된 행이다.
+     */
+    public boolean applyDistribution(Long actionId) {
+        if (actionId == null || this.actionId != null) {
+            return false;
+        }
+        this.actionId = actionId;
+        return true;
     }
 
     /*
