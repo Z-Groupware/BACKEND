@@ -7,6 +7,8 @@ import com.module06.backend.global.exception.BusinessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
+import java.util.Optional;
+
 // domain의 RecordingRepository 계약을 JPA로 구현하는 어댑터.
 @Repository
 public class RecordingPersistenceAdapter implements RecordingRepository {
@@ -31,5 +33,10 @@ public class RecordingPersistenceAdapter implements RecordingRepository {
     @Override
     public boolean existsByMeetingId(Long meetingId) {
         return springDataCapRecordingRepository.existsByMeetingId(meetingId);
+    }
+
+    @Override
+    public Optional<Recording> findByMeetingId(Long meetingId) {
+        return springDataCapRecordingRepository.findByMeetingId(meetingId).map(CapRecordingJpaEntity::toDomain);
     }
 }

@@ -15,10 +15,17 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 public class CapObjectStorageStubAdapter implements CapObjectStoragePort {
 
     private static final int EXPIRES_IN_SECONDS = 900; // 15분 — 문서(CAP-04) 예시값과 동일
+    private static final int PLAYBACK_EXPIRES_IN_SECONDS = 10800; // 3시간 — 문서(재생 URL) 확정값
 
     // 진짜 S3를 안 부르고 가짜 URL 문자열만 만들어서 돌려줌
     @Override
     public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
         return new IssuedPartUploadUrl("https://stub-storage.local/upload/" + s3Key, EXPIRES_IN_SECONDS);
+    }
+
+    // 재생용 presigned GET도 가짜 URL만 돌려줌(실 S3 어댑터에서 Range 지원 GET 서명으로 대체).
+    @Override
+    public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+        return new IssuedPlaybackUrl("https://stub-storage.local/playback/" + s3Key, PLAYBACK_EXPIRES_IN_SECONDS);
     }
 }

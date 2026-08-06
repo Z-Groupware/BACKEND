@@ -145,6 +145,11 @@ class ManualRecordingServiceTest {
             public boolean existsByMeetingId(Long meetingId) {
                 return false;
             }
+
+            @Override
+            public Optional<Recording> findByMeetingId(Long meetingId) {
+                return Optional.empty();
+            }
         };
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
         ManualRecordingService service = new ManualRecordingService(meetingRef, recordingRepo, sttPort);
@@ -193,6 +198,11 @@ class ManualRecordingServiceTest {
             @Override
             public boolean existsByMeetingId(Long meetingId) {
                 return alreadySubmitted;
+            }
+
+            @Override
+            public Optional<Recording> findByMeetingId(Long meetingId) {
+                return Optional.empty();
             }
         };
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;

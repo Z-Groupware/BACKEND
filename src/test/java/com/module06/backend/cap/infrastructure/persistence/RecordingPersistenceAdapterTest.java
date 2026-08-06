@@ -52,6 +52,11 @@ class RecordingPersistenceAdapterTest {
         // 같은 회의는 존재, 다른 회의는 미존재.
         assertThat(recordingRepository.existsByMeetingId(500L)).isTrue();
         assertThat(recordingRepository.existsByMeetingId(999L)).isFalse();
+
+        // 회의로 조회하면 저장한 녹음본이, 없는 회의는 empty.
+        assertThat(recordingRepository.findByMeetingId(500L)).isPresent()
+                .get().satisfies(r -> assertThat(r.getFileUrl()).isEqualTo("recordings/org-1/meeting-500/recording.ogg"));
+        assertThat(recordingRepository.findByMeetingId(999L)).isEmpty();
     }
 
     /* 같은 회의로 두 번 저장하면 UNIQUE(meeting_id) 제약이 두 번째를 CAP-014로 막는지 검증한다(경쟁 최종 방어선). */
