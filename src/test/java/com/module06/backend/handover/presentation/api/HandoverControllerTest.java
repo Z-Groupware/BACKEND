@@ -52,6 +52,7 @@ class HandoverControllerTest {
     private static final Long ACTION = 100L;
     private static final Long TARGET = 2L;
     private static final Long APPROVER = 9L;
+    private static final Long COMPANY = 1L;
     private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
     private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
 
@@ -79,16 +80,21 @@ class HandoverControllerTest {
     @MockitoBean
     private OrgQueryPort orgQueryPort;
 
+    /*
+     * 신청자·팀은 본문이 아니라 토큰에서 온다. 본문에 남의 사번/팀을 넣어도 무시되고,
+     * 커맨드에는 토큰의 memberId/teamId가 실린다 — 남의 명의 대리 신청 차단.
+     */
     @Test
-    void createMapsRequestToCommandAndReturnsCreatedApiResponse() throws Exception {
+    void createTakesWriterAndTeamFromTokenIgnoringBody() throws Exception {
+        authenticateAs(WRITER, COMPANY, "MEMBER", false, TEAM);
         when(createHandoverUseCase.create(any(CreateHandoverCommand.class))).thenReturn(submitted());
 
         mockMvc.perform(post("/api/handovers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "writerMemberId": 1,
-                                  "teamId": 10,
+                                  "writerMemberId": 999,
+                                  "teamId": 888,
                                   "handoverType": "VACATION",
                                   "leaveStartAt": "2026-08-10T09:00:00",
                                   "leaveEndAt": "2026-08-20T18:00:00",
@@ -207,21 +213,79 @@ class HandoverControllerTest {
         assertThat(captor.getValue().reason()).isEqualTo("needs more detail");
     }
 
+    /*
+     * 스코프는 클라이언트 파라미터가 아니라 토큰에서 결정한다. 멤버는 본인 것만 — 쿼리파라미터로
+     * 남의 사번/팀을 넣어도 무시되고, 토큰의 memberId로 SELF 스코프가 강제된다.
+     */
     @Test
-    void listMapsQueryParamsAndReturnsSummaries() throws Exception {
+    void listAsMemberScopesToSelfFromToken() throws Exception {
+        authenticateAs(WRITER, COMPANY, "MEMBER", false, TEAM);
         when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
                 .thenReturn(List.of(summary()));
 
-        mockMvc.perform(get("/api/handovers").param("teamId", TEAM.toString()))
+        // 남의 사번/팀을 파라미터로 밀어넣어도 스코프에 영향을 주지 못한다.
+        mockMvc.perform(get("/api/handovers")
+                        .param("writerMemberId", "999")
+                        .param("teamId", "888"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].id").value(HANDOVER_ID))
-                .andExpect(jsonPath("$.data[0].itemCount").value(1));
+                .andExpect(jsonPath("$.data[0].id").value(HANDOVER_ID));
 
+        GetHandoverListUseCase.HandoverListQuery query = capturedQuery();
+        assertThat(query.scope()).isEqualTo(GetHandoverListUseCase.Scope.SELF);
+        assertThat(query.memberId()).isEqualTo(WRITER);
+        assertThat(query.teamId()).isNull();
+        assertThat(query.companyId()).isNull();
+    }
+
+    @Test
+    void listAsLeaderScopesToOwnTeamFromToken() throws Exception {
+        authenticateAs(WRITER, COMPANY, "LEADER", false, TEAM);
+        when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
+                .thenReturn(List.of(summary()));
+
+        mockMvc.perform(get("/api/handovers"))
+                .andExpect(status().isOk());
+
+        GetHandoverListUseCase.HandoverListQuery query = capturedQuery();
+        assertThat(query.scope()).isEqualTo(GetHandoverListUseCase.Scope.TEAM);
+        assertThat(query.teamId()).isEqualTo(TEAM);
+        assertThat(query.memberId()).isNull();
+    }
+
+    @Test
+    void listAsOwnerScopesToCompanyFromToken() throws Exception {
+        authenticateAs(APPROVER, COMPANY, "OWNER", false, null);
+        when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
+                .thenReturn(List.of(summary()));
+
+        mockMvc.perform(get("/api/handovers"))
+                .andExpect(status().isOk());
+
+        GetHandoverListUseCase.HandoverListQuery query = capturedQuery();
+        assertThat(query.scope()).isEqualTo(GetHandoverListUseCase.Scope.COMPANY);
+        assertThat(query.companyId()).isEqualTo(COMPANY);
+    }
+
+    @Test
+    void listAsAdminScopesToCompanyRegardlessOfBaseRole() throws Exception {
+        // isAdmin은 기본 역할과 무관한 교차 플래그 — 멤버여도 어드민이면 회사 전체.
+        authenticateAs(WRITER, COMPANY, "MEMBER", true, TEAM);
+        when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
+                .thenReturn(List.of(summary()));
+
+        mockMvc.perform(get("/api/handovers"))
+                .andExpect(status().isOk());
+
+        GetHandoverListUseCase.HandoverListQuery query = capturedQuery();
+        assertThat(query.scope()).isEqualTo(GetHandoverListUseCase.Scope.COMPANY);
+        assertThat(query.companyId()).isEqualTo(COMPANY);
+    }
+
+    private GetHandoverListUseCase.HandoverListQuery capturedQuery() {
         ArgumentCaptor<GetHandoverListUseCase.HandoverListQuery> captor =
                 ArgumentCaptor.forClass(GetHandoverListUseCase.HandoverListQuery.class);
         verify(getHandoverListUseCase).list(captor.capture());
-        assertThat(captor.getValue().teamId()).isEqualTo(TEAM);
-        assertThat(captor.getValue().writerMemberId()).isNull();
+        return captor.getValue();
     }
 
     private static GetHandoverListUseCase.HandoverSummary summary() {
@@ -260,7 +324,11 @@ class HandoverControllerTest {
 
     /** 필터를 끈 슬라이스라 컨텍스트를 직접 심는다 — 다른 도메인의 컨트롤러 테스트와 같은 방식. */
     private void authenticateAs(Long memberId) {
-        AuthPrincipal principal = new AuthPrincipal(memberId, 1L, "LEADER", false, TEAM);
+        authenticateAs(memberId, COMPANY, "LEADER", false, TEAM);
+    }
+
+    private void authenticateAs(Long memberId, Long companyId, String role, boolean isAdmin, Long teamId) {
+        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, role, isAdmin, teamId);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }
