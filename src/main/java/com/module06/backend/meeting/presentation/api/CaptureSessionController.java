@@ -16,13 +16,17 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
-import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.application.command.PauseCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.ResumeCaptureSessionCommand;
+import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.application.result.CaptureSessionPauseResult;
+import com.module06.backend.meeting.application.result.CaptureSessionResumeResult;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
 import com.module06.backend.meeting.application.usecase.PauseCaptureSessionUseCase;
+import com.module06.backend.meeting.application.usecase.ResumeCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionPauseResponse;
+import com.module06.backend.meeting.presentation.api.response.CaptureSessionResumeResponse;
 import com.module06.backend.meeting.presentation.api.response.CaptureSessionStartResponse;
 
 /*
@@ -41,6 +45,9 @@ public class CaptureSessionController {
 
     /* CAP-02 프레젠테이션 계층과 캡처 일시정지 서비스 사이의 인바운드 Port다. */
     private final PauseCaptureSessionUseCase pauseCaptureSessionUseCase;
+
+    /* CAP-03 프레젠테이션 계층과 캡처 재개 서비스 사이의 인바운드 Port다. */
+    private final ResumeCaptureSessionUseCase resumeCaptureSessionUseCase;
 
     /*
      * 진행 중인 회의의 host 요청으로 회의당 하나의 캡처 세션을 시작한다.
@@ -102,6 +109,37 @@ public class CaptureSessionController {
         return ApiResponse.success(
                 "캡처를 일시정지했습니다.",
                 CaptureSessionPauseResponse.from(result)
+        );
+    }
+
+    /*
+     * 일시정지된 캡처 세션을 host 요청으로 재개한다.
+     * 새 세션을 만들지 않아 CAP-01에서 발급한 식별자와 공통 시간축을 그대로 유지한다.
+     */
+    @Operation(
+            summary = "캡처 재개",
+            description = "회의 개설자가 PAUSED 캡처 세션을 ACTIVE 상태로 전이합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/resume")
+    public ApiResponse<CaptureSessionResumeResponse> resumeCaptureSession(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @Parameter(description = "캡처를 재개할 회의 식별자", required = true)
+            @PathVariable Long meetingId
+    ) {
+        /* 토큰의 회사·구성원과 Path 회의 식별자만 사용해 재개 명령을 만든다. */
+        ResumeCaptureSessionCommand command = new ResumeCaptureSessionCommand(
+                principal.getCompanyId(),
+                principal.getMemberId(),
+                meetingId
+        );
+
+        /* ACTIVE 상태 전이 결과를 명세의 200 공통 응답 형식으로 변환한다. */
+        CaptureSessionResumeResult result = resumeCaptureSessionUseCase.resumeCaptureSession(command);
+        return ApiResponse.success(
+                "캡처를 재개했습니다.",
+                CaptureSessionResumeResponse.from(result)
         );
     }
 }

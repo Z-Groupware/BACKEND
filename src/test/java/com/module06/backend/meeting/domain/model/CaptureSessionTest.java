@@ -10,9 +10,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /*
- * CAP-01 캡처 세션 도메인의 최초 상태와 입력 불변식을 검증한다.
+ * CAP-01~03 캡처 세션 도메인의 최초 상태와 생명주기 불변식을 검증한다.
  */
-@DisplayName("CAP-01 캡처 세션 도메인")
+@DisplayName("CAP-01~03 캡처 세션 도메인")
 class CaptureSessionTest {
 
     /* 신규 세션이 D 소유 값만 가진 ACTIVE 상태로 생성되는지 검증한다. */
@@ -140,6 +140,89 @@ class CaptureSessionTest {
                 pausedAt.plusMinutes(20)
         );
         assertThatThrownBy(() -> endedSession.pause(pausedAt.plusMinutes(21)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /* PAUSED 세션이 같은 식별자와 시간축을 유지한 채 ACTIVE로 전이되는지 검증한다. */
+    @Test
+    @DisplayName("PAUSED 세션을 ACTIVE 상태로 재개한다")
+    void resumesPausedCaptureSession() {
+        /* 14시에 시작해 14시 31분에 멈춘 세션과 14시 36분 재개 시각을 준비한다. */
+        LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 14, 0);
+        LocalDateTime pausedAt = LocalDateTime.of(2026, 8, 6, 14, 31, 8);
+        LocalDateTime resumedAt = LocalDateTime.of(2026, 8, 6, 14, 36, 22);
+        CaptureSession pausedSession = CaptureSession.reconstitute(
+                15L,
+                91L,
+                3L,
+                CaptureSessionStatus.PAUSED,
+                startedAt,
+                1_785_992_400_000L,
+                pausedAt,
+                null,
+                startedAt,
+                pausedAt
+        );
+
+        /* CAP-03 도메인 전이를 실행한다. */
+        CaptureSession resumedSession = pausedSession.resume(resumedAt);
+
+        /* 세션 식별자·시간축은 유지되고 상태·pausedAt·updatedAt만 재개 상태로 바뀌어야 한다. */
+        assertThat(resumedSession.getId()).isEqualTo(15L);
+        assertThat(resumedSession.getMeetingId()).isEqualTo(91L);
+        assertThat(resumedSession.getStartedBy()).isEqualTo(3L);
+        assertThat(resumedSession.getStatus()).isEqualTo(CaptureSessionStatus.ACTIVE);
+        assertThat(resumedSession.isPaused()).isFalse();
+        assertThat(resumedSession.getStartedAt()).isEqualTo(startedAt);
+        assertThat(resumedSession.getStartedAtEpochMs()).isEqualTo(1_785_992_400_000L);
+        assertThat(resumedSession.getPausedAt()).isNull();
+        assertThat(resumedSession.getUpdatedAt()).isEqualTo(resumedAt);
+    }
+
+    /* 잘못된 시각과 ACTIVE·ENDED 상태의 재개 전이가 도메인에서 차단되는지 검증한다. */
+    @Test
+    @DisplayName("잘못된 재개 시각과 ACTIVE·ENDED 재개를 거절한다")
+    void rejectsInvalidResumeTransitions() {
+        /* 정상 PAUSED 세션과 마지막 일시정지 시각을 준비한다. */
+        LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 14, 0);
+        LocalDateTime pausedAt = LocalDateTime.of(2026, 8, 6, 14, 31, 8);
+        CaptureSession pausedSession = CaptureSession.reconstitute(
+                15L,
+                91L,
+                3L,
+                CaptureSessionStatus.PAUSED,
+                startedAt,
+                1_785_992_400_000L,
+                pausedAt,
+                null,
+                startedAt,
+                pausedAt
+        );
+
+        /* null과 마지막 일시정지보다 이른 시각은 유효한 CAP-03 전이 시각이 아니다. */
+        assertThatThrownBy(() -> pausedSession.resume(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> pausedSession.resume(pausedAt.minusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        /* 이미 ACTIVE인 세션과 ENDED 세션을 다시 활성화하는 상태 역행을 차단한다. */
+        CaptureSession activeSession = pausedSession.resume(pausedAt.plusSeconds(1));
+        assertThatThrownBy(() -> activeSession.resume(pausedAt.plusSeconds(2)))
+                .isInstanceOf(IllegalStateException.class);
+
+        CaptureSession endedSession = CaptureSession.reconstitute(
+                15L,
+                91L,
+                3L,
+                CaptureSessionStatus.ENDED,
+                startedAt,
+                1_785_992_400_000L,
+                pausedAt,
+                pausedAt.plusMinutes(20),
+                startedAt,
+                pausedAt.plusMinutes(20)
+        );
+        assertThatThrownBy(() -> endedSession.resume(pausedAt.plusMinutes(21)))
                 .isInstanceOf(IllegalStateException.class);
     }
 }

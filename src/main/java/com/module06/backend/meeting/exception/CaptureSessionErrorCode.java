@@ -42,6 +42,13 @@ public enum CaptureSessionErrorCode implements ErrorCode {
             "이미 일시정지된 캡처 세션입니다."
     ),
 
+    /* ACTIVE 세션에 재개를 다시 요청한 경우다. */
+    CAPTURE_SESSION_ALREADY_ACTIVE(
+            HttpStatus.CONFLICT,
+            "CS-005",
+            "이미 녹음 중인 캡처 세션입니다."
+    ),
+
     /* ENDED 세션의 상태 변경을 요청한 경우다. */
     CAPTURE_SESSION_ALREADY_ENDED(
             HttpStatus.CONFLICT,

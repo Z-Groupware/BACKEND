@@ -62,7 +62,7 @@ public class CaptureSessionJpaEntity {
     @Column(name = "started_at_epoch_ms", nullable = false)
     private long startedAtEpochMs;
 
-    /* 마지막 일시정지 시각이며 ACTIVE 초기 상태에서는 null이다. */
+    /* 현재 PAUSED 상태가 시작된 시각이며 ACTIVE 상태에서는 null이다. */
     @Column(name = "paused_at")
     private LocalDateTime pausedAt;
 
