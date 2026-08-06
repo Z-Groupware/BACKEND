@@ -3,6 +3,8 @@ package com.module06.backend.capture.application.port.out;
 import java.util.List;
 
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.ConflictType;
+import com.module06.backend.capture.domain.model.GateSignals;
 import com.module06.backend.capture.domain.model.VerifyVerdict;
 
 /*
@@ -51,6 +53,29 @@ public interface AssignmentTupleRepository {
     int applyVerifications(long meetingId, List<TupleVerification> verifications);
 
     /*
+     * L6 모순 검사 결과를 각 tuple 행에 반영한다.
+     *
+     * **모순이 없는 행도 반영한다.** conflicts 는 비고 conflict_checked_at 만 찍힌다 —
+     * "검사했고 깨끗함"과 "아직 안 봄"이 구분되어야 하기 때문이다. 둘을 한 값으로 뭉치면
+     * L6 가 통째로 안 돈 회의와 모순이 없는 회의를 구별할 수 없다(V5.14 주석).
+     *
+     * meetingId 를 함께 받는 이유는 회사 스코프다 — applyVerifications 와 같다.
+     *
+     * @return 실제로 반영된 건수
+     */
+    int applyConflicts(long meetingId, List<TupleConflicts> conflicts);
+
+    /*
+     * L7 자동확정 게이트 판정을 각 tuple 행에 반영한다.
+     *
+     * 신호 넷을 **개별 컬럼으로** 남긴다. 자동확정이 틀렸을 때 어느 조건이 헐거웠는지
+     * 알아야 게이트를 조일 수 있고, boolean 하나로 합치면 "틀렸다"만 남는다(V5.14 주석).
+     *
+     * @return 실제로 반영된 건수
+     */
+    int applyGateVerdicts(long meetingId, List<TupleGateVerdict> verdicts);
+
+    /*
      * 저장할 tuple 한 건. 계층 산출(AssignmentTuple)에 "어디서 나왔는지"를 붙인 것이다.
      *
      * decisionId 는 이 tuple 을 뽑은 CONFIRMED 항목이다. 없으면 어느 결정에서 나온 배정인지
@@ -78,7 +103,15 @@ public interface AssignmentTupleRepository {
             Long id,
             AssignmentTuple tuple,
             int topicSeq,
-            String topic
+            String topic,
+            /*
+             * L5 판정(verify_agree). L7 게이트의 네 번째 조건이 이 값이다.
+             *
+             * **3-상태다** — TRUE(두 관점 일치) · FALSE(갈렸거나 한쪽 실패) · NULL(L5 미수행).
+             * 게이트는 TRUE 만 통과시킨다. NULL 을 통과시키면 검증하지 않은 배정이 "확신도
+             * 높음"으로 올라가는데, 그건 게이트가 막으려던 상태 그대로다.
+             */
+            Boolean verifyAgree
     ) {
     }
 
@@ -96,6 +129,31 @@ public interface AssignmentTupleRepository {
             String reason,
             String modelName,
             String promptVersion
+    ) {
+    }
+
+    /*
+     * tuple 하나의 L6 결과.
+     *
+     * conflicts 가 **빈 목록이어도 이 레코드를 만든다.** 레코드가 있다는 것 자체가
+     * "검사했다"는 뜻이고, 그게 conflict_checked_at 으로 남는다.
+     */
+    record TupleConflicts(
+            Long tupleId,
+            List<ConflictType> conflicts
+    ) {
+    }
+
+    /*
+     * tuple 하나의 L7 판정.
+     *
+     * autoConfirmed 를 signals 와 따로 들고 다닌다 — 신호는 다 통과했는데 L6 모순 때문에
+     * 걸린 건이 있다. 합치면 그 구분이 사라진다(AutoConfirmGate 주석).
+     */
+    record TupleGateVerdict(
+            Long tupleId,
+            GateSignals signals,
+            boolean autoConfirmed
     ) {
     }
 }

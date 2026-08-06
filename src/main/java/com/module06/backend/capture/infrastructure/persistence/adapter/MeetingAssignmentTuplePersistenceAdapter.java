@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.GateSignals;
 import com.module06.backend.capture.infrastructure.persistence.entity.MeetingAssignmentTupleJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataMeetingAssignmentTupleRepository;
 
@@ -59,7 +60,10 @@ public class MeetingAssignmentTuplePersistenceAdapter implements AssignmentTuple
                                 entity.getDueDate(),
                                 entity.getEvidenceTranscriptId()),
                         entity.getTopicSeq(),
-                        entity.getTopic()))
+                        entity.getTopic(),
+                        // L7 게이트의 네 번째 조건. NULL(L5 미수행)을 그대로 넘긴다 —
+                        // 여기서 false 로 바꾸면 "검증에서 걸림"과 "검증 안 함"이 뭉친다.
+                        entity.getVerifyAgree()))
                 .toList();
     }
 
@@ -93,6 +97,66 @@ public class MeetingAssignmentTuplePersistenceAdapter implements AssignmentTuple
                 row.applyVerification(
                         verification.agree(), verification.disagreementFields(), verification.verdict(),
                         verification.reason(), verification.modelName(), verification.promptVersion());
+                applied++;
+            }
+        }
+        return applied;
+    }
+
+    /*
+     * L6 결과를 반영한다. **모순이 없는 행도 반영한다** — 검사 시각이 찍혀야
+     * "검사했고 깨끗함"이 되고, 안 찍으면 "아직 안 봄"으로 남는다(V5.14 주석).
+     */
+    @Override
+    @Transactional
+    public int applyConflicts(long meetingId, List<TupleConflicts> conflicts) {
+        Map<Long, TupleConflicts> byTupleId = new LinkedHashMap<>();
+        for (TupleConflicts conflict : conflicts) {
+            if (conflict.tupleId() != null) {
+                byTupleId.put(conflict.tupleId(), conflict);
+            }
+        }
+        if (byTupleId.isEmpty()) {
+            return 0;
+        }
+
+        List<MeetingAssignmentTupleJpaEntity> rows =
+                tupleRepository.findByMeetingIdAndIdIn(meetingId, byTupleId.keySet());
+
+        int applied = 0;
+        for (MeetingAssignmentTupleJpaEntity row : rows) {
+            TupleConflicts conflict = byTupleId.get(row.getId());
+            if (conflict != null) {
+                row.applyConflicts(conflict.conflicts().stream().map(Enum::name).toList());
+                applied++;
+            }
+        }
+        return applied;
+    }
+
+    @Override
+    @Transactional
+    public int applyGateVerdicts(long meetingId, List<TupleGateVerdict> verdicts) {
+        Map<Long, TupleGateVerdict> byTupleId = new LinkedHashMap<>();
+        for (TupleGateVerdict verdict : verdicts) {
+            if (verdict.tupleId() != null) {
+                byTupleId.put(verdict.tupleId(), verdict);
+            }
+        }
+        if (byTupleId.isEmpty()) {
+            return 0;
+        }
+
+        List<MeetingAssignmentTupleJpaEntity> rows =
+                tupleRepository.findByMeetingIdAndIdIn(meetingId, byTupleId.keySet());
+
+        int applied = 0;
+        for (MeetingAssignmentTupleJpaEntity row : rows) {
+            TupleGateVerdict verdict = byTupleId.get(row.getId());
+            if (verdict != null) {
+                GateSignals signals = verdict.signals();
+                row.applyGate(verdict.autoConfirmed(), signals.hasEvidence(), signals.assigneeInRoster(),
+                        signals.assigneeSourceOk(), signals.viewsAgree());
                 applied++;
             }
         }

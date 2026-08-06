@@ -19,6 +19,8 @@ import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.StoredTuple;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleConflicts;
+import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleGateVerdict;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleRow;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleVerification;
 import com.module06.backend.capture.application.port.out.CaptionRepository;
@@ -38,6 +40,7 @@ import com.module06.backend.capture.application.port.out.VerifyTupleResult;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
 import com.module06.backend.capture.domain.model.CaptionChunk;
+import com.module06.backend.capture.domain.model.ConflictType;
 import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.LayerName;
@@ -55,13 +58,20 @@ import com.module06.backend.capture.domain.model.Utterance;
  * L1(화자 귀속) → L1.5(지시어 해소) → L2(주제 분할) → 주제마다 L3(정리)
  * → meeting_summary·meeting_decision 저장 → 주제마다 L3.5(확정/논의 게이트) → gate_status 반영
  * → 주제마다 L4(tuple 추출) → meeting_assignment_tuple 저장
- * → tuple 마다 L5(관점 다변화 검증) → 그 행에 판정 반영.
- * L6(모순 검사) · L7(자동확정 게이트)은 아직 붙지 않았다.
+ * → tuple 마다 L5(관점 다변화 검증) → 그 행에 판정 반영
+ * → L6(규칙·모순 검사) → L7(자동확정 게이트).
+ * **파이프라인은 여기서 끝난다.**
  *
- * 호출 단위가 계층마다 다르다 — 회의당 1회(L1·L1.5·L2) · 주제당 1회(L3·L3.5·L4) ·
- * tuple 당 1회(L5). 단위는 각 계층의 Python 요청이 무엇을 하나로 받는지가 정한다.
+ * 호출 단위가 계층마다 다르다 — 회의당 1회(L1·L1.5·L2·L6·L7) · 주제당 1회(L3·L3.5·L4) ·
+ * tuple 당 1회(L5). 단위는 각 계층의 Python 요청이 무엇을 하나로 받는지가 정하고,
+ * 코드 계층은 그 판정이 무엇을 한꺼번에 봐야 하는지가 정한다(L6 의 중복 검사가 그렇다).
  *
- * L1 만 **코드 계층**이다(rms·명단으로 판정 · LLM 아님). 나머지는 Python 계층 호출이다.
+ * <h2>파이프라인이 끝나도 action 은 만들어지지 않는다</h2>
+ * L7 은 tuple 을 「AI 확신도 높음」과 「AI 확인 필요」로 가르는 것까지다. 자동 확정 건도
+ * **분배 전까지는 아무 데도 가 있지 않다**(명세 RVW-01). 실제 분배는 RVW-05 가 사람의
+ * 확인을 받아 하고, action 은 C 도메인 소유라 전이 메서드도 그쪽 것이다.
+ *
+ * L1·L6·L7 이 **코드 계층**이다(LLM 아님 · 토큰 0). 나머지는 Python 계층 호출이다.
  * 계층을 하나 붙일 때 바꾸는 곳은 {@link #run} 안의 호출 순서와 {@link #RUN_LAYERS} 두 곳이고,
  * 잠금·상태 기록·토큰 집계는 {@link #runLayer} 가 공통으로 갖는다.
  *
@@ -96,7 +106,7 @@ public class AnalysisOrchestrator {
      * 빠뜨리면 "전부 완료" 판정이 새 계층을 안 보고 생략을 결정한다. */
     private static final Set<LayerName> RUN_LAYERS = Set.of(
             LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
-            LayerName.L4, LayerName.L5);
+            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7);
 
     private final TranscriptRepository transcriptRepository;
     private final CaptionRepository captionRepository;
@@ -105,6 +115,8 @@ public class AnalysisOrchestrator {
     private final AssignmentTupleRepository assignmentTupleRepository;
     private final MeetingDateProvider meetingDateProvider;
     private final SpeakerAttributionResolver speakerAttributionResolver;
+    private final ConflictDetector conflictDetector;
+    private final AutoConfirmGate autoConfirmGate;
     private final AiLayerPort aiLayerPort;
 
     /*
@@ -157,14 +169,9 @@ public class AnalysisOrchestrator {
 
             // 명단 밖 탈출구(personId=null)는 제외한다 — 소거법과 "전원 자막" 판단의 분모가
             // 실제 참석자 수여야 한다. 탈출구를 포함하면 참석자가 2명인 회의가 3명으로 보여
-            // 소거법이 성립하지 않는다.
-            Set<Long> attendeeMemberIds = participants.stream()
-                    .map(AiLayerPort.Participant::personId)
-                    .filter(java.util.Objects::nonNull)
-                    .collect(Collectors.toSet());
-
+            // 소거법이 성립하지 않는다. L6·L7 도 같은 집합을 쓴다.
             List<SpeakerAttributionResolver.Attribution> attributions =
-                    speakerAttributionResolver.resolve(loaded, captions, attendeeMemberIds);
+                    speakerAttributionResolver.resolve(loaded, captions, attendeeMemberIdsOf(participants));
 
             int applied = transcriptRepository.applySpeakerAttributions(meetingId, attributions);
             if (applied != attributions.size()) {
@@ -475,11 +482,113 @@ public class AnalysisOrchestrator {
             return verified.toAnalysisOutcome(LayerName.L5);
         }
 
-        log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건",
+        /*
+         * 참석자 명단(명단 밖 탈출구 제외). L6·L7 이 함께 쓴다 — L1 이 쓰는 것과 같은 집합이고,
+         * 탈출구(personId=null)를 넣으면 "명단 안"의 뜻이 흐려진다.
+         */
+        Set<Long> attendeeMemberIds = attendeeMemberIdsOf(participants);
+
+        // ── L6 · 규칙·모순 검사 (코드 계층 · LLM 아님) ───────────────────────────
+        /*
+         * 저장된 tuple 을 데이터만 보고 검사한다. 모델을 부르지 않으므로 토큰이 0 이다.
+         *
+         * <h2>회의 단위로 한 번에 본다</h2>
+         * 중복 검사가 tuple 하나만 보고는 성립하지 않는다 — 같은 근거에서 나온 다른 tuple 이
+         * 있는지는 전체를 봐야 안다. 그 중복은 드문 사고가 아니라 L2 오버랩의 부산물이다.
+         *
+         * <h2>모순이 있어도 지우지 않는다</h2>
+         * 표시만 하고 남긴다. 지우면 사람이 검토할 대상 자체가 사라진다. 대신 뒤의 L7 이
+         * 모순 있는 tuple 을 자동확정하지 않는다 — 게이트는 조이는 방향으로만 쓴다.
+         */
+        LayerOutcome<Map<Long, List<ConflictType>>> checked = runLayer(meetingId, LayerName.L6, sink -> {
+            List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
+            if (stored.isEmpty()) {
+                return new Accumulated<>(Map.of(), LayerRun.empty());
+            }
+
+            Map<Long, List<ConflictType>> conflicts = conflictDetector.detect(
+                    stored, utterances, attendeeMemberIds, meetingDateOf(meetingId));
+
+            /*
+             * 모순이 없는 행도 반영한다 — 검사 시각이 찍혀야 "검사했고 깨끗함"이 되고,
+             * 안 찍으면 "아직 안 봄"으로 남는다(V5.14 주석).
+             */
+            List<TupleConflicts> rows = conflicts.entrySet().stream()
+                    .map(entry -> new TupleConflicts(entry.getKey(), entry.getValue()))
+                    .toList();
+            int applied = assignmentTupleRepository.applyConflicts(meetingId, rows);
+            if (applied != rows.size()) {
+                log.warn("L6 결과 반영 수가 대상과 다르다 — meetingId={} 대상={} 반영={}",
+                        meetingId, rows.size(), applied);
+            }
+            // 토큰을 쓰지 않는 코드 계층이다. 0 을 채우는 것이 아니라 실제로 0 이다.
+            return new Accumulated<>(conflicts, LayerRun.empty());
+        });
+        if (!checked.succeeded()) {
+            return checked.toAnalysisOutcome(LayerName.L6);
+        }
+
+        // ── L7 · 자동확정 게이트 (코드 계층 · LLM 아님) ─────────────────────────
+        /*
+         * 파이프라인의 마지막이다. 여기서 가른 두 묶음이 곧 검토 화면의
+         * 「AI 확신도 높음」과 「AI 확인 필요」다.
+         *
+         * <h2>action 을 만들지 않는다</h2>
+         * 자동 확정 건도 **분배 전까지는 아무 데도 가 있지 않다**(명세 RVW-01). 실제 분배는
+         * RVW-05 가 사람의 확인을 받아 하고, 그때 action_id 가 채워진다. 여기서 action 을
+         * 만들면 검토를 거치지 않은 배정이 사람의 보드에 꽂히고, 되돌리려면 이미 알림이 나간
+         * 액션을 지워야 한다. action 은 C 도메인 소유라 전이 메서드도 그쪽 것이다.
+         *
+         * <h2>L6 뒤에 도는 이유</h2>
+         * 모순이 있으면 신호 넷과 무관하게 자동확정하지 않는다. 순서를 뒤집으면 모순을 모르는
+         * 채로 게이트를 통과시키게 된다.
+         */
+        LayerOutcome<Integer> gated7 = runLayer(meetingId, LayerName.L7, sink -> {
+            List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
+            if (stored.isEmpty()) {
+                log.info("L7 생략 — 판정할 tuple 이 없다. meetingId={}", meetingId);
+                return new Accumulated<>(0, LayerRun.empty());
+            }
+
+            Map<Long, AutoConfirmGate.Verdict> verdicts = autoConfirmGate.evaluate(
+                    stored, checked.value(), utterances, attendeeMemberIds);
+
+            List<TupleGateVerdict> rows = verdicts.entrySet().stream()
+                    .map(entry -> new TupleGateVerdict(
+                            entry.getKey(), entry.getValue().signals(), entry.getValue().autoConfirmed()))
+                    .toList();
+            int applied = assignmentTupleRepository.applyGateVerdicts(meetingId, rows);
+            if (applied != rows.size()) {
+                log.warn("L7 판정 반영 수가 대상과 다르다 — meetingId={} 대상={} 반영={}",
+                        meetingId, rows.size(), applied);
+            }
+
+            long autoConfirmed = verdicts.values().stream()
+                    .filter(AutoConfirmGate.Verdict::autoConfirmed).count();
+            return new Accumulated<>((int) autoConfirmed, LayerRun.empty());
+        });
+        if (!gated7.succeeded()) {
+            return gated7.toAnalysisOutcome(LayerName.L7);
+        }
+
+        log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건 자동확정 {}건",
                 meetingId, decisions.size(),
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
-                extracted.value(), verified.value());
+                extracted.value(), verified.value(), gated7.value());
         return AnalysisOutcome.done(decisions.size());
+    }
+
+    /*
+     * 참석자 명단에서 실제 사람만 남긴다.
+     *
+     * 명단 밖 탈출구(personId=null)를 제외하는 이유는 L1 과 같다 — "명단 안에 있는가"를
+     * 묻는 자리에 탈출구가 섞이면 그 질문의 뜻이 흐려진다.
+     */
+    private Set<Long> attendeeMemberIdsOf(List<AiLayerPort.Participant> participants) {
+        return participants.stream()
+                .map(AiLayerPort.Participant::personId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     /*
