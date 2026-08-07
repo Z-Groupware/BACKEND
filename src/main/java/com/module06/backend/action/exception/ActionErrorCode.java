@@ -17,8 +17,10 @@ import lombok.Getter;
     - ErrorCode                        : 구현하는 인터페이스 (global.exception)
     - BusinessException                : 이 코드를 담아 던지는 예외 (global.exception)
     - PersonalActionAssigneeOnlyPolicy : NOT_ACTION_ASSIGNEE를 던짐 (application.policy)
-    - TeamActionLeaderOnlyPolicy       : NOT_TEAM_LEADER를 던짐 (application.policy)
     - ActionTypeShapePolicy            : INVALID_ACTION_TYPE_SHAPE를 던짐 (domain.policy)
+
+    NOT_TEAM_LEADER(AC-003)는 FR-AC-07 폐기(2026-08-07)로 던지는 곳이 없다. 이미 문서화된
+    코드라 enum 값 자체는 남겨둔다 — 죽은 건 TeamActionLeaderOnlyPolicy 쪽이었다.
 */
 @Getter
 @AllArgsConstructor

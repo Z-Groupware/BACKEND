@@ -37,4 +37,7 @@ public interface ActionRepository {
     List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions);
 
     List<Action> findTeamActionsByLeaderMemberId(Long leaderMemberId);
+
+    // FR-AC-06 — 팀 액션 목록. JWT의 teamId로 이미 스코프된 값을 그대로 받아 그 팀의 TEAM 액션만 찾는다.
+    List<Action> findAllByTeamId(Long teamId);
 }
