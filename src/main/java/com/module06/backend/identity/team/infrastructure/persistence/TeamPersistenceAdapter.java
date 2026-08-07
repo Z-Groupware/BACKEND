@@ -19,8 +19,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class TeamPersistenceAdapter implements TeamRepository {
 
-    /* 같은 부모 아래 부서 이름 유일성을 최종 차단하는 데이터베이스 제약 이름이다(V2.3.13). */
-    private static final String TEAM_NAME_UNIQUE_CONSTRAINT = "UK_TEAM_COMPANY_PARENT_NAME";
+    /* 회사 안 부서 이름 유일성을 최종 차단하는 데이터베이스 제약 이름이다(V2.3.16). */
+    private static final String TEAM_NAME_UNIQUE_CONSTRAINT = "UK_TEAM_COMPANY_NAME";
 
     private final SpringDataTeamRepository repository;
 
@@ -35,11 +35,11 @@ public class TeamPersistenceAdapter implements TeamRepository {
     }
 
     @Override
-    public Team create(Long companyId, Long parentTeamId, String name) {
+    public Team create(Long companyId, String name) {
         TeamJpaEntity saved;
         try {
             /* flush까지 실행해 유일성 제약 위반을 이 메서드 경계에서 확인한다. */
-            saved = repository.saveAndFlush(TeamJpaEntity.create(companyId, parentTeamId, name));
+            saved = repository.saveAndFlush(TeamJpaEntity.create(companyId, name));
         } catch (DataIntegrityViolationException exception) {
             throw translateNameDuplicate(exception);
         }
@@ -96,22 +96,11 @@ public class TeamPersistenceAdapter implements TeamRepository {
     }
 
     @Override
-    public boolean existsByCompanyIdAndParentTeamIdAndName(Long companyId, Long parentTeamId, String name) {
-        return repository.existsByCompanyIdAndParentTeamIdAndName(companyId, parentTeamId, name);
-    }
-
-    @Override
-    public boolean existsByCompanyIdAndParentTeamIdIsNullAndName(Long companyId, String name) {
-        return repository.existsByCompanyIdAndParentTeamIdIsNullAndName(companyId, name);
-    }
-
-    @Override
-    public boolean existsByParentTeamId(Long parentTeamId) {
-        return repository.existsByParentTeamId(parentTeamId);
+    public boolean existsByCompanyIdAndName(Long companyId, String name) {
+        return repository.existsByCompanyIdAndName(companyId, name);
     }
 
     private Team toDomain(TeamJpaEntity entity) {
-        return new Team(entity.getId(), entity.getCompanyId(), entity.getName(),
-                entity.getParentTeamId(), entity.getLeaderMemberId());
+        return new Team(entity.getId(), entity.getCompanyId(), entity.getName(), entity.getLeaderMemberId());
     }
 }
