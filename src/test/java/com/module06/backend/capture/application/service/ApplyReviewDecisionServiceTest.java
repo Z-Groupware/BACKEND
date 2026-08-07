@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import tools.jackson.databind.ObjectMapper;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionReviewApplyPort;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
@@ -201,6 +202,78 @@ class ApplyReviewDecisionServiceTest {
     }
 
     @Test
+    @DisplayName("담당자 없는 액션의 CONFIRM 은 422 — 담당자 null 이 정답 라벨로 학습된다")
+    void 담당자_없는_액션은_승인할_수_없다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+        RecordingReviewLog logs = new RecordingReviewLog();
+        RecordingVectorRepository vectors = new RecordingVectorRepository();
+
+        assertThatThrownBy(() -> service(unassignedTarget(), applied, logs, vectors)
+                .apply(command(ReviewDecision.CONFIRM, null, null, null)))
+                .isInstanceOf(BusinessException.class);
+
+        // 라벨도 예시도 남기지 않는다. 남으면 "담당자를 비우는 것이 정답"이 few-shot 으로 간다.
+        assertThat(applied.called).isFalse();
+        assertThat(logs.entries).isEmpty();
+        assertThat(vectors.entries).isEmpty();
+    }
+
+    @Test
+    @DisplayName("담당자를 안 채운 MODIFY 도 422 — 기한만 고치고 확정으로 넘어가는 길을 막는다")
+    void 담당자를_채우지_않은_수정도_거절한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        assertThatThrownBy(() -> service(unassignedTarget(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_DUE, null,
+                        LocalDate.of(2026, 8, 20))))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(applied.called).isFalse();
+    }
+
+    @Test
+    @DisplayName("담당자를 채워 보낸 MODIFY 는 지나간다 — 막는 것은 '안 채운 확정'뿐이다")
+    void 담당자를_채운_수정은_통과한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        service(unassignedTarget(), applied, logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_ASSIGNEE, BOB, null));
+
+        assertThat(applied.assigneeMemberId).isEqualTo(BOB);
+        assertThat(applied.reviewStatus).isEqualTo("HUMAN_CONFIRMED");
+        // 이번 요청의 담당자를 본다 — 액션의 옛 값(null)으로 판정하면 채워 보낸 수정이 거절된다.
+        assertThat(logs.entries.get(0).humanValue()).contains("\"assigneeMemberId\":43");
+    }
+
+    @Test
+    @DisplayName("담당자 없는 액션도 반려는 된다 — 담당자를 못 정해 버리는 길이 반려다")
+    void 담당자_없는_액션도_반려할_수_있다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        ReviewDecisionOutcome outcome = service(unassignedTarget(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.REJECT, RejectReason.HALLUCINATION, null, null));
+
+        assertThat(outcome.reviewStatus()).isEqualTo("REJECTED");
+    }
+
+    @Test
+    @DisplayName("TEAM 액션은 담당자 없이도 확정된다 — 담당자 개념 자체가 없다")
+    void 팀_액션은_담당자_없이_승인된다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        ReviewDecisionOutcome outcome = service(teamTarget(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.CONFIRM, null, null, null));
+
+        // 함께 막으면 팀 액션은 영원히 확정되지 않는다.
+        assertThat(outcome.reviewStatus()).isEqualTo("HUMAN_CONFIRMED");
+        assertThat(applied.called).isTrue();
+    }
+
+    @Test
     @DisplayName("그 회의의 액션이 아니면 404 — 회의 관문은 actionId 를 보지 않는다")
     void 없는_액션은_404() {
         assertThatThrownBy(() -> new ApplyReviewDecisionService(
@@ -229,8 +302,8 @@ class ApplyReviewDecisionServiceTest {
     @DisplayName("수동 추가 액션은 예시로 예약하지 않는다 — AI 입력이 없어 {입력→정답} 쌍이 없다")
     void 수동_추가_액션은_벡터로_예약하지_않는다() {
         ActionReviewQueryPort.ReviewTarget manual = new ActionReviewQueryPort.ReviewTarget(
-                ACTION, ALICE, LocalDate.of(2026, 8, 8), "직접 추가한 일", true, "PENDING",
-                8812L, "서준님이 정리해주세요.", null, null);
+                ACTION, ActionType.PERSONAL, ALICE, LocalDate.of(2026, 8, 8), "직접 추가한 일",
+                true, "PENDING", 8812L, "서준님이 정리해주세요.", null, null);
         RecordingReviewLog logs = new RecordingReviewLog();
         RecordingVectorRepository vectors = new RecordingVectorRepository();
 
@@ -250,8 +323,8 @@ class ApplyReviewDecisionServiceTest {
     @DisplayName("근거 발화가 없으면 예시로 예약하지 않는다 — 임베딩할 텍스트가 없다")
     void 근거가_없으면_벡터로_예약하지_않는다() {
         ActionReviewQueryPort.ReviewTarget noEvidence = new ActionReviewQueryPort.ReviewTarget(
-                ACTION, ALICE, LocalDate.of(2026, 8, 8), "로드맵 초안 작성", false, "PENDING",
-                null, null, "제품 로드맵", aiValue());
+                ACTION, ActionType.PERSONAL, ALICE, LocalDate.of(2026, 8, 8), "로드맵 초안 작성",
+                false, "PENDING", null, null, "제품 로드맵", aiValue());
 
         ReviewDecisionOutcome outcome = service(noEvidence, new RecordingReviewLog(),
                 new RecordingVectorRepository())
@@ -317,8 +390,22 @@ class ApplyReviewDecisionServiceTest {
 
     private static ActionReviewQueryPort.ReviewTarget target() {
         return new ActionReviewQueryPort.ReviewTarget(
-                ACTION, ALICE, LocalDate.of(2026, 8, 8), "로드맵 초안 작성", false, "PENDING",
-                8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
+                ACTION, ActionType.PERSONAL, ALICE, LocalDate.of(2026, 8, 8), "로드맵 초안 작성",
+                false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
+    }
+
+    /* AI 가 담당자를 못 정한 액션. 분배는 이 상태를 허용하고, 채우는 자리가 검토 화면이다. */
+    private static ActionReviewQueryPort.ReviewTarget unassignedTarget() {
+        return new ActionReviewQueryPort.ReviewTarget(
+                ACTION, ActionType.PERSONAL, null, LocalDate.of(2026, 8, 8), "로드맵 초안 작성",
+                false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
+    }
+
+    /* TEAM 액션은 담당자 개념이 없다 — 팀 전체가 대상이다(ActionTypeShapePolicy). */
+    private static ActionReviewQueryPort.ReviewTarget teamTarget() {
+        return new ActionReviewQueryPort.ReviewTarget(
+                ACTION, ActionType.TEAM, null, LocalDate.of(2026, 8, 8), "팀 회고 준비",
+                false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
     }
 
     private static ActionReviewQueryPort.AiValue aiValue() {

@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.GateSignals;
 import com.module06.backend.capture.domain.model.RejectReason;
@@ -110,9 +111,13 @@ public interface ActionReviewQueryPort {
      *                        tuple 이 없어 null 이고, 그때 라벨은 few-shot 풀에서 제외된다
      * @param evidenceContent 근거 발화 원문. 벡터의 임베딩 대상이다(V5.10) — tuple 이 아니라
      *                        발화를 임베딩해야 검색 시점의 쿼리와 같은 공간에 놓인다
+     * @param actionType      TEAM 인가 PERSONAL 인가. **판정이 이 값을 봐야 한다** — 담당자
+     *                        없는 확정을 막을 때 TEAM 을 함께 막으면 팀 액션은 영원히 확정할 수
+     *                        없다(TEAM 은 담당자 개념 자체가 없다 · ActionTypeShapePolicy)
      */
     record ReviewTarget(
             Long actionId,
+            ActionType actionType,
             Long assigneeMemberId,
             LocalDate dueDate,
             String title,

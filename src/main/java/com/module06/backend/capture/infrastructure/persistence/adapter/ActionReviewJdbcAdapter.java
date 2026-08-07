@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.GateSignals;
@@ -120,6 +121,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
      */
     private static final String ONE_SQL = """
             SELECT a.id                          AS action_id,
+                   a.action_type                 AS action_type,
                    a.assignee_member_id          AS assignee_member_id,
                    a.due_date                    AS due_date,
                    a.title                       AS title,
@@ -220,6 +222,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
     private ReviewTarget toReviewTarget(ResultSet rs) throws SQLException {
         return new ReviewTarget(
                 rs.getLong("action_id"),
+                actionTypeOf(rs),
                 nullableLong(rs, "assignee_member_id"),
                 rs.getObject("due_date", java.time.LocalDate.class),
                 rs.getString("title"),
@@ -250,6 +253,16 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                 rs.getObject("ai_due_date", java.time.LocalDate.class),
                 rs.getString("ai_model_name"),
                 rs.getString("ai_prompt_version"));
+    }
+
+    /*
+     * 액션의 종류. **null 로 두는 쪽이 안전하다** — 모르는 값이 오면 던지는 rejectReason 과
+     * 다르게 판단한다. 이 값을 읽는 곳(RVW-02 의 담당자 확정 검사)은 TEAM 일 때만 담당자를
+     * 면제하므로, 정하지 못한 값은 면제되지 않고 조이는 쪽으로 떨어진다.
+     */
+    private ActionType actionTypeOf(ResultSet rs) throws SQLException {
+        String value = rs.getString("action_type");
+        return value == null ? null : ActionType.valueOf(value);
     }
 
     /* 알 수 없는 값이 오면 던진다 — 사유 코드가 늘었는데 이쪽이 모르는 상태를 감추지 않는다. */
