@@ -14,8 +14,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,9 +41,13 @@ class MeteringDashboardServiceTest {
 
     private MeteringDashboardService service;
 
+    // 고정 Clock — period 미지정 시 월 판정이 실행 시각에 흔들리지 않게 한다(2026-08 고정).
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-07T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+
     @BeforeEach
     void setUp() {
-        service = new MeteringDashboardService(tokenUsageRecordRepository, companyTokenPlanRepository);
+        service = new MeteringDashboardService(tokenUsageRecordRepository, companyTokenPlanRepository, FIXED_CLOCK);
     }
 
     @Test

@@ -10,9 +10,11 @@ import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import com.module06.backend.metering.domain.model.CompanyTokenPlan;
 import com.module06.backend.metering.domain.repository.CompanyTokenPlanRepository;
 import com.module06.backend.metering.domain.repository.TokenUsageRecordRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
@@ -26,11 +28,15 @@ public class MeteringDashboardService implements GetMeteringDashboardUseCase {
 
     private final TokenUsageRecordRepository tokenUsageRecordRepository;
     private final CompanyTokenPlanRepository companyTokenPlanRepository;
+    // 월 경계(과금 기간) 판정은 KST 기준. TokenMeteringService 와 같은 meetingClock 을 재사용해 일치시킨다.
+    private final Clock clock;
 
     public MeteringDashboardService(TokenUsageRecordRepository tokenUsageRecordRepository,
-                                    CompanyTokenPlanRepository companyTokenPlanRepository) {
+                                    CompanyTokenPlanRepository companyTokenPlanRepository,
+                                    @Qualifier("meetingClock") Clock clock) {
         this.tokenUsageRecordRepository = tokenUsageRecordRepository;
         this.companyTokenPlanRepository = companyTokenPlanRepository;
+        this.clock = clock;
     }
 
     @Override
@@ -102,7 +108,7 @@ public class MeteringDashboardService implements GetMeteringDashboardUseCase {
 
     private YearMonth parsePeriod(String period) {
         if (period == null || period.isBlank()) {
-            return YearMonth.now();
+            return YearMonth.now(clock);
         }
         try {
             return YearMonth.parse(period);

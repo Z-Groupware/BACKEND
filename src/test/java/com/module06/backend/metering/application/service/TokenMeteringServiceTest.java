@@ -6,6 +6,9 @@ import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import com.module06.backend.metering.domain.model.TokenUsageRecord;
 import com.module06.backend.metering.domain.repository.CompanyTokenPlanRepository;
 import com.module06.backend.metering.domain.repository.TokenUsageRecordRepository;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,9 +35,13 @@ class TokenMeteringServiceTest {
 
     private TokenMeteringService service;
 
+    // 고정 Clock — record 의 recorded_at 과 getStatus 의 월 판정이 실행 시각에 흔들리지 않게 한다.
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-07T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+
     @BeforeEach
     void setUp() {
-        service = new TokenMeteringService(tokenUsageRecordRepository, companyTokenPlanRepository);
+        service = new TokenMeteringService(tokenUsageRecordRepository, companyTokenPlanRepository, FIXED_CLOCK);
     }
 
     @Test
