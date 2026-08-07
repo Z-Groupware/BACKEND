@@ -174,15 +174,15 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         return List.copyOf(orderedMemberIds);
     }
 
-    /* 요청한 전체 구성원 표시 정보를 한 번에 조회하고 누락된 식별자가 없는지 검증한다. */
+    /* 삭제된 과거 참석자를 포함한 전체 구성원 표시 정보를 한 번에 조회하고 누락 여부를 검증한다. */
     private Map<Long, MemberSnapshot> findAndValidateMembers(Long companyId, List<Long> memberIds) {
         /* Port 결과 순서에 의존하지 않도록 구성원 식별자를 키로 표시 정보를 색인한다. */
         Map<Long, MemberSnapshot> members = new LinkedHashMap<>();
-        for (MemberSnapshot member : memberQueryPort.findActiveMembers(companyId, memberIds)) {
+        for (MemberSnapshot member : memberQueryPort.findMembersIncludingDeleted(companyId, memberIds)) {
             members.put(member.memberId(), member);
         }
 
-        /* 다른 회사·삭제 구성원·누락 결과가 있으면 불완전한 상세 명단을 반환하지 않는다. */
+        /* 다른 회사·존재하지 않는 구성원처럼 조회되지 않은 식별자가 있으면 상세 응답을 거절한다. */
         if (members.size() != memberIds.size() || !members.keySet().containsAll(memberIds)) {
             throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
         }
