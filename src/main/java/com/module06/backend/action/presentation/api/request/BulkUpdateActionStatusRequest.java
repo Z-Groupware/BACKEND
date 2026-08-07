@@ -18,7 +18,7 @@ import jakarta.validation.constraints.NotNull;
     - BulkUpdateActionStatusCommand · BulkUpdateTeamActionStatusCommand           : 이 DTO가 변환되는 application 명령
 */
 public record BulkUpdateActionStatusRequest(
-        @NotEmpty List<@Valid Item> items
+        @NotEmpty List<@NotNull @Valid Item> items
 ) {
 
     public record Item(

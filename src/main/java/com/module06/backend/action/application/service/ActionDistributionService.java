@@ -132,8 +132,8 @@ public class ActionDistributionService implements ActionDistributionPort {
                 ? resolveDefaultDueDate(item, defaultDueDateByProjectId)
                 : item.dueDate();
 
-        // DB의 action_type CHECK 제약과 같은 규칙을 저장 전에 한 번 더 건다(이중 방어).
-        ACTION_TYPE_SHAPE_POLICY.check(item.actionType(), teamId, item.assigneeMemberId());
+        // 분배 경로 — PERSONAL이어도 담당자가 없을 수 있다(2026-08-07, 이태연 요청).
+        ACTION_TYPE_SHAPE_POLICY.checkDistribution(item.actionType(), teamId, item.assigneeMemberId());
 
         return Action.create(
                 item.companyId(),
