@@ -138,6 +138,17 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // FR-AC-08 — 팀 액션 타임라인. companyId·PERSONAL 조건을 조회 자체에 넣어 다른 회사 행이나
+    // TEAM 액션이 섞여 들어올 여지를 원천 차단한다.
+    @Override
+    public List<Action> findAllByParentActionId(Long companyId, Long parentActionId) {
+        return springDataActionRepository
+                .findAllByActionTypeAndCompanyIdAndParentActionId(ActionType.PERSONAL, companyId, parentActionId)
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     @Override
     public List<TeamActionSummary> findTeamActionsByProjectId(Long projectId) {
         List<ActionJpaEntity> teamActions =

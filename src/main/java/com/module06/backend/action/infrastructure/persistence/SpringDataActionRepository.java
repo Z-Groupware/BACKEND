@@ -27,4 +27,10 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
     List<ActionJpaEntity> findAllByActionTypeAndTeamIdIn(ActionType actionType, List<Long> teamIds);
 
     List<ActionJpaEntity> findAllByActionTypeAndProjectId(ActionType actionType, Long projectId);
+
+    // FR-AC-08 — 팀 액션 타임라인. parentActionId만으로 찾으면 DB가 강제 안 하는 회사·종류
+    // 불변식(자식은 항상 부모와 같은 회사의 PERSONAL)에 기대게 된다 — companyId·actionType도
+    // 조건에 넣어 조회 자체에서 보장한다(2026-08-07, CodeRabbit 지적).
+    List<ActionJpaEntity> findAllByActionTypeAndCompanyIdAndParentActionId(
+            ActionType actionType, Long companyId, Long parentActionId);
 }
