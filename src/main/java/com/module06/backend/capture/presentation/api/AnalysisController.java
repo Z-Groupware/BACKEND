@@ -1,7 +1,9 @@
 package com.module06.backend.capture.presentation.api;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
@@ -18,14 +21,22 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.AddReviewActionUseCase;
 import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
+import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase;
+import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase.ConfirmDistributionCommand;
+import com.module06.backend.capture.application.usecase.CancelReviewActionUseCase;
+import com.module06.backend.capture.application.usecase.CancelReviewActionUseCase.CancelReviewActionCommand;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
+import com.module06.backend.capture.presentation.api.request.AddReviewActionRequest;
 import com.module06.backend.capture.presentation.api.request.ReviewDecisionRequest;
 import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
+import com.module06.backend.capture.presentation.api.response.AddReviewActionResponse;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
+import com.module06.backend.capture.presentation.api.response.DistributionConfirmResponse;
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
 import com.module06.backend.capture.presentation.api.response.ReviewDecisionResponse;
@@ -59,6 +70,9 @@ public class AnalysisController {
     private final GetSummaryUseCase getSummaryUseCase;
     private final GetActionReviewUseCase getActionReviewUseCase;
     private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
+    private final ConfirmDistributionUseCase confirmDistributionUseCase;
+    private final CancelReviewActionUseCase cancelReviewActionUseCase;
+    private final AddReviewActionUseCase addReviewActionUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -156,6 +170,87 @@ public class AnalysisController {
                 "반영되었습니다.",
                 ReviewDecisionResponse.from(applyReviewDecisionUseCase.apply(
                         request.toCommand(me.getCompanyId(), meetingId, actionId, me.getMemberId()))));
+    }
+
+    /*
+     * RVW-05 · 액션 분배 확정.
+     *
+     * **파이프라인의 마지막 사람 손이다.** 이 호출 전까지 액션은 만들어져 있어도 아무 데도 가
+     * 있지 않고, 이 호출 뒤에 각자의 보드에 카드가 생긴다 — 그때부터는 C(액션·보드) 소관이다.
+     *
+     * 회의 담당자만 부를 수 있다(403). 검토는 참석자 누구나 하되 **마지막 버튼은 한 사람**이다 —
+     * 분배는 되돌릴 수 없기 때문이다. 그 판정은 서비스가 한다(역할이 아니라 그 회의의 host 다).
+     */
+    @Operation(
+            summary = "액션 분배 확정 (RVW-05)",
+            description = "검토를 끝내고 액션을 담당자 보드로 내보낸다. 확인되지 않은 STT 구간이나 "
+                    + "미검토 액션이 남아 있으면 409 이며 confirm=true 로만 강행한다. "
+                    + "강행해도 미검토·반려·담당자 미정 액션은 나가지 않고 skipped 로 돌아온다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/review/confirm")
+    public ApiResponse<DistributionConfirmResponse> confirmDistribution(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Parameter(description = "true 면 미검토·미확인 구멍이 남아 있어도 강행한다")
+            @RequestParam(defaultValue = "false") boolean confirm
+    ) {
+        return ApiResponse.success(
+                "분배가 확정되었습니다.",
+                DistributionConfirmResponse.from(confirmDistributionUseCase.confirm(
+                        new ConfirmDistributionCommand(
+                                me.getCompanyId(), meetingId, me.getMemberId(), confirm))));
+    }
+    /*
+     * RVW-04 · 직접 추가한 액션 취소.
+     *
+     * **지울 수 있는 것은 사람이 직접 넣은 액션뿐이다.** AI 가 만든 액션은 반려(RVW-02)로
+     * 처리한다 — 지우면 「AI 가 이런 걸 뽑았고 사람이 아니라고 했다」는 라벨이 사라지고,
+     * 지나간 회의는 다시 만들 수 없어 되돌릴 수도 없다.
+     */
+    @Operation(
+            summary = "직접 추가한 액션 취소 (RVW-04)",
+            description = "검토 화면에서 직접 추가한 액션을 지운다. isManual=true 인 액션만 "
+                    + "지울 수 있고, AI 생성 액션은 409 로 막힌다 — 그쪽은 RVW-02 의 REJECT 다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @DeleteMapping("/review/actions/{actionId}")
+    public ApiResponse<Void> cancelReviewAction(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @PathVariable Long actionId
+    ) {
+        cancelReviewActionUseCase.cancel(new CancelReviewActionCommand(
+                me.getCompanyId(), meetingId, actionId, me.getMemberId()));
+
+        return ApiResponse.success("삭제되었습니다.", null);
+    }
+    /*
+     * RVW-03 · 액션 직접 추가.
+     *
+     * **AI 가 놓친 것을 사람이 넣는 자리다.** 파이프라인이 못 뽑은 할 일은 검토 화면에 아예
+     * 나타나지 않으므로, 이 경로가 없으면 사람은 빠진 것을 알아도 넣을 방법이 없다.
+     *
+     * MEMBER 까지 허용한다 — 검토는 회의 참석자가 하는 일이고, RVW-02 와 같은 판단이다.
+     */
+    @Operation(
+            summary = "액션 직접 추가 (RVW-03)",
+            description = "검토 화면에서 사람이 액션을 직접 추가한다. 만들어지는 액션은 "
+                    + "isManual=true · HUMAN_CONFIRMED 이며, AI 입력이 없어 few-shot 예시로는 "
+                    + "쓰이지 않는다. 담당자와 기한은 필수다(422)."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping("/review/actions")
+    public ApiResponse<AddReviewActionResponse> addReviewAction(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Valid @RequestBody AddReviewActionRequest request
+    ) {
+        return ApiResponse.success(
+                "추가되었습니다.",
+                AddReviewActionResponse.from(addReviewActionUseCase.add(
+                        request.toCommand(me.getCompanyId(), meetingId, me.getMemberId()))));
     }
 
     /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */

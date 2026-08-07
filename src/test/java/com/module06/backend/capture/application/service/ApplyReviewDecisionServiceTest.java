@@ -348,6 +348,12 @@ class ApplyReviewDecisionServiceTest {
         public List<ReviewAction> findByMeeting(long companyId, long meetingId, String reviewStatus) {
             throw new UnsupportedOperationException();
         }
+
+        /* RVW-02 는 분배 시각을 보지 않는다 — 판정은 확정 전에도 뒤에도 할 수 있다. */
+        @Override
+        public Optional<java.time.LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private static final class RecordingApplyPort implements ActionReviewApplyPort {

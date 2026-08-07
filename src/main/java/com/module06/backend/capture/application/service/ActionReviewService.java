@@ -45,11 +45,13 @@ public class ActionReviewService implements GetActionReviewUseCase {
                 groupByPerson(actions),
                 needsReviewOf(actions),
                 /*
-                 * 분배 시각. **아직 항상 null 이다** — 분배는 RVW-05 가 하고 그 API 는 붙지
-                 * 않았다. 자동 확정 건도 분배 전까지는 아무 데도 가 있지 않다는 뜻이 이 값으로
-                 * 드러난다(명세 RVW-01). RVW-05 가 붙을 때 저장 자리를 함께 만든다.
+                 * 분배 시각. **null 이면 아직 아무 데도 가 있지 않다** — 자동 확정 건도
+                 * 마찬가지이고, 화면의 「확정 전 검토 가능」이 그 뜻이다(명세 RVW-01).
+                 *
+                 * 회의 단위 값이라 액션 목록과 따로 읽는다. 확정 뒤에 추가된 액션(RVW-03)은
+                 * 아직 안 나갔으므로 목록에는 나가지 않은 행이 섞여 있을 수 있다.
                  */
-                null);
+                actionReviewQueryPort.dispatchedAtOf(companyId, meetingId).orElse(null));
     }
 
     /*

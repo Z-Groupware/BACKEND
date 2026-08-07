@@ -1222,6 +1222,12 @@ class AnalysisOrchestratorTest {
             return List.copyOf(utterances);
         }
 
+        /* 이 테스트가 보는 것은 파이프라인이라 근거 검증 경로(RVW-03)는 지나지 않는다. */
+        @Override
+        public boolean existsInMeeting(long meetingId, long transcriptId) {
+            throw new UnsupportedOperationException();
+        }
+
         /*
          * 실물과 같은 계약이다 — **이번 판정이 그 회의의 화자 상태 전부다.** 목록에 없는 발화는
          * 화자를 NULL 로 되돌린다. 덮어쓰기만 흉내내면 "기권했는데 예전 판정이 남는" 버그가

@@ -111,6 +111,21 @@ public class ActionJpaEntity {
     @Column(name = "confirmed_at")
     private LocalDateTime confirmedAt;
 
+    /* comment.
+        분배 확정(RVW-05)으로 보드에 내보낸 시각(V5.17). NULL이면 아직 아무 데도 가 있지 않다 —
+        화면의 "확정 전 검토 가능"이 그 뜻이다.
+
+        confirmed_at과 다른 순간이다. 그쪽은 액션 하나를 사람이 확정·반려한 시각이고 반려하면
+        지워지는데, 이 값은 회의의 검토를 끝내고 묶음을 내보낸 시각이며 한 번 나가면 되돌리지
+        않는다. 담당자를 고쳐 확정했지만 아직 분배 버튼을 누르지 않은 액션이 그 차이다.
+
+        도메인 모델(Action)이 아니라 엔티티에만 둔다. 다른 필드와 얽힌 전이 규칙이 없는
+        기록용 시각이고, Action의 생성자·팩터리 시그니처를 넓히면 그 도메인을 쓰는 모든 경로가
+        함께 흔들린다. "이미 나간 것을 다시 찍지 않는다"는 규칙은 아래 markDispatched가 갖는다.
+    */
+    @Column(name = "dispatched_at")
+    private LocalDateTime dispatchedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -164,5 +179,21 @@ public class ActionJpaEntity {
         this.gateSignals = gateSignals;
         this.isManual = isManual;
         this.confirmedAt = confirmedAt;
+    }
+
+    /* comment.
+        분배 확정 시각을 찍는다(RVW-05).
+
+        이미 찍힌 액션은 그대로 둔다 — 한 번 보드로 나간 액션이 두 번째 확정에서 시각만 갱신되면
+        "언제 나갔나"의 답이 바뀐다. 회수 경로가 없으므로 나간 사실은 처음 것이 맞다.
+
+        @return 이번 호출로 새로 찍혔으면 true
+    */
+    public boolean markDispatched(LocalDateTime dispatchedAt) {
+        if (this.dispatchedAt != null) {
+            return false;
+        }
+        this.dispatchedAt = dispatchedAt;
+        return true;
     }
 }

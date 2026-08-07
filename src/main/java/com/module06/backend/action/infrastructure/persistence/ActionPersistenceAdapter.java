@@ -88,6 +88,13 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    /* id로 지운다 — 도메인 객체를 엔티티로 되돌려 지우면 detached 인스턴스를 merge한 뒤
+       삭제하게 되어, 그 사이 다른 트랜잭션이 고친 값이 되살아난다(RVW-04, 2026-08-07). */
+    @Override
+    public void delete(Action action) {
+        springDataActionRepository.deleteById(action.getId());
+    }
+
     @Override
     public List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions) {
         List<ActionJpaEntity> candidates =
@@ -119,6 +126,14 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         }
 
         return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, teamIds).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    // FR-AC-06 — 팀 액션 목록. 기존 findAllByActionTypeAndTeamIdIn을 단일 teamId로 재사용한다.
+    @Override
+    public List<Action> findAllByTeamId(Long teamId) {
+        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, List.of(teamId)).stream()
                 .map(this::toDomain)
                 .toList();
     }

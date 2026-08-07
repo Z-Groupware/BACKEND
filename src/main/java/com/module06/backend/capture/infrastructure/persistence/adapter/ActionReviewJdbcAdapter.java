@@ -2,6 +2,7 @@ package com.module06.backend.capture.infrastructure.persistence.adapter;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,6 +37,12 @@ import com.module06.backend.capture.domain.model.RejectReason;
  *   member(화자)              L1 이 화자 판정을 포기했다 — 정상 동작이다
  * INNER 로 걸면 이 액션들이 검토 화면에서 통째로 사라진다. **검토에서 빠지는 것이 가장
  * 나쁜 실패다** — 사람이 볼 기회 자체가 없어진다.
+ *
+ * <h2>발화 조인에 회의 조건을 함께 건다</h2>
+ * {@code tc.meeting_id = a.source_meeting_id} 가 붙어 있다. id 만으로 조인하면 액션에 박힌
+ * evidence_transcript_id 가 **다른 회의(다른 회사)의 발화**를 가리켜도 그 원문이 화면에
+ * 인용된다. 값을 넣는 쪽(RVW-03)에서 이미 막지만, 여기서 한 번 더 막는 이유는 그 컬럼에
+ * 값을 쓰는 경로가 앞으로 늘어날 수 있어서다 — 한 곳이 빠지면 그 경로만 조용히 뚫린다(#100).
  *
  * <h2>액션당 한 행인 것은 DB 가 보장한다</h2>
  * tuple 조인이 액션을 여러 행으로 돌려주면 검토 화면이 같은 액션을 두 번 보여주고 검토
@@ -97,6 +104,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
               LEFT JOIN meeting_assignment_tuple t ON t.action_id = a.id
               LEFT JOIN member am ON am.id = a.assignee_member_id
               LEFT JOIN transcript_chunk tc ON tc.id = a.evidence_transcript_id
+                                            AND tc.meeting_id = a.source_meeting_id
               LEFT JOIN member sm ON sm.id = tc.speaker_member_id
              WHERE a.source_meeting_id = ?
                AND a.company_id = ?
@@ -129,12 +137,34 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
               FROM action a
               LEFT JOIN meeting_assignment_tuple t ON t.action_id = a.id
               LEFT JOIN transcript_chunk tc ON tc.id = a.evidence_transcript_id
+                                            AND tc.meeting_id = a.source_meeting_id
              WHERE a.id = ?
                AND a.source_meeting_id = ?
                AND a.company_id = ?
             """;
 
+    /*
+     * 이 회의를 마지막으로 내보낸 시각(RVW-05).
+     *
+     * MAX 를 쓰는 이유 — 확정 뒤에 추가된 액션(RVW-03)은 아직 안 나가 NULL 이고, 두 번째
+     * 확정으로 나간 액션은 더 최근 시각을 갖는다. MIN 이면 화면이 "처음 내보낸 때"를 보여주는데,
+     * 사람이 알고 싶은 것은 지금 이 목록이 언제 기준인가다. MAX 는 NULL 을 무시한다.
+     */
+    private static final String DISPATCHED_AT_SQL = """
+            SELECT MAX(a.dispatched_at) AS dispatched_at
+              FROM action a
+             WHERE a.source_meeting_id = ?
+               AND a.company_id = ?
+            """;
+
     private final JdbcTemplate jdbcTemplate;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
+        return Optional.ofNullable(jdbcTemplate.queryForObject(
+                DISPATCHED_AT_SQL, LocalDateTime.class, meetingId, companyId));
+    }
 
     @Override
     @Transactional(readOnly = true)

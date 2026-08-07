@@ -20,6 +20,7 @@ import lombok.RequiredArgsConstructor;
     - ActionReferenceRepository             : 구현하는 도메인 계약
     - ActionMeetingReferenceRepository      : meeting 배치조회 위임 대상
     - SpringDataProjectReferenceRepository  : project 배치조회 위임 대상
+    - SpringDataProjectAttachmentReferenceRepository : 팀 액션 상세(FR-AC-06)의 첨부파일 조회 위임 대상
 */
 @Component
 @RequiredArgsConstructor
@@ -29,6 +30,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
     private final SpringDataProjectReferenceRepository springDataProjectReferenceRepository;
     private final SpringDataActionTeamReferenceRepository springDataActionTeamReferenceRepository;
     private final SpringDataMemberReferenceRepository springDataMemberReferenceRepository;
+    private final SpringDataProjectAttachmentReferenceRepository springDataProjectAttachmentReferenceRepository;
 
     @Override
     public List<MeetingReference> findMeetingReferences(List<Long> meetingIds) {
@@ -88,6 +90,20 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
 
         return springDataActionTeamReferenceRepository.findAllById(teamIds).stream()
                 .map(team -> new TeamReference(team.getId(), team.getName()))
+                .toList();
+    }
+
+    // FR-AC-06 팀 액션 상세 — 소속 프로젝트 첨부파일 목록. 상세는 단건 조회라 배치가 필요 없다.
+    @Override
+    public List<AttachmentReference> findProjectAttachments(Long projectId) {
+        return springDataProjectAttachmentReferenceRepository.findAllByProjectId(projectId).stream()
+                .map(attachment -> new AttachmentReference(
+                        attachment.getId(),
+                        attachment.getFileName(),
+                        attachment.getFileUrl(),
+                        attachment.getFileSize(),
+                        attachment.getCreatedAt()
+                ))
                 .toList();
     }
 }

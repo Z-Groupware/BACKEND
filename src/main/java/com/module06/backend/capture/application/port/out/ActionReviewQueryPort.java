@@ -1,6 +1,7 @@
 package com.module06.backend.capture.application.port.out;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -90,6 +91,16 @@ public interface ActionReviewQueryPort {
      * 남의 회사 액션을 고칠 수 있다** — 관문(MeetingAccessGuard)은 회의까지만 본다.
      */
     Optional<ReviewTarget> findOne(long companyId, long meetingId, long actionId);
+
+    /*
+     * 이 회의를 분배 확정한 시각(RVW-05). 아직 확정하지 않았으면 비어 있다.
+     *
+     * **회의 단위 값이다.** 액션마다 시각이 있지만 화면이 묻는 것은 "이 회의를 내보냈나"
+     * 하나이고, 한 번의 확정으로 나간 액션은 모두 같은 시각을 갖는다. 확정 뒤에 추가된
+     * 액션(RVW-03)은 아직 안 나갔으므로 NULL 이고, 그래서 **가장 최근 값**을 본다 —
+     * 그게 "마지막으로 내보낸 때"다.
+     */
+    Optional<LocalDateTime> dispatchedAtOf(long companyId, long meetingId);
 
     /*
      * 판정 대상 하나. 라벨을 만들 재료가 전부 들어 있다.
