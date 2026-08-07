@@ -64,8 +64,13 @@ public class TokenMeteringService implements RecordTokenUsageUseCase, TokenQuota
         try {
             tokenUsageRecordRepository.save(record);
         } catch (DataIntegrityViolationException e) {
-            // 동시 중복이 job_id UNIQUE 에 걸린 것 — 이미 기록됐다는 뜻이라 멱등 no-op.
-            return;
+            // job_id UNIQUE 동시 중복이면 이미 기록됐다는 뜻 → 멱등 no-op.
+            // 그 외 무결성 위반(NOT NULL 등)까지 삼키면 원장이 조용히 누락되므로, 해당 job_id 가
+            // 실제로 존재할 때만 no-op 하고 나머지는 다시 던져 크게 터뜨린다.
+            if (tokenUsageRecordRepository.existsByJobId(command.jobId())) {
+                return;
+            }
+            throw e;
         }
     }
 
