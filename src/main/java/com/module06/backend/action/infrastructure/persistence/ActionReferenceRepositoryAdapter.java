@@ -40,7 +40,8 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
                 .map(meeting -> new MeetingReference(
                         meeting.getId(),
                         meeting.getTeamId(),
-                        meeting.getRelatedActionId()
+                        meeting.getRelatedActionId(),
+                        meeting.getTitle()
                 ))
                 .toList();
     }
@@ -52,7 +53,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         }
 
         return springDataProjectReferenceRepository.findAllById(projectIds).stream()
-                .map(project -> new ProjectReference(project.getId(), project.getDueDate()))
+                .map(project -> new ProjectReference(project.getId(), project.getDueDate(), project.getTag(), project.getName()))
                 .toList();
     }
 
@@ -64,5 +65,29 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
     @Override
     public boolean existsMemberInCompany(Long memberId, Long companyId) {
         return springDataMemberReferenceRepository.existsByIdAndCompanyId(memberId, companyId);
+    }
+
+    // 담당자 이름 배치 조회
+    @Override
+    public List<MemberReference> findMemberReferences(List<Long> memberIds) {
+        if (memberIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataMemberReferenceRepository.findAllById(memberIds).stream()
+                .map(member -> new MemberReference(member.getId(), member.getName()))
+                .toList();
+    }
+
+    // 소속팀 이름 배치 조회
+    @Override
+    public List<TeamReference> findTeamReferences(List<Long> teamIds) {
+        if (teamIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionTeamReferenceRepository.findAllById(teamIds).stream()
+                .map(team -> new TeamReference(team.getId(), team.getName()))
+                .toList();
     }
 }

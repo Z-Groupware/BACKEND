@@ -28,6 +28,12 @@ public interface ActionRepository {
 
     Optional<Action> findById(Long id);
 
+    // FR-AC-02 — 개인 액션 목록(호출자 본인 소유분만).
+    List<Action> findAllByAssigneeMemberId(Long assigneeMemberId);
+
+    // FR-AC-02/03 — 상위 액션 표시값·벌크 상태변경 대상 배치 조회.
+    List<Action> findAllByIds(List<Long> ids);
+
     /* 사람이 직접 추가한 액션을 지운다(RVW-04). AI 생성 액션은 이 경로로 오지 않는다 —
        지우면 review_log에 남길 판정 대상이 사라지고, 그건 반려(RVW-02)로 처리한다. */
     void delete(Action action);

@@ -47,7 +47,8 @@ public class Action {
     private final ActionType actionType;
     private final String title;
     private final String description;
-    private final ActionStatus status;
+    // final이 아니다 — 보드 상태변경(changeStatus, FR-AC-03)이 바꾸는 값이다.
+    private ActionStatus status;
     /*
      * 아래 넷은 final 이 아니다 — 사람의 검토 판정(applyHumanReview)이 바꾸는 값이다.
      * RVW-02 착수로 열었다(2026-08-06). 나머지 필드는 여전히 불변이다.
@@ -243,5 +244,13 @@ public class Action {
         } else {
             this.confirmedAt = null;
         }
+    }
+
+    // 보드 상태변경(FR-AC-03). 서버는 전이 제약을 걸지 않는다 — 어떤 상태에서 어떤 상태로도 이동 가능.
+    public void changeStatus(ActionStatus newStatus) {
+        if (newStatus == null) {
+            throw new IllegalArgumentException("newStatus는 null일 수 없습니다.");
+        }
+        this.status = newStatus;
     }
 }
