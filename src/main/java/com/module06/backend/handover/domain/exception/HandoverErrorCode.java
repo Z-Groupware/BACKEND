@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 @AllArgsConstructor
 public enum HandoverErrorCode implements ErrorCode {
 
-    HO_ACCESS_DENIED(HttpStatus.FORBIDDEN, "HO-025", "인수인계에 접근할 권한이 없습니다."),
+    HO_ACCESS_DENIED(HttpStatus.FORBIDDEN, "HO-026", "인수인계에 접근할 권한이 없습니다."),
     HO_CREATE_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "HO-001", "인수인계 생성 요청이 올바르지 않습니다."),
     HO_REASSIGN_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "HO-002", "인수인계 재배정 요청이 올바르지 않습니다."),
     HO_REJECT_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "HO-003", "인수인계 반려 요청이 올바르지 않습니다."),

@@ -311,7 +311,7 @@ class HandoverControllerTest {
 
         mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("HO-025"));
+                .andExpect(jsonPath("$.errorCode").value("HO-026"));
     }
 
     @Test
@@ -331,7 +331,7 @@ class HandoverControllerTest {
 
         mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("HO-025"));
+                .andExpect(jsonPath("$.errorCode").value("HO-026"));
     }
 
     @Test
@@ -353,7 +353,7 @@ class HandoverControllerTest {
 
         mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("HO-025"));
+                .andExpect(jsonPath("$.errorCode").value("HO-026"));
     }
 
     private static GetHandoverListUseCase.HandoverSummary summary() {
