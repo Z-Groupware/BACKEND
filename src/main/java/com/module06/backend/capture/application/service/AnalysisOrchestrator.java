@@ -52,6 +52,8 @@ import com.module06.backend.capture.domain.model.ReferenceType;
 import com.module06.backend.capture.domain.model.ResolvedReference;
 import com.module06.backend.capture.domain.model.TopicSegment;
 import com.module06.backend.capture.domain.model.Utterance;
+import com.module06.backend.metering.application.command.RecordTokenUsageCommand;
+import com.module06.backend.metering.application.port.in.RecordTokenUsagePort;
 
 /*
  * 분석 파이프라인의 오케스트레이터다. **계층 순서·잠금·상태 기록이 이 저장소의 몫**이고,
@@ -141,6 +143,8 @@ public class AnalysisOrchestrator {
     private final AutoConfirmGate autoConfirmGate;
     private final TupleDistributionService tupleDistributionService;
     private final AiLayerPort aiLayerPort;
+    // A→미터링 인바운드 포트. 분석이 끝까지 성공하면 이 실행의 토큰 사용량을 원장에 1회 기록한다(usage-based 과금).
+    private final RecordTokenUsagePort recordTokenUsagePort;
 
     /*
      * 회의 하나를 분석한다.
@@ -635,6 +639,12 @@ public class AnalysisOrchestrator {
             return distributed.toAnalysisOutcome(LayerName.DIST);
         }
 
+        // 분석이 끝까지 성공했다. 이 실행이 쓴 토큰을 미터링 원장에 1회 기록한다.
+        recordTokenUsage(companyId, meetingId, runSeq, java.util.Arrays.asList(
+                attributed.run(), resolved.run(), segmented.run(), summarized.run(),
+                gated.run(), extracted.run(), verified.run(), checked.run(),
+                gated7.run(), distributed.run()));
+
         long autoConfirmed = gated7.value().values().stream()
                 .filter(AutoConfirmGate.Verdict::autoConfirmed).count();
         log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건 자동확정 {}건 액션 {}건",
@@ -642,6 +652,49 @@ public class AnalysisOrchestrator {
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
                 extracted.value(), verified.value(), autoConfirmed, distributed.value());
         return AnalysisOutcome.done(decisions.size());
+    }
+
+    /*
+     * 분석이 끝까지 성공한 이 실행의 토큰 사용량을 미터링 원장에 1회 기록한다(usage-based 과금).
+     *
+     * 멱등키 = runSeq. 실행마다 유일하고, force 재실행은 새 runSeq 라 새 과금 이벤트가 된다.
+     * SQS 중복 등으로 같은 실행이 두 번 기록돼도 원장의 job_id UNIQUE 가 이중청구를 막는다.
+     *
+     * model 은 이 실행에서 실제로 부른 LLM 계층의 모델명(원가 계수용)이다. 코드 계층(L1·L6·L7·DIST)은
+     * 토큰 0·모델 없음이라 건너뛴다. LLM 계층이 하나도 안 돌았으면 기록할 원가 축이 없어 생략한다.
+     *
+     * teamId 는 아직 null 이다 — 부서별 집계는 회의 teamId 배선(후속) 후. 회사 단위 실측은 지금 동작한다.
+     *
+     * ⚠ 기록 실패로 분석을 실패시키지 않는다. 분석은 이미 완료됐고 토큰도 이미 썼다 — 예외를 올리면
+     * 완료된 회의가 FAILED 로 뒤집혀 ANLZ-02 가 재분석하고, 그게 진짜 이중과금이다. 미터링 누락은
+     * 원장 한 건 빠지는 것이라 크게 로깅하고 넘어간다(대시보드 소진율로 관측 가능).
+     */
+    private void recordTokenUsage(long companyId, long meetingId, long runSeq, List<LayerRun> runs) {
+        LayerRun total = LayerRun.empty();
+        String model = null;
+        for (LayerRun run : runs) {
+            if (run == null) {
+                continue;
+            }
+            total = total.plus(run);
+            if (model == null && run.modelName() != null && !run.modelName().isBlank()) {
+                model = run.modelName();
+            }
+        }
+        if (model == null) {
+            log.warn("토큰 미터링 기록 생략 — LLM 계층 토큰이 없어 모델을 정할 수 없다. meetingId={} runSeq={}",
+                    meetingId, runSeq);
+            return;
+        }
+        String jobId = "meeting-" + meetingId + "-run-" + runSeq;
+        try {
+            recordTokenUsagePort.record(new RecordTokenUsageCommand(
+                    companyId, null, meetingId, jobId,
+                    total.tokensIn(), total.tokensOut(), model));
+        } catch (RuntimeException e) {
+            log.error("토큰 미터링 기록 실패 — 분석은 완료됨, 원장만 누락. meetingId={} runSeq={} jobId={}",
+                    meetingId, runSeq, jobId, e);
+        }
     }
 
     /*
