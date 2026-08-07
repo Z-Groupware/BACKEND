@@ -70,7 +70,7 @@ class TeamControllerTest {
     void treeTakesCompanyFromToken() throws Exception {
         authenticateAs(1L);
         when(getTeamTreeUseCase.getTree(1L)).thenReturn(List.of(
-                new TeamNode(10L, "본부", null, null, null, 0L, List.of())));
+                new TeamNode(10L, "본부", null, null, 0L)));
 
         mockMvc.perform(get("/api/teams"))
                 .andExpect(status().isOk());
@@ -97,12 +97,12 @@ class TeamControllerTest {
     void createTakesCompanyFromToken() throws Exception {
         authenticateAs(1L);
         when(createTeamUseCase.create(any())).thenReturn(
-                new TeamNode(10L, "사업본부", null, null, null, 0L, List.of()));
+                new TeamNode(10L, "사업본부", null, null, 0L));
 
         mockMvc.perform(post("/api/teams")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                { "name": "사업본부", "parentTeamId": null }
+                                { "name": "사업본부" }
                                 """))
                 .andExpect(status().isCreated());
 
@@ -120,7 +120,7 @@ class TeamControllerTest {
         mockMvc.perform(post("/api/teams")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                { "name": "열한글자짜리부서이름입니다", "parentTeamId": null }
+                                { "name": "열한글자짜리부서이름입니다" }
                                 """))
                 .andExpect(status().isBadRequest());
 
@@ -132,7 +132,7 @@ class TeamControllerTest {
     void renameTakesTeamIdFromPathAndCompanyFromToken() throws Exception {
         authenticateAs(1L);
         when(renameTeamUseCase.rename(any())).thenReturn(
-                new TeamNode(10L, "제품개발팀", null, null, null, 0L, List.of()));
+                new TeamNode(10L, "제품개발팀", null, null, 0L));
 
         mockMvc.perform(patch("/api/teams/10")
                         .contentType(MediaType.APPLICATION_JSON)

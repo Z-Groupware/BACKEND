@@ -11,15 +11,11 @@ public interface TeamRepository {
 
     Optional<Team> findByIdAndCompanyId(Long id, Long companyId);
 
-    Team create(Long companyId, Long parentTeamId, String name);
+    Team create(Long companyId, String name);
 
     void rename(Long id, String name);
 
     void delete(Long id);
 
-    boolean existsByCompanyIdAndParentTeamIdAndName(Long companyId, Long parentTeamId, String name);
-
-    boolean existsByCompanyIdAndParentTeamIdIsNullAndName(Long companyId, String name);
-
-    boolean existsByParentTeamId(Long parentTeamId);
+    boolean existsByCompanyIdAndName(Long companyId, String name);
 }

@@ -13,7 +13,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import com.module06.backend.global.exception.BusinessException;
 
 /*
- * team 이름 유일성 제약(V2.3.13, UK_TEAM_COMPANY_PARENT_NAME) 위반을
+ * team 이름 유일성 제약(V2.3.16, UK_TEAM_COMPANY_NAME) 위반을
  * TEAM_NAME_DUPLICATED(AU-016)로 변환하는지 검증한다.
  */
 @DisplayName("Team 저장/수정 예외 변환")
@@ -25,11 +25,11 @@ class TeamPersistenceAdapterUnitTest {
         SpringDataTeamRepository repository = mock(SpringDataTeamRepository.class);
         when(repository.saveAndFlush(any(TeamJpaEntity.class)))
                 .thenThrow(new DataIntegrityViolationException(
-                        "Duplicate entry for key 'UK_TEAM_COMPANY_PARENT_NAME'"
+                        "Duplicate entry for key 'UK_TEAM_COMPANY_NAME'"
                 ));
         TeamPersistenceAdapter adapter = new TeamPersistenceAdapter(repository);
 
-        assertThatThrownBy(() -> adapter.create(1L, null, "본부"))
+        assertThatThrownBy(() -> adapter.create(1L, "본부"))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
                 .isEqualTo("AU-016");
@@ -39,10 +39,9 @@ class TeamPersistenceAdapterUnitTest {
     @DisplayName("수정 시 이름 유일성 제약 위반을 AU-016으로 변환한다")
     void translatesNameConstraintViolationOnRename() {
         SpringDataTeamRepository repository = mock(SpringDataTeamRepository.class);
-        when(repository.findById(1L))
-                .thenReturn(java.util.Optional.of(TeamJpaEntity.create(1L, null, "본부")));
+        when(repository.findById(1L)).thenReturn(java.util.Optional.of(TeamJpaEntity.create(1L, "본부")));
         doThrow(new DataIntegrityViolationException(
-                "Duplicate entry for key 'UK_TEAM_COMPANY_PARENT_NAME'"
+                "Duplicate entry for key 'UK_TEAM_COMPANY_NAME'"
         )).when(repository).flush();
         TeamPersistenceAdapter adapter = new TeamPersistenceAdapter(repository);
 
@@ -75,6 +74,6 @@ class TeamPersistenceAdapterUnitTest {
         when(repository.saveAndFlush(any(TeamJpaEntity.class))).thenThrow(original);
         TeamPersistenceAdapter adapter = new TeamPersistenceAdapter(repository);
 
-        assertThatThrownBy(() -> adapter.create(1L, null, "본부")).isSameAs(original);
+        assertThatThrownBy(() -> adapter.create(1L, "본부")).isSameAs(original);
     }
 }

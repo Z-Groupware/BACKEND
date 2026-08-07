@@ -27,6 +27,14 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
 
     private final SpringDataTranscriptChunkRepository repository;
 
+    /* 근거 발화가 이 회의의 것인지만 본다(RVW-03). 내용을 읽지 않는 것이 요점이다 — 읽어오면
+       확인하려던 유출 경로를 여기서 열게 된다. */
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsInMeeting(long meetingId, long transcriptId) {
+        return repository.existsByIdAndMeetingId(transcriptId, meetingId);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<Utterance> findByMeetingOrderByOffset(long meetingId) {
