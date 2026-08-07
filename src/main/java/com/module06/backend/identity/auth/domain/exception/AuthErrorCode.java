@@ -93,7 +93,8 @@ public enum AuthErrorCode implements ErrorCode {
     MEMBER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "AU-028", "이미 등록된 이메일입니다."),
     MEMBER_TEAM_LEADER_ALREADY_EXISTS(HttpStatus.CONFLICT, "AU-029", "해당 부서에 이미 팀장이 있습니다."),
     MEMBER_SEAT_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "AU-030", "이용 중인 요금제의 좌석 수를 초과했습니다."),
-    MEMBER_OWNER_CANNOT_BE_ADMIN(HttpStatus.BAD_REQUEST, "AU-031", "오너는 관리자 권한 부여 대상이 아닙니다.");
+    MEMBER_OWNER_CANNOT_BE_ADMIN(HttpStatus.BAD_REQUEST, "AU-031", "오너는 관리자 권한 부여 대상이 아닙니다."),
+    MEMBER_ROLE_LABEL_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "AU-032", "역할 라벨 지정은 아직 지원하지 않습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

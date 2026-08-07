@@ -26,6 +26,7 @@ import com.module06.backend.identity.member.application.dto.MemberListFilter;
 import com.module06.backend.identity.member.application.dto.MemberListItem;
 import com.module06.backend.identity.member.application.dto.MemberPage;
 import com.module06.backend.identity.member.application.dto.OrgChartMember;
+import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
@@ -38,6 +39,7 @@ import com.module06.backend.identity.member.application.usecase.UpdateMemberAdmi
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
+import com.module06.backend.identity.member.domain.model.PendingHandoverType;
 import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.policy.SeatLimitPolicy;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
@@ -86,14 +88,19 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
     }
 
     /**
-     * LEAVE_PENDING·OFFBOARDING_PENDING 은 둘 다 WAITING 이다 — 어느 쪽인지 가르는 조인은
-     * 인수인계 담당과 인터페이스가 합의되기 전까지 미룬다({@link MemberListFilter} 참고).
+     * LEAVE_PENDING·OFFBOARDING_PENDING 은 둘 다 {@code workStatus = WAITING} 이지만,
+     * {@code MemberRow.pendingType}(handover 테이블 읽기 전용 참조로 채워짐)으로 어느 쪽 대기인지
+     * 가른다. pendingType 이 없는 WAITING(데이터 정합성이 깨진 경우)은 어느 필터에도 걸리지 않는다
+     * — 잘못된 쪽에 노출하는 것보다 안전하다.
      */
     private boolean matchesFilter(MemberRow row, MemberListFilter filter) {
-        if (filter == null || filter == MemberListFilter.ALL) {
-            return true;
-        }
-        return row.status() == MemberStatus.WAITING;
+        return switch (filter == null ? MemberListFilter.ALL : filter) {
+            case ALL -> true;
+            case LEAVE_PENDING -> row.status() == MemberStatus.WAITING
+                    && row.pendingType() == PendingHandoverType.VACATION;
+            case OFFBOARDING_PENDING -> row.status() == MemberStatus.WAITING
+                    && row.pendingType() == PendingHandoverType.OFFBOARDING;
+        };
     }
 
     /** roleLabel 은 검색 대상이 아니다(§7-1) — 이름·부서·직급만 본다. */
@@ -121,10 +128,20 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
 
         return teams.stream()
                 .sorted(Comparator.comparing(Team::id))
-                .map(team -> new OrgChartTeam(
-                        team.id(),
-                        team.name(),
-                        membersByTeam.getOrDefault(team.id(), List.of()).stream()
+                .map(team -> new OrgChartTeam(team.id(), team.name(), toSubTeams(membersByTeam.getOrDefault(team.id(), List.of()))))
+                .toList();
+    }
+
+    /** Team → SubTeam → Member (§0, 2026-08-07 확정) — SubTeam 은 roleLabel 로 묶은 응답 전용 그룹이다. */
+    private List<OrgChartSubTeam> toSubTeams(List<MemberRow> teamMembers) {
+        Map<String, List<MemberRow>> byRoleLabel = teamMembers.stream()
+                .collect(Collectors.groupingBy(MemberRow::roleLabel));
+
+        return byRoleLabel.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.nullsFirst(Comparator.naturalOrder())))
+                .map(entry -> new OrgChartSubTeam(
+                        entry.getKey(),
+                        entry.getValue().stream()
                                 .sorted(Comparator.comparing(MemberRow::memberId))
                                 .map(row -> new OrgChartMember(row.memberId(), row.name(), row.positionName(), row.authority()))
                                 .toList()))
@@ -180,6 +197,8 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         if (newRole == Authority.LEADER) {
             if (team.leaderMemberId() != null && !team.leaderMemberId().equals(target.memberId())) {
                 commandPort.demoteToMember(team.leaderMemberId());
+                /* 강등된 구성원의 토큰에는 LEADER 권한이 담겨 있다 — 안 폐기하면 access TTL 동안 살아 있다. */
+                refreshTokenStore.revokeAllByMember(team.leaderMemberId());
             }
             teamRepository.updateLeader(team.id(), target.memberId());
         } else if (target.authority() == Authority.LEADER && target.memberId().equals(team.leaderMemberId())) {

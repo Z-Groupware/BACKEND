@@ -32,6 +32,7 @@ import com.module06.backend.identity.member.application.port.out.MemberDirectory
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
+import com.module06.backend.identity.member.domain.model.PendingHandoverType;
 import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.policy.SeatLimitPolicy;
 import com.module06.backend.identity.position.domain.model.Position;
@@ -85,18 +86,36 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
-    @DisplayName("조직도는 팀별로 평평하게 묶고, 팀이 없는 구성원은 어느 팀에도 나타나지 않는다")
-    void groupsOrgChartByTeamFlat() {
+    @DisplayName("LEAVE_PENDING·OFFBOARDING_PENDING 은 둘 다 WAITING 이지만 handover 대기 유형으로 구분된다")
+    void distinguishesLeaveAndOffboardingPending() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addWaiting(COMPANY_ID, "휴직대기자", PendingHandoverType.VACATION);
+        directory.addWaiting(COMPANY_ID, "퇴사대기자", PendingHandoverType.OFFBOARDING);
+        directory.addActive(COMPANY_ID, "재직자", null, null);
+
+        MemberPage leavePending = service(directory).getMembers(COMPANY_ID, MemberListFilter.LEAVE_PENDING, null, 0, 20);
+        MemberPage offboardingPending = service(directory).getMembers(
+                COMPANY_ID, MemberListFilter.OFFBOARDING_PENDING, null, 0, 20);
+
+        assertThat(leavePending.content()).extracting(m -> m.name()).containsExactly("휴직대기자");
+        assertThat(offboardingPending.content()).extracting(m -> m.name()).containsExactly("퇴사대기자");
+    }
+
+    @Test
+    @DisplayName("조직도는 Team → SubTeam(roleLabel) → Member 3단으로 묶는다")
+    void groupsOrgChartByTeamThenRoleLabel() {
         FakeDirectory directory = new FakeDirectory();
         FakeTeamRepository teams = new FakeTeamRepository();
         Team team = teams.create(COMPANY_ID, "개발팀");
-        directory.addActive(COMPANY_ID, "김서준", team.id(), "개발팀");
+        directory.addActiveWithRoleLabel(COMPANY_ID, "김서준", team.id(), "개발팀", "백엔드");
+        directory.addActiveWithRoleLabel(COMPANY_ID, "박민수", team.id(), "개발팀", "프론트엔드");
         directory.addActive(COMPANY_ID, "오너", null, null);
 
         List<OrgChartTeam> chart = service(directory, teams, new FakePositionRepository()).getOrgChart(COMPANY_ID);
 
         assertThat(chart).hasSize(1);
-        assertThat(chart.get(0).members()).extracting(m -> m.name()).containsExactly("김서준");
+        assertThat(chart.get(0).subTeams()).extracting(s -> s.roleLabel()).containsExactly("백엔드", "프론트엔드");
+        assertThat(chart.get(0).subTeams().get(0).members()).extracting(m -> m.name()).containsExactly("김서준");
     }
 
     @Test
@@ -155,8 +174,8 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
-    @DisplayName("LEADER 로 승격하면 기존 팀장을 MEMBER 로 내리고 팀장을 교체한다")
-    void promotingToLeaderSwapsExistingLeader() {
+    @DisplayName("LEADER 로 승격하면 기존 팀장을 MEMBER 로 내리고, 신규·기존 리더 양쪽 refresh 를 폐기한다")
+    void promotingToLeaderSwapsExistingLeaderAndRevokesBothTokens() {
         FakeDirectory directory = new FakeDirectory();
         FakeTeamRepository teams = new FakeTeamRepository();
         FakePositionRepository positions = new FakePositionRepository();
@@ -176,7 +195,7 @@ class MemberDirectoryServiceTest {
                 .isEqualTo(newLeaderId);
         assertThat(directory.findActiveById(COMPANY_ID, existingLeaderId).orElseThrow().authority())
                 .isEqualTo(Authority.MEMBER);
-        assertThat(tokenStore.revokedMemberIds).contains(newLeaderId);
+        assertThat(tokenStore.revokedMemberIds).contains(newLeaderId, existingLeaderId);
     }
 
     @Test
@@ -241,7 +260,7 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
-    @DisplayName("이미 팀장이 있는 팀에 LEADER 로 발급할 수 없다")
+    @DisplayName("이미 팀장이 있는 팀에 LEADER 로 발급할 수 없다 — 잠금 아래 재검증에서도 걸린다")
     void rejectsIssueWhenTeamAlreadyHasLeader() {
         FakeDirectory directory = new FakeDirectory();
         FakeTeamRepository teams = new FakeTeamRepository();
@@ -259,7 +278,7 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
-    @DisplayName("Free 요금제 좌석(5석)을 넘기면 발급할 수 없다")
+    @DisplayName("Free 요금제 좌석(5석)을 넘기면 발급할 수 없다 — 잠금 아래 재검증에서도 걸린다")
     void rejectsIssueOverSeatLimit() {
         FakeDirectory directory = new FakeDirectory();
         FakeTeamRepository teams = new FakeTeamRepository();
@@ -278,6 +297,28 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
+    @DisplayName("발급 시 회사 행을 잠근다 — 동시 발급 직렬화의 전제조건")
+    void issueLocksCompanyRow() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        FakePositionRepository positions = new FakePositionRepository();
+        FakeCompanyRepository companies = new FakeCompanyRepository();
+        Team team = teams.create(COMPANY_ID, "개발팀");
+        Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
+        companies.put(COMPANY_ID, "COMP01");
+
+        MemberDirectoryService service = new MemberDirectoryService(
+                directory, directory, new MemberIssuer(directory, directory, teams, companies, new SeatLimitPolicy()),
+                teams, positions, companies, new FakeAccountMailPort(), TemporaryPasswordGenerator.secure(),
+                new BCryptPasswordEncoder(), new FakeRefreshTokenStore(), new SeatLimitPolicy());
+
+        service.issue(new IssueMemberCommand(
+                COMPANY_ID, "홍길동", "hong@company.kr", team.id(), position.id(), Authority.MEMBER, null));
+
+        assertThat(companies.lockedCompanyIds).containsExactly(COMPANY_ID);
+    }
+
+    @Test
     @DisplayName("정상 발급은 계정을 만들고, LEADER 면 팀장으로 지정하고, 메일을 보낸다")
     void issuesAccountSuccessfully() {
         FakeDirectory directory = new FakeDirectory();
@@ -290,9 +331,9 @@ class MemberDirectoryServiceTest {
         companies.put(COMPANY_ID, "COMP01");
 
         MemberDirectoryService service = new MemberDirectoryService(
-                directory, directory, new MemberIssuer(directory, teams), teams, positions, companies,
-                mailPort, TemporaryPasswordGenerator.secure(), new BCryptPasswordEncoder(),
-                new FakeRefreshTokenStore(), new SeatLimitPolicy());
+                directory, directory, new MemberIssuer(directory, directory, teams, companies, new SeatLimitPolicy()),
+                teams, positions, companies, mailPort, TemporaryPasswordGenerator.secure(),
+                new BCryptPasswordEncoder(), new FakeRefreshTokenStore(), new SeatLimitPolicy());
 
         var issued = service.issue(new IssueMemberCommand(
                 COMPANY_ID, "홍길동", "hong@company.kr", team.id(), position.id(), Authority.LEADER, null));
@@ -319,9 +360,12 @@ class MemberDirectoryServiceTest {
 
     private MemberDirectoryService service(FakeDirectory directory, FakeTeamRepository teams,
                                             FakePositionRepository positions, RefreshTokenStore tokenStore) {
-        return new MemberDirectoryService(directory, directory, new MemberIssuer(directory, teams), teams, positions,
-                new FakeCompanyRepository(), new FakeAccountMailPort(), TemporaryPasswordGenerator.secure(),
-                new BCryptPasswordEncoder(), tokenStore, new SeatLimitPolicy());
+        FakeCompanyRepository companies = new FakeCompanyRepository();
+        SeatLimitPolicy seatLimitPolicy = new SeatLimitPolicy();
+        MemberIssuer issuer = new MemberIssuer(directory, directory, teams, companies, seatLimitPolicy);
+        return new MemberDirectoryService(directory, directory, issuer, teams, positions,
+                companies, new FakeAccountMailPort(), TemporaryPasswordGenerator.secure(),
+                new BCryptPasswordEncoder(), tokenStore, seatLimitPolicy);
     }
 
     /* ── 테스트 더블 ──────────────────────────────────────────────────── */
@@ -343,8 +387,24 @@ class MemberDirectoryServiceTest {
         Long addActiveWithEmail(Long companyId, String name, String email, Long teamId, String teamName,
                                  Authority authority) {
             long id = nextId++;
-            MutableRow row = new MutableRow(id, companyId, name, email, teamId, teamName, authority,
-                    false, MemberStatus.ACTIVE);
+            MutableRow row = new MutableRow(id, companyId, name, email, teamId, teamName, null, authority,
+                    false, MemberStatus.ACTIVE, null);
+            rows.put(id, row);
+            return id;
+        }
+
+        Long addActiveWithRoleLabel(Long companyId, String name, Long teamId, String teamName, String roleLabel) {
+            long id = nextId++;
+            MutableRow row = new MutableRow(id, companyId, name, name + "@company.kr", teamId, teamName, roleLabel,
+                    Authority.MEMBER, false, MemberStatus.ACTIVE, null);
+            rows.put(id, row);
+            return id;
+        }
+
+        Long addWaiting(Long companyId, String name, PendingHandoverType pendingType) {
+            long id = nextId++;
+            MutableRow row = new MutableRow(id, companyId, name, name + "@company.kr", null, null, null,
+                    Authority.MEMBER, false, MemberStatus.WAITING, pendingType);
             rows.put(id, row);
             return id;
         }
@@ -395,14 +455,14 @@ class MemberDirectoryServiceTest {
         public Long issue(Long companyId, Long teamId, Long positionId, String roleLabel, String name, String email,
                            String passwordHash, Authority authority) {
             long id = nextId++;
-            rows.put(id, new MutableRow(id, companyId, name, email, teamId, "개발팀", authority, false,
-                    MemberStatus.ACTIVE));
+            rows.put(id, new MutableRow(id, companyId, name, email, teamId, "개발팀", roleLabel, authority, false,
+                    MemberStatus.ACTIVE, null));
             return id;
         }
 
         private MemberRow toRow(MutableRow row) {
             return new MemberRow(row.id, row.name, row.email, row.teamId, row.teamName, null, "선임",
-                    null, row.authority, row.isAdmin, row.status, LocalDate.of(2026, 1, 1));
+                    row.roleLabel, row.authority, row.isAdmin, row.status, LocalDate.of(2026, 1, 1), row.pendingType);
         }
 
         private static final class MutableRow {
@@ -412,21 +472,26 @@ class MemberDirectoryServiceTest {
             final String email;
             final Long teamId;
             final String teamName;
+            final String roleLabel;
             Authority authority;
             boolean isAdmin;
             MemberStatus status;
+            final PendingHandoverType pendingType;
 
             MutableRow(Long id, Long companyId, String name, String email, Long teamId, String teamName,
-                       Authority authority, boolean isAdmin, MemberStatus status) {
+                       String roleLabel, Authority authority, boolean isAdmin, MemberStatus status,
+                       PendingHandoverType pendingType) {
                 this.id = id;
                 this.companyId = companyId;
                 this.name = name;
                 this.email = email;
                 this.teamId = teamId;
                 this.teamName = teamName;
+                this.roleLabel = roleLabel;
                 this.authority = authority;
                 this.isAdmin = isAdmin;
                 this.status = status;
+                this.pendingType = pendingType;
             }
         }
     }
@@ -523,6 +588,7 @@ class MemberDirectoryServiceTest {
     static final class FakeCompanyRepository implements CompanyRepository {
 
         private final Map<Long, String> codeByCompany = new HashMap<>();
+        private final List<Long> lockedCompanyIds = new ArrayList<>();
 
         void put(Long companyId, String code) {
             codeByCompany.put(companyId, code);
@@ -537,6 +603,11 @@ class MemberDirectoryServiceTest {
         public Optional<Company> findById(Long id) {
             String code = codeByCompany.getOrDefault(id, "COMP00");
             return Optional.of(new Company(id, code, "테스트기업"));
+        }
+
+        @Override
+        public void lockForUpdate(Long companyId) {
+            lockedCompanyIds.add(companyId);
         }
     }
 

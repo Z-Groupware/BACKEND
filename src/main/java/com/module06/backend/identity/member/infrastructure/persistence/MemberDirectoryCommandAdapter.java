@@ -1,5 +1,8 @@
 package com.module06.backend.identity.member.infrastructure.persistence;
 
+import java.util.Locale;
+
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +24,9 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
     /** 역할 "없음". 전 회사 공용 시스템 행이다(V2.3.9) — {@link OwnerAccountAdapter} 와 같은 상수다. */
     private static final long ROLE_NONE_ID = 2L;
 
+    /** 회사 안 이메일 유일성을 최종 차단하는 데이터베이스 제약 이름이다(V1). */
+    private static final String EMAIL_UNIQUE_CONSTRAINT = "UK_MEMBER_COMPANY_EMAIL";
+
     private final SpringDataMemberRepository memberRepository;
     private final EntityManager entityManager;
 
@@ -41,26 +47,56 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
         find(memberId).changeAdmin(isAdmin);
     }
 
+    /**
+     * 이메일 중복은 두 겹으로 막는다. 호출자(MemberDirectoryService)가 발급 전에 미리 조회해
+     * 빠르게 거절하지만, 동시 요청은 그 확인과 이 INSERT 사이에 끼어들 수 있다 — 그래서
+     * {@code saveAndFlush} 로 이 메서드 경계에서 제약 위반을 확인하고, 원시 SQL 예외 대신
+     * {@code MEMBER_EMAIL_DUPLICATED} 로 변환한다(TeamPersistenceAdapter.create 와 같은 패턴).
+     */
     @Override
     public Long issue(Long companyId, Long teamId, Long positionId, String roleLabel,
                        String name, String email, String passwordHash, Authority authority) {
         CompanyJpaEntity company = entityManager.getReference(CompanyJpaEntity.class, companyId);
         TeamRefEntity team = entityManager.getReference(TeamRefEntity.class, teamId);
         PositionRefEntity position = entityManager.getReference(PositionRefEntity.class, positionId);
+
         if (roleLabel != null) {
             /*
              * 화면 폼에 없는 값이라(§5-1) roleLabel 로 role 을 찾는 조회 창구가 아직 없다.
              * 조용히 "없음"으로 발급하면 호출자가 지정한 역할이 사라진 채 성공 응답이 나가므로,
-             * 여기서 명시적으로 막는다 — OrgQueryPort#findReassignCandidates 와 같은 원칙이다.
+             * 여기서 명시적으로 막는다 — 다만 외부 요청으로 도달 가능한 값이라 500 이 아니라
+             * BusinessException(400)으로 응답해야 한다(UnsupportedOperationException 은
+             * GlobalExceptionHandler 의 catch-all 로 떨어져 500 이 나간다).
              */
-            throw new UnsupportedOperationException(
-                    "MemberDirectoryCommandPort#issue 는 roleLabel 로 role 을 찾는 창구가 아직 없다 "
-                            + "(§5-1, FE 폼에 없는 값 — 현재 항상 null). this is not a silent fallback.");
+            throw new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_SUPPORTED);
         }
         RoleRefEntity role = entityManager.getReference(RoleRefEntity.class, ROLE_NONE_ID);
 
         MemberJpaEntity member = MemberJpaEntity.issue(company, team, role, position, name, email, passwordHash, authority);
-        return memberRepository.save(member).getId();
+        try {
+            return memberRepository.saveAndFlush(member).getId();
+        } catch (DataIntegrityViolationException exception) {
+            throw translateEmailDuplicate(exception);
+        }
+    }
+
+    private RuntimeException translateEmailDuplicate(DataIntegrityViolationException exception) {
+        if (containsConstraintName(exception, EMAIL_UNIQUE_CONSTRAINT)) {
+            return new BusinessException(AuthErrorCode.MEMBER_EMAIL_DUPLICATED, exception);
+        }
+        return exception;
+    }
+
+    private boolean containsConstraintName(Throwable exception, String constraintName) {
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toUpperCase(Locale.ROOT).contains(constraintName.toUpperCase(Locale.ROOT))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private MemberJpaEntity find(Long memberId) {

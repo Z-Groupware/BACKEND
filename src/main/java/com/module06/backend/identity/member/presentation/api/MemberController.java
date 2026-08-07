@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.response.ApiResponse;
@@ -42,6 +45,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/members")
 @RequiredArgsConstructor
+@Validated
 public class MemberController {
 
     private final GetMembersUseCase getMembersUseCase;
@@ -57,8 +61,8 @@ public class MemberController {
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
             @RequestParam(defaultValue = "ALL") MemberListFilter filter,
             @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         MemberPage result = getMembersUseCase.getMembers(companyId, filter, q, page, size);
         return ApiResponse.success("구성원 목록을 조회했습니다", MemberPageResponse.from(result));
     }

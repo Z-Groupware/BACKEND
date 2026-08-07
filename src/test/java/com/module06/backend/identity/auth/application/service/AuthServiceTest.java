@@ -306,6 +306,10 @@ class AuthServiceTest {
         public Optional<Company> findById(Long id) {
             return result;
         }
+
+        @Override
+        public void lockForUpdate(Long companyId) {
+        }
     }
 
     private static final class RecordingStore implements RefreshTokenStore {

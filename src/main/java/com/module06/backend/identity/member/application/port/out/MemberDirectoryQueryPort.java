@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
+import com.module06.backend.identity.member.domain.model.PendingHandoverType;
 import com.module06.backend.identity.member.domain.model.Plan;
 
 /**
@@ -39,7 +40,9 @@ public interface MemberDirectoryQueryPort {
             Authority authority,
             boolean isAdmin,
             MemberStatus status,
-            LocalDate joinedOn
+            LocalDate joinedOn,
+            /** status 가 WAITING 일 때만 채워진다 — 어느 쪽 대기인지(§7-1). 그 외에는 null. */
+            PendingHandoverType pendingType
     ) {
     }
 }

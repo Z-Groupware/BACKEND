@@ -216,6 +216,10 @@ class AuthServiceReissueTest {
             public Optional<Company> findById(Long id) {
                 return Optional.empty();
             }
+
+            @Override
+            public void lockForUpdate(Long companyId) {
+            }
         };
     }
 
