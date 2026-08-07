@@ -76,7 +76,24 @@ class CompanyOnboardingCommitter {
         assertReferencesResolve(command, positionAuthorityByTempId);
         assertSubTeamsBelongToTeam(command);
         assertNoDuplicateTeamLeader(command, positionAuthorityByTempId);
-        assertSeatAvailable(companyId, command.invites().size());
+
+        /*
+         * 좌석 검사는 "실제로 발급될 계정 수"를 봐야 한다 — 요청 안 중복·기존 재직자와 겹치는
+         * 이메일은 애초에 발급되지 않으므로, invites().size() 를 그대로 쓰면 스킵될 초대까지
+         * 좌석을 잡아먹는 것으로 오판해 통과해야 할 온보딩을 거절할 수 있다(코드래빗 지적).
+         */
+        List<OnboardCompanyCommand.InviteNode> toIssue = new ArrayList<>();
+        List<SkippedInvite> skipped = new ArrayList<>();
+        Set<String> seenEmails = new HashSet<>();
+        for (OnboardCompanyCommand.InviteNode invite : command.invites()) {
+            String email = invite.email();
+            if (!seenEmails.add(email) || memberQueryPort.existsActiveEmail(companyId, email)) {
+                skipped.add(new SkippedInvite(email, "DUPLICATE_EMAIL"));
+                continue;
+            }
+            toIssue.add(invite);
+        }
+        assertSeatAvailable(companyId, toIssue.size());
 
         Map<String, Long> teamIdByTempId = new HashMap<>();
         Map<String, Long> subTeamIdByTempId = new HashMap<>();
@@ -99,16 +116,9 @@ class CompanyOnboardingCommitter {
         }
 
         List<IssuedAccount> issuedAccounts = new ArrayList<>();
-        List<SkippedInvite> skipped = new ArrayList<>();
-        Set<String> seenEmails = new HashSet<>();
 
-        for (OnboardCompanyCommand.InviteNode invite : command.invites()) {
+        for (OnboardCompanyCommand.InviteNode invite : toIssue) {
             String email = invite.email();
-            if (!seenEmails.add(email) || memberQueryPort.existsActiveEmail(companyId, email)) {
-                skipped.add(new SkippedInvite(email, "DUPLICATE_EMAIL"));
-                continue;
-            }
-
             Long teamId = teamIdByTempId.get(invite.teamTempId());
             Long roleId = invite.subTeamTempId() != null ? subTeamIdByTempId.get(invite.subTeamTempId()) : null;
             Long positionId = positionIdByTempId.get(invite.jobPositionTempId());

@@ -130,6 +130,25 @@ class CompanyOnboardingCommitterTest {
     }
 
     @Test
+    @DisplayName("좌석 한도는 실제 발급 대상 수만 센다 — 중복으로 skip될 초대는 좌석을 잡아먹지 않는다")
+    void seatLimitCountsOnlyActuallyIssuedInvites() {
+        FakeMemberQuery query = new FakeMemberQuery();
+        query.currentSeats = 4; // FREE 상한 5 — 남은 좌석 1개
+
+        /* 요청은 2건이지만 이메일이 겹쳐 실제 발급은 1건뿐이다 — invites().size()(2)로 셌다면 거절됐어야 한다. */
+        CompanyOnboardingCommitter.CommitResult result = committer(new FakeCompany(null), new FakeTeam(),
+                new FakeRole(), new FakePosition(), query, new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of())),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "dup@company.com", "t1", null, "p1", false),
+                                invite("김서준", "dup@company.com", "t1", null, "p1", false))));
+
+        assertThat(result.issuedAccounts()).hasSize(1);
+        assertThat(result.skipped()).hasSize(1);
+    }
+
+    @Test
     @DisplayName("요청 안에서 이메일이 겹치면 첫 줄만 발급하고 나머지는 skip한다")
     void skipsDuplicateEmailWithinRequest() {
         FakeMemberCommand command = new FakeMemberCommand();

@@ -17,21 +17,21 @@ import com.module06.backend.identity.member.domain.model.Authority;
 @Schema(description = "온보딩 커밋 — 부서·역할, 직급, 초대 명단을 한 번에 저장하고 계정을 즉시 발급한다")
 public record OnboardingRequest(
 
-        @Valid @NotEmpty(message = "부서를 1개 이상 입력해 주세요.")
-        List<TeamNode> teams,
+        @NotEmpty(message = "부서를 1개 이상 입력해 주세요.")
+        List<@NotNull @Valid TeamNode> teams,
 
-        @Valid @NotEmpty(message = "직급을 1개 이상 입력해 주세요.")
-        List<JobPositionNode> jobPositions,
+        @NotEmpty(message = "직급을 1개 이상 입력해 주세요.")
+        List<@NotNull @Valid JobPositionNode> jobPositions,
 
-        @Valid @NotNull
-        List<InviteNode> invites
+        @NotNull
+        List<@NotNull @Valid InviteNode> invites
 ) {
     @Schema(description = "부서 — 그 아래 역할을 중첩으로 갖는다(깊이 2 고정)")
     public record TeamNode(
             @NotBlank(message = "부서 임시 식별자가 필요합니다.") String tempId,
             @NotBlank(message = "부서명을 입력해 주세요.")
             @Size(max = 20, message = "부서명은 20자 이하로 입력해 주세요.") String name,
-            @Valid @NotNull List<SubTeamNode> subTeams
+            @NotNull List<@NotNull @Valid SubTeamNode> subTeams
     ) {
     }
 
