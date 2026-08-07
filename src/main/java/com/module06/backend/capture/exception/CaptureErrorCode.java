@@ -95,6 +95,7 @@ public enum CaptureErrorCode implements ErrorCode {
      * 사실 자체가 없던 일이 된다. 지나간 회의는 다시 만들 수 없어 복구도 불가능하다.
      */
     REVIEW_DELETE_AI_ACTION(HttpStatus.CONFLICT, "MEETING_409_7", "AI 생성 액션은 반려로 처리해야 합니다."),
+    /*
      * RVW-03 — 직접 추가에 담당자·기한이 없다.
      *
      * **수동 추가 경로는 담당자를 강제한다**(C 도메인과 2026-08-07 합의). AI 분배 경로는
