@@ -130,6 +130,14 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // FR-AC-06 — 팀 액션 목록. 기존 findAllByActionTypeAndTeamIdIn을 단일 teamId로 재사용한다.
+    @Override
+    public List<Action> findAllByTeamId(Long teamId) {
+        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, List.of(teamId)).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     @Override
     public List<TeamActionSummary> findTeamActionsByProjectId(Long projectId) {
         List<ActionJpaEntity> teamActions =

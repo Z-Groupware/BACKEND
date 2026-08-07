@@ -3,6 +3,7 @@ package com.module06.backend.action.presentation.api.response;
 import java.time.LocalDate;
 
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase.ActionListItem;
+import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionStatus;
@@ -48,6 +49,11 @@ public record ActionSummaryResponse(
         Action action = item.action();
         return from(action, item.assigneeName(), item.projectTag(), item.teamName(),
                 item.sourceMeetingTitle(), item.parentActionTitle());
+    }
+
+    // FR-AC-06 목록 조회 — TEAM 액션은 담당자·출처회의·상위액션 개념이 없어 전부 null로 내려간다.
+    public static ActionSummaryResponse from(TeamActionListItem item) {
+        return from(item.action(), null, item.projectTag(), item.teamName(), null, null);
     }
 
     private static ActionSummaryResponse from(

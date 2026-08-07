@@ -1,0 +1,100 @@
+package com.module06.backend.action.presentation.api;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
+import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase.TeamActionDetail;
+import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
+import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionReviewStatus;
+import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.action.domain.model.ActionType;
+import com.module06.backend.global.security.AuthPrincipal;
+
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@DisplayName("TeamActionController")
+@WebMvcTest(TeamActionController.class)
+@AutoConfigureMockMvc(addFilters = false)
+class TeamActionControllerTest {
+
+    private static final Long TEAM = 7L;
+    private static final Long COMPANY = 1L;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private GetTeamActionsUseCase getTeamActionsUseCase;
+
+    @MockitoBean
+    private GetTeamActionDetailUseCase getTeamActionDetailUseCase;
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    @DisplayName("목록은 LEADER 권한이면 토큰의 teamId로 조회한다")
+    void listUsesTeamIdFromTokenWhenLeader() throws Exception {
+        authenticateAs(1L, COMPANY, TEAM, "LEADER");
+        when(getTeamActionsUseCase.getTeamActions(TEAM))
+                .thenReturn(List.of(new TeamActionListItem(teamAction(), "GOODS", "개발팀")));
+
+        mockMvc.perform(get("/api/team/actions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].projectTag").value("GOODS"))
+                .andExpect(jsonPath("$.data[0].teamName").value("개발팀"));
+    }
+
+    // LEADER 외 접근 차단(@PreAuthorize)은 @WebMvcTest 슬라이스에 SecurityConfig(@EnableMethodSecurity)가
+    // 안 실려서 이 슬라이스로는 검증이 안 된다 — 이 레포의 다른 컨트롤러 테스트도 같은 이유로
+    // 권한 경계는 안 다루고 배선(생성자 주입 값 전달)만 검증한다(ActionControllerTest 참고).
+
+    @Test
+    @DisplayName("상세는 전 구성원이 조회 가능하고 토큰의 companyId를 쓴다")
+    void detailIsAccessibleByAnyMemberAndUsesCompanyIdFromToken() throws Exception {
+        authenticateAs(1L, COMPANY, TEAM, "MEMBER");
+        when(getTeamActionDetailUseCase.getTeamActionDetail(eq(COMPANY), eq(10L)))
+                .thenReturn(new TeamActionDetail(teamAction(), "GOODS", "개발팀", List.of()));
+
+        mockMvc.perform(get("/api/team/actions/10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.projectTag").value("GOODS"))
+                .andExpect(jsonPath("$.data.teamName").value("개발팀"));
+    }
+
+    private void authenticateAs(Long memberId, Long companyId, Long teamId, String authority) {
+        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, authority, false, teamId);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + authority))));
+    }
+
+    private Action teamAction() {
+        return Action.reconstitute(
+                10L, COMPANY, 100L, null, null, TEAM, null,
+                ActionType.TEAM, "팀 액션", "설명", ActionStatus.TODO, LocalDate.of(2026, 8, 20), false,
+                ActionReviewStatus.PENDING, null, null, null, false,
+                null, null, null
+        );
+    }
+}
