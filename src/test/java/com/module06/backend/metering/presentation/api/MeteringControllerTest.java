@@ -5,6 +5,7 @@ import com.module06.backend.metering.application.result.DepartmentUsageResult;
 import com.module06.backend.metering.application.result.MeteringDashboardResult;
 import com.module06.backend.metering.application.result.TeamMeteringDashboardResult;
 import com.module06.backend.metering.application.usecase.GetMeteringDashboardUseCase;
+import com.module06.backend.metering.application.usecase.ManageCompanyTokenPlanUseCase;
 import com.module06.backend.metering.domain.model.QuotaStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,9 @@ class MeteringControllerTest {
 
     @MockitoBean
     private GetMeteringDashboardUseCase getMeteringDashboardUseCase;
+
+    @MockitoBean
+    private ManageCompanyTokenPlanUseCase manageCompanyTokenPlanUseCase;
 
     @Test
     void adminDashboardExposesCompanyAmountsAndDepartmentAmounts() throws Exception {

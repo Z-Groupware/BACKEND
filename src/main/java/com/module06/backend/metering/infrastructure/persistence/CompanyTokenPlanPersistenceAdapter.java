@@ -19,4 +19,9 @@ public class CompanyTokenPlanPersistenceAdapter implements CompanyTokenPlanRepos
     public Optional<CompanyTokenPlan> findByCompanyId(Long companyId) {
         return repository.findByCompanyId(companyId).map(CompanyTokenPlanJpaEntity::toDomain);
     }
+
+    @Override
+    public CompanyTokenPlan save(CompanyTokenPlan plan) {
+        return repository.save(CompanyTokenPlanJpaEntity.from(plan)).toDomain();
+    }
 }

@@ -7,4 +7,6 @@ import java.util.Optional;
 public interface CompanyTokenPlanRepository {
 
     Optional<CompanyTokenPlan> findByCompanyId(Long companyId);
+
+    CompanyTokenPlan save(CompanyTokenPlan plan);
 }
