@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
+import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
@@ -43,6 +44,10 @@ class MeetingQueryPersistenceAdapterTest {
     /* MEET-02 동적 필터·권한·페이징 조회에 사용하는 목록 전용 저장소 계약이다. */
     @Autowired
     private MeetingListRepository meetingListRepository;
+
+    /* MEET-04 회사 범위 상세 조회에 사용하는 전용 저장소 계약이다. */
+    @Autowired
+    private MeetingDetailRepository meetingDetailRepository;
 
     /* 테스트 회의 행을 저장하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -99,6 +104,36 @@ class MeetingQueryPersistenceAdapterTest {
 
         /* 같은 식별자라도 다른 회사로 조회하면 존재 여부가 드러나지 않아야 한다. */
         assertThat(meetingQueryRepository.findMeeting(20L, meeting.getId())).isEmpty();
+    }
+
+    /* MEET-04 상세 조회가 D 소유 필드와 참석자를 회사 범위에서 제공하는지 검증한다. */
+    @Test
+    @DisplayName("회의 상세 원본과 참석자를 회사 범위에서 조회한다")
+    void findsMeetingDetailInsideCompanyScope() {
+        /* 회사 10의 회의와 세 참석자를 저장하고 생성 시각을 데이터베이스에 반영한다. */
+        MeetingJpaEntity meeting = springDataMeetingRepository.saveAndFlush(
+                meeting(10L, 12L, "상세 조회 회의", LocalDateTime.of(2026, 8, 6, 14, 0))
+        );
+        saveAttendees(meeting.getId(), 3L, 7L, 11L);
+
+        /* 같은 회사의 MEET-04 상세 원본을 조회한다. */
+        assertThat(meetingDetailRepository.findMeetingDetail(10L, meeting.getId()))
+                .isPresent()
+                .get()
+                .satisfies(snapshot -> {
+                    /* 회의 연결 식별자·팀·녹음 동의·생성 시각이 엔티티 값과 일치해야 한다. */
+                    assertThat(snapshot.projectId()).isEqualTo(12L);
+                    assertThat(snapshot.teamId()).isEqualTo(100L);
+                    assertThat(snapshot.meetingRoomId()).isEqualTo(2L);
+                    assertThat(snapshot.recordingConsent()).isFalse();
+                    assertThat(snapshot.createdAt()).isNotNull();
+
+                    /* 참석자 식별자는 파생 쿼리의 안정적인 구성원 식별자 순서를 유지해야 한다. */
+                    assertThat(snapshot.attendeeMemberIds()).containsExactly(3L, 7L, 11L);
+                });
+
+        /* 동일한 회의 식별자를 다른 회사로 조회하면 존재 여부가 노출되지 않아야 한다. */
+        assertThat(meetingDetailRepository.findMeetingDetail(20L, meeting.getId())).isEmpty();
     }
 
     /* MEET-09가 기존 명단을 읽기 전에 회의 행에 쓰기 잠금을 획득하는지 검증한다. */
