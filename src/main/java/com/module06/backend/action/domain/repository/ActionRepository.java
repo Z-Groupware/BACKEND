@@ -28,6 +28,10 @@ public interface ActionRepository {
 
     Optional<Action> findById(Long id);
 
+    /* 사람이 직접 추가한 액션을 지운다(RVW-04). AI 생성 액션은 이 경로로 오지 않는다 —
+       지우면 review_log에 남길 판정 대상이 사라지고, 그건 반려(RVW-02)로 처리한다. */
+    void delete(Action action);
+
     List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions);
 
     List<Action> findTeamActionsByLeaderMemberId(Long leaderMemberId);
