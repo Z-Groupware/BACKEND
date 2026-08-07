@@ -62,7 +62,7 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
      * <p>team 을 함께 읽는 이유: roster 응답에 teamName 이 들어가는데, 지연 프록시에 기대면
      * N+1 이 붙는다({@link #findByCompanyIdAndEmail} 과 같은 이유).
      */
-    @EntityGraph(attributePaths = {"team"})
+    @EntityGraph(attributePaths = {"team", "position"})
     List<MemberJpaEntity> findByCompanyIdAndIdInAndDeletedAtIsNull(Long companyId, List<Long> ids);
 
     /**

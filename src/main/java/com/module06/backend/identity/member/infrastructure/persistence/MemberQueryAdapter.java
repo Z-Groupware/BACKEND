@@ -34,10 +34,12 @@ public class MemberQueryAdapter implements MemberQueryPort {
 
     private MemberSnapshot toSnapshot(MemberJpaEntity member) {
         TeamRefEntity team = member.getTeam();
+        PositionRefEntity position = member.getPosition();
         return new MemberSnapshot(
                 member.getId(),
                 member.getName(),
                 team == null ? null : team.getId(),
-                team == null ? null : team.getName());
+                team == null ? null : team.getName(),
+                position == null ? null : position.getName());
     }
 }
