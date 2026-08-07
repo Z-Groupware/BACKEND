@@ -31,7 +31,8 @@ public enum ActionErrorCode implements ErrorCode {
     INVALID_ACTION_TYPE_SHAPE(HttpStatus.BAD_REQUEST, "AC-005", "액션 종류(TEAM/PERSONAL)에 맞지 않는 필드 조합입니다."),
     ACTION_PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-006", "존재하지 않거나 접근할 수 없는 프로젝트입니다."),
     ACTION_TEAM_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-007", "존재하지 않거나 접근할 수 없는 팀입니다."),
-    ACTION_ASSIGNEE_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-008", "존재하지 않거나 접근할 수 없는 담당자입니다.");
+    ACTION_ASSIGNEE_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-008", "존재하지 않거나 접근할 수 없는 담당자입니다."),
+    ACTION_INVALID_STATUS_TRANSITION(HttpStatus.BAD_REQUEST, "AC-009", "허용되지 않는 상태 전환입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

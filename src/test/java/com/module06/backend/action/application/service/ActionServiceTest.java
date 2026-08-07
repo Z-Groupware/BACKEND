@@ -251,7 +251,7 @@ class ActionServiceTest {
     void bulkUpdateStatusChangesAllItemsWhenRequesterIsAssigneeForEach() {
         ActionService service = actionService();
         Action first = personalAction(1L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO);
-        Action second = personalAction(2L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO);
+        Action second = personalAction(2L, COMPANY, PROJECT, null, null, null, ActionStatus.IN_PROGRESS);
         when(actionRepository.findAllByIds(List.of(1L, 2L))).thenReturn(List.of(first, second));
         when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -261,15 +261,61 @@ class ActionServiceTest {
         )));
 
         assertThat(first.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(first.getStartDate()).isEqualTo(LocalDate.now());
         assertThat(second.getStatus()).isEqualTo(ActionStatus.DONE);
         verify(actionRepository).saveAll(any());
     }
 
     @Test
+    void bulkUpdateStatusReopensFromDoneBackToInProgressWithoutTouchingStartDate() {
+        ActionService service = actionService();
+        Action action = personalAction(1L, COMPANY, PROJECT, null, null, null, ActionStatus.DONE);
+        LocalDate startDateBefore = action.getStartDate();
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(action));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS)
+        )));
+
+        assertThat(action.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(action.getStartDate()).isEqualTo(startDateBefore);
+    }
+
+    @Test
+    void bulkUpdateStatusRejectsTodoAsTargetSinceItIsUnreachable() {
+        ActionService service = actionService();
+        Action action = personalAction(1L, COMPANY, PROJECT, null, null, null, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(action));
+
+        assertThatThrownBy(() -> service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.TODO)
+        )))).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_INVALID_STATUS_TRANSITION);
+
+        verify(actionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void bulkUpdateStatusRejectsTodoToDoneSkippingInProgress() {
+        ActionService service = actionService();
+        Action action = personalAction(1L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO);
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(action));
+
+        assertThatThrownBy(() -> service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.DONE)
+        )))).isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_INVALID_STATUS_TRANSITION);
+
+        assertThat(action.getStatus()).isEqualTo(ActionStatus.TODO);
+        verify(actionRepository, never()).saveAll(any());
+    }
+
+    @Test
     void bulkUpdateStatusThrowsAndSavesNothingWhenOneItemIsNotOwnedByRequester() {
         ActionService service = actionService();
-        Action owned = personalAction(1L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO);
-        Action notOwned = personalAction(2L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO, 9L);
+        Action owned = personalAction(1L, COMPANY, PROJECT, null, null, null, ActionStatus.IN_PROGRESS);
+        Action notOwned = personalAction(2L, COMPANY, PROJECT, null, null, null, ActionStatus.IN_PROGRESS, 9L);
         when(actionRepository.findAllByIds(List.of(1L, 2L))).thenReturn(List.of(owned, notOwned));
 
         assertThatThrownBy(() -> service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
@@ -278,7 +324,7 @@ class ActionServiceTest {
         )))).isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.NOT_ACTION_ASSIGNEE);
 
-        assertThat(owned.getStatus()).isEqualTo(ActionStatus.TODO);
+        assertThat(owned.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
         verify(actionRepository, never()).saveAll(any());
     }
 
@@ -302,9 +348,11 @@ class ActionServiceTest {
 
     private Action personalAction(Long id, Long companyId, Long projectId, Long teamId,
                                    Long sourceMeetingId, Long parentActionId, ActionStatus status, Long assigneeMemberId) {
+        boolean isDone = status == ActionStatus.DONE;
+        LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
         return Action.reconstitute(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                ActionType.PERSONAL, "액션 " + id, "설명", status, LocalDate.of(2026, 8, 20), false,
+                ActionType.PERSONAL, "액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );
