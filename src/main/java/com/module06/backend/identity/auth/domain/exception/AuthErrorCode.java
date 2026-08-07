@@ -94,7 +94,17 @@ public enum AuthErrorCode implements ErrorCode {
     MEMBER_TEAM_LEADER_ALREADY_EXISTS(HttpStatus.CONFLICT, "AU-029", "해당 부서에 이미 팀장이 있습니다."),
     MEMBER_SEAT_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "AU-030", "이용 중인 요금제의 좌석 수를 초과했습니다."),
     MEMBER_OWNER_CANNOT_BE_ADMIN(HttpStatus.BAD_REQUEST, "AU-031", "오너는 관리자 권한 부여 대상이 아닙니다."),
-    MEMBER_ROLE_LABEL_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "AU-032", "역할 라벨 지정은 아직 지원하지 않습니다.");
+    MEMBER_ROLE_LABEL_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "AU-032", "역할 라벨 지정은 아직 지원하지 않습니다."),
+
+    /*
+     * 온보딩 커밋(§4-1). TEAM_LEADER_DUPLICATED 는 §7 의 MEMBER_TEAM_LEADER_ALREADY_EXISTS(AU-029)와
+     * 코드를 공유하지 않는다 — 그쪽은 409(이미 배정된 리더와 충돌), 여기는 400(같은 요청 안에서
+     * 팀당 리더 직급을 둘 이상 받은 입력값 자체가 잘못됨)으로 HTTP 상태가 달라
+     * POSITION_ROLE_NOT_ASSIGNABLE 주석과 같은 이유로 상수를 나눈다.
+     */
+    SUB_TEAM_NOT_IN_TEAM(HttpStatus.BAD_REQUEST, "AU-033", "선택한 역할이 해당 부서에 속하지 않습니다."),
+    TEAM_LEADER_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-034", "부서마다 팀장 직급은 한 명만 지정할 수 있습니다."),
+    ALREADY_ONBOARDED(HttpStatus.CONFLICT, "AU-035", "이미 온보딩이 완료된 기업입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

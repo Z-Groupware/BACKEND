@@ -9,13 +9,21 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import org.hibernate.annotations.DynamicUpdate;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 
+/**
+ * {@code @DynamicUpdate} — §4-3 부분 수정이 실제로 바뀐 컬럼만 UPDATE에 싣게 한다. 기본
+ * 동작(모든 컬럼을 매번 UPDATE)이면 동시에 서로 다른 필드를 고친 두 PATCH 중 나중에 flush된
+ * 쪽이 자기가 안 건드린 필드까지 자기 스냅샷 값으로 덮어써 먼저 커밋된 변경을 지운다.
+ */
 @Entity
 @Table(name = "company")
+@DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CompanyJpaEntity {
@@ -104,5 +112,38 @@ public class CompanyJpaEntity {
         company.privacyAgreedAt = now;
         company.marketingAgreedAt = agreedMarketing ? now : null;
         return company;
+    }
+
+    /**
+     * §4-3. null 인 인자는 건드리지 않는다 — 부분 수정 자체를 여기서 구현한다.
+     *
+     * <p>호출자가 미리 현재 값과 병합해서 넘기지 않는 이유: 그 병합은 이 메서드가 실행되기 전에
+     * 읽은 스냅샷을 기준으로 하므로, 동시에 다른 필드를 고친 PATCH가 그 사이 커밋되면 이 호출이
+     * 그 변경을 자기 스냅샷 값으로 되돌려 버린다(lost update). 이 엔티티가 지금 이 순간 실제로
+     * 갖고 있는 값 위에 "바뀐 필드만" 얹으면 그 문제가 없다 — {@code @DynamicUpdate}가 실제로
+     * 대입된 필드만 UPDATE에 싣는 것과 짝을 이룬다.
+     */
+    void updateProfile(String name, String registrationNo, String representativeName,
+                        String address, String mainPhone) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (registrationNo != null) {
+            this.registrationNo = registrationNo;
+        }
+        if (representativeName != null) {
+            this.representativeName = representativeName;
+        }
+        if (address != null) {
+            this.address = address;
+        }
+        if (mainPhone != null) {
+            this.mainPhone = mainPhone;
+        }
+    }
+
+    /** §4-1 온보딩 커밋 마지막 단계. */
+    void markOnboarded(LocalDateTime now) {
+        this.onboardedAt = now;
     }
 }

@@ -374,6 +374,7 @@ class MemberDirectoryServiceTest {
 
         private final Map<Long, MutableRow> rows = new HashMap<>();
         private final Map<Long, Plan> planByCompany = new HashMap<>();
+        private final Map<Long, Long> issuedRoleIds = new HashMap<>();
         private long nextId = 1;
 
         Long addActive(Long companyId, String name, Long teamId, String teamName) {
@@ -458,6 +459,14 @@ class MemberDirectoryServiceTest {
             rows.put(id, new MutableRow(id, companyId, name, email, teamId, "개발팀", roleLabel, authority, false,
                     MemberStatus.ACTIVE, null));
             return id;
+        }
+
+        @Override
+        public Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId, String name,
+                                   String email, String passwordHash, Authority authority) {
+            Long memberId = issue(companyId, teamId, positionId, null, name, email, passwordHash, authority);
+            issuedRoleIds.put(memberId, roleId);
+            return memberId;
         }
 
         private MemberRow toRow(MutableRow row) {
@@ -602,7 +611,7 @@ class MemberDirectoryServiceTest {
         @Override
         public Optional<Company> findById(Long id) {
             String code = codeByCompany.getOrDefault(id, "COMP00");
-            return Optional.of(new Company(id, code, "테스트기업"));
+            return Optional.of(new Company(id, code, "테스트기업", null, null, null, null, null));
         }
 
         @Override

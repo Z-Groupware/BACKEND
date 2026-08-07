@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.company.domain.model.Company;
+import com.module06.backend.identity.company.domain.repository.CompanyProfileRepository;
 import com.module06.backend.identity.company.domain.repository.CompanyRegistrationRepository;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 
@@ -18,21 +19,25 @@ import lombok.RequiredArgsConstructor;
 
 @Repository
 @RequiredArgsConstructor
-public class CompanyPersistenceAdapter implements CompanyRepository, CompanyRegistrationRepository {
+public class CompanyPersistenceAdapter
+        implements CompanyRepository, CompanyRegistrationRepository, CompanyProfileRepository {
 
     private final SpringDataCompanyRepository repository;
     private final EntityManager entityManager;
 
     @Override
     public Optional<Company> findByCode(String code) {
-        return repository.findByCode(code)
-                .map(e -> new Company(e.getId(), e.getCode(), e.getName()));
+        return repository.findByCode(code).map(this::toCompany);
     }
 
     @Override
     public Optional<Company> findById(Long id) {
-        return repository.findById(id)
-                .map(e -> new Company(e.getId(), e.getCode(), e.getName()));
+        return repository.findById(id).map(this::toCompany);
+    }
+
+    private Company toCompany(CompanyJpaEntity e) {
+        return new Company(e.getId(), e.getCode(), e.getName(), e.getRegistrationNo(),
+                e.getRepresentativeName(), e.getAddress(), e.getMainPhone(), e.getOnboardedAt());
     }
 
     /**
@@ -69,5 +74,28 @@ public class CompanyPersistenceAdapter implements CompanyRepository, CompanyRegi
     @Override
     public boolean existsByRegistrationNo(String registrationNo) {
         return repository.existsByRegistrationNo(registrationNo);
+    }
+
+    @Override
+    public boolean existsByRegistrationNoAndIdNot(String registrationNo, Long id) {
+        return repository.existsByRegistrationNoAndIdNot(registrationNo, id);
+    }
+
+    @Override
+    @Transactional
+    public void updateProfile(Long id, String name, String registrationNo, String representativeName,
+                               String address, String mainPhone) {
+        findEntity(id).updateProfile(name, registrationNo, representativeName, address, mainPhone);
+    }
+
+    @Override
+    @Transactional
+    public void markOnboarded(Long id, LocalDateTime now) {
+        findEntity(id).markOnboarded(now);
+    }
+
+    private CompanyJpaEntity findEntity(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.COMPANY_CODE_NOT_FOUND));
     }
 }
