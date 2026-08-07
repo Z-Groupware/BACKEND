@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
@@ -41,7 +42,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @Component
 @RequiredArgsConstructor
 public class MeetingQueryPersistenceAdapter
-        implements MeetingQueryRepository, MeetingLockRepository, MeetingListRepository {
+        implements MeetingQueryRepository, MeetingDetailRepository, MeetingLockRepository, MeetingListRepository {
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
@@ -174,6 +175,17 @@ public class MeetingQueryPersistenceAdapter
         /* 회의가 없거나 타 회사 소속이면 빈 결과를 그대로 반환한다. */
         return springDataMeetingRepository.findByIdAndCompanyId(meetingId, companyId)
                 .map(meeting -> toMeetingSnapshot(
+                        meeting,
+                        findAttendeeMemberIds(meeting.getId())
+                ));
+    }
+
+    /* 회사와 식별자가 일치하는 MEET-04 상세 회의와 참석자 식별자를 조회한다. */
+    @Override
+    public Optional<MeetingDetailSnapshot> findMeetingDetail(Long companyId, Long meetingId) {
+        /* companyId가 다른 회의는 빈 결과로 숨기고 같은 회사 회의만 상세 모델로 변환한다. */
+        return springDataMeetingRepository.findByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> toMeetingDetailSnapshot(
                         meeting,
                         findAttendeeMemberIds(meeting.getId())
                 ));
@@ -385,6 +397,31 @@ public class MeetingQueryPersistenceAdapter
                 meeting.getEndAt(),
                 meeting.getStartedAt(),
                 meeting.getEndedAt(),
+                attendeeMemberIds
+        );
+    }
+
+    /* 회의 엔티티와 참석자 식별자를 MEET-04 상세 조회 모델로 변환한다. */
+    private MeetingDetailSnapshot toMeetingDetailSnapshot(
+            MeetingJpaEntity meeting,
+            List<Long> attendeeMemberIds
+    ) {
+        /* 상세 화면과 권한 판정에 필요한 D 소유 필드를 손실 없이 저장소 경계 밖으로 전달한다. */
+        return new MeetingDetailSnapshot(
+                meeting.getId(),
+                meeting.getCompanyId(),
+                meeting.getProjectId(),
+                meeting.getTeamId(),
+                meeting.getMeetingRoomId(),
+                meeting.getHostMemberId(),
+                meeting.getTitle(),
+                meeting.getStatus(),
+                meeting.getStartAt(),
+                meeting.getEndAt(),
+                meeting.getStartedAt(),
+                meeting.getEndedAt(),
+                meeting.isRecordingConsent(),
+                meeting.getCreatedAt(),
                 attendeeMemberIds
         );
     }
