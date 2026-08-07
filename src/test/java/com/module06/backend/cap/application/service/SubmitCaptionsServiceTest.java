@@ -122,9 +122,17 @@ class SubmitCaptionsServiceTest {
                 return Optional.of(1L);
             }
         };
-        CaptionChunkRepository captionChunkRepository = chunks -> {
-            savedChunks.addAll(chunks);
-            return chunks;
+        CaptionChunkRepository captionChunkRepository = new CaptionChunkRepository() {
+            @Override
+            public List<CaptionChunk> saveAllSkippingDuplicates(List<CaptionChunk> chunks) {
+                savedChunks.addAll(chunks);
+                return chunks;
+            }
+
+            @Override
+            public List<CaptionChunk> findByMeetingId(Long meetingId) {
+                return List.of();
+            }
         };
         CaptionBroadcastPort broadcastPort = (meetingId, newChunks) -> broadcastChunks.addAll(newChunks);
 

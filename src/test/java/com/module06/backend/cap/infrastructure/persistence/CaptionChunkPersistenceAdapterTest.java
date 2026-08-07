@@ -16,12 +16,12 @@ import com.module06.backend.cap.domain.model.CaptionChunk;
 import com.module06.backend.cap.domain.repository.CaptionChunkRepository;
 
 /*
- * CAP-11 caption_chunk 저장 어댑터가 실제 JPA로 배치를 저장하고, UNIQUE(meeting_id, member_id, seq)
- * 위반(재전송)을 예외 없이 조용히 건너뛰는지 검증한다.
+ * CAP-11 caption_chunk 저장 어댑터가 실제 JPA로 배치를 저장하고 UNIQUE(meeting_id, member_id, seq)
+ * 위반(재전송)을 예외 없이 조용히 건너뛰는지, CAP-12 조회 어댑터가 시간순으로 돌려주는지 검증한다.
  */
 @SpringBootTest
 @Transactional
-@DisplayName("CAP-11 caption_chunk 영속성 어댑터")
+@DisplayName("CAP-11·12 caption_chunk 영속성 어댑터")
 class CaptionChunkPersistenceAdapterTest {
 
     @Autowired
@@ -89,5 +89,22 @@ class CaptionChunkPersistenceAdapterTest {
                 CaptionChunk.receive(500L, 9L, 1, 0, 500, "다른 사람 첫 발화", new BigDecimal("-9.00"))));
 
         assertThat(saved).hasSize(2);
+    }
+
+    /* 저장 순서와 무관하게 발화 시작 오프셋(startOffsetMs) 순으로 조회되는지 검증한다(CAP-12 백필용). */
+    @Test
+    @DisplayName("자막 전체를 시간순으로 조회한다")
+    void findsAllOrderedByStartOffset() {
+        captionChunkRepository.saveAllSkippingDuplicates(List.of(
+                CaptionChunk.receive(500L, 7L, 2, 10_000, 10_500, "두 번째", new BigDecimal("-10.00")),
+                CaptionChunk.receive(500L, 7L, 1, 5_000, 5_500, "첫 번째", new BigDecimal("-9.00"))));
+        captionChunkRepository.saveAllSkippingDuplicates(List.of(
+                CaptionChunk.receive(999L, 7L, 1, 0, 500, "다른 회의", new BigDecimal("-9.00"))));
+
+        List<CaptionChunk> found = captionChunkRepository.findByMeetingId(500L);
+
+        assertThat(found).hasSize(2);
+        assertThat(found.get(0).getText()).isEqualTo("첫 번째");
+        assertThat(found.get(1).getText()).isEqualTo("두 번째");
     }
 }
