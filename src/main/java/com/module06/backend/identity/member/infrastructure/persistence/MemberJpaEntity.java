@@ -119,6 +119,49 @@ public class MemberJpaEntity {
         return member;
     }
 
+    /**
+     * 계정 발급(API 12·§5-1). 발급 즉시 재직이다 — 계정 승인 단계가 없다.
+     *
+     * <p>{@code isAdmin} 을 인자로 받지 않고 항상 {@code false} 로 고정한다 — 발급 시점에는 관리 권한을
+     * 줄 수 없고, §7-7 로 오너가 발급 후 따로 부여한다(어드민의 자기 복제 차단이 이 모델의 요점).
+     */
+    static MemberJpaEntity issue(CompanyJpaEntity company, TeamRefEntity team, RoleRefEntity role,
+                                 PositionRefEntity position, String name, String email, String passwordHash,
+                                 Authority authority) {
+        MemberJpaEntity member = new MemberJpaEntity();
+        member.company = company;
+        member.team = team;
+        member.role = role;
+        member.position = position;
+        member.name = name;
+        member.email = email;
+        member.passwordHash = passwordHash;
+        member.authority = authority;
+        member.isAdmin = false;
+        member.status = MemberStatus.ACTIVE;
+        member.joinedOn = LocalDate.now();
+        return member;
+    }
+
+    /**
+     * 역할·직급 동시 변경(§7-4). 하나만 열면 "직급은 팀장인데 권한은 멤버" 같은 중간 상태가
+     * 저장될 수 있어 같이 받는다. isAdmin 은 여기서 건드리지 않는다 — §7-7 전용이다.
+     */
+    public void changeRoleAndPosition(Authority authority, PositionRefEntity position) {
+        this.authority = authority;
+        this.position = position;
+    }
+
+    /** 관리 권한(겸직) 부여·회수(§7-7). role 은 건드리지 않는다 — 그게 이 모델의 요점이다. */
+    public void changeAdmin(boolean isAdmin) {
+        this.isAdmin = isAdmin;
+    }
+
+    /** 팀장 교체 부수효과(§7-4) — 기존 리더를 멤버로 내린다. 직급은 건드리지 않는다. */
+    public void demoteToMember() {
+        this.authority = Authority.MEMBER;
+    }
+
     /*
      * ── 생애주기 전이 ────────────────────────────────────────────────────────
      *

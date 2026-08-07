@@ -24,6 +24,12 @@ public class CompanyPersistenceAdapter implements CompanyRepository, CompanyRegi
     }
 
     @Override
+    public Optional<Company> findById(Long id) {
+        return repository.findById(id)
+                .map(e -> new Company(e.getId(), e.getCode(), e.getName()));
+    }
+
+    @Override
     public Long register(String code, String name, String registrationNo, String representativeName,
                          String managerEmail, String managerPhone, String employeeScale, String purpose,
                          boolean agreedMarketing, LocalDateTime now) {

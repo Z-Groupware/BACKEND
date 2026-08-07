@@ -91,6 +91,14 @@ public class TeamPersistenceAdapter implements TeamRepository {
     }
 
     @Override
+    @Transactional
+    public void updateLeader(Long id, Long leaderMemberId) {
+        TeamJpaEntity entity = repository.findById(id)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
+        entity.updateLeader(leaderMemberId);
+    }
+
+    @Override
     public void delete(Long id) {
         repository.deleteById(id);
     }

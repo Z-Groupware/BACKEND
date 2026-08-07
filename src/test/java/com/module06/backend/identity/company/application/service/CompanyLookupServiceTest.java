@@ -64,5 +64,10 @@ class CompanyLookupServiceTest {
             this.requestedCode = code;
             return result;
         }
+
+        @Override
+        public Optional<Company> findById(Long id) {
+            return result;
+        }
     }
 }

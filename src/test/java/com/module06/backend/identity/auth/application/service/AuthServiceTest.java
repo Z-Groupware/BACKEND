@@ -301,6 +301,11 @@ class AuthServiceTest {
             this.requestedCode = code;
             return result;
         }
+
+        @Override
+        public Optional<Company> findById(Long id) {
+            return result;
+        }
     }
 
     private static final class RecordingStore implements RefreshTokenStore {
