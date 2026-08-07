@@ -78,7 +78,8 @@ class MyProfileQueryAdapterTest {
 
         assertThat(profile.teamId()).isNull();
         assertThat(profile.teamName()).isNull();
-        assertThat(profile.roleName()).isNull();
+        /* role_id 는 NOT NULL 이다(V2.3.10) — "없음"은 NULL 이 아니라 실제 행이다(V2.3.9). */
+        assertThat(profile.roleName()).isEqualTo("없음");
         assertThat(profile.positionId()).isNull();
         assertThat(profile.positionName()).isNull();
         assertThat(profile.isOnboarded()).isFalse();
@@ -155,6 +156,12 @@ class MyProfileQueryAdapterTest {
     private void insertMember(Long id, Long companyId, Long teamId, Long subTeamId, Long positionId,
                              String email, String name, String phone, String role, boolean isAdmin,
                              String status, String joinedOn, String deletedAt) {
+        /* role_id 는 NOT NULL 이다(V2.3.10) — 역할 미지정 케이스는 시드 행 "없음"(id 2)을 흉내 낸다. */
+        Long roleId = subTeamId;
+        if (roleId == null) {
+            em.createNativeQuery("MERGE INTO role (id, name) KEY(id) VALUES (2, '없음')").executeUpdate();
+            roleId = 2L;
+        }
         em.createNativeQuery("""
                         INSERT INTO member
                           (id, company_id, team_id, role_id, position_id, email, password_hash,
@@ -162,7 +169,7 @@ class MyProfileQueryAdapterTest {
                         VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?, ?, ?, ?, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, companyId).setParameter(3, teamId)
-                .setParameter(4, subTeamId).setParameter(5, positionId).setParameter(6, email)
+                .setParameter(4, roleId).setParameter(5, positionId).setParameter(6, email)
                 .setParameter(7, name).setParameter(8, phone).setParameter(9, role)
                 .setParameter(10, isAdmin).setParameter(11, status)
                 .setParameter(12, joinedOn).setParameter(13, deletedAt)

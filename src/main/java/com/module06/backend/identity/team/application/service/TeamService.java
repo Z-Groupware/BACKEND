@@ -33,14 +33,17 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
     private final TeamMemberQueryPort memberQueryPort;
     private final TeamProjectQueryPort projectQueryPort;
 
+    /**
+     * 부서는 계층이 없는 평평한 목록이다(2026-08-07 결정). "개발팀 안에 프론트·백엔드가 있다"는
+     * team 계층이 아니라 role(구 sub_team, V2.3.4)이 담당한다 — team끼리는 부모-자식이 없다.
+     */
     @Override
     @Transactional(readOnly = true)
     public List<TeamNode> getTree(Long companyId) {
         List<Team> teams = teamRepository.findByCompanyId(companyId);
-        Context context = buildContext(companyId, teams);
+        Context context = buildContext(companyId);
 
         return teams.stream()
-                .filter(t -> t.parentTeamId() == null)
                 .sorted(Comparator.comparing(Team::id))
                 .map(t -> toNode(t, context))
                 .toList();
@@ -49,25 +52,17 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
     @Override
     @Transactional
     public TeamNode create(CreateTeamCommand command) {
-        if (command.parentTeamId() != null) {
-            Team parent = teamRepository.findByIdAndCompanyId(command.parentTeamId(), command.companyId())
-                    .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
-            if (parent.parentTeamId() != null) {
-                throw new BusinessException(AuthErrorCode.TEAM_DEPTH_EXCEEDED);
-            }
-        }
-
-        if (isDuplicateName(command.companyId(), command.parentTeamId(), command.name())) {
+        if (teamRepository.existsByCompanyIdAndName(command.companyId(), command.name())) {
             throw new BusinessException(AuthErrorCode.TEAM_NAME_DUPLICATED);
         }
 
-        Team created = teamRepository.create(command.companyId(), command.parentTeamId(), command.name());
-        return new TeamNode(created.id(), created.name(), created.parentTeamId(), null, null, 0L, List.of());
+        Team created = teamRepository.create(command.companyId(), command.name());
+        return new TeamNode(created.id(), created.name(), null, null, 0L);
     }
 
     /**
-     * 이름을 바꾼 뒤 실제 상태(리더·구성원 수·하위 팀)를 다시 조립해 응답한다 — 고정된 null/0/빈 목록을
-     * 돌려주면 낙관적 갱신을 하는 프론트가 하위 팀·구성원 수를 순간적으로 지운 것처럼 보이게 된다.
+     * 이름을 바꾼 뒤 실제 상태(리더·구성원 수)를 다시 조립해 응답한다 — 고정된 null/0을
+     * 돌려주면 낙관적 갱신을 하는 프론트가 리더·구성원 수를 순간적으로 지운 것처럼 보이게 된다.
      */
     @Override
     @Transactional
@@ -76,15 +71,14 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
 
         boolean renamingToOtherName = !command.name().equals(team.name());
-        if (renamingToOtherName && isDuplicateName(command.companyId(), team.parentTeamId(), command.name())) {
+        if (renamingToOtherName && teamRepository.existsByCompanyIdAndName(command.companyId(), command.name())) {
             throw new BusinessException(AuthErrorCode.TEAM_NAME_DUPLICATED);
         }
 
         teamRepository.rename(team.id(), command.name());
 
-        Team renamed = new Team(team.id(), team.companyId(), command.name(), team.parentTeamId(), team.leaderMemberId());
-        List<Team> teams = teamRepository.findByCompanyId(command.companyId());
-        Context context = buildContext(command.companyId(), teams);
+        Team renamed = new Team(team.id(), team.companyId(), command.name(), team.leaderMemberId());
+        Context context = buildContext(command.companyId());
         return toNode(renamed, context);
     }
 
@@ -97,51 +91,29 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
         if (memberQueryPort.hasActiveMembers(team.id())) {
             throw new BusinessException(AuthErrorCode.TEAM_HAS_MEMBERS);
         }
-        if (teamRepository.existsByParentTeamId(team.id())) {
-            throw new BusinessException(AuthErrorCode.TEAM_HAS_CHILDREN);
-        }
         if (projectQueryPort.hasProjects(team.id())) {
             throw new BusinessException(AuthErrorCode.TEAM_HAS_PROJECTS);
         }
         teamRepository.delete(team.id());
     }
 
-    /**
-     * 같은 부모 안에서 이름이 겹치는지 본다(§6-2 — 전역 유니크가 아니다). Task 6(rename)도
-     * 이 메서드를 그대로 쓴다 — 조건이 갈리면 생성·수정이 서로 다른 기준으로 중복을 판정하게 된다.
-     */
-    private boolean isDuplicateName(Long companyId, Long parentTeamId, String name) {
-        return parentTeamId == null
-                ? teamRepository.existsByCompanyIdAndParentTeamIdIsNullAndName(companyId, name)
-                : teamRepository.existsByCompanyIdAndParentTeamIdAndName(companyId, parentTeamId, name);
-    }
-
-    private Context buildContext(Long companyId, List<Team> teams) {
+    private Context buildContext(Long companyId) {
         List<TeamMemberSummary> members = memberQueryPort.findActiveMembersByCompany(companyId);
         Map<Long, Long> memberCountByTeam = members.stream()
                 .filter(m -> m.teamId() != null)
                 .collect(Collectors.groupingBy(TeamMemberSummary::teamId, Collectors.counting()));
         Map<Long, String> nameByMemberId = members.stream()
                 .collect(Collectors.toMap(TeamMemberSummary::memberId, TeamMemberSummary::name));
-        Map<Long, List<Team>> childrenByParent = teams.stream()
-                .filter(t -> t.parentTeamId() != null)
-                .collect(Collectors.groupingBy(Team::parentTeamId));
-        return new Context(childrenByParent, memberCountByTeam, nameByMemberId);
+        return new Context(memberCountByTeam, nameByMemberId);
     }
 
     private TeamNode toNode(Team team, Context context) {
-        List<TeamNode> children = context.childrenByParent().getOrDefault(team.id(), List.of()).stream()
-                .sorted(Comparator.comparing(Team::id))
-                .map(child -> toNode(child, context))
-                .toList();
         String leaderName = team.leaderMemberId() == null ? null : context.nameByMemberId().get(team.leaderMemberId());
         long memberCount = context.memberCountByTeam().getOrDefault(team.id(), 0L);
-        return new TeamNode(team.id(), team.name(), team.parentTeamId(), team.leaderMemberId(),
-                leaderName, memberCount, children);
+        return new TeamNode(team.id(), team.name(), team.leaderMemberId(), leaderName, memberCount);
     }
 
     private record Context(
-            Map<Long, List<Team>> childrenByParent,
             Map<Long, Long> memberCountByTeam,
             Map<Long, String> nameByMemberId) {
     }

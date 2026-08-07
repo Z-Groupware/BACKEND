@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import com.module06.backend.capture.application.port.out.MeetingAccessPort;
 import com.module06.backend.capture.application.result.ActionReview;
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.GateSignals;
+import com.module06.backend.capture.domain.model.RejectReason;
 import com.module06.backend.global.exception.BusinessException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,12 +88,53 @@ class ActionReviewServiceTest {
     }
 
     @Test
-    @DisplayName("분배 전이므로 dispatchedAt 은 null 이다")
+    @DisplayName("분배 전이면 dispatchedAt 은 null 이다 — 자동 확정 건도 아직 아무 데도 없다")
     void 분배_전에는_dispatchedAt이_없다() {
         // 자동 확정 건도 분배 전까지는 아무 데도 가 있지 않다(명세 RVW-01).
         FakeQueryPort port = new FakeQueryPort(List.of(action(1L, ALICE, "김서준", true)));
 
         assertThat(service(port).getReview(COMPANY, MEETING, null).dispatchedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("분배 확정된 회의는 그 시각을 내려준다 — 화면이 「확정됨」을 이 값으로 그린다")
+    void 분배_뒤에는_dispatchedAt이_있다() {
+        FakeQueryPort port = new FakeQueryPort(List.of(action(1L, ALICE, "김서준", true)));
+        port.dispatchedAt = java.time.LocalDateTime.of(2026, 8, 7, 15, 31, 2);
+
+        assertThat(service(port).getReview(COMPANY, MEETING, null).dispatchedAt())
+                .isEqualTo(java.time.LocalDateTime.of(2026, 8, 7, 15, 31, 2));
+    }
+
+    @Test
+    @DisplayName("반려 사유를 그대로 내려준다 — 상태만 주면 다음 사람이 이유를 몰라 다시 묻는다")
+    void 반려_사유를_내려준다() {
+        FakeQueryPort port = new FakeQueryPort(List.of(rejectedAction(1L)));
+
+        ActionReview review = service(port).getReview(COMPANY, MEETING, null);
+
+        // 화면의 「반려됨 · 이미 있는 것과 중복」에서 뒷부분이 이 값이다.
+        assertThat(review.actionsByPerson().get(0).actions().get(0).rejectReason())
+                .isEqualTo(RejectReason.DUPLICATE);
+        /*
+         * 반려됐지만 자동확정된 건이라 검토 대상 카운트에는 들어가지 않는다. 화면도 이 카드를
+         * 「AI 확신도 높음」 묶음에 남긴 채 반려 라벨만 붙인다 — 반려가 카드를 지우지 않는다.
+         */
+        assertThat(review.needsReview().count()).isZero();
+    }
+
+    @Test
+    @DisplayName("기한이 프로젝트 마감일로 채워진 것인지 함께 내려준다")
+    void 기본값으로_채운_기한을_표시한다() {
+        /*
+         * 회의에서 기한을 말하지 않은 액션도 action.due_date 가 NOT NULL 이라 날짜가 채워진다.
+         * 이 값이 없으면 화면에서 둘이 똑같이 보이고, 사람은 AI 가 그 날짜를 정했다고 읽는다.
+         */
+        FakeQueryPort port = new FakeQueryPort(List.of(defaultedDueAction(1L)));
+
+        ActionReview review = service(port).getReview(COMPANY, MEETING, null);
+
+        assertThat(review.actionsByPerson().get(0).actions().get(0).dueDateDefaulted()).isTrue();
     }
 
     @Test
@@ -129,7 +172,12 @@ class ActionReviewServiceTest {
                                                              String assigneeName, boolean autoConfirmed) {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, assignee, assigneeName, AssigneeSource.EXPLICIT_CALL,
-                "로드맵 초안 작성", null, LocalDate.of(2026, 8, 7), "제품 로드맵", false, "PENDING",
+                "로드맵 초안 작성", null, LocalDate.of(2026, 8, 7),
+                // 회의에서 나온 기한이다 — 프로젝트 마감일로 채운 것이 아니다.
+                false,
+                "제품 로드맵", false, "PENDING",
+                // 아직 판정을 받지 않았으므로 사유가 없다.
+                null,
                 new ActionReviewQueryPort.Evidence(8812L, "박대표", "서준님이 정리해주세요.", 1_284_000),
                 /*
                  * 신호 넷과 autoConfirmed 를 **따로 둔다.** 네 번째 신호는 viewsAgree 이고,
@@ -143,8 +191,27 @@ class ActionReviewServiceTest {
     /* 사람이 직접 추가한 액션(RVW-03) — 게이트도 근거도 없다. */
     private static ActionReviewQueryPort.ReviewAction manualAction(long actionId) {
         return new ActionReviewQueryPort.ReviewAction(
-                actionId, ALICE, "김서준", null, "직접 추가한 일", null, null, null, true,
-                "HUMAN_CONFIRMED", null, null, null);
+                actionId, ALICE, "김서준", null, "직접 추가한 일", null, null, false, null, true,
+                "HUMAN_CONFIRMED", null, null, null, null);
+    }
+
+    /* 사람이 반려한 액션 — 화면의 「반려됨 · 이미 있는 것과 중복」이 이 모양이다. */
+    private static ActionReviewQueryPort.ReviewAction rejectedAction(long actionId) {
+        return new ActionReviewQueryPort.ReviewAction(
+                actionId, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL, "온보딩 플로우 검토", null,
+                LocalDate.of(2026, 8, 7), false, "온보딩", false, "REJECTED",
+                RejectReason.DUPLICATE,
+                new ActionReviewQueryPort.Evidence(8812L, "박대표", "먼저 검토합시다.", 1_122_000),
+                new GateSignals(true, true, true, true), true);
+    }
+
+    /* 회의에서 기한을 말하지 않아 프로젝트 마감일로 채워진 액션. */
+    private static ActionReviewQueryPort.ReviewAction defaultedDueAction(long actionId) {
+        return new ActionReviewQueryPort.ReviewAction(
+                actionId, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL, "API 문서 최신화", null,
+                LocalDate.of(2026, 8, 31), true, "인증 개편", false, "PENDING", null,
+                new ActionReviewQueryPort.Evidence(8813L, "박도현", "API 문서에도 반영이 필요합니다.", 24_000),
+                new GateSignals(true, true, true, true), true);
     }
 
     private static final class FakeQueryPort implements ActionReviewQueryPort {
@@ -158,12 +225,26 @@ class ActionReviewServiceTest {
             this.actions = new ArrayList<>(actions);
         }
 
+        /* RVW-02 가 쓰는 단건 조회다. 이 테스트는 목록만 보므로 부르지 않는다. */
+        @Override
+        public java.util.Optional<ReviewTarget> findOne(long companyId, long meetingId, long actionId) {
+            throw new UnsupportedOperationException();
+        }
+
         @Override
         public List<ReviewAction> findByMeeting(long companyId, long meetingId, String reviewStatus) {
             called = true;
             lastCompanyId = companyId;
             lastReviewStatus = reviewStatus;
             return actions;
+        }
+
+        /* 분배 확정 시각. 기본은 비어 있다 — 확정 전 회의가 검토 화면의 정상 상태다. */
+        private java.time.LocalDateTime dispatchedAt;
+
+        @Override
+        public Optional<java.time.LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
+            return Optional.ofNullable(dispatchedAt);
         }
     }
 }

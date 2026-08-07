@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import com.module06.backend.action.application.port.ActionDistributionPort.Distr
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
+import com.module06.backend.capture.application.port.out.AnalysisRunRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.StoredTuple;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleConflicts;
@@ -793,7 +795,7 @@ class AnalysisOrchestratorTest {
          */
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
-                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                layers, new FakeRunRepository(), summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
                         // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
@@ -823,7 +825,7 @@ class AnalysisOrchestratorTest {
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
-                layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                layers, new FakeRunRepository(), summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions,
                         // meeting.project_id 는 NOT NULL 이라, 비었다는 것은 회의 행을 못 읽은
@@ -865,6 +867,92 @@ class AnalysisOrchestratorTest {
         assertThat(layers.failed).isEmpty();
         // 빈 요청을 보내지 않는다 — C 쪽에 아무 일도 시키지 않는 호출이다.
         assertThat(actions.items).isEmpty();
+    }
+
+    // ── 실행 순서 (#134) ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("더 나중 실행이 시작되면 오래된 실행은 그 자리에서 멈춘다 — 옛 결과가 최신을 덮지 않는다")
+    void 밀린_실행은_다음_계층을_잡지_못하고_멈춘다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        FakeRunRepository runs = new FakeRunRepository();
+        FakeLayerRepository layers = new FakeLayerRepository(runs);
+
+        /*
+         * L2 를 잡으려는 순간 다른 실행이 시작한다. 이슈 #134 의 순서가 정확히 이 모양이다 —
+         * 오래된 실행이 옛 발화를 손에 든 채 뒤늦게 저장하러 오는 것이다.
+         */
+        layers.beforeLock = layer -> {
+            if (layer == LayerName.L2) {
+                runs.anotherRunStarts();
+            }
+        };
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai, layers)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 실패가 아니다. 순서가 정해진 것이고, 이 실행이 할 일은 더 새 실행이 한다.
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SUPERSEDED);
+        assertThat(outcome.failedLayer()).isEqualTo(LayerName.L2);
+        assertThat(outcome.retryable()).isFalse();
+
+        // L2 를 잡지 못했으므로 그 뒤 계층은 하나도 돌지 않는다.
+        assertThat(layers.locked).containsExactly(LayerName.L1, LayerName.L1_5);
+        assertThat(layers.done).doesNotContain(LayerName.L2);
+
+        /*
+         * FAILED 로 남기지 않는 것이 요점이다 — 남기면 ANLZ-02 가 이 계층을 재개 대상으로 보고
+         * 오래된 실행을 되살린다. 우리가 막으려던 것이 그것이다.
+         */
+        assertThat(layers.failed).isEmpty();
+        // 밀린 실행은 아무것도 저장하지 않았다.
+        assertThat(summaries.findByMeeting(COMPANY, MEETING).orElseThrow().topics()).isEmpty();
+        assertThat(tuples.saved).isEmpty();
+    }
+
+    @Test
+    @DisplayName("실행 번호를 못 받으면 계층을 하나도 잡지 않는다 — 같은 순간에 시작한 실행에 양보한다")
+    void 실행_번호_발급에_밀리면_계층을_시작하지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        FakeRunRepository runs = new FakeRunRepository();
+        runs.conflicted = true;     // 다른 실행이 이 회의의 첫 행을 먼저 넣었다.
+        FakeLayerRepository layers = new FakeLayerRepository(runs);
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai, layers)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SUPERSEDED);
+        // 아직 계층에 닿기 전이라 실패 계층이 없다.
+        assertThat(outcome.failedLayer()).isNull();
+        assertThat(layers.locked).isEmpty();
+        // 모델을 부르지 않았다 — 물러날 실행에 토큰을 쓰지 않는다.
+        assertThat(ai.gateRequests).isEmpty();
+    }
+
+    @Test
+    @DisplayName("순서가 지켜지는 평범한 실행은 그대로 끝까지 돈다")
+    void 최신_실행은_모든_계층을_잡는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        FakeRunRepository runs = new FakeRunRepository();
+        FakeLayerRepository layers = new FakeLayerRepository(runs);
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai, layers)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(layers.locked).containsExactly(
+                LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
+                LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
     }
 
     // ── 조립 ────────────────────────────────────────────────────────────────────
@@ -911,7 +999,13 @@ class AnalysisOrchestratorTest {
                                                        RecordingAiLayerPort ai,
                                                        RecordingDistributionPort actions) {
         return new AnalysisOrchestrator(
-                transcripts, captions, layers, summaries, tuples, dates,
+                transcripts, captions, layers,
+                /*
+                 * 실행 번호 저장소는 잠금 가짜와 **같은 것을 공유해야** 한다 — 실물에서도 잠금이
+                 * 같은 행을 보고 순서를 판정한다. 따로 주면 번호를 올려도 잠금이 모른다.
+                 */
+                layers.runs != null ? layers.runs : new FakeRunRepository(),
+                summaries, tuples, dates,
                 // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
                 // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
@@ -1128,6 +1222,12 @@ class AnalysisOrchestratorTest {
             return List.copyOf(utterances);
         }
 
+        /* 이 테스트가 보는 것은 파이프라인이라 근거 검증 경로(RVW-03)는 지나지 않는다. */
+        @Override
+        public boolean existsInMeeting(long meetingId, long transcriptId) {
+            throw new UnsupportedOperationException();
+        }
+
         /*
          * 실물과 같은 계약이다 — **이번 판정이 그 회의의 화자 상태 전부다.** 목록에 없는 발화는
          * 화자를 NULL 로 되돌린다. 덮어쓰기만 흉내내면 "기권했는데 예전 판정이 남는" 버그가
@@ -1310,10 +1410,33 @@ class AnalysisOrchestratorTest {
 
         private final java.util.Set<LayerName> done = new java.util.HashSet<>();
         private final Map<LayerName, String> failed = new LinkedHashMap<>();
+        /* 잠금을 잡은 계층. 밀린 실행이 **어디서 멈췄는지**가 #134 의 검증 대상이다. */
+        private final List<LayerName> locked = new ArrayList<>();
+
+        /*
+         * 실행 번호를 아는 저장소. 실물 어댑터가 잠금과 같은 트랜잭션에서 이 값을 보는 것을
+         * 흉내낸다. null 이면 순서 검사가 없는 것이고, 그때는 항상 잠긴다.
+         */
+        private final FakeRunRepository runs;
+        /* 잠그기 **직전에** 끼어들 자리. 계층 사이에 다른 실행이 시작하는 순간을 만든다. */
+        private java.util.function.Consumer<LayerName> beforeLock = layer -> { };
+
+        private FakeLayerRepository() {
+            this(null);
+        }
+
+        private FakeLayerRepository(FakeRunRepository runs) {
+            this.runs = runs;
+        }
 
         @Override
-        public boolean tryLock(long meetingId, LayerName layer) {
-            return true;
+        public LockResult tryLock(long meetingId, LayerName layer, long runSeq) {
+            beforeLock.accept(layer);
+            if (runs != null && runSeq < runs.current) {
+                return LockResult.SUPERSEDED;
+            }
+            locked.add(layer);
+            return LockResult.ACQUIRED;
         }
 
         @Override
@@ -1332,6 +1455,30 @@ class AnalysisOrchestratorTest {
             return done.stream()
                     .map(layer -> new LayerState(layer, LayerStatus.DONE, 0, 0))
                     .toList();
+        }
+    }
+
+    /*
+     * meeting_analysis_run 을 흉내낸다. 실물과 같은 성질 하나만 지킨다 —
+     * **발급할 때마다 번호가 오르고, 마지막에 발급된 번호가 곧 최신이다.**
+     */
+    private static final class FakeRunRepository implements AnalysisRunRepository {
+
+        private long current;
+        /* 첫 행 INSERT 경합. 실물에서 PK 충돌로 물러나는 경로다. */
+        private boolean conflicted;
+
+        @Override
+        public OptionalLong begin(long meetingId) {
+            if (conflicted) {
+                return OptionalLong.empty();
+            }
+            return OptionalLong.of(++current);
+        }
+
+        /* 다른 실행이 지금 시작했다. 순서 역전을 만드는 손잡이다. */
+        void anotherRunStarts() {
+            current++;
         }
     }
 }

@@ -36,6 +36,17 @@ public class OrgQueryAdapter implements OrgQueryPort {
                 .orElse(null);
     }
 
+    /**
+     * 퇴사 인수인계서 PDF 헤더 스냅샷용(생성 시점 1회). 못 찾으면 조용히 null 을 주지 않고
+     * 예외를 던진다 — {@link #findMember} 와 같은 이유로, 빈 값이 스냅샷에 굳어 감사 기록이 된다.
+     */
+    @Override
+    public String findTeamName(Long teamId) {
+        return teamRepository.findById(teamId)
+                .map(TeamRefEntity::getName)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
+    }
+
     @Override
     public MemberSnapshot findMember(Long memberId) {
         return memberRepository.findById(memberId)

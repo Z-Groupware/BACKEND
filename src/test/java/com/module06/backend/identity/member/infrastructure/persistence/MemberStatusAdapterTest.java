@@ -198,10 +198,12 @@ class MemberStatusAdapterTest {
     private void insertMember(Long id, String status, String deletedAt) {
         em.createNativeQuery("INSERT INTO company (id, code, name) VALUES (?, ?, '(주)테스트')")
                 .setParameter(1, id).setParameter(2, "C" + id).executeUpdate();
+        /* role_id 는 NOT NULL 이다(V2.3.10) — 시드 행 "없음"(id 2)을 그대로 흉내 낸다. */
+        em.createNativeQuery("MERGE INTO role (id, name) KEY(id) VALUES (2, '없음')").executeUpdate();
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, email, password_hash, name, authority, is_admin, status, deleted_at)
-                        VALUES (?, ?, ?, 'hash', '테스트', 'MEMBER', FALSE, ?, ?)
+                          (id, company_id, role_id, email, password_hash, name, authority, is_admin, status, deleted_at)
+                        VALUES (?, ?, 2, ?, 'hash', '테스트', 'MEMBER', FALSE, ?, ?)
                         """)
                 .setParameter(1, id).setParameter(2, id).setParameter(3, "m" + id + "@x.co.kr")
                 .setParameter(4, status).setParameter(5, deletedAt)
