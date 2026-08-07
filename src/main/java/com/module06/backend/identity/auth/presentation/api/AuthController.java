@@ -2,8 +2,10 @@ package com.module06.backend.identity.auth.presentation.api;
 
 import jakarta.validation.Valid;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,10 +18,12 @@ import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
 import com.module06.backend.identity.auth.presentation.api.dto.request.LoginRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.ReissueTokenRequest;
+import com.module06.backend.identity.auth.presentation.api.dto.request.UpdateMyProfileRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.response.MyProfileResponse;
 import com.module06.backend.identity.auth.presentation.api.dto.response.ReissuedTokenResponse;
 import com.module06.backend.identity.auth.presentation.api.dto.response.TokenResponse;
 import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
+import com.module06.backend.identity.member.application.usecase.UpdateMyProfileUseCase;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +39,7 @@ public class AuthController {
     private final ReissueTokenUseCase reissueTokenUseCase;
     private final LogoutUseCase logoutUseCase;
     private final GetMyProfileUseCase getMyProfileUseCase;
+    private final UpdateMyProfileUseCase updateMyProfileUseCase;
 
     @Operation(summary = "로그인", description = "로그인 2단계. 기업 코드·이메일·비밀번호로 토큰을 발급합니다.")
     @PostMapping("/login")
@@ -69,5 +74,21 @@ public class AuthController {
     public ApiResponse<MyProfileResponse> me(@AuthenticationPrincipal AuthPrincipal me) {
         MyProfileResponse response = MyProfileResponse.from(getMyProfileUseCase.get(me.memberId()));
         return ApiResponse.success("내 정보를 조회했습니다", response);
+    }
+
+    /*
+     * 대상을 바디로 받지 않고 토큰에서 꺼낸다 — logout() 과 같은 이유로, 남의 프로필을 고치는
+     * IDOR 를 막는다. 부서·직급·전화번호만 바뀐다 — 권한·이름·이메일은 이 경로로 못 바꾼다.
+     */
+    @Operation(summary = "마이페이지 프로필 수정",
+            description = "부서·직급·전화번호만 셀프로 바꿉니다. 보낸 필드만 반영됩니다.")
+    @PatchMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<MyProfileResponse> updateMe(
+            @AuthenticationPrincipal AuthPrincipal me,
+            @Valid @RequestBody UpdateMyProfileRequest request) {
+        MyProfileResponse response = MyProfileResponse.from(
+                updateMyProfileUseCase.update(request.toCommand(me.memberId(), me.companyId())));
+        return ApiResponse.success("프로필을 수정했습니다", response);
     }
 }
