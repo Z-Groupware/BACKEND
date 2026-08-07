@@ -800,7 +800,7 @@ class AnalysisOrchestratorTest {
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
                         // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
                         (companyId, meetingId) -> true, new ObjectMapper()),
-                ai)
+                ai, command -> {})
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         // 분석은 실패가 아니다. 액션만 만들지 않는다 — 지우는 쪽이 아니라 멈추는 쪽이 안전하다.
@@ -832,7 +832,7 @@ class AnalysisOrchestratorTest {
                         // 것이다 — 분배할 것이 없는 정상 상태가 아니라 데이터 오류다.
                         meetingId -> Optional.empty(),
                         (companyId, meetingId) -> false, new ObjectMapper()),
-                ai)
+                ai, command -> {})
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         /*
@@ -1017,7 +1017,7 @@ class AnalysisOrchestratorTest {
                 new TupleDistributionService(tuples, actions,
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
                         new ObjectMapper()),
-                ai);
+                ai, command -> {});
     }
 
     private static List<Utterance> utterances() {
