@@ -105,4 +105,19 @@ public class CompanyJpaEntity {
         company.marketingAgreedAt = agreedMarketing ? now : null;
         return company;
     }
+
+    /** §4-3. 호출자가 이미 기존 값과 병합해 넘긴 값을 그대로 반영한다 — 부분 수정 로직은 여기 없다. */
+    void updateProfile(String name, String registrationNo, String representativeName,
+                        String address, String mainPhone) {
+        this.name = name;
+        this.registrationNo = registrationNo;
+        this.representativeName = representativeName;
+        this.address = address;
+        this.mainPhone = mainPhone;
+    }
+
+    /** §4-1 온보딩 커밋 마지막 단계. */
+    void markOnboarded(LocalDateTime now) {
+        this.onboardedAt = now;
+    }
 }

@@ -56,10 +56,6 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
     @Override
     public Long issue(Long companyId, Long teamId, Long positionId, String roleLabel,
                        String name, String email, String passwordHash, Authority authority) {
-        CompanyJpaEntity company = entityManager.getReference(CompanyJpaEntity.class, companyId);
-        TeamRefEntity team = entityManager.getReference(TeamRefEntity.class, teamId);
-        PositionRefEntity position = entityManager.getReference(PositionRefEntity.class, positionId);
-
         if (roleLabel != null) {
             /*
              * 화면 폼에 없는 값이라(§5-1) roleLabel 로 role 을 찾는 조회 창구가 아직 없다.
@@ -70,7 +66,22 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
              */
             throw new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_SUPPORTED);
         }
-        RoleRefEntity role = entityManager.getReference(RoleRefEntity.class, ROLE_NONE_ID);
+        return issue(companyId, teamId, positionId, ROLE_NONE_ID, name, email, passwordHash, authority);
+    }
+
+    @Override
+    public Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId,
+                               String name, String email, String passwordHash, Authority authority) {
+        return issue(companyId, teamId, positionId, roleId != null ? roleId : ROLE_NONE_ID,
+                name, email, passwordHash, authority);
+    }
+
+    private Long issue(Long companyId, Long teamId, Long positionId, Long roleId,
+                        String name, String email, String passwordHash, Authority authority) {
+        CompanyJpaEntity company = entityManager.getReference(CompanyJpaEntity.class, companyId);
+        TeamRefEntity team = entityManager.getReference(TeamRefEntity.class, teamId);
+        PositionRefEntity position = entityManager.getReference(PositionRefEntity.class, positionId);
+        RoleRefEntity role = entityManager.getReference(RoleRefEntity.class, roleId);
 
         MemberJpaEntity member = MemberJpaEntity.issue(company, team, role, position, name, email, passwordHash, authority);
         try {

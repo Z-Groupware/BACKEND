@@ -20,7 +20,7 @@ class CompanyLookupServiceTest {
     @DisplayName("소문자·공백이 섞인 코드를 정규화해서 찾는다 — 메일에서 복사하면 공백이 붙는다")
     void normalizesCodeBeforeLookup() {
         RecordingRepository repository = new RecordingRepository(
-                Optional.of(new Company(1L, "NOVA-7K3D", "(주)테크스타트")));
+                Optional.of(new Company(1L, "NOVA-7K3D", "(주)테크스타트", null, null, null, null, null)));
         CompanyLookupService service = new CompanyLookupService(repository);
 
         Company found = service.lookup("  nova-7k3d ");

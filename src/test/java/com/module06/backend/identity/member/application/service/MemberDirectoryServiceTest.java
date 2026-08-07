@@ -460,6 +460,12 @@ class MemberDirectoryServiceTest {
             return id;
         }
 
+        @Override
+        public Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId, String name,
+                                   String email, String passwordHash, Authority authority) {
+            return issue(companyId, teamId, positionId, null, name, email, passwordHash, authority);
+        }
+
         private MemberRow toRow(MutableRow row) {
             return new MemberRow(row.id, row.name, row.email, row.teamId, row.teamName, null, "선임",
                     row.roleLabel, row.authority, row.isAdmin, row.status, LocalDate.of(2026, 1, 1), row.pendingType);
@@ -602,7 +608,7 @@ class MemberDirectoryServiceTest {
         @Override
         public Optional<Company> findById(Long id) {
             String code = codeByCompany.getOrDefault(id, "COMP00");
-            return Optional.of(new Company(id, code, "테스트기업"));
+            return Optional.of(new Company(id, code, "테스트기업", null, null, null, null, null));
         }
 
         @Override

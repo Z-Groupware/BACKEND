@@ -22,4 +22,14 @@ public interface MemberDirectoryCommandPort {
      */
     Long issue(Long companyId, Long teamId, Long positionId, String roleLabel,
                String name, String email, String passwordHash, Authority authority);
+
+    /**
+     * §4-1 온보딩 전용. {@code roleId} 를 이름이 아니라 id로 직접 받는다 — 온보딩은 역할(구
+     * sub_team)을 같은 요청 안에서 방금 직접 만들어 id를 이미 알고 있으므로, {@link #issue}처럼
+     * 이름으로 찾아 헤맬 필요가 없다. {@code roleId} 가 null 이면 §5-1과 같은 기본값("없음")이다.
+     *
+     * @return 생성된 구성원 id
+     */
+    Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId,
+                        String name, String email, String passwordHash, Authority authority);
 }

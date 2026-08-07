@@ -9,4 +9,6 @@ interface SpringDataCompanyRepository extends JpaRepository<CompanyJpaEntity, Lo
     Optional<CompanyJpaEntity> findByCode(String code);
 
     boolean existsByRegistrationNo(String registrationNo);
+
+    boolean existsByRegistrationNoAndIdNot(String registrationNo, Long id);
 }
