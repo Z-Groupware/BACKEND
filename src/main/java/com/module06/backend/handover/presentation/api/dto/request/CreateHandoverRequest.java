@@ -3,6 +3,7 @@ package com.module06.backend.handover.presentation.api.dto.request;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.domain.model.HandoverType;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -17,6 +18,8 @@ public record CreateHandoverRequest(
         LocalDateTime leaveStartAt,
         LocalDateTime leaveEndAt,
         LocalDate lastWorkingDay,
+        // 담당 업무 및 인수인계 상세 설명(자유서술, 선택). PDF 서술부 소스.
+        @Size(max = 5000) String note,
         List<Long> selectedActionIds
 ) {
 
@@ -28,6 +31,7 @@ public record CreateHandoverRequest(
                 leaveStartAt,
                 leaveEndAt,
                 lastWorkingDay,
+                note,
                 selectedActionIds
         );
     }

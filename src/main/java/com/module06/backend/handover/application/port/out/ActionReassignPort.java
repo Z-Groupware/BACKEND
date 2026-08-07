@@ -3,6 +3,7 @@ package com.module06.backend.handover.application.port.out;
 import com.module06.backend.handover.domain.model.HandoverType;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -30,6 +31,7 @@ public interface ActionReassignPort {
             String actionType,
             String status,
             LocalDate deadline,
+            LocalDateTime actionCreatedAt,
             Long sourceMeetingId,
             String sourceMeetingTitle,
             String content

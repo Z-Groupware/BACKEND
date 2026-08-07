@@ -45,6 +45,9 @@ public class HandoverItemJpaEntity {
     @Column(name = "deadline_snap")
     private LocalDate deadlineSnap;
 
+    @Column(name = "action_created_at_snap")
+    private LocalDateTime actionCreatedAtSnap;
+
     @Column(name = "source_meeting_id")
     private Long sourceMeetingId;
 
@@ -82,6 +85,7 @@ public class HandoverItemJpaEntity {
 
     private HandoverItemJpaEntity(Long id, Long actionId, String actionTitleSnap, String actionStatusSnap,
                                   String projectTagSnap, String actionTypeSnap, LocalDate deadlineSnap,
+                                  LocalDateTime actionCreatedAtSnap,
                                   Long sourceMeetingId, String sourceMeetingTitleSnap, String contentSnap,
                                   boolean reassignRequired,
                                   Long reassigneeId, String reassigneeNameSnap,
@@ -94,6 +98,7 @@ public class HandoverItemJpaEntity {
         this.projectTagSnap = projectTagSnap;
         this.actionTypeSnap = actionTypeSnap;
         this.deadlineSnap = deadlineSnap;
+        this.actionCreatedAtSnap = actionCreatedAtSnap;
         this.sourceMeetingId = sourceMeetingId;
         this.sourceMeetingTitleSnap = sourceMeetingTitleSnap;
         this.contentSnap = contentSnap;
@@ -109,14 +114,14 @@ public class HandoverItemJpaEntity {
     static HandoverItemJpaEntity fromDomain(HandoverItem item) {
         return new HandoverItemJpaEntity(item.getId(), item.getActionId(), item.getActionTitleSnap(),
                 item.getActionStatusSnap(), item.getProjectTagSnap(), item.getActionTypeSnap(),
-                item.getDeadlineSnap(), item.getSourceMeetingId(), item.getSourceMeetingTitleSnap(),
+                item.getDeadlineSnap(), item.getActionCreatedAtSnap(), item.getSourceMeetingId(), item.getSourceMeetingTitleSnap(),
                 item.getContentSnap(), item.isReassignRequired(), item.getReassigneeId(), item.getReassigneeNameSnap(), item.getReassigneePositionSnap(),
                 item.getReassignedAt(), item.getCommittedAt(), item.getRollbackStatus());
     }
 
     HandoverItem toDomain() {
         return new HandoverItem(id, actionId, actionTitleSnap, actionStatusSnap, projectTagSnap, actionTypeSnap,
-                deadlineSnap, sourceMeetingId, sourceMeetingTitleSnap, contentSnap,
+                deadlineSnap, actionCreatedAtSnap, sourceMeetingId, sourceMeetingTitleSnap, contentSnap,
                 reassigneeId, reassigneeNameSnap, reassigneePositionSnap, reassignedAt, committedAt, rollbackStatus,
                 reassignRequired);
     }

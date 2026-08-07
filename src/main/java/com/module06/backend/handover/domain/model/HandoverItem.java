@@ -15,6 +15,7 @@ public class HandoverItem {
     private final String projectTagSnap;
     private final String actionTypeSnap;
     private final LocalDate deadlineSnap;
+    private final LocalDateTime actionCreatedAtSnap;
     private final Long sourceMeetingId;
     private final String sourceMeetingTitleSnap;
     private final String contentSnap;
@@ -29,6 +30,7 @@ public class HandoverItem {
 
     public HandoverItem(Long id, Long actionId, String actionTitleSnap, String actionStatusSnap,
                         String projectTagSnap, String actionTypeSnap, LocalDate deadlineSnap,
+                        LocalDateTime actionCreatedAtSnap,
                         Long sourceMeetingId, String sourceMeetingTitleSnap, String contentSnap,
                         Long reassigneeId, String reassigneeNameSnap, String reassigneePositionSnap,
                         LocalDateTime reassignedAt, LocalDateTime committedAt, String rollbackStatus,
@@ -44,6 +46,7 @@ public class HandoverItem {
         this.projectTagSnap = projectTagSnap;
         this.actionTypeSnap = actionTypeSnap;
         this.deadlineSnap = deadlineSnap;
+        this.actionCreatedAtSnap = actionCreatedAtSnap;
         this.sourceMeetingId = sourceMeetingId;
         this.sourceMeetingTitleSnap = sourceMeetingTitleSnap;
         this.contentSnap = contentSnap;
@@ -58,10 +61,11 @@ public class HandoverItem {
 
     public static HandoverItem create(Long actionId, String actionTitleSnap, String actionStatusSnap,
                                       String projectTagSnap, String actionTypeSnap, LocalDate deadlineSnap,
-                                      Long sourceMeetingId, String sourceMeetingTitleSnap, String contentSnap,
+                                      LocalDateTime actionCreatedAtSnap, Long sourceMeetingId,
+                                      String sourceMeetingTitleSnap, String contentSnap,
                                       boolean reassignRequired) {
         return new HandoverItem(null, actionId, actionTitleSnap, actionStatusSnap, projectTagSnap,
-                actionTypeSnap, deadlineSnap, sourceMeetingId, sourceMeetingTitleSnap, contentSnap,
+                actionTypeSnap, deadlineSnap, actionCreatedAtSnap, sourceMeetingId, sourceMeetingTitleSnap, contentSnap,
                 null, null, null, null, null, null, reassignRequired);
     }
 
@@ -105,6 +109,7 @@ public class HandoverItem {
     public String getProjectTagSnap() { return projectTagSnap; }
     public String getActionTypeSnap() { return actionTypeSnap; }
     public LocalDate getDeadlineSnap() { return deadlineSnap; }
+    public LocalDateTime getActionCreatedAtSnap() { return actionCreatedAtSnap; }
     public Long getSourceMeetingId() { return sourceMeetingId; }
     public String getSourceMeetingTitleSnap() { return sourceMeetingTitleSnap; }
     public String getContentSnap() { return contentSnap; }
