@@ -48,6 +48,25 @@ class CompanyProfileServiceTest {
     }
 
     @Test
+    @DisplayName("동시에 다른 필드를 고친 PATCH끼리는 서로의 변경을 지우지 않는다")
+    void concurrentPartialUpdatesDoNotClobberEachOther() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+
+        /*
+         * 두 PATCH가 같은 낡은 스냅샷을 각자 읽었다고 가정해도(동시성 시나리오), 서비스는 이제
+         * 그 스냅샷과 병합하지 않고 null 을 그대로 넘긴다 — 나중에 실행되는 쪽이 먼저 커밋된
+         * address 변경을 되돌리면 이 테스트가 잡아낸다.
+         */
+        service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null));
+        Company afterSecondPatch = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, "김서준", null, null));
+
+        assertThat(afterSecondPatch.address()).isEqualTo("서울시 강남구 테헤란로 123");
+        assertThat(afterSecondPatch.representativeName()).isEqualTo("김서준");
+    }
+
+    @Test
     @DisplayName("사업자등록번호 형식이 틀리면 거절한다")
     void rejectsMalformedRegistrationNo() {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));
@@ -119,11 +138,17 @@ class CompanyProfileServiceTest {
             return taken.contains(registrationNo);
         }
 
+        /** 실제 {@code CompanyJpaEntity.updateProfile} 과 같다 — null 인자는 기존 값을 그대로 둔다. */
         @Override
         public void updateProfile(Long id, String name, String registrationNo, String representativeName,
                                    String address, String mainPhone) {
-            company = new Company(id, company.code(), name, registrationNo, representativeName,
-                    address, mainPhone, company.onboardedAt());
+            company = new Company(id, company.code(),
+                    name != null ? name : company.name(),
+                    registrationNo != null ? registrationNo : company.registrationNo(),
+                    representativeName != null ? representativeName : company.representativeName(),
+                    address != null ? address : company.address(),
+                    mainPhone != null ? mainPhone : company.mainPhone(),
+                    company.onboardedAt());
         }
 
         @Override

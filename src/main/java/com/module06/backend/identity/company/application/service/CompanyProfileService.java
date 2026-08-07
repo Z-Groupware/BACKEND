@@ -32,26 +32,21 @@ public class CompanyProfileService implements GetCompanyProfileUseCase, UpdateCo
 
     /**
      * null 인 필드는 값을 바꾸지 않는다 — 요청에 없는 필드까지 지워버리면 부분 수정이 아니라
-     * 전체 교체가 된다. 현재 값을 먼저 읽어 요청과 병합한 뒤 통째로 다시 쓴다.
+     * 전체 교체가 된다. 현재 값을 미리 읽어 병합하지 않는다 — 동시에 다른 필드를 고친 PATCH가
+     * 그 사이 커밋되면, 이 요청이 안 건드린 필드까지 자기가 읽은 낡은 스냅샷 값으로 되돌려
+     * 먼저 커밋된 변경을 지워버린다(lost update, 코드래빗 지적). 대신 null 을 그대로
+     * {@link CompanyProfileRepository#updateProfile} 까지 흘려보내, 엔티티가 "지금 갖고 있는 값
+     * 위에 바뀐 필드만 얹는" 방식으로 병합하게 한다.
      */
     @Override
     @Transactional
     public Company updateProfile(UpdateCompanyCommand command) {
-        Company current = findCompany(command.companyId());
-
-        String name = command.name() != null ? command.name() : current.name();
-        String registrationNo = command.registrationNo() != null ? command.registrationNo() : current.registrationNo();
-        String representativeName = command.representativeName() != null
-                ? command.representativeName() : current.representativeName();
-        String address = command.address() != null ? command.address() : current.address();
-        String mainPhone = command.mainPhone() != null ? command.mainPhone() : current.mainPhone();
-
         if (command.registrationNo() != null) {
-            assertRegistrationNoValid(registrationNo, command.companyId());
+            assertRegistrationNoValid(command.registrationNo(), command.companyId());
         }
 
-        companyProfileRepository.updateProfile(command.companyId(), name, registrationNo,
-                representativeName, address, mainPhone);
+        companyProfileRepository.updateProfile(command.companyId(), command.name(), command.registrationNo(),
+                command.representativeName(), command.address(), command.mainPhone());
 
         return findCompany(command.companyId());
     }
