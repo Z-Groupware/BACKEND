@@ -1,5 +1,6 @@
 package com.module06.backend.capture.presentation.api;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
@@ -18,13 +20,16 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.AddReviewActionUseCase;
 import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
+import com.module06.backend.capture.presentation.api.request.AddReviewActionRequest;
 import com.module06.backend.capture.presentation.api.request.ReviewDecisionRequest;
 import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
+import com.module06.backend.capture.presentation.api.response.AddReviewActionResponse;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
@@ -59,6 +64,7 @@ public class AnalysisController {
     private final GetSummaryUseCase getSummaryUseCase;
     private final GetActionReviewUseCase getActionReviewUseCase;
     private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
+    private final AddReviewActionUseCase addReviewActionUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -156,6 +162,34 @@ public class AnalysisController {
                 "반영되었습니다.",
                 ReviewDecisionResponse.from(applyReviewDecisionUseCase.apply(
                         request.toCommand(me.getCompanyId(), meetingId, actionId, me.getMemberId()))));
+    }
+
+    /*
+     * RVW-03 · 액션 직접 추가.
+     *
+     * **AI 가 놓친 것을 사람이 넣는 자리다.** 파이프라인이 못 뽑은 할 일은 검토 화면에 아예
+     * 나타나지 않으므로, 이 경로가 없으면 사람은 빠진 것을 알아도 넣을 방법이 없다.
+     *
+     * MEMBER 까지 허용한다 — 검토는 회의 참석자가 하는 일이고, RVW-02 와 같은 판단이다.
+     */
+    @Operation(
+            summary = "액션 직접 추가 (RVW-03)",
+            description = "검토 화면에서 사람이 액션을 직접 추가한다. 만들어지는 액션은 "
+                    + "isManual=true · HUMAN_CONFIRMED 이며, AI 입력이 없어 few-shot 예시로는 "
+                    + "쓰이지 않는다. 담당자와 기한은 필수다(422)."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping("/review/actions")
+    public ApiResponse<AddReviewActionResponse> addReviewAction(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Valid @RequestBody AddReviewActionRequest request
+    ) {
+        return ApiResponse.success(
+                "추가되었습니다.",
+                AddReviewActionResponse.from(addReviewActionUseCase.add(
+                        request.toCommand(me.getCompanyId(), meetingId, me.getMemberId()))));
     }
 
     /* ANLZ-03 · 요약 조회. 분석 전이면 404 다 — 빈 요약을 지어내지 않는다. */
