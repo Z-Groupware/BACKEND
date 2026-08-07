@@ -19,7 +19,7 @@ import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.company.application.port.out.AccountMailPort;
 import com.module06.backend.identity.company.domain.model.Company;
-import com.module06.backend.identity.company.domain.policy.TemporaryPasswordGenerator;
+import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
@@ -309,7 +309,7 @@ class MemberDirectoryServiceTest {
 
         MemberDirectoryService service = new MemberDirectoryService(
                 directory, directory, new MemberIssuer(directory, directory, teams, companies, new SeatLimitPolicy()),
-                teams, positions, companies, new FakeAccountMailPort(), TemporaryPasswordGenerator.secure(),
+                teams, positions, companies, new FakeAccountMailPort(), PasswordGenerator.secure(),
                 new BCryptPasswordEncoder(), new FakeRefreshTokenStore(), new SeatLimitPolicy());
 
         service.issue(new IssueMemberCommand(
@@ -332,7 +332,7 @@ class MemberDirectoryServiceTest {
 
         MemberDirectoryService service = new MemberDirectoryService(
                 directory, directory, new MemberIssuer(directory, directory, teams, companies, new SeatLimitPolicy()),
-                teams, positions, companies, mailPort, TemporaryPasswordGenerator.secure(),
+                teams, positions, companies, mailPort, PasswordGenerator.secure(),
                 new BCryptPasswordEncoder(), new FakeRefreshTokenStore(), new SeatLimitPolicy());
 
         var issued = service.issue(new IssueMemberCommand(
@@ -364,7 +364,7 @@ class MemberDirectoryServiceTest {
         SeatLimitPolicy seatLimitPolicy = new SeatLimitPolicy();
         MemberIssuer issuer = new MemberIssuer(directory, directory, teams, companies, seatLimitPolicy);
         return new MemberDirectoryService(directory, directory, issuer, teams, positions,
-                companies, new FakeAccountMailPort(), TemporaryPasswordGenerator.secure(),
+                companies, new FakeAccountMailPort(), PasswordGenerator.secure(),
                 new BCryptPasswordEncoder(), tokenStore, seatLimitPolicy);
     }
 

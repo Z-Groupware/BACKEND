@@ -28,8 +28,9 @@ public class ManageMemberController {
 
     private final IssueMemberUseCase issueMemberUseCase;
 
-    @Operation(summary = "계정 발급", description = "임시 비밀번호를 생성해 기업코드·이메일·비밀번호를 메일로 보냅니다. "
-            + "발급 즉시 재직 상태입니다.")
+    @Operation(summary = "계정 발급", description = "비밀번호를 생성해 기업코드·이메일·비밀번호를 메일로 보냅니다. "
+            + "발급 즉시 재직 상태이며, 이 비밀번호는 임시가 아니라 계정의 실제 비밀번호입니다 — "
+            + "비밀번호 변경 기능이 없어 분실 시 관리자가 §5-2로 재발급합니다.")
     @PostMapping
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<IssuedMemberResponse> issue(

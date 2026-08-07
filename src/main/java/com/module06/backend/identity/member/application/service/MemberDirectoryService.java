@@ -15,7 +15,7 @@ import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.company.application.port.out.AccountMailPort;
 import com.module06.backend.identity.company.domain.model.Company;
-import com.module06.backend.identity.company.domain.policy.TemporaryPasswordGenerator;
+import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
@@ -64,7 +64,7 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
     private final PositionRepository positionRepository;
     private final CompanyRepository companyRepository;
     private final AccountMailPort accountMailPort;
-    private final TemporaryPasswordGenerator passwordGenerator;
+    private final PasswordGenerator passwordGenerator;
     private final PasswordEncoder passwordEncoder;
     private final RefreshTokenStore refreshTokenStore;
     private final SeatLimitPolicy seatLimitPolicy;
