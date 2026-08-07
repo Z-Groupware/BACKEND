@@ -17,6 +17,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase.TeamActionDetail;
+import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
+import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
 import com.module06.backend.action.domain.model.Action;
@@ -46,6 +48,9 @@ class TeamActionControllerTest {
 
     @MockitoBean
     private GetTeamActionDetailUseCase getTeamActionDetailUseCase;
+
+    @MockitoBean
+    private GetTeamActionTimelineUseCase getTeamActionTimelineUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -82,6 +87,18 @@ class TeamActionControllerTest {
                 .andExpect(jsonPath("$.data.teamName").value("개발팀"));
     }
 
+    @Test
+    @DisplayName("?tab=timeline이면 하위 개인 액션 타임라인을 내려준다")
+    void timelineIsRoutedByTabQueryParamAndUsesCompanyIdFromToken() throws Exception {
+        authenticateAs(1L, COMPANY, TEAM, "MEMBER");
+        when(getTeamActionTimelineUseCase.getTeamActionTimeline(eq(COMPANY), eq(10L)))
+                .thenReturn(List.of(new TimelineItem(personalAction(), "이태연")));
+
+        mockMvc.perform(get("/api/team/actions/10").param("tab", "timeline"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].assigneeName").value("이태연"));
+    }
+
     private void authenticateAs(Long memberId, Long companyId, Long teamId, String authority) {
         AuthPrincipal principal = new AuthPrincipal(memberId, companyId, authority, false, teamId);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
@@ -93,6 +110,15 @@ class TeamActionControllerTest {
                 10L, COMPANY, 100L, null, null, TEAM, null,
                 ActionType.TEAM, "팀 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.PENDING, null, null, null, false,
+                null, null, null
+        );
+    }
+
+    private Action personalAction() {
+        return Action.reconstitute(
+                11L, COMPANY, 100L, 10L, null, null, 5L,
+                ActionType.PERSONAL, "개인 액션", "설명", false, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 20), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );
     }

@@ -3,6 +3,7 @@ package com.module06.backend.action.presentation.api.response;
 import java.time.LocalDate;
 
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase.ActionListItem;
+import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
@@ -54,6 +55,12 @@ public record ActionSummaryResponse(
     // FR-AC-06 목록 조회 — TEAM 액션은 담당자·출처회의·상위액션 개념이 없어 전부 null로 내려간다.
     public static ActionSummaryResponse from(TeamActionListItem item) {
         return from(item.action(), null, item.projectTag(), item.teamName(), null, null);
+    }
+
+    // FR-AC-08 타임라인 조회 — 이미 팀 액션 상세 화면 안(같은 프로젝트·같은 팀)이라 projectTag·
+    // teamName·상위액션 제목은 중복이라 안 싣는다. 상위액션 id는 그대로 둔다(카드 클릭 이동용).
+    public static ActionSummaryResponse from(TimelineItem item) {
+        return from(item.action(), item.assigneeName(), null, null, null, null);
     }
 
     private static ActionSummaryResponse from(

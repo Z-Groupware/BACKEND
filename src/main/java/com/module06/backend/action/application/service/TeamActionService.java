@@ -3,16 +3,19 @@ package com.module06.backend.action.application.service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
+import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
@@ -40,7 +43,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class TeamActionService implements
         GetTeamActionsUseCase,
-        GetTeamActionDetailUseCase {
+        GetTeamActionDetailUseCase,
+        GetTeamActionTimelineUseCase {
 
     private final ActionRepository actionRepository;
     private final ActionReferenceRepository actionReferenceRepository;
@@ -69,12 +73,7 @@ public class TeamActionService implements
     @Override
     @Transactional(readOnly = true)
     public TeamActionDetail getTeamActionDetail(Long companyId, Long teamActionId) {
-        Action action = actionRepository.findById(teamActionId)
-                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_NOT_FOUND));
-
-        if (!companyId.equals(action.getCompanyId()) || action.getActionType() != ActionType.TEAM) {
-            throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
-        }
+        Action action = requireOwnCompanyTeamAction(companyId, teamActionId);
 
         String projectTag = actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
                 .findFirst().map(ProjectReference::tag).orElse(null);
@@ -86,8 +85,46 @@ public class TeamActionService implements
         return new TeamActionDetail(action, projectTag, teamName, attachments);
     }
 
+    // FR-AC-08 타임라인(?tab=timeline) — 상세와 같은 IDOR 방지 확인 후 하위 개인 액션을 담당자명과 함께 내려준다.
+    // projectTag·teamName은 담지 않는다 — 이미 팀 액션 상세 화면 안(같은 프로젝트·같은 팀)이라 중복이다.
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimelineItem> getTeamActionTimeline(Long companyId, Long teamActionId) {
+        requireOwnCompanyTeamAction(companyId, teamActionId);
+
+        List<Action> children = actionRepository.findAllByParentActionId(teamActionId);
+        if (children.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, String> assigneeNameById = toDisplayMap(
+                actionReferenceRepository.findMemberReferences(distinctNonNull(children, Action::getAssigneeMemberId)),
+                MemberReference::memberId, MemberReference::name);
+
+        return children.stream()
+                .map(action -> new TimelineItem(
+                        action, action.getAssigneeMemberId() == null ? null : assigneeNameById.get(action.getAssigneeMemberId())))
+                .toList();
+    }
+
+    // 상세·타임라인 공용 — 다른 회사 팀 액션 id나 PERSONAL 액션 id를 넣으면 존재하지 않는 것과 같은 404로 덮는다(#100과 동일 판단).
+    private Action requireOwnCompanyTeamAction(Long companyId, Long teamActionId) {
+        Action action = actionRepository.findById(teamActionId)
+                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_NOT_FOUND));
+
+        if (!companyId.equals(action.getCompanyId()) || action.getActionType() != ActionType.TEAM) {
+            throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
+        }
+
+        return action;
+    }
+
     private static List<Long> distinct(List<Action> actions, Function<Action, Long> extractor) {
         return actions.stream().map(extractor).distinct().toList();
+    }
+
+    private static List<Long> distinctNonNull(List<Action> actions, Function<Action, Long> extractor) {
+        return actions.stream().map(extractor).filter(Objects::nonNull).distinct().toList();
     }
 
     // Collectors.toMap은 값이 null이거나 키가 중복되면 예외를 던져 500으로 샌다 —
