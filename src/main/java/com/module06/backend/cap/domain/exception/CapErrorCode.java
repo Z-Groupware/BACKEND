@@ -29,7 +29,9 @@ public enum CapErrorCode implements ErrorCode {
     CAP_PART_ALREADY_REGISTERED(HttpStatus.CONFLICT, "CAP-005", "이미 등록된 청크입니다."),
     CAP_ASSEMBLY_INCOMPLETE(HttpStatus.CONFLICT, "CAP-012", "녹음 파일 조립에 실패했습니다. 일부 구간이 누락되었습니다."),
     CAP_RECORDING_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "CAP-014", "이미 제출된 녹음이 있습니다."),
-    CAP_STT_NOT_CONFIRMED(HttpStatus.CONFLICT, "CAP-017", "미확인 STT 구간이 있습니다.");
+    CAP_STT_NOT_CONFIRMED(HttpStatus.CONFLICT, "CAP-017", "미확인 STT 구간이 있습니다."),
+
+    CAP_RMS_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "CAP-018", "rms 값이 필요합니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
