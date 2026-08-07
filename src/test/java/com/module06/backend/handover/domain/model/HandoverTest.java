@@ -30,11 +30,12 @@ class HandoverTest {
 
     @Test
     void createVacationStartsSubmittedAndKeepsSnapshots() {
-        Handover handover = Handover.createVacation(WRITER, TEAM, "Kim", "Manager", START, END,
+        Handover handover = Handover.createVacation(WRITER, TEAM, "Platform Team", "Kim", "Manager", START, END,
                 List.of(item(100L)));
 
         assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
         assertThat(handover.getHandoverType()).isEqualTo(HandoverType.VACATION);
+        assertThat(handover.getTeamNameSnap()).isEqualTo("Platform Team");
         assertThat(handover.getWriterNameSnap()).isEqualTo("Kim");
         assertThat(handover.getItems()).hasSize(1);
     }

@@ -37,6 +37,9 @@ public class HandoverJpaEntity {
     @Column(name = "team_id", nullable = false)
     private Long teamId;
 
+    @Column(name = "team_name_snap")
+    private String teamNameSnap;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "handover_type", nullable = false, length = 20)
     private HandoverType handoverType;
@@ -107,6 +110,7 @@ public class HandoverJpaEntity {
         entity.id = handover.getId();
         entity.writerMemberId = handover.getWriterMemberId();
         entity.teamId = handover.getTeamId();
+        entity.teamNameSnap = handover.getTeamNameSnap();
         entity.handoverType = handover.getHandoverType();
         entity.status = handover.getStatus();
         entity.leaveStartAt = handover.getLeaveStartAt();
@@ -130,7 +134,7 @@ public class HandoverJpaEntity {
     }
 
     Handover toDomain() {
-        return Handover.restore(id, writerMemberId, teamId, handoverType, status, leaveStartAt, leaveEndAt,
+        return Handover.restore(id, writerMemberId, teamId, teamNameSnap, handoverType, status, leaveStartAt, leaveEndAt,
                 lastWorkingDay,
                 writerNameSnap, writerPositionSnap, intermediateApproverId, intermediateApproverNameSnap,
                 intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap, version,
