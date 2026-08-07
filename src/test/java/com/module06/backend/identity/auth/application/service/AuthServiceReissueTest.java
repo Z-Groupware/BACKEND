@@ -14,6 +14,7 @@ import com.module06.backend.global.security.JwtTokenProvider;
 import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.auth.infrastructure.persistence.InMemoryRefreshTokenStore;
+import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.dto.MemberCredentials;
 import com.module06.backend.identity.member.application.port.out.MemberAuthQueryPort;
@@ -205,7 +206,21 @@ class AuthServiceReissueTest {
 
     /** 재발급·로그아웃은 기업 조회를 쓰지 않는다. 쓰면 이 구현 때문에 테스트가 깨져서 드러난다. */
     private CompanyRepository noCompany() {
-        return code -> Optional.empty();
+        return new CompanyRepository() {
+            @Override
+            public Optional<Company> findByCode(String code) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<Company> findById(Long id) {
+                return Optional.empty();
+            }
+
+            @Override
+            public void lockForUpdate(Long companyId) {
+            }
+        };
     }
 
     private MemberAuthQueryPort port(MemberCredentials credentials) {

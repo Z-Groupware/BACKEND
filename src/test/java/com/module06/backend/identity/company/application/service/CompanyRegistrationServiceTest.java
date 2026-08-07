@@ -20,7 +20,7 @@ import com.module06.backend.identity.company.application.dto.CompanyRegistration
 import com.module06.backend.identity.company.application.port.out.AccountMailPort;
 import com.module06.backend.identity.company.application.port.out.OwnerAccountPort;
 import com.module06.backend.identity.company.domain.policy.CompanyCodeGenerator;
-import com.module06.backend.identity.company.domain.policy.TemporaryPasswordGenerator;
+import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRegistrationRepository;
 
 @DisplayName("기업 등록 신청 (API 27)")
@@ -187,7 +187,7 @@ class CompanyRegistrationServiceTest {
                 new CompanyRegistrar(repository, owner),
                 mail,
                 CompanyCodeGenerator.secure(),
-                TemporaryPasswordGenerator.secure(),
+                PasswordGenerator.secure(),
                 encoder);
     }
 

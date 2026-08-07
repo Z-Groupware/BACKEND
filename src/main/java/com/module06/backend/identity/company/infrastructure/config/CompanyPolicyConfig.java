@@ -4,7 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.module06.backend.identity.company.domain.policy.CompanyCodeGenerator;
-import com.module06.backend.identity.company.domain.policy.TemporaryPasswordGenerator;
+import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 
 /**
  * 무작위 생성기 두 개를 빈으로 올린다.
@@ -23,7 +23,7 @@ public class CompanyPolicyConfig {
     }
 
     @Bean
-    public TemporaryPasswordGenerator temporaryPasswordGenerator() {
-        return TemporaryPasswordGenerator.secure();
+    public PasswordGenerator passwordGenerator() {
+        return PasswordGenerator.secure();
     }
 }

@@ -42,4 +42,8 @@ public class TeamJpaEntity {
     void rename(String name) {
         this.name = name;
     }
+
+    void updateLeader(Long leaderMemberId) {
+        this.leaderMemberId = leaderMemberId;
+    }
 }
