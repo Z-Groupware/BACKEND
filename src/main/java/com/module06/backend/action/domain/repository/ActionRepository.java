@@ -45,6 +45,6 @@ public interface ActionRepository {
     // FR-AC-06 — 팀 액션 목록. JWT의 teamId로 이미 스코프된 값을 그대로 받아 그 팀의 TEAM 액션만 찾는다.
     List<Action> findAllByTeamId(Long teamId);
 
-    // FR-AC-08 — 팀 액션 타임라인. 이 팀 액션(parentActionId) 아래 걸린 하위 PERSONAL 액션 전체.
-    List<Action> findAllByParentActionId(Long parentActionId);
+    // FR-AC-08 — 팀 액션 타임라인. 이 팀 액션(parentActionId) 아래 걸린, 같은 회사 소속 PERSONAL 액션 전체.
+    List<Action> findAllByParentActionId(Long companyId, Long parentActionId);
 }

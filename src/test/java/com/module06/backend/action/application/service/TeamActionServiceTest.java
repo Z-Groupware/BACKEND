@@ -11,12 +11,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase.TeamActionDetail;
+import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
-import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.AttachmentReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
@@ -153,7 +153,7 @@ class TeamActionServiceTest {
         Action teamAction = teamAction(10L, ActionStatus.IN_PROGRESS);
         Action child = personalAction(11L, 5L);
         when(actionRepository.findById(10L)).thenReturn(Optional.of(teamAction));
-        when(actionRepository.findAllByParentActionId(10L)).thenReturn(List.of(child));
+        when(actionRepository.findAllByParentActionId(COMPANY, 10L)).thenReturn(List.of(child));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
                 .thenReturn(List.of(new MemberReference(5L, "이태연")));
 
@@ -169,7 +169,7 @@ class TeamActionServiceTest {
         TeamActionService service = teamActionService();
         Action teamAction = teamAction(10L, ActionStatus.TODO);
         when(actionRepository.findById(10L)).thenReturn(Optional.of(teamAction));
-        when(actionRepository.findAllByParentActionId(10L)).thenReturn(List.of());
+        when(actionRepository.findAllByParentActionId(COMPANY, 10L)).thenReturn(List.of());
 
         assertThat(service.getTeamActionTimeline(COMPANY, 10L)).isEmpty();
         verify(actionReferenceRepository, never()).findMemberReferences(anyList());

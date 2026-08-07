@@ -92,7 +92,9 @@ public class TeamActionService implements
     public List<TimelineItem> getTeamActionTimeline(Long companyId, Long teamActionId) {
         requireOwnCompanyTeamAction(companyId, teamActionId);
 
-        List<Action> children = actionRepository.findAllByParentActionId(teamActionId);
+        // requireOwnCompanyTeamAction 통과 = teamActionId의 companyId가 이 companyId와 같다는 뜻이라
+        // 반환값에서 다시 꺼낼 필요 없이 파라미터 그대로 조회 조건에 쓴다.
+        List<Action> children = actionRepository.findAllByParentActionId(companyId, teamActionId);
         if (children.isEmpty()) {
             return List.of();
         }
