@@ -16,7 +16,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
+import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
@@ -37,6 +39,10 @@ class MeetingQueryPersistenceAdapterTest {
     /* 애플리케이션 계층이 사용하는 실제 회의 조회 저장소 계약이다. */
     @Autowired
     private MeetingQueryRepository meetingQueryRepository;
+
+    /* MEET-02 동적 필터·권한·페이징 조회에 사용하는 목록 전용 저장소 계약이다. */
+    @Autowired
+    private MeetingListRepository meetingListRepository;
 
     /* 테스트 회의 행을 저장하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -270,6 +276,79 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(limited)
                 .extracting(MeetingQueryRepository.UpcomingMeetingSnapshot::meetingId)
                 .containsExactly(first.getId());
+    }
+
+    /* MEET-02 동적 필터와 일반 구성원 열람 범위 및 페이지 집계를 실제 JPA로 검증한다. */
+    @Test
+    @DisplayName("회의 목록을 회사·기간·상태·참석 권한으로 필터링하고 페이징한다")
+    void findsFilteredMeetingPageInsideReadScope() {
+        /* 같은 회사에서 요청자 7번이 참석한 최신 회의와 열람할 수 없는 이전 회의를 저장한다. */
+        MeetingJpaEntity visible = springDataMeetingRepository.save(
+                meeting(10L, 12L, "참석 회의", LocalDateTime.of(2026, 8, 6, 14, 0))
+        );
+        MeetingJpaEntity hidden = springDataMeetingRepository.save(
+                meeting(10L, 12L, "비참석 회의", LocalDateTime.of(2026, 8, 5, 14, 0))
+        );
+
+        /* 같은 조건이지만 다른 회사에 속한 회의를 함께 저장해 테넌트 조건을 검증한다. */
+        MeetingJpaEntity otherCompany = springDataMeetingRepository.save(
+                meeting(20L, 12L, "다른 회사 회의", LocalDateTime.of(2026, 8, 7, 14, 0))
+        );
+
+        /* 요청자는 첫 회의와 타 회사 회의에 참석하고 숨김 회의에는 참석하지 않는다. */
+        saveAttendees(visible.getId(), 3L, 7L, 11L);
+        saveAttendees(hidden.getId(), 3L, 11L);
+        saveAttendees(otherCompany.getId(), 30L, 7L);
+
+        /* 일반 구성원 7번의 회사·프로젝트·회의실·기간·상태 필터 페이지를 조회한다. */
+        MeetingListRepository.MeetingPage restrictedPage =
+                meetingListRepository.findMeetings(
+                        new MeetingListRepository.MeetingListCriteria(
+                                10L,
+                                7L,
+                                false,
+                                12L,
+                                2L,
+                                LocalDateTime.of(2026, 8, 1, 0, 0),
+                                LocalDateTime.of(2026, 8, 31, 23, 59, 59),
+                                MeetingStatus.SCHEDULED,
+                                0,
+                                20
+                        )
+                );
+
+        /* 타 회사와 비참석 회의는 제외되고 참석 회의 한 건만 반환돼야 한다. */
+        assertThat(restrictedPage.meetings())
+                .extracting(MeetingListRepository.MeetingListSnapshot::meetingId)
+                .containsExactly(visible.getId());
+        assertThat(restrictedPage.totalElements()).isEqualTo(1L);
+
+        /* 참석자 수는 페이지 회의의 배치 조회 결과와 동일해야 한다. */
+        assertThat(restrictedPage.meetings().get(0).attendeeCount()).isEqualTo(3);
+
+        /* 회사 전체 권한으로 1건 페이지를 조회하면 최신 회의와 전체 2건 메타가 반환돼야 한다. */
+        MeetingListRepository.MeetingPage companyWidePage =
+                meetingListRepository.findMeetings(
+                        new MeetingListRepository.MeetingListCriteria(
+                                10L,
+                                3L,
+                                true,
+                                12L,
+                                2L,
+                                LocalDateTime.of(2026, 8, 1, 0, 0),
+                                LocalDateTime.of(2026, 8, 31, 23, 59, 59),
+                                MeetingStatus.SCHEDULED,
+                                0,
+                                1
+                        )
+                );
+
+        /* startAt과 id 내림차순 및 전체 페이지 수 계산이 안정적으로 적용돼야 한다. */
+        assertThat(companyWidePage.meetings())
+                .extracting(MeetingListRepository.MeetingListSnapshot::meetingId)
+                .containsExactly(visible.getId());
+        assertThat(companyWidePage.totalElements()).isEqualTo(2L);
+        assertThat(companyWidePage.totalPages()).isEqualTo(2);
     }
 
     /* 테스트 회의 조건으로 필수 컬럼을 모두 가진 영속성 엔티티를 만든다. */
