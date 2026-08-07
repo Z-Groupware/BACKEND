@@ -129,7 +129,9 @@ class ActionDistributionServiceTest {
     }
 
     @Test
-    void rejectsPersonalActionWithoutAssignee() {
+    void allowsPersonalActionWithoutAssignee() {
+        // 2026-08-07 — 이태연(review) 요청 반영: AI가 참석자 명단 밖을 가리켰거나 이름을 못 찾은
+        // 경우 담당자 없이 PENDING으로 저장하고, RVW-01 검토 화면에서 사람이 채운다.
         ActionDistributionItem personalItemWithoutAssignee =
                 new ActionDistributionItem(
                         "담당자 없는 개인 액션", "설명", ActionType.PERSONAL, null,
@@ -137,9 +139,10 @@ class ActionDistributionServiceTest {
                         null, null, null, false
                 );
 
-        assertThatThrownBy(() -> service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("PERSONAL 액션은 담당자가 필요합니다");
+        List<DistributedAction> result =
+                service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee)));
+
+        assertThat(result).hasSize(1);
     }
 
     @Test

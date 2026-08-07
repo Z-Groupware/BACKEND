@@ -86,7 +86,7 @@ public class ActionService implements
             throw new BusinessException(ActionErrorCode.ACTION_PROJECT_NOT_FOUND);
         }
 
-        ACTION_TYPE_SHAPE_POLICY.check(command.actionType(), command.teamId(), command.assigneeMemberId());
+        ACTION_TYPE_SHAPE_POLICY.checkManual(command.actionType(), command.teamId(), command.assigneeMemberId());
 
         if (command.actionType() == ActionType.TEAM) {
             if (!actionReferenceRepository.existsTeamInCompany(command.teamId(), command.companyId())) {
