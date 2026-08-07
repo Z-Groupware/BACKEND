@@ -17,7 +17,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.module06.backend.action.application.command.CreateActionCommand;
+import com.module06.backend.action.application.usecase.BulkUpdateActionStatusUseCase;
 import com.module06.backend.action.application.usecase.CreateActionUseCase;
+import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
+import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.global.security.AuthPrincipal;
@@ -50,6 +53,17 @@ class ActionControllerTest {
 
     @MockitoBean
     private CreateActionUseCase createActionUseCase;
+
+    // ActionController가 생성자로 함께 받는 나머지 UseCase — @WebMvcTest는 등록 안 된 빈이
+    // 하나라도 있으면 컨텍스트 로딩 자체가 실패한다.
+    @MockitoBean
+    private GetMyActionsUseCase getMyActionsUseCase;
+
+    @MockitoBean
+    private GetActionDetailUseCase getActionDetailUseCase;
+
+    @MockitoBean
+    private BulkUpdateActionStatusUseCase bulkUpdateActionStatusUseCase;
 
     @AfterEach
     void clearAuthentication() {

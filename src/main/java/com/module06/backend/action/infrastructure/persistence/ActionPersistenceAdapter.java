@@ -67,6 +67,27 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         return springDataActionRepository.findById(id).map(this::toDomain);
     }
 
+    // 내 액션 목록 — PERSONAL만 담당자 개념이 있다.
+    @Override
+    public List<Action> findAllByAssigneeMemberId(Long assigneeMemberId) {
+        return springDataActionRepository.findAllByActionTypeAndAssigneeMemberId(ActionType.PERSONAL, assigneeMemberId)
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    // 배치 조회 — 빈 id 목록이면 IN 절 쿼리 자체를 건너뛴다.
+    @Override
+    public List<Action> findAllByIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionRepository.findAllById(ids).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     @Override
     public List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions) {
         List<ActionJpaEntity> candidates =

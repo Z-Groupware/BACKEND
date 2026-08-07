@@ -24,8 +24,8 @@ import lombok.NoArgsConstructor;
     쓰기 금지.
     지금 쓰는 필드는 status(완료된 프로젝트 제외 필터, 2026-08-06 종준 PO 확인), tag
     (ActionReassignPort.HandoverableAction.projectTag 표시용), dueDate(AI가 기한을 비워
-    보낸 액션의 마감일 기본값 — 결정로그 25번, V2.6.4) 세 개다. 첨부파일 등 나머지 표시
-    필드는 GetActionDetailUseCase 착수 시 추가.
+    보낸 액션의 마감일 기본값 — 결정로그 25번, V2.6.4), name(개인 액션 상세의 프로젝트명
+    표시용, 2026-08-07 GetActionDetailUseCase 착수 시 추가) 네 개다.
 
     연결된 클래스
     - ActionJpaEntity              : project_id 조인의 반대편
@@ -51,6 +51,10 @@ public class ProjectReferenceEntity {
 
     @Column(name = "tag")
     private String tag;
+
+    // 개인 액션 상세(FR-AC-02)의 "작업 맥락" 카드 표시용(2026-08-07 추가).
+    @Column(name = "name")
+    private String name;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status")

@@ -38,10 +38,24 @@ public interface ActionReferenceRepository {
     // 수동 생성에서 PERSONAL 액션의 assigneeMemberId가 같은 회사 소속인지 검증한다.
     boolean existsMemberInCompany(Long memberId, Long companyId);
 
+    // FR-AC-02 — 개인 액션 목록·상세의 담당자 이름 표시용 배치 조회.
+    List<MemberReference> findMemberReferences(List<Long> memberIds);
+
+    // FR-AC-02 — 개인 액션 목록·상세의 소속팀 이름 표시용 배치 조회.
+    List<TeamReference> findTeamReferences(List<Long> teamIds);
+
     // teamId는 OWNER 개설 회의면 null, relatedActionId는 팀 액션을 낳는 프로젝트 회의면 null이다.
-    record MeetingReference(Long meetingId, Long teamId, Long relatedActionId) {
+    // title은 FR-AC-02 상세·목록의 "출처 회의" 표시용(2026-08-07 추가).
+    record MeetingReference(Long meetingId, Long teamId, Long relatedActionId, String title) {
     }
 
-    record ProjectReference(Long projectId, LocalDate dueDate) {
+    // tag·name은 FR-AC-02 목록·상세의 프로젝트 표시용(2026-08-07 추가).
+    record ProjectReference(Long projectId, LocalDate dueDate, String tag, String name) {
+    }
+
+    record MemberReference(Long memberId, String name) {
+    }
+
+    record TeamReference(Long teamId, String name) {
     }
 }

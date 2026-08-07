@@ -28,6 +28,12 @@ public interface ActionRepository {
 
     Optional<Action> findById(Long id);
 
+    // FR-AC-02 — 개인 액션 목록(호출자 본인 소유분만).
+    List<Action> findAllByAssigneeMemberId(Long assigneeMemberId);
+
+    // FR-AC-02/03 — 상위 액션 표시값·벌크 상태변경 대상 배치 조회.
+    List<Action> findAllByIds(List<Long> ids);
+
     List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions);
 
     List<Action> findTeamActionsByLeaderMemberId(Long leaderMemberId);
