@@ -1,9 +1,9 @@
 package com.module06.backend.action.application.service;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -90,7 +90,12 @@ public class TeamActionService implements
         return actions.stream().map(extractor).distinct().toList();
     }
 
+    // Collectors.toMap은 값이 null이거나 키가 중복되면 예외를 던져 500으로 샌다 —
+    // 지금은 두 경우 다 안 생기지만(project.tag NOT NULL, findAllById는 PK라 중복 없음),
+    // 재사용 시 조용한 함정이 되는 걸 막기 위해 방어적으로 구현한다(2026-08-07, CodeRabbit 지적).
     private static <T> Map<Long, String> toDisplayMap(List<T> references, Function<T, Long> idFn, Function<T, String> nameFn) {
-        return references.stream().collect(Collectors.toMap(idFn, nameFn));
+        Map<Long, String> result = new HashMap<>();
+        references.forEach(reference -> result.putIfAbsent(idFn.apply(reference), nameFn.apply(reference)));
+        return result;
     }
 }

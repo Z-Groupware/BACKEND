@@ -36,6 +36,12 @@ public class ActionTypeShapePolicy {
 
     // 두 경로가 공통으로 지키는 부분 — TEAM은 teamId 필수·담당자 불가, PERSONAL은 팀을 못 가짐.
     private void checkTeamShape(ActionType actionType, Long teamId, Long assigneeMemberId) {
+        if (actionType == null) {
+            // AI 분배 경로(checkDistribution)는 review(A)가 넘기는 크로스도메인 입력이라 애노테이션
+            // 검증이 없다 — null이 안 걸리면 예외 없이 통과해 actionType=null 액션이 조용히 저장된다
+            // (2026-08-07, CodeRabbit 지적).
+            throw new IllegalArgumentException("actionType은 null일 수 없습니다.");
+        }
         if (actionType == ActionType.TEAM) {
             if (teamId == null) {
                 throw new IllegalArgumentException("TEAM 액션은 teamId가 필요합니다.");
