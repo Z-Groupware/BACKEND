@@ -1,6 +1,7 @@
 package com.module06.backend.action.domain.repository;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /* comment.
@@ -38,10 +39,32 @@ public interface ActionReferenceRepository {
     // 수동 생성에서 PERSONAL 액션의 assigneeMemberId가 같은 회사 소속인지 검증한다.
     boolean existsMemberInCompany(Long memberId, Long companyId);
 
+    // FR-AC-02 — 개인 액션 목록·상세의 담당자 이름 표시용 배치 조회.
+    List<MemberReference> findMemberReferences(List<Long> memberIds);
+
+    // FR-AC-02 — 개인 액션 목록·상세의 소속팀 이름 표시용 배치 조회.
+    List<TeamReference> findTeamReferences(List<Long> teamIds);
+
+    // FR-AC-06 — 팀 액션 상세에 인라인으로 싣는 소속 프로젝트 첨부파일 목록. 단건 조회라 배치가 아니다.
+    List<AttachmentReference> findProjectAttachments(Long projectId);
+
     // teamId는 OWNER 개설 회의면 null, relatedActionId는 팀 액션을 낳는 프로젝트 회의면 null이다.
-    record MeetingReference(Long meetingId, Long teamId, Long relatedActionId) {
+    // title은 FR-AC-02 상세·목록의 "출처 회의" 표시용(2026-08-07 추가).
+    record MeetingReference(Long meetingId, Long teamId, Long relatedActionId, String title) {
     }
 
-    record ProjectReference(Long projectId, LocalDate dueDate) {
+    // tag·name은 FR-AC-02 목록·상세의 프로젝트 표시용(2026-08-07 추가).
+    record ProjectReference(Long projectId, LocalDate dueDate, String tag, String name) {
+    }
+
+    record MemberReference(Long memberId, String name) {
+    }
+
+    record TeamReference(Long teamId, String name) {
+    }
+
+    // project 도메인 AttachmentResponse와 같은 shape이지만 presentation DTO를 직접 참조하지 않으므로
+    // action이 자체 타입으로 복제해서 쓴다(0절 1항, TeamActionDetailResponse 주석 참고).
+    record AttachmentReference(Long attachmentId, String fileName, String fileUrl, long fileSize, LocalDateTime createdAt) {
     }
 }

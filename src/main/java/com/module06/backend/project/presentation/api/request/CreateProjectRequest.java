@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -18,6 +19,8 @@ public record CreateProjectRequest(
         String description,
         @NotBlank @Pattern(regexp = "^#[0-9A-Fa-f]{6}$", message = "색상은 #RRGGBB 형식이어야 합니다.") String color,
         @NotNull LocalDate dueDate,
-        @NotNull List<Long> teamIds
+        // Figma 생성폼엔 필수(*)로 표시되는데 @NotNull만으로는 빈 배열([])이 통과했다
+        // — 이태연(review) 제보로 2026-08-07 확인 후 추가.
+        @NotEmpty List<Long> teamIds
 ) {
 }

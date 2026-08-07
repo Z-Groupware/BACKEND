@@ -8,6 +8,7 @@ import jakarta.persistence.LockModeType;
 
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
@@ -15,7 +16,8 @@ import com.module06.backend.meeting.domain.model.MeetingStatus;
 /*
  * meeting 테이블 저장을 수행하는 Spring Data JPA 기술 저장소다.
  */
-public interface SpringDataMeetingRepository extends JpaRepository<MeetingJpaEntity, Long> {
+public interface SpringDataMeetingRepository
+        extends JpaRepository<MeetingJpaEntity, Long>, JpaSpecificationExecutor<MeetingJpaEntity> {
 
     /* 식별자와 회사가 모두 일치하는 회의를 조회해 타 회사 데이터 존재 여부를 숨긴다. */
     Optional<MeetingJpaEntity> findByIdAndCompanyId(Long id, Long companyId);

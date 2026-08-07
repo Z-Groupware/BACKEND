@@ -64,7 +64,7 @@ class ActionDistributionServiceTest {
     @Test
     void distributesMixedTeamAndPersonalActionsPreservingOrder() {
         when(actionReferenceRepository.findMeetingReferences(List.of(MEETING_WITH_TEAM)))
-                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, TEAM, PARENT_ACTION)));
+                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, TEAM, PARENT_ACTION, null)));
 
         ActionDistributionItem teamItem = item("팀 액션", ActionType.TEAM, null, LocalDate.of(2026, 8, 20));
         ActionDistributionItem personalItem = item("개인 액션", ActionType.PERSONAL, ASSIGNEE, LocalDate.of(2026, 8, 21));
@@ -82,7 +82,7 @@ class ActionDistributionServiceTest {
     void fillsMissingDueDateWithProjectDueDateAndMarksDefaulted() {
         LocalDate projectDueDate = LocalDate.of(2026, 8, 31);
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
-                .thenReturn(List.of(new ProjectReference(PROJECT, projectDueDate)));
+                .thenReturn(List.of(new ProjectReference(PROJECT, projectDueDate, null, null)));
 
         ActionDistributionItem itemWithoutDueDate = new ActionDistributionItem(
                 "기한 없는 액션", "설명", ActionType.PERSONAL, ASSIGNEE,
@@ -102,7 +102,7 @@ class ActionDistributionServiceTest {
     @Test
     void createsWithPendingReviewStatusAndDerivesParentActionIdFromMeeting() {
         when(actionReferenceRepository.findMeetingReferences(List.of(MEETING_WITH_TEAM)))
-                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, TEAM, PARENT_ACTION)));
+                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, TEAM, PARENT_ACTION, null)));
 
         ActionDistributionItem personalItem = item("개인 액션", ActionType.PERSONAL, ASSIGNEE, LocalDate.of(2026, 8, 21));
 
@@ -119,7 +119,7 @@ class ActionDistributionServiceTest {
     void rejectsTeamActionFromOwnerHostedMeetingBecauseContractHasNoTeamId() {
         // OWNER가 개설한 회의는 team_id가 NULL이다(V1 주석) — 계약에도 teamId가 없어 특정 불가.
         when(actionReferenceRepository.findMeetingReferences(List.of(MEETING_WITH_TEAM)))
-                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, null, null)));
+                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, null, null, null)));
 
         ActionDistributionItem teamItemFromOwnerMeeting = item("팀 액션", ActionType.TEAM, null, LocalDate.of(2026, 8, 20));
 
@@ -129,7 +129,9 @@ class ActionDistributionServiceTest {
     }
 
     @Test
-    void rejectsPersonalActionWithoutAssignee() {
+    void allowsPersonalActionWithoutAssignee() {
+        // 2026-08-07 — 이태연(review) 요청 반영: AI가 참석자 명단 밖을 가리켰거나 이름을 못 찾은
+        // 경우 담당자 없이 PENDING으로 저장하고, RVW-01 검토 화면에서 사람이 채운다.
         ActionDistributionItem personalItemWithoutAssignee =
                 new ActionDistributionItem(
                         "담당자 없는 개인 액션", "설명", ActionType.PERSONAL, null,
@@ -137,9 +139,10 @@ class ActionDistributionServiceTest {
                         null, null, null, false
                 );
 
-        assertThatThrownBy(() -> service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("PERSONAL 액션은 담당자가 필요합니다");
+        List<DistributedAction> result =
+                service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee)));
+
+        assertThat(result).hasSize(1);
     }
 
     @Test
@@ -192,7 +195,8 @@ class ActionDistributionServiceTest {
                 action.getActionType(),
                 action.getTitle(),
                 action.getDescription(),
-                action.getStatus(),
+                action.isDone(),
+                action.getStartDate(),
                 action.getDueDate(),
                 action.isDueDateDefaulted(),
                 action.getReviewStatus(),

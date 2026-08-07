@@ -47,7 +47,18 @@ public class Action {
     private final ActionType actionType;
     private final String title;
     private final String description;
-    private final ActionStatus status;
+    /*
+     * status는 더 이상 독립적으로 쓰이는 값이 아니다 — isDone·startDate로부터 매번 다시
+     * 계산해 채우는 거울(mirror)이다(2026-08-07, 이홍근·isDone 재설계). DB 컬럼은
+     * NOT NULL이라 여전히 값을 갖고 내려가지만, 이 필드에 직접 대입하는 자리는
+     * deriveStatus() 호출 지점뿐이어야 한다 — 다른 곳에서 손대면 거울이 어긋난다.
+     */
+    private ActionStatus status;
+    // 완료 여부. 셋 중 사람이 실제로 결정하는 값은 이것 하나뿐이다(start()·reopen()은 이걸 안 건드린다).
+    private boolean isDone;
+    // 진행 시작일. null이면 "할일"(TODO), 채워지면 "진행중"(IN_PROGRESS) — start()가 오늘 날짜로 채운다.
+    // 채울 원천이 없어(due_date와 달리 기본값 유도 불가) 컬럼은 NULL 허용이다.
+    private LocalDate startDate;
     /*
      * 아래 넷은 final 이 아니다 — 사람의 검토 판정(applyHumanReview)이 바꾸는 값이다.
      * RVW-02 착수로 열었다(2026-08-06). 나머지 필드는 여전히 불변이다.
@@ -74,7 +85,8 @@ public class Action {
             ActionType actionType,
             String title,
             String description,
-            ActionStatus status,
+            boolean isDone,
+            LocalDate startDate,
             LocalDate dueDate,
             boolean dueDateDefaulted,
             ActionReviewStatus reviewStatus,
@@ -96,7 +108,9 @@ public class Action {
         this.actionType = actionType;
         this.title = title;
         this.description = description;
-        this.status = status;
+        this.isDone = isDone;
+        this.startDate = startDate;
+        this.status = deriveStatus(isDone, startDate);
         this.dueDate = dueDate;
         this.dueDateDefaulted = dueDateDefaulted;
         this.reviewStatus = reviewStatus;
@@ -125,7 +139,7 @@ public class Action {
     ) {
         return new Action(
                 null, companyId, projectId, null, null, teamId, assigneeMemberId,
-                actionType, title, description, ActionStatus.TODO, dueDate, false,
+                actionType, title, description, false, null, dueDate, false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true,
                 LocalDateTime.now(), null, null
         );
@@ -152,13 +166,14 @@ public class Action {
     ) {
         return new Action(
                 null, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                actionType, title, description, ActionStatus.TODO, dueDate, dueDateDefaulted,
+                actionType, title, description, false, null, dueDate, dueDateDefaulted,
                 ActionReviewStatus.PENDING, assigneeSource, evidenceTranscriptId, gateSignals, isManual,
                 null, null, null
         );
     }
 
-    // 저장소가 조회 결과를 이 모델로 복원할 때 사용.
+    // 저장소가 조회 결과를 이 모델로 복원할 때 사용. status는 받지 않는다 — isDone·startDate로부터
+    // 항상 다시 계산한다(저장된 status 컬럼은 거울일 뿐 신뢰할 원본이 아니다).
     public static Action reconstitute(
             Long id,
             Long companyId,
@@ -170,7 +185,8 @@ public class Action {
             ActionType actionType,
             String title,
             String description,
-            ActionStatus status,
+            boolean isDone,
+            LocalDate startDate,
             LocalDate dueDate,
             boolean dueDateDefaulted,
             ActionReviewStatus reviewStatus,
@@ -184,7 +200,7 @@ public class Action {
     ) {
         return new Action(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                actionType, title, description, status, dueDate, dueDateDefaulted,
+                actionType, title, description, isDone, startDate, dueDate, dueDateDefaulted,
                 reviewStatus, assigneeSource, evidenceTranscriptId, gateSignals, isManual,
                 confirmedAt, createdAt, updatedAt
         );
@@ -243,5 +259,49 @@ public class Action {
         } else {
             this.confirmedAt = null;
         }
+    }
+
+    /*
+     * 보드 상태변경(FR-AC-03, 2026-08-07 isDone 재설계). status는 더 이상 사람이 직접 골라
+     * 넣는 값이 아니다 — 허용된 전환은 이 세 개뿐이고(이홍근 확인), 그 밖의 요청은 전부
+     * ACTION_INVALID_STATUS_TRANSITION으로 막는다. 현재 상태는 매번 다시 계산해서 재검증한다
+     * (클라이언트가 보낸 목표 칸만 보고 판단하지 않는다 — API 직접 호출로 화면의 드래그 제약을
+     * 우회할 수 있어서, 서버가 최종 방어선이어야 한다).
+     */
+
+    // 할일 → 진행중. isDone은 건드리지 않는다(계속 false) — "당겨서 일찍 시작한다"는 의미라
+    // startDate만 오늘로 채운다.
+    public void start() {
+        if (deriveStatus(isDone, startDate) != ActionStatus.TODO) {
+            throw new IllegalStateException("할일 상태에서만 진행중으로 전환할 수 있습니다.");
+        }
+        this.startDate = LocalDate.now();
+        this.status = deriveStatus(isDone, startDate);
+    }
+
+    // 진행중 → 완료. 날짜는 건드리지 않는다.
+    public void complete() {
+        if (deriveStatus(isDone, startDate) != ActionStatus.IN_PROGRESS) {
+            throw new IllegalStateException("진행중 상태에서만 완료로 전환할 수 있습니다.");
+        }
+        this.isDone = true;
+        this.status = deriveStatus(isDone, startDate);
+    }
+
+    // 완료 → 진행중. startDate는 이미 채워져 있던 값 그대로 둔다 — "할일"로 되돌아가지 않는다.
+    public void reopen() {
+        if (deriveStatus(isDone, startDate) != ActionStatus.DONE) {
+            throw new IllegalStateException("완료 상태에서만 진행중으로 되돌릴 수 있습니다.");
+        }
+        this.isDone = false;
+        this.status = deriveStatus(isDone, startDate);
+    }
+
+    // isDone=true → DONE. 아니면 startDate 유무로 TODO/IN_PROGRESS 파생(글로서리 "지연"과는 별개 — 그건 배지).
+    private static ActionStatus deriveStatus(boolean isDone, LocalDate startDate) {
+        if (isDone) {
+            return ActionStatus.DONE;
+        }
+        return startDate == null ? ActionStatus.TODO : ActionStatus.IN_PROGRESS;
     }
 }

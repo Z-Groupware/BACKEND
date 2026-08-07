@@ -9,11 +9,20 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
@@ -31,7 +40,8 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
  */
 @Component
 @RequiredArgsConstructor
-public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository, MeetingLockRepository {
+public class MeetingQueryPersistenceAdapter
+        implements MeetingQueryRepository, MeetingLockRepository, MeetingListRepository {
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
@@ -44,6 +54,119 @@ public class MeetingQueryPersistenceAdapter implements MeetingQueryRepository, M
 
     /* meeting_topic 테이블에서 회의별 대주제와 소주제를 배치 조회하는 기술 저장소다. */
     private final SpringDataMeetingTopicRepository springDataMeetingTopicRepository;
+
+    /* 회사·권한·필터를 한 번의 페이징 쿼리에 적용하고 참석자 수를 페이지 단위로 일괄 계산한다. */
+    @Override
+    public MeetingPage findMeetings(MeetingListCriteria criteria) {
+        /* 동적 조건을 JPA Specification으로 구성해 필터 조합마다 별도 @Query를 만들지 않는다. */
+        Specification<MeetingJpaEntity> specification = buildMeetingListSpecification(criteria);
+
+        /* 같은 시작 시각에도 결과가 흔들리지 않도록 회의 식별자를 두 번째 내림차순 키로 사용한다. */
+        PageRequest pageRequest = PageRequest.of(
+                criteria.page(),
+                criteria.size(),
+                Sort.by(Sort.Order.desc("startAt"), Sort.Order.desc("id"))
+        );
+
+        /* 데이터베이스에서 조건·정렬·페이지를 적용해 현재 페이지의 회의 엔티티만 조회한다. */
+        Page<MeetingJpaEntity> meetingPage = springDataMeetingRepository.findAll(specification, pageRequest);
+
+        /* 빈 페이지는 참석자 테이블을 추가 조회하지 않고 전체 건수 메타만 반환한다. */
+        if (meetingPage.isEmpty()) {
+            return new MeetingPage(List.of(), meetingPage.getTotalElements(), meetingPage.getTotalPages());
+        }
+
+        /* 현재 페이지 회의 식별자의 참석자를 한 번에 읽어 회의별 인원수를 계산한다. */
+        List<Long> meetingIds = meetingPage.getContent().stream()
+                .map(MeetingJpaEntity::getId)
+                .toList();
+        Map<Long, Long> attendeeCounts = springDataMeetingAttendeeRepository
+                .findAllByMeetingIdInOrderByMeetingIdAscMemberIdAsc(meetingIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        MeetingAttendeeJpaEntity::getMeetingId,
+                        Collectors.counting()
+                ));
+
+        /* 엔티티 페이지 순서를 유지하며 애플리케이션에 필요한 최소 읽기 모델로 변환한다. */
+        List<MeetingListSnapshot> meetings = meetingPage.getContent().stream()
+                .map(meeting -> toMeetingListSnapshot(
+                        meeting,
+                        attendeeCounts.getOrDefault(meeting.getId(), 0L).intValue()
+                ))
+                .toList();
+
+        /* 현재 페이지 회의와 Spring Page가 계산한 전체 결과 규모를 도메인 결과로 반환한다. */
+        return new MeetingPage(meetings, meetingPage.getTotalElements(), meetingPage.getTotalPages());
+    }
+
+    /* MEET-02의 필수 회사 조건과 선택 필터 및 사용자 열람 범위를 Specification으로 만든다. */
+    private Specification<MeetingJpaEntity> buildMeetingListSpecification(MeetingListCriteria criteria) {
+        /* count 쿼리와 content 쿼리에 동일한 조건이 적용되도록 순수 조건 생성 람다를 반환한다. */
+        return (meeting, criteriaQuery, criteriaBuilder) -> {
+            /* 모든 목록 조회에 회사와 기간 조건을 필수로 적용해 테넌트와 기본 범위를 고정한다. */
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(criteriaBuilder.equal(meeting.get("companyId"), criteria.companyId()));
+            predicates.add(criteriaBuilder.greaterThanOrEqualTo(
+                    meeting.get("startAt"),
+                    criteria.fromInclusive()
+            ));
+            predicates.add(criteriaBuilder.lessThanOrEqualTo(
+                    meeting.get("startAt"),
+                    criteria.toInclusive()
+            ));
+
+            /* 프로젝트가 지정된 경우 해당 식별자와 일치하는 회의만 포함한다. */
+            if (criteria.projectId() != null) {
+                predicates.add(criteriaBuilder.equal(meeting.get("projectId"), criteria.projectId()));
+            }
+
+            /* 회의실이 지정된 경우 해당 식별자와 일치하는 회의만 포함한다. */
+            if (criteria.meetingRoomId() != null) {
+                predicates.add(criteriaBuilder.equal(meeting.get("meetingRoomId"), criteria.meetingRoomId()));
+            }
+
+            /* 상태가 지정된 경우 예약·진행·종료 중 요청 상태와 일치하는 회의만 포함한다. */
+            if (criteria.status() != null) {
+                predicates.add(criteriaBuilder.equal(meeting.get("status"), criteria.status()));
+            }
+
+            /* 회사 전체 열람자가 아니면 자신이 개설했거나 참석자로 등록된 회의로 제한한다. */
+            if (!criteria.companyWideRead()) {
+                Subquery<Long> attendeeSubquery = criteriaQuery.subquery(Long.class);
+                Root<MeetingAttendeeJpaEntity> attendee = attendeeSubquery.from(MeetingAttendeeJpaEntity.class);
+                attendeeSubquery.select(attendee.get("meetingId"));
+                attendeeSubquery.where(
+                        criteriaBuilder.equal(attendee.get("meetingId"), meeting.get("id")),
+                        criteriaBuilder.equal(attendee.get("memberId"), criteria.requesterMemberId())
+                );
+
+                /* 개설자 조건과 참석자 EXISTS 조건 중 하나라도 만족하면 목록에 포함한다. */
+                predicates.add(criteriaBuilder.or(
+                        criteriaBuilder.equal(meeting.get("hostMemberId"), criteria.requesterMemberId()),
+                        criteriaBuilder.exists(attendeeSubquery)
+                ));
+            }
+
+            /* 누적된 모든 조건을 AND로 결합해 content와 count 조회에 동일하게 적용한다. */
+            return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
+        };
+    }
+
+    /* 회의 엔티티와 배치 계산한 참석자 수를 MEET-02 목록 읽기 모델로 변환한다. */
+    private MeetingListSnapshot toMeetingListSnapshot(MeetingJpaEntity meeting, int attendeeCount) {
+        /* 외부 표시 정보 조합에 필요한 식별자와 회의 메타만 저장소 경계 밖으로 전달한다. */
+        return new MeetingListSnapshot(
+                meeting.getId(),
+                meeting.getProjectId(),
+                meeting.getMeetingRoomId(),
+                meeting.getTitle(),
+                meeting.getStatus(),
+                meeting.getStartAt(),
+                meeting.getEndAt(),
+                attendeeCount
+        );
+    }
 
     /* 회사와 식별자가 일치하는 회의 한 건과 전체 참석자 식별자를 조회한다. */
     @Override
