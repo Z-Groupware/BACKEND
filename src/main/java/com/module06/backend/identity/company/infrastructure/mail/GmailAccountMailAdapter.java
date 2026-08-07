@@ -54,9 +54,9 @@ public class GmailAccountMailAdapter implements AccountMailPort {
                   <p>아래 정보로 로그인해 주세요.</p>
                   <table style="border-collapse: collapse;">
                     <tr><td style="padding: 4px 12px 4px 0;">기업 코드</td><td><b>%s</b></td></tr>
-                    <tr><td style="padding: 4px 12px 4px 0;">임시 비밀번호</td><td><b>%s</b></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0;">비밀번호</td><td><b>%s</b></td></tr>
                   </table>
-                  <p>로그인 후 비밀번호를 변경해 주세요.</p>
+                  <p>비밀번호는 안전한 곳에 보관해 주세요.</p>
                 </div>
                 """.formatted(companyCode, password);
     }

@@ -272,6 +272,11 @@ class TeamServiceTest {
         }
 
         @Override
+        public void updateLeader(Long id, Long leaderMemberId) {
+            setLeader(id, leaderMemberId);
+        }
+
+        @Override
         public void delete(Long id) {
             teams.removeIf(t -> t.id().equals(id));
         }

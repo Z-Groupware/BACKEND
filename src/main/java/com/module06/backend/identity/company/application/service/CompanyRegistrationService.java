@@ -13,7 +13,7 @@ import com.module06.backend.identity.company.application.dto.CompanyRegistration
 import com.module06.backend.identity.company.application.port.out.AccountMailPort;
 import com.module06.backend.identity.company.application.usecase.RegisterCompanyUseCase;
 import com.module06.backend.identity.company.domain.policy.CompanyCodeGenerator;
-import com.module06.backend.identity.company.domain.policy.TemporaryPasswordGenerator;
+import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRegistrationRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -50,7 +50,7 @@ public class CompanyRegistrationService implements RegisterCompanyUseCase {
     private final CompanyRegistrar registrar;
     private final AccountMailPort accountMailPort;
     private final CompanyCodeGenerator codeGenerator;
-    private final TemporaryPasswordGenerator passwordGenerator;
+    private final PasswordGenerator passwordGenerator;
     private final PasswordEncoder passwordEncoder;
 
     @Override
