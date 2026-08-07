@@ -26,6 +26,18 @@ public class MeetingReservationSlotId implements Serializable {
         this.slotStart = slotStart;
     }
 
+    /* 복합 키가 가리키는 회의실 식별자를 영속성 어댑터의 차이 계산에 제공한다. */
+    public Long getMeetingRoomId() {
+        /* 식별자 값은 생성 이후 바뀌지 않으므로 그대로 반환한다. */
+        return meetingRoomId;
+    }
+
+    /* 복합 키가 가리키는 슬롯 시작 시각을 영속성 어댑터의 차이 계산에 제공한다. */
+    public LocalDateTime getSlotStart() {
+        /* LocalDateTime은 불변 값 객체이므로 방어적 복사 없이 반환한다. */
+        return slotStart;
+    }
+
     /* 두 복합 키 값이 모두 같은지 비교한다. */
     @Override
     public boolean equals(Object other) {

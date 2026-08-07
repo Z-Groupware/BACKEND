@@ -17,12 +17,15 @@ import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
+import com.module06.backend.meeting.domain.repository.MeetingUpdateRepository;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingReservationSlotId;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingReservationSlotJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
+import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingReservationSlotRepository;
 
 /*
  * 회의 애그리거트 저장 계약을 JPA로 구현하는 아웃바운드 어댑터다.
@@ -34,13 +37,17 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 public class MeetingPersistenceAdapter implements
         MeetingRepository,
         MeetingEntryRepository,
-        MeetingCompletionRepository {
+        MeetingCompletionRepository,
+        MeetingUpdateRepository {
 
     /* meeting 기본 행을 저장하고 데이터베이스 생성 식별자를 받는 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
 
     /* 기존 참석자 행을 조회해 목표 명단과의 추가·삭제 차이를 계산하는 기술 저장소다. */
     private final SpringDataMeetingAttendeeRepository springDataMeetingAttendeeRepository;
+
+    /* MEET-05가 기존 예약 슬롯과 최종 슬롯의 차이를 조회하는 기술 저장소다. */
+    private final SpringDataMeetingReservationSlotRepository springDataMeetingReservationSlotRepository;
 
     /* 복합 PK 엔티티를 merge가 아닌 INSERT로 강제하기 위한 JPA 영속성 컨텍스트다. */
     private final EntityManager entityManager;
@@ -114,6 +121,35 @@ public class MeetingPersistenceAdapter implements
         return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
     }
 
+    /* 회사 범위의 수정 대상 회의를 잠그고 최신 참석자 명단과 함께 복원한다. */
+    @Override
+    public Optional<Meeting> findForUpdate(Long companyId, Long meetingId) {
+        /* 회의 행 잠금으로 같은 회의의 수정·입장·종료·참석자 교체 요청을 직렬화한다. */
+        return springDataMeetingRepository.findLockedByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> meeting.toDomain(
+                        springDataMeetingAttendeeRepository
+                                .findAllByMeetingIdOrderByMemberIdAsc(meeting.getId())
+                                .stream()
+                                .map(MeetingAttendeeJpaEntity::getMemberId)
+                                .toList()
+                ));
+    }
+
+    /* 수정된 meeting 행과 변경된 예약 슬롯을 같은 트랜잭션에서 저장한다. */
+    @Override
+    public Meeting saveUpdate(Meeting meeting, boolean reservationChanged) {
+        /* 관리 엔티티 갱신을 즉시 반영해 필수 컬럼 오류가 이 저장 경계 밖으로 늦게 새지 않게 한다. */
+        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(MeetingJpaEntity.from(meeting));
+
+        /* 회의실 또는 시간의 실제 값이 달라진 경우에만 예약 슬롯 차이를 반영한다. */
+        if (reservationChanged) {
+            synchronizeReservationSlots(meeting);
+        }
+
+        /* 수정 API는 참석자 명단을 바꾸지 않으므로 잠금 조회에서 복원한 목록을 그대로 유지한다. */
+        return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
+    }
+
     /* 기존 참석자 중 빠진 행을 삭제하고 새로 추가된 행을 저장해 명단을 전체 교체한다. */
     @Override
     public void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds) {
@@ -180,6 +216,47 @@ public class MeetingPersistenceAdapter implements
         } catch (PersistenceException exception) {
             /* 검증 이후 구성원이 삭제되는 경합도 참석자 명단 오류로 일관되게 응답한다. */
             throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+        }
+    }
+
+    /* 기존 슬롯과 최종 슬롯의 삭제·유지·추가 차이를 반영하고 충돌을 MT-002로 변환한다. */
+    private void synchronizeReservationSlots(Meeting meeting) {
+        try {
+            /* 현재 회의가 점유한 슬롯을 관리 엔티티로 조회해 같은 복합 키는 그대로 유지한다. */
+            List<MeetingReservationSlotJpaEntity> existingSlots = springDataMeetingReservationSlotRepository
+                    .findAllByMeetingIdOrderBySlotStartAsc(meeting.getId());
+
+            /* 최종 회의실과 시간 범위가 요구하는 복합 키 집합을 만든다. */
+            Set<MeetingReservationSlotId> targetSlotIds = meeting.reservationSlotStarts().stream()
+                    .map(slotStart -> new MeetingReservationSlotId(meeting.getMeetingRoomId(), slotStart))
+                    .collect(java.util.stream.Collectors.toSet());
+
+            /* 최종 예약에 포함되지 않는 기존 슬롯만 제거해 겹치는 슬롯의 불필요한 재삽입을 막는다. */
+            existingSlots.stream()
+                    .filter(slot -> !targetSlotIds.contains(new MeetingReservationSlotId(
+                            slot.getMeetingRoomId(),
+                            slot.getSlotStart()
+                    )))
+                    .forEach(entityManager::remove);
+
+            /* 기존 복합 키를 색인해 최종 예약 중 새로 필요한 슬롯만 강제 INSERT한다. */
+            Set<MeetingReservationSlotId> existingSlotIds = existingSlots.stream()
+                    .map(slot -> new MeetingReservationSlotId(slot.getMeetingRoomId(), slot.getSlotStart()))
+                    .collect(java.util.stream.Collectors.toSet());
+            targetSlotIds.stream()
+                    .filter(slotId -> !existingSlotIds.contains(slotId))
+                    .map(slotId -> new MeetingReservationSlotJpaEntity(
+                            slotId.getMeetingRoomId(),
+                            slotId.getSlotStart(),
+                            meeting.getId()
+                    ))
+                    .forEach(entityManager::persist);
+
+            /* 삭제와 INSERT를 즉시 실행해 다른 회의 슬롯과의 복합 PK 충돌을 이 경계에서 확인한다. */
+            entityManager.flush();
+        } catch (PersistenceException exception) {
+            /* 신규 슬롯 중 하나라도 이미 점유됐다면 meeting 변경까지 전체 롤백하도록 공개 오류로 변환한다. */
+            throw new BusinessException(MeetingErrorCode.MEETING_ROOM_TIME_CONFLICT);
         }
     }
 }
