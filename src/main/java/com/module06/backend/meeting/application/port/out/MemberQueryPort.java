@@ -12,6 +12,14 @@ public interface MemberQueryPort {
     /* 요청 회사에 속하고 삭제되지 않은 구성원을 식별자 목록으로 한 번에 조회한다. */
     List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds);
 
+    /* 과거 회의 명단 보존을 위해 요청 회사의 삭제된 구성원까지 식별자 목록으로 한 번에 조회한다. */
+    default List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+        /* B 도메인의 실제 조회 Adapter가 연결되기 전 잘못된 활성 구성원 대체 조회를 막는다. */
+        throw new UnsupportedOperationException(
+                "MemberQueryPort.findMembersIncludingDeleted 구현이 연결되지 않았습니다."
+        );
+    }
+
     /* 회의 개설 응답과 향후 참석자 계약에 사용하는 구성원 읽기 모델이다. */
     record MemberSnapshot(
             Long memberId,
