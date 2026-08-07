@@ -191,6 +191,7 @@ public class AnalysisController {
                 me.getCompanyId(), meetingId, actionId, me.getMemberId()));
 
         return ApiResponse.success("삭제되었습니다.", null);
+    }
     /*
      * RVW-03 · 액션 직접 추가.
      *
