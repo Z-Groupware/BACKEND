@@ -62,8 +62,7 @@ public class TeamController {
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
             @Valid @RequestBody CreateTeamRequest request) {
-        TeamNode node = createTeamUseCase.create(
-                new CreateTeamCommand(companyId, request.name(), request.parentTeamId()));
+        TeamNode node = createTeamUseCase.create(new CreateTeamCommand(companyId, request.name()));
         return ApiResponse.created("부서를 생성했습니다", TeamNodeResponse.from(node));
     }
 

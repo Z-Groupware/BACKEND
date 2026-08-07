@@ -21,6 +21,17 @@ public interface TranscriptRepository {
     List<Utterance> findByMeetingOrderByOffset(long meetingId);
 
     /*
+     * 그 발화가 **이 회의의 것인가**(RVW-03).
+     *
+     * 사람이 근거 발화를 직접 지정하는 경로가 생기면서 필요해졌다. 검증 없이 저장하면 다른
+     * 회의 — 나아가 **다른 회사** — 의 발화 id 를 넣을 수 있고, 검토 화면은 그 id 로 원문을
+     * 조인해 보여준다. 즉 남의 회의 발화 내용이 우리 화면에 인용된다(#100 과 같은 성질이다).
+     *
+     * 존재 여부만 돌려준다 — 내용을 읽어오면 그 자체가 유출 경로가 된다.
+     */
+    boolean existsInMeeting(long meetingId, long transcriptId);
+
+    /*
      * L1 판정을 정본에 이식한다.
      *
      * <h2>이번 판정이 그 회의의 화자 상태 전부다</h2>
