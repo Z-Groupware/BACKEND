@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
+import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockResult;
+import com.module06.backend.capture.application.port.out.AnalysisRunRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.StoredTuple;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository.TupleConflicts;
@@ -92,6 +95,23 @@ import com.module06.backend.capture.domain.model.Utterance;
  * 입력이 빈 채로 도는데, 그 결과는 "산출물 없음"이 되어 품질 문제로 위장된다.
  * 이 파이프라인에서 가장 위험한 실패 방향이 그거다.
  *
+ * <h2>오래된 실행은 최신 실행을 덮지 못한다 (#134)</h2>
+ * 계층 잠금은 "동시에 같은 계층을 돌리는 것"만 막는다. 실행 A 가 발화를 읽은 뒤 멈춰 있는
+ * 동안 실행 B 가 끝까지 돌고, 그 뒤 A 가 깨어나 옛 입력으로 저장하는 순서는 잠금이 막지 못한다 —
+ * 저장 경로가 전부 replace(교체)라 화자·요약·tuple 이 통째로 되돌아간다.
+ *
+ * 그래서 실행마다 회의 스코프 번호를 발급받고({@link AnalysisRunRepository#begin}),
+ * **계층 잠금을 잡을 때마다** 그 번호가 아직 최신인지 확인한다. 밀린 실행은 거기서 멈춘다.
+ *
+ * 저장 직전이 아니라 잠금 자리에서 확인하는 이유 — 그 자리가 원자적으로 검사할 수 있는 유일한
+ * 곳이고, 계층의 모든 쓰기가 그 잠금 안에서 일어난다. 밀린 실행이 더 쓸 수 있는 것은 **지금 쥔
+ * 계층 하나**뿐이고, 최신 실행은 그 잠금이 풀린 뒤에야 같은 계층을 잡으므로 계층별 마지막
+ * 쓰기는 언제나 최신 실행의 것이 된다.
+ *
+ * ⚠ 남는 성질 하나 — 최신 실행이 잠금에 막혀 ALREADY_RUNNING 으로 물러나면, 오래된 실행이
+ * 자기 계층을 마저 쓰고 최신 입력은 이번에 반영되지 않는다. 덮어쓰기는 아니고(최신 실행은
+ * 아무것도 쓰지 않았다) 다음 트리거에서 회복된다. 이건 이 수정 이전부터 있던 성질이다.
+ *
  * ⚠ L1.5 는 이 규칙의 경계선이다. 실패해도 L2 의 입력(원문 발화)은 온전하므로 "빈 입력 전파"가
  * 일어나지 않고, 계속 돌리면 요약까지는 나온다. 그래도 멈추는 쪽을 골랐다 — 이어서 돌리려면
  * "일부 계층이 실패한 DONE"이라는 결과 종류가 필요하고, 그건 ANLZ-01 응답과 CAP-06 계약을
@@ -112,6 +132,7 @@ public class AnalysisOrchestrator {
     private final TranscriptRepository transcriptRepository;
     private final CaptionRepository captionRepository;
     private final AnalysisLayerRepository analysisLayerRepository;
+    private final AnalysisRunRepository analysisRunRepository;
     private final MeetingSummaryRepository meetingSummaryRepository;
     private final AssignmentTupleRepository assignmentTupleRepository;
     private final MeetingDateProvider meetingDateProvider;
@@ -144,6 +165,19 @@ public class AnalysisOrchestrator {
             return AnalysisOutcome.skipped("이미 분석이 완료된 회의입니다.");
         }
 
+        /*
+         * 이 실행의 번호를 발급받는다. **발화를 읽기 전이어야 한다** — 읽고 나서 발급하면
+         * 읽기와 발급 사이에 시작한 실행이 더 낮은 번호를 갖게 되고, 더 새 자막을 본 실행이
+         * 오래된 것으로 판정되어 거절된다. 순서가 정확히 거꾸로 뒤집힌다(#134).
+         */
+        OptionalLong issued = analysisRunRepository.begin(meetingId);
+        if (issued.isEmpty()) {
+            // 같은 순간에 다른 실행이 먼저 시작했다. 그쪽이 최신이므로 물러난다.
+            log.info("분석 물러남 — 같은 순간에 시작한 다른 실행이 있다. meetingId={}", meetingId);
+            return AnalysisOutcome.superseded(null);
+        }
+        long runSeq = issued.getAsLong();
+
         List<Utterance> loaded = transcriptRepository.findByMeetingOrderByOffset(meetingId);
         if (loaded.isEmpty()) {
             // 발화가 없으면 계층을 부르지 않는다. 빈 입력으로 돌리면 빈 결과에 돈만 쓰고,
@@ -166,14 +200,22 @@ public class AnalysisOrchestrator {
          * 전원 판정 포기로 끝난다 — 지금과 같은 상태이고, 정상 동작이다. CAP-11 이 붙는 순간
          * 이 계층이 실제로 화자를 채우기 시작한다.
          */
-        LayerOutcome<Integer> attributed = runLayer(meetingId, LayerName.L1, sink -> {
+        LayerOutcome<Integer> attributed = runLayer(meetingId, runSeq, LayerName.L1, sink -> {
+            /*
+             * 판정할 발화를 **잠금 안에서 다시 읽는다.** 위에서 읽은 loaded 는 실행 여부를
+             * 가리는 데(발화 0건) 쓰고 여기서는 쓰지 않는다 — 그 읽기와 이 잠금 사이에 자막이
+             * 더 들어왔을 수 있고, 그때 옛 목록으로 판정하면 새 발화의 화자가 통째로 빈다.
+             *
+             * 창을 좁히는 것이지 없애는 것이 아니다. 순서 자체는 실행 번호가 보장한다(#134).
+             */
+            List<Utterance> fresh = transcriptRepository.findByMeetingOrderByOffset(meetingId);
             List<CaptionChunk> captions = captionRepository.findByMeeting(meetingId);
 
             // 명단 밖 탈출구(personId=null)는 제외한다 — 소거법과 "전원 자막" 판단의 분모가
             // 실제 참석자 수여야 한다. 탈출구를 포함하면 참석자가 2명인 회의가 3명으로 보여
             // 소거법이 성립하지 않는다. L6·L7 도 같은 집합을 쓴다.
             List<SpeakerAttributionResolver.Attribution> attributions =
-                    speakerAttributionResolver.resolve(loaded, captions, attendeeMemberIdsOf(participants));
+                    speakerAttributionResolver.resolve(fresh, captions, attendeeMemberIdsOf(participants));
 
             int applied = transcriptRepository.applySpeakerAttributions(meetingId, attributions);
             if (applied != attributions.size()) {
@@ -210,7 +252,7 @@ public class AnalysisOrchestrator {
          * 보내고, 결과를 뒤 계층이 보는 발화에 반영한다. 순서를 뒤집으면 L4 가 이미 담당자를
          * 정한 뒤에 대명사가 풀린다 — 검토 사유 WRONG_ASSIGNEE 가 L1.5 로 귀속되는 이유다.
          */
-        LayerOutcome<ResolveReferenceResult> resolved = runLayer(meetingId, LayerName.L1_5, sink -> {
+        LayerOutcome<ResolveReferenceResult> resolved = runLayer(meetingId, runSeq, LayerName.L1_5, sink -> {
             ResolveReferenceResult result = aiLayerPort.resolveReference(
                     // 대상 발화를 추리지 않고 전체를 넘긴다 — 지시어 후보를 고르는 코드가 아직 없고,
                     // 잘못 추리면 후보에서 빠진 지시어는 아예 풀릴 기회가 없다.
@@ -233,7 +275,7 @@ public class AnalysisOrchestrator {
         utterances.forEach(utterance -> byId.put(utterance.utteranceId(), utterance));
 
         // ── L2 · 주제 분할 ───────────────────────────────────────────────────────
-        LayerOutcome<SegmentTopicsResult> segmented = runLayer(meetingId, LayerName.L2, sink -> {
+        LayerOutcome<SegmentTopicsResult> segmented = runLayer(meetingId, runSeq, LayerName.L2, sink -> {
             SegmentTopicsResult result = aiLayerPort.segmentTopics(tenantId, meetingId, utterances);
             // 토큰을 먼저 sink 에 넣는다. 아래에서 던져도 이미 쓴 비용은 기록된다.
             sink.add(result.run());
@@ -259,7 +301,7 @@ public class AnalysisOrchestrator {
         List<TopicDecisions> decisions = new ArrayList<>();
         StringBuilder overview = new StringBuilder();
 
-        LayerOutcome<Void> summarized = runLayer(meetingId, LayerName.L3, sink -> {
+        LayerOutcome<Void> summarized = runLayer(meetingId, runSeq, LayerName.L3, sink -> {
             for (TopicSegment topic : topics) {
                 SummarizeTopicResult result = aiLayerPort.summarizeTopic(
                         tenantId, meetingId, topic.topicSeq(), topic.topic(),
@@ -295,7 +337,7 @@ public class AnalysisOrchestrator {
          * 부르면 응답을 어느 행에 적용할지 임시 순번으로 맞춰야 한다 — 그 맞추기가 틀리면
          * A 항목의 판정이 B 항목에 저장되는데, 조회는 성공하므로 아무도 오류를 못 본다.
          */
-        LayerOutcome<Void> gated = runLayer(meetingId, LayerName.L3_5, sink -> {
+        LayerOutcome<Void> gated = runLayer(meetingId, runSeq, LayerName.L3_5, sink -> {
             Map<Integer, TopicView> savedBySeq = savedTopicsBySeq(companyId, meetingId);
             List<GateVerdict> verdicts = new ArrayList<>();
             // 후보로 보낸 항목의 id. 판정을 되짚을 수 있는 유일한 집합이다.
@@ -359,7 +401,7 @@ public class AnalysisOrchestrator {
         }
 
         // ── L4 · assignment tuple 추출 (주제마다 한 번) + 산출물 저장 ────────────
-        LayerOutcome<Integer> extracted = runLayer(meetingId, LayerName.L4, sink -> {
+        LayerOutcome<Integer> extracted = runLayer(meetingId, runSeq, LayerName.L4, sink -> {
             /*
              * 게이트 반영 **후의 값을 다시 읽는다.** 위에서 받은 판정 목록을 그대로 쓰면
              * 되짚지 못해 반영되지 않은 판정까지 CONFIRMED 로 취급하게 된다 — DB 에는
@@ -419,7 +461,7 @@ public class AnalysisOrchestrator {
          * 죽은 것이다. 지우면 사람이 검토할 대상 자체가 사라지고, 그건 검증을 안 한 것보다 나쁘다.
          * 이 판정을 무엇에 쓸지(자동확정 대상에서 제외)는 L7 이 정한다.
          */
-        LayerOutcome<Integer> verified = runLayer(meetingId, LayerName.L5, sink -> {
+        LayerOutcome<Integer> verified = runLayer(meetingId, runSeq, LayerName.L5, sink -> {
             List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
             if (stored.isEmpty()) {
                 // 뽑힌 배정이 없으면 검증할 것이 없다. 계층은 DONE 으로 닫는다 — 실패가 아니라
@@ -502,7 +544,7 @@ public class AnalysisOrchestrator {
          * 표시만 하고 남긴다. 지우면 사람이 검토할 대상 자체가 사라진다. 대신 뒤의 L7 이
          * 모순 있는 tuple 을 자동확정하지 않는다 — 게이트는 조이는 방향으로만 쓴다.
          */
-        LayerOutcome<Map<Long, List<ConflictType>>> checked = runLayer(meetingId, LayerName.L6, sink -> {
+        LayerOutcome<Map<Long, List<ConflictType>>> checked = runLayer(meetingId, runSeq, LayerName.L6, sink -> {
             List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
             if (stored.isEmpty()) {
                 return new Accumulated<>(Map.of(), LayerRun.empty());
@@ -544,7 +586,7 @@ public class AnalysisOrchestrator {
          * 모순이 있으면 신호 넷과 무관하게 자동확정하지 않는다. 순서를 뒤집으면 모순을 모르는
          * 채로 게이트를 통과시키게 된다.
          */
-        LayerOutcome<Map<Long, AutoConfirmGate.Verdict>> gated7 = runLayer(meetingId, LayerName.L7, sink -> {
+        LayerOutcome<Map<Long, AutoConfirmGate.Verdict>> gated7 = runLayer(meetingId, runSeq, LayerName.L7, sink -> {
             List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
             if (stored.isEmpty()) {
                 log.info("L7 생략 — 판정할 tuple 이 없다. meetingId={}", meetingId);
@@ -584,7 +626,7 @@ public class AnalysisOrchestrator {
          * 반드시 있고, 그때 만들어지는 것은 사람 보드에 두 번 꽂히는 액션이다. 상태를 남기는
          * 이유도 같다 — "분석은 완료인데 액션이 없는" 회의가 왜 그런지 CAP-06 으로 보여야 한다.
          */
-        LayerOutcome<Integer> distributed = runLayer(meetingId, LayerName.DIST, sink ->
+        LayerOutcome<Integer> distributed = runLayer(meetingId, runSeq, LayerName.DIST, sink ->
                 // 토큰을 쓰지 않는다. 모델을 부르지 않으므로 실제로 0 이다.
                 new Accumulated<>(
                         tupleDistributionService.distribute(companyId, meetingId, gated7.value()),
@@ -637,10 +679,23 @@ public class AnalysisOrchestrator {
      * 잠금 실패는 오류가 아니다. 중복 수신이 걸러진 정상 동작이고, 그때 이미 다른 실행이
      * 같은 계층을 돌고 있으므로 여기서는 조용히 물러난다.
      */
-    private <T> LayerOutcome<T> runLayer(long meetingId, LayerName layer, LayerCall<T> call) {
-        if (!analysisLayerRepository.tryLock(meetingId, layer)) {
+    private <T> LayerOutcome<T> runLayer(long meetingId, long runSeq, LayerName layer, LayerCall<T> call) {
+        LockResult lock = analysisLayerRepository.tryLock(meetingId, layer, runSeq);
+        if (lock == LockResult.ALREADY_RUNNING) {
             log.info("계층 잠금 실패 — 이미 실행 중이다. meetingId={} layer={}", meetingId, layer.wireValue());
             return LayerOutcome.locked();
+        }
+        if (lock == LockResult.SUPERSEDED) {
+            /*
+             * 더 나중에 시작한 실행이 있다. **여기서 멈추는 것이 이 수정의 전부다**(#134) —
+             * 계속 돌면 옛 입력으로 만든 결과가 최신 결과 위에 덮인다.
+             *
+             * FAILED 로 남기지 않는다. 실패가 아니라 순서가 정해진 것이고, FAILED 로 두면
+             * ANLZ-02 가 이 계층을 재개 대상으로 보고 오래된 실행을 되살린다.
+             */
+            log.info("계층 실행 물러남 — 더 나중 실행이 있다. meetingId={} layer={}",
+                    meetingId, layer.wireValue());
+            return LayerOutcome.superseded();
         }
         /*
          * 실패해도 그때까지 쓴 토큰이 남아야 한다. L3 는 주제마다 부르므로 5개 중 3번째에서
@@ -929,12 +984,13 @@ public class AnalysisOrchestrator {
     private record Accumulated<T>(T value, LayerRun run) {
     }
 
-    /* 계층 하나의 실행 결과. 성공·이미 실행 중·실패 셋을 구분한다. */
+    /* 계층 하나의 실행 결과. 성공·이미 실행 중·밀림·실패 넷을 구분한다. */
     private record LayerOutcome<T>(T value, LayerRun run, boolean succeeded, boolean alreadyRunning,
-                                   String errorCode, String errorMessage, boolean retryable) {
+                                   boolean stale, String errorCode, String errorMessage,
+                                   boolean retryable) {
 
         static <T> LayerOutcome<T> success(T value, LayerRun run) {
-            return new LayerOutcome<>(value, run, true, false, null, null, false);
+            return new LayerOutcome<>(value, run, true, false, false, null, null, false);
         }
 
         /*
@@ -942,17 +998,27 @@ public class AnalysisOrchestrator {
          * 레코드가 접근자 재정의로 보고, static 이면 "invalid accessor" 로 컴파일이 막힌다.
          */
         static <T> LayerOutcome<T> locked() {
-            return new LayerOutcome<>(null, LayerRun.empty(), false, true, null, null, false);
+            return new LayerOutcome<>(null, LayerRun.empty(), false, true, false, null, null, false);
+        }
+
+        /* 더 나중에 시작한 실행이 있어 물러난 것이다. 실패와 섞으면 재개가 오래된 실행을 되살린다. */
+        static <T> LayerOutcome<T> superseded() {
+            return new LayerOutcome<>(null, LayerRun.empty(), false, false, true, null, null, false);
         }
 
         static <T> LayerOutcome<T> failure(String errorCode, String message, boolean retryable) {
-            return new LayerOutcome<>(null, LayerRun.empty(), false, false, errorCode, message, retryable);
+            return new LayerOutcome<>(null, LayerRun.empty(), false, false, false,
+                    errorCode, message, retryable);
         }
 
         AnalysisOutcome toAnalysisOutcome(LayerName layer) {
-            return alreadyRunning
-                    ? AnalysisOutcome.alreadyRunning(layer)
-                    : AnalysisOutcome.failed(layer, errorCode, errorMessage, retryable);
+            if (alreadyRunning) {
+                return AnalysisOutcome.alreadyRunning(layer);
+            }
+            if (stale) {
+                return AnalysisOutcome.superseded(layer);
+            }
+            return AnalysisOutcome.failed(layer, errorCode, errorMessage, retryable);
         }
     }
 }

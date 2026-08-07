@@ -11,9 +11,5 @@ interface SpringDataTeamRepository extends JpaRepository<TeamJpaEntity, Long> {
 
     Optional<TeamJpaEntity> findByIdAndCompanyId(Long id, Long companyId);
 
-    boolean existsByCompanyIdAndParentTeamIdAndName(Long companyId, Long parentTeamId, String name);
-
-    boolean existsByCompanyIdAndParentTeamIdIsNullAndName(Long companyId, String name);
-
-    boolean existsByParentTeamId(Long parentTeamId);
+    boolean existsByCompanyIdAndName(Long companyId, String name);
 }

@@ -31,7 +31,11 @@ public enum ActionErrorCode implements ErrorCode {
     INVALID_ACTION_TYPE_SHAPE(HttpStatus.BAD_REQUEST, "AC-005", "액션 종류(TEAM/PERSONAL)에 맞지 않는 필드 조합입니다."),
     ACTION_PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-006", "존재하지 않거나 접근할 수 없는 프로젝트입니다."),
     ACTION_TEAM_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-007", "존재하지 않거나 접근할 수 없는 팀입니다."),
-    ACTION_ASSIGNEE_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-008", "존재하지 않거나 접근할 수 없는 담당자입니다.");
+    ACTION_ASSIGNEE_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-008", "존재하지 않거나 접근할 수 없는 담당자입니다."),
+
+    /* RVW-04 — AI가 만든 액션을 지우려 했다. 검토(A)가 409로 먼저 막지만, 이 경계를 지나면
+       review_log에 남길 판정 대상 자체가 사라져 되돌릴 수 없어 여기서도 본다(2026-08-07). */
+    ACTION_DELETE_NOT_MANUAL(HttpStatus.CONFLICT, "AC-009", "직접 추가한 액션만 삭제할 수 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
