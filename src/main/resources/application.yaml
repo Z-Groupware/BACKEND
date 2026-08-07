@@ -48,6 +48,25 @@ spring:
     # 실제 레거시 DB를 인계받는 경우에만 그 배포에 한해 켠다.
     baseline-on-migrate: false
 
+  # ── 메일(Gmail SMTP) ──
+  # prod 프로파일에서만 GmailAccountMailAdapter 가 이 설정으로 JavaMailSender 를 쓴다.
+  # 로컬/테스트는 LoggingAccountMailAdapter(@Profile("!prod"))가 대신하므로 값이 없어도 부팅된다.
+  # username/password 는 SSM 이 주입한다 — Gmail 계정 비밀번호가 아니라 앱 비밀번호(2단계 인증 필요)다.
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
 # ── JWT ──
 # secret 은 application-secret.yml 에서 온다. hex 문자열이며 디코드한 raw 바이트가 키다 —
 # HS256 이라 디코드 후 최소 32바이트(= 64자 hex)여야 하고, 짧거나 hex 가 아니면 키 생성
