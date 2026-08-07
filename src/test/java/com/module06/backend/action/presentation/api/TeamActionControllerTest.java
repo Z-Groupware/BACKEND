@@ -21,7 +21,6 @@ import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
-import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.global.security.AuthPrincipal;
 
@@ -92,7 +91,7 @@ class TeamActionControllerTest {
     private Action teamAction() {
         return Action.reconstitute(
                 10L, COMPANY, 100L, null, null, TEAM, null,
-                ActionType.TEAM, "팀 액션", "설명", ActionStatus.TODO, LocalDate.of(2026, 8, 20), false,
+                ActionType.TEAM, "팀 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.PENDING, null, null, null, false,
                 null, null, null
         );

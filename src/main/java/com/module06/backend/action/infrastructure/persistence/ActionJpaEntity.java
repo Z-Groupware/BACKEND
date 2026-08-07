@@ -72,9 +72,18 @@ public class ActionJpaEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    // 2026-08-07 isDone 재설계 — status는 더 이상 원본이 아니라 isDone·startDate의 거울이다.
+    // 컬럼 자체는 NOT NULL이라 여전히 값을 갖고 저장하지만, 읽을 때는 항상 Action.reconstitute가
+    // isDone·startDate로부터 다시 계산해서 덮는다(이 필드값을 직접 신뢰하지 않는다).
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private ActionStatus status;
+
+    @Column(name = "is_done", nullable = false)
+    private boolean isDone;
+
+    @Column(name = "start_date")
+    private LocalDate startDate;
 
     @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
@@ -138,6 +147,8 @@ public class ActionJpaEntity {
             String title,
             String description,
             ActionStatus status,
+            boolean isDone,
+            LocalDate startDate,
             LocalDate dueDate,
             boolean dueDateDefaulted,
             ActionReviewStatus reviewStatus,
@@ -158,6 +169,8 @@ public class ActionJpaEntity {
         this.title = title;
         this.description = description;
         this.status = status;
+        this.isDone = isDone;
+        this.startDate = startDate;
         this.dueDate = dueDate;
         this.dueDateDefaulted = dueDateDefaulted;
         this.reviewStatus = reviewStatus;

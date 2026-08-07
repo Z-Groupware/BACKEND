@@ -79,7 +79,7 @@ class ActionHumanReviewTest {
     private static Action action(ActionReviewStatus reviewStatus, LocalDateTime confirmedAt) {
         return Action.reconstitute(
                 8821L, 7L, 3L, 8800L, 900L, 5L, ALICE,
-                ActionType.PERSONAL, "로드맵 초안 작성", null, ActionStatus.TODO,
+                ActionType.PERSONAL, "로드맵 초안 작성", null, false, null,
                 LocalDate.of(2026, 8, 8), true, reviewStatus, AssigneeSource.EXPLICIT_CALL,
                 8812L, null, false, confirmedAt, null, null);
     }

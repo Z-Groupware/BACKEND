@@ -106,7 +106,7 @@ class TeamActionServiceTest {
         TeamActionService service = teamActionService();
         Action action = Action.reconstitute(
                 10L, 999L, PROJECT, null, null, TEAM, null,
-                ActionType.TEAM, "팀 액션", "설명", ActionStatus.TODO, LocalDate.of(2026, 8, 20), false,
+                ActionType.TEAM, "팀 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.PENDING, null, null, null, false,
                 null, null, null
         );
@@ -122,7 +122,7 @@ class TeamActionServiceTest {
         TeamActionService service = teamActionService();
         Action personal = Action.reconstitute(
                 10L, COMPANY, PROJECT, null, null, null, 5L,
-                ActionType.PERSONAL, "개인 액션", "설명", ActionStatus.TODO, LocalDate.of(2026, 8, 20), false,
+                ActionType.PERSONAL, "개인 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );
@@ -144,9 +144,11 @@ class TeamActionServiceTest {
     }
 
     private Action teamAction(Long id, ActionStatus status) {
+        boolean isDone = status == ActionStatus.DONE;
+        LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
         return Action.reconstitute(
                 id, COMPANY, PROJECT, null, null, TEAM, null,
-                ActionType.TEAM, "팀 액션 " + id, "설명", status, LocalDate.of(2026, 8, 20), false,
+                ActionType.TEAM, "팀 액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.PENDING, null, null, null, false,
                 null, null, null
         );

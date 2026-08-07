@@ -37,7 +37,9 @@ public enum ActionErrorCode implements ErrorCode {
 
     /* RVW-04 — AI가 만든 액션을 지우려 했다. 검토(A)가 409로 먼저 막지만, 이 경계를 지나면
        review_log에 남길 판정 대상 자체가 사라져 되돌릴 수 없어 여기서도 본다(2026-08-07). */
-    ACTION_DELETE_NOT_MANUAL(HttpStatus.CONFLICT, "AC-009", "직접 추가한 액션만 삭제할 수 있습니다.");
+    ACTION_DELETE_NOT_MANUAL(HttpStatus.CONFLICT, "AC-009", "직접 추가한 액션만 삭제할 수 있습니다."),
+    // develop 머지 중 AC-009가 이미 ACTION_DELETE_NOT_MANUAL(RVW-04)에 쓰이고 있어 AC-010으로 밀림(2026-08-07).
+    ACTION_INVALID_STATUS_TRANSITION(HttpStatus.BAD_REQUEST, "AC-010", "허용되지 않는 상태 전환입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

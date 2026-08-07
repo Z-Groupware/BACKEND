@@ -18,6 +18,7 @@ import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetActionsByMeetingUseCase;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.policy.ActionTypeShapePolicy;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
@@ -184,7 +185,13 @@ public class ActionService implements
         );
     }
 
-    // FR-AC-03 보드 저장 — all-or-nothing. 먼저 전부 검증한 뒤에만 저장한다.
+    /*
+     * FR-AC-03 보드 저장 — all-or-nothing. 2026-08-07 isDone 재설계(이홍근 확인) 이후로
+     * 실제 허용되는 전환은 셋뿐이다: 할일→진행중(startDate=오늘), 진행중→완료(isDone=true),
+     * 완료→진행중(isDone=false). 목표 칸은 요청 그대로 받되(API 모양 유지), 서버가 각 액션의
+     * 현재 파생 상태를 다시 계산해서 그 전환이 가능한지 재검증한다 — 클라이언트가 보낸 값만
+     * 믿으면 드래그 제약을 API 직접 호출로 우회할 수 있다.
+     */
     @Override
     @Transactional
     public void bulkUpdateStatus(BulkUpdateActionStatusCommand command) {
@@ -192,21 +199,50 @@ public class ActionService implements
         Map<Long, Action> actionsById = actionRepository.findAllByIds(actionIds).stream()
                 .collect(Collectors.toMap(Action::getId, Function.identity()));
 
-        // 검증 단계 — 존재·담당자 본인 여부를 먼저 확인하고, 하나라도 걸리면 아무것도 바꾸지 않는다.
+        // 검증 단계 — 존재·담당자 본인·전환 가능 여부를 먼저 확인하고, 하나라도 걸리면 아무것도 바꾸지 않는다.
         for (BulkUpdateActionStatusCommand.Item item : command.items()) {
             Action action = actionsById.get(item.actionId());
             if (action == null) {
                 throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
             }
             ASSIGNEE_ONLY_POLICY.check(action, command.requesterId());
+            requireReachableTransition(action.getStatus(), item.status());
         }
 
-        // 반영 단계
+        // 반영 단계 — 목표 칸에 따라 실제로 쓰는 필드가 다르다.
         for (BulkUpdateActionStatusCommand.Item item : command.items()) {
-            actionsById.get(item.actionId()).changeStatus(item.status());
+            applyTransition(actionsById.get(item.actionId()), item.status());
         }
 
         actionRepository.saveAll(List.copyOf(actionsById.values()));
+    }
+
+    // "할일"은 도달 불가능한 목표 칸이다(그리로 되돌리는 동작 자체가 화면에 없다).
+    private static void requireReachableTransition(ActionStatus current, ActionStatus target) {
+        boolean reachable = switch (target) {
+            case TODO -> false;
+            case IN_PROGRESS -> current == ActionStatus.TODO || current == ActionStatus.IN_PROGRESS || current == ActionStatus.DONE;
+            case DONE -> current == ActionStatus.IN_PROGRESS || current == ActionStatus.DONE;
+        };
+        if (!reachable) {
+            throw new BusinessException(ActionErrorCode.ACTION_INVALID_STATUS_TRANSITION);
+        }
+    }
+
+    private static void applyTransition(Action action, ActionStatus target) {
+        ActionStatus current = action.getStatus();
+        if (current == target) {
+            return; // 이미 목표 칸 — 그대로 재저장(all-or-nothing 저장 대상에는 남지만 값은 안 바뀐다).
+        }
+        if (target == ActionStatus.IN_PROGRESS) {
+            if (current == ActionStatus.TODO) {
+                action.start();
+            } else {
+                action.reopen(); // current == DONE, requireReachableTransition이 이미 보장
+            }
+        } else if (target == ActionStatus.DONE) {
+            action.complete();
+        }
     }
 
     private static <T> List<Long> distinct(List<Action> actions, Function<Action, Long> extractor) {
