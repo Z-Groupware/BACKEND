@@ -65,7 +65,7 @@ public class CaptionController {
             @Parameter(description = "회의 ID") @PathVariable Long meetingId,
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
-            @AuthenticationPrincipal(expression = "role") String role,
+            @AuthenticationPrincipal(expression = "authority") String role,
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin) {
         // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자 or 같은 회사 owner/admin)은 서비스가 판정.
         GetCaptionsUseCase.Requester requester = new GetCaptionsUseCase.Requester(memberId, companyId, role, isAdmin);
