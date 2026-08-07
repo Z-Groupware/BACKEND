@@ -37,6 +37,9 @@ public class CaptionChunk {
         if (rms == null) {
             throw new BusinessException(CapErrorCode.CAP_RMS_REQUIRED);
         }
+        if (seq < 0) {
+            throw new BusinessException(CapErrorCode.CAP_INVALID_SEQ);
+        }
         this.id = id;
         this.meetingId = meetingId;
         this.memberId = memberId;

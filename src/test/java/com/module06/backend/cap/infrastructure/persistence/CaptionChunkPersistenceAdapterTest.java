@@ -67,6 +67,19 @@ class CaptionChunkPersistenceAdapterTest {
         assertThat(springDataCapCaptionChunkRepository.count()).isEqualTo(2);
     }
 
+    /* 같은 배치 안에 (meetingId, memberId, seq)가 중복돼도(클라이언트 버그 등) UNIQUE 위반으로 배치 전체가
+       죽지 않고, 하나만 저장되는지 검증한다(DB엔 아직 없어 사전 존재 확인만으로는 못 걸러지는 경우). */
+    @Test
+    @DisplayName("같은 배치 내부 중복은 UNIQUE 위반 없이 하나만 저장한다")
+    void dedupesWithinSameBatch() {
+        List<CaptionChunk> saved = captionChunkRepository.saveAllSkippingDuplicates(List.of(
+                CaptionChunk.receive(500L, 7L, 41, 623_400, 625_100, "이거 제가 할게요", new BigDecimal("-12.40")),
+                CaptionChunk.receive(500L, 7L, 41, 623_400, 625_100, "이거 제가 할게요", new BigDecimal("-12.40"))));
+
+        assertThat(saved).hasSize(1);
+        assertThat(springDataCapCaptionChunkRepository.count()).isEqualTo(1);
+    }
+
     /* 다른 참석자(memberId)는 같은 seq를 써도 중복이 아닌지 검증한다(멱등 키가 참석자별로 독립). */
     @Test
     @DisplayName("다른 참석자는 같은 seq를 써도 중복이 아니다")

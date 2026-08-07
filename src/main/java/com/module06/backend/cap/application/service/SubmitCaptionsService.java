@@ -10,6 +10,8 @@ import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -51,7 +53,24 @@ public class SubmitCaptionsService implements SubmitCaptionsUseCase {
         // 저장 — 이미 전송된 (meetingId, memberId, seq)는 재전송으로 보고 조용히 건너뛴다(멱등).
         List<CaptionChunk> newlySaved = captionChunkRepository.saveAllSkippingDuplicates(chunks);
 
-        // 새로 저장된 조각만 브로드캐스트 — 이미 화면에 떠 있을 중복 재전송분은 다시 밀어주지 않는다.
-        captionBroadcastPort.broadcast(command.meetingId(), newlySaved);
+        // 새로 저장된 조각만, 커밋 후에 브로드캐스트한다 — 커밋 전에 부르면 (1) 브로드캐스트가 던진 예외가
+        // 저장까지 롤백시키고 (2) 커밋이 실패해도 구독자는 이미 못 받은 자막을 받게 된다.
+        // 트랜잭션 동기화가 없는 컨텍스트(순수 단위 테스트)에서는 즉시 호출로 대체한다.
+        if (!newlySaved.isEmpty()) {
+            broadcastAfterCommit(command.meetingId(), newlySaved);
+        }
+    }
+
+    private void broadcastAfterCommit(Long meetingId, List<CaptionChunk> newlySaved) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            captionBroadcastPort.broadcast(meetingId, newlySaved);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                captionBroadcastPort.broadcast(meetingId, newlySaved);
+            }
+        });
     }
 }

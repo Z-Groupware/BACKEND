@@ -63,6 +63,18 @@ class SubmitCaptionsServiceTest {
         assertThat(broadcastChunks).isEmpty();
     }
 
+    /* seq가 음수인 조각이 있으면 배치 전체를 CAP-011로 거절하는지 검증한다. */
+    @Test
+    @DisplayName("seq가 음수인 조각이 있으면 배치 전체를 CAP-011로 거절한다")
+    void rejectsWholeBatchWhenSeqNegative() {
+        SubmitCaptionsService service = service(true, true);
+
+        assertErrorCode(() -> service.submitCaptions(
+                command(chunk(1, "-12.4"), chunk(-1, "-8.1"))), "CAP-011");
+        assertThat(savedChunks).isEmpty();
+        assertThat(broadcastChunks).isEmpty();
+    }
+
     /* 정상 배치는 전부 저장되고 새로 저장된 조각만 브로드캐스트되는지 검증한다. */
     @Test
     @DisplayName("정상 배치는 저장 후 새로 저장된 조각만 브로드캐스트한다")
