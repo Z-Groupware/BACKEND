@@ -66,6 +66,14 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
     List<MemberJpaEntity> findByCompanyIdAndIdInAndDeletedAtIsNull(Long companyId, List<Long> ids);
 
     /**
+     * 과거(종료된) 회의 참석자 명단 보존용({@code MemberQueryPort#findMembersIncludingDeleted}).
+     * {@link #findByCompanyIdAndIdInAndDeletedAtIsNull} 과 달리 퇴사자도 포함한다 — 다른 회사·
+     * 존재하지 않는 id 는 {@code companyId} 조건으로 자연히 빠진다.
+     */
+    @EntityGraph(attributePaths = {"team", "position"})
+    List<MemberJpaEntity> findByCompanyIdAndIdIn(Long companyId, List<Long> ids);
+
+    /**
      * 구성원 관리 화면(§7) 전용 — 목록·조직도·좌석 수 세기가 전부 이 스냅샷 하나에서 갈린다.
      * 필터·검색·페이징은 서비스가 Java 단에서 한다(TeamService.buildContext 와 같은 이유) —
      * Gate 1(QUERY_002)이 신규 {@code @Query} 를 막아 조건절을 늘려가는 파생 메서드를 새로 파지 않는다.

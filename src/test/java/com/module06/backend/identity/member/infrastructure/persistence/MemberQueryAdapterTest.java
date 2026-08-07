@@ -107,6 +107,37 @@ class MemberQueryAdapterTest {
         assertThat(port.findActiveMembers(1L, List.of())).isEmpty();
     }
 
+    @Test
+    @DisplayName("findMembersIncludingDeleted 는 퇴사자도 포함한다 — 과거 회의 명단 보존용")
+    void findMembersIncludingDeletedIncludesResignedMembers() {
+        insertCompany(551L);
+        insertMember(552L, 551L, null, "재직자", "ACTIVE", null);
+        insertMember(553L, 551L, null, "퇴사자", "RESIGNED", "2026-08-01 12:00:00");
+
+        List<MemberSnapshot> found = port.findMembersIncludingDeleted(551L, List.of(552L, 553L));
+
+        assertThat(found).extracting(MemberSnapshot::memberId).containsExactlyInAnyOrder(552L, 553L);
+    }
+
+    @Test
+    @DisplayName("findMembersIncludingDeleted 도 다른 회사·존재하지 않는 id 는 걸러낸다")
+    void findMembersIncludingDeletedExcludesOtherCompaniesAndUnknownIds() {
+        insertCompany(561L);
+        insertCompany(562L);
+        insertMember(563L, 561L, null, "우리회사", "ACTIVE", null);
+        insertMember(564L, 562L, null, "남의회사", "ACTIVE", null);
+
+        List<MemberSnapshot> found = port.findMembersIncludingDeleted(561L, List.of(563L, 564L, 999_999L));
+
+        assertThat(found).extracting(MemberSnapshot::memberId).containsExactly(563L);
+    }
+
+    @Test
+    @DisplayName("findMembersIncludingDeleted 도 id 목록이 비어 있으면 조회 없이 빈 목록을 준다")
+    void findMembersIncludingDeletedEmptyIdsReturnsEmpty() {
+        assertThat(port.findMembersIncludingDeleted(1L, List.of())).isEmpty();
+    }
+
     private void insertCompany(Long id) {
         em.createNativeQuery("INSERT INTO company (id, code, name) VALUES (?, ?, '(주)테스트')")
                 .setParameter(1, id).setParameter(2, "C" + id).executeUpdate();

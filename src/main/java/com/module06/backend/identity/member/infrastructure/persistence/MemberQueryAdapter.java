@@ -32,6 +32,16 @@ public class MemberQueryAdapter implements MemberQueryPort {
                 .toList();
     }
 
+    @Override
+    public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+        if (memberIds == null || memberIds.isEmpty()) {
+            return List.of();
+        }
+        return memberRepository.findByCompanyIdAndIdIn(companyId, memberIds).stream()
+                .map(this::toSnapshot)
+                .toList();
+    }
+
     private MemberSnapshot toSnapshot(MemberJpaEntity member) {
         TeamRefEntity team = member.getTeam();
         PositionRefEntity position = member.getPosition();
