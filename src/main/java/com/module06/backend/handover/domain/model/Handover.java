@@ -21,6 +21,7 @@ public class Handover {
     private final LocalDate lastWorkingDay;
     private final String writerNameSnap;
     private final String writerPositionSnap;
+    private final String note;
     private Long intermediateApproverId;
     private String intermediateApproverNameSnap;
     private LocalDateTime intermediateApprovedAt;
@@ -34,7 +35,7 @@ public class Handover {
     private Handover(Long id, Long writerMemberId, Long teamId, String teamNameSnap, HandoverType handoverType,
                      HandoverStatus status, LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
                      LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
-                     Long intermediateApproverId, String intermediateApproverNameSnap,
+                     String note, Long intermediateApproverId, String intermediateApproverNameSnap,
                      LocalDateTime intermediateApprovedAt, String rejectReason, LocalDateTime finalizedAt,
                      Long finalApproverId, String finalApproverNameSnap, Long version,
                      List<HandoverItem> items) {
@@ -59,6 +60,7 @@ public class Handover {
         this.lastWorkingDay = lastWorkingDay;
         this.writerNameSnap = writerNameSnap;
         this.writerPositionSnap = writerPositionSnap;
+        this.note = note;
         this.intermediateApproverId = intermediateApproverId;
         this.intermediateApproverNameSnap = intermediateApproverNameSnap;
         this.intermediateApprovedAt = intermediateApprovedAt;
@@ -74,34 +76,34 @@ public class Handover {
     public static Handover createVacation(Long writerMemberId, Long teamId, String writerNameSnap,
                                           String writerPositionSnap, LocalDateTime leaveStartAt,
                                           LocalDateTime leaveEndAt, List<HandoverItem> items) {
-        return createVacation(writerMemberId, teamId, null, writerNameSnap, writerPositionSnap, leaveStartAt,
+        return createVacation(writerMemberId, teamId, null, writerNameSnap, writerPositionSnap, null, leaveStartAt,
                 leaveEndAt, items);
     }
 
     public static Handover createVacation(Long writerMemberId, Long teamId, String teamNameSnap,
-                                          String writerNameSnap, String writerPositionSnap,
+                                          String writerNameSnap, String writerPositionSnap, String note,
                                           LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
                                           List<HandoverItem> items) {
         return new Handover(null, writerMemberId, teamId, teamNameSnap, HandoverType.VACATION,
                 HandoverStatus.SUBMITTED,
                 leaveStartAt, leaveEndAt, null, writerNameSnap, writerPositionSnap,
-                null, null, null, null, null, null, null, null, items);
+                note, null, null, null, null, null, null, null, null, items);
     }
 
     public static Handover createOffboarding(Long writerMemberId, Long teamId, String writerNameSnap,
                                              String writerPositionSnap, LocalDate lastWorkingDay,
                                              List<HandoverItem> items) {
-        return createOffboarding(writerMemberId, teamId, null, writerNameSnap, writerPositionSnap,
+        return createOffboarding(writerMemberId, teamId, null, writerNameSnap, writerPositionSnap, null,
                 lastWorkingDay, items);
     }
 
     public static Handover createOffboarding(Long writerMemberId, Long teamId, String teamNameSnap,
-                                             String writerNameSnap, String writerPositionSnap,
+                                             String writerNameSnap, String writerPositionSnap, String note,
                                              LocalDate lastWorkingDay, List<HandoverItem> items) {
         return new Handover(null, writerMemberId, teamId, teamNameSnap, HandoverType.OFFBOARDING,
                 HandoverStatus.SUBMITTED,
                 null, null, lastWorkingDay, writerNameSnap, writerPositionSnap,
-                null, null, null, null, null, null, null, null, items);
+                note, null, null, null, null, null, null, null, null, items);
     }
 
     public static Handover restore(Long id, Long writerMemberId, Long teamId, HandoverType handoverType,
@@ -112,7 +114,7 @@ public class Handover {
                                    LocalDateTime finalizedAt, Long finalApproverId, String finalApproverNameSnap,
                                    Long version, List<HandoverItem> items) {
         return restore(id, writerMemberId, teamId, null, handoverType, status, leaveStartAt, leaveEndAt,
-                lastWorkingDay, writerNameSnap, writerPositionSnap, intermediateApproverId,
+                lastWorkingDay, writerNameSnap, writerPositionSnap, null, intermediateApproverId,
                 intermediateApproverNameSnap, intermediateApprovedAt, rejectReason, finalizedAt,
                 finalApproverId, finalApproverNameSnap, version, items);
     }
@@ -121,12 +123,12 @@ public class Handover {
                                    HandoverType handoverType, HandoverStatus status,
                                    LocalDateTime leaveStartAt, LocalDateTime leaveEndAt,
                                    LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
-                                   Long intermediateApproverId, String intermediateApproverNameSnap,
+                                   String note, Long intermediateApproverId, String intermediateApproverNameSnap,
                                    LocalDateTime intermediateApprovedAt, String rejectReason,
                                    LocalDateTime finalizedAt, Long finalApproverId, String finalApproverNameSnap,
                                    Long version, List<HandoverItem> items) {
         return new Handover(id, writerMemberId, teamId, teamNameSnap, handoverType, status, leaveStartAt, leaveEndAt, lastWorkingDay,
-                writerNameSnap, writerPositionSnap, intermediateApproverId, intermediateApproverNameSnap,
+                writerNameSnap, writerPositionSnap, note, intermediateApproverId, intermediateApproverNameSnap,
                 intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap, version,
                 items);
     }
@@ -244,6 +246,7 @@ public class Handover {
     public LocalDate getLastWorkingDay() { return lastWorkingDay; }
     public String getWriterNameSnap() { return writerNameSnap; }
     public String getWriterPositionSnap() { return writerPositionSnap; }
+    public String getNote() { return note; }
     public Long getIntermediateApproverId() { return intermediateApproverId; }
     public String getIntermediateApproverNameSnap() { return intermediateApproverNameSnap; }
     public LocalDateTime getIntermediateApprovedAt() { return intermediateApprovedAt; }

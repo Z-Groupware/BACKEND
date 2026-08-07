@@ -76,9 +76,9 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
         List<HandoverItem> items = snapshotItems(command);
         Handover handover = command.handoverType() == HandoverType.VACATION
                 ? Handover.createVacation(command.writerMemberId(), command.teamId(), teamName, writer.name(),
-                        writer.position(), command.leaveStartAt(), command.leaveEndAt(), items)
+                        writer.position(), command.note(), command.leaveStartAt(), command.leaveEndAt(), items)
                 : Handover.createOffboarding(command.writerMemberId(), command.teamId(), teamName, writer.name(),
-                        writer.position(), command.lastWorkingDay(), items);
+                        writer.position(), command.note(), command.lastWorkingDay(), items);
         Handover saved = handoverRepository.save(handover);
         memberStatusPort().toWaiting(command.writerMemberId());
         return saved;
@@ -167,6 +167,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                         action.projectTag(),
                         action.actionType(),
                         action.deadline(),
+                        action.actionCreatedAt(),
                         action.sourceMeetingId(),
                         action.sourceMeetingTitle(),
                         action.content(),
