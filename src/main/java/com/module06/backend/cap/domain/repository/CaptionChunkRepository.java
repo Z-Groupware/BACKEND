@@ -12,4 +12,7 @@ public interface CaptionChunkRepository {
      * 새로 저장된 조각만 반환한다(재전송에 안전한 멱등 저장 — DB UNIQUE 제약이 최종 판정 근거).
      */
     List<CaptionChunk> saveAllSkippingDuplicates(List<CaptionChunk> chunks);
+
+    /** 이 회의의 자막 전체를 시간순(발화 시작 오프셋)으로 조회한다(CAP-12 백필용). */
+    List<CaptionChunk> findByMeetingId(Long meetingId);
 }

@@ -48,4 +48,12 @@ public class CaptionChunkPersistenceAdapter implements CaptionChunkRepository {
         }
         return List.copyOf(byKey.values());
     }
+
+    // CAP-12 전체 조회 — 발화 시작 오프셋 순.
+    @Override
+    public List<CaptionChunk> findByMeetingId(Long meetingId) {
+        return springDataCapCaptionChunkRepository.findByMeetingIdOrderByStartOffsetMsAsc(meetingId).stream()
+                .map(CapCaptionChunkJpaEntity::toDomain)
+                .toList();
+    }
 }
