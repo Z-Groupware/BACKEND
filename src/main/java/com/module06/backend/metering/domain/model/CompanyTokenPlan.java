@@ -1,5 +1,8 @@
 package com.module06.backend.metering.domain.model;
 
+import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.domain.exception.MeteringErrorCode;
+
 import java.time.LocalDate;
 import java.util.Objects;
 
@@ -18,6 +21,11 @@ public class CompanyTokenPlan {
         this.id = id;
         this.companyId = Objects.requireNonNull(companyId, "companyId must not be null");
         this.planCode = Objects.requireNonNull(planCode, "planCode must not be null");
+        // create·restore 공통 방어선. 음수 풀·기본료·overage 단가는 음수 예상 금액과
+        // 잘못된 할당량 상태를 만든다 — 커맨드(입력) 뿐 아니라 도메인에서도 막는다.
+        if (monthlyTokenPool < 0 || baseFee < 0 || tokenOveragePricePer1k < 0) {
+            throw new BusinessException(MeteringErrorCode.MT_PLAN_COMMAND_INVALID);
+        }
         this.monthlyTokenPool = monthlyTokenPool;
         this.baseFee = baseFee;
         this.tokenOveragePricePer1k = tokenOveragePricePer1k;
