@@ -35,6 +35,18 @@ public interface OrgQueryPort {
      */
     List<Long> findMemberIdsByCompany(Long companyId);
 
+    /**
+     * 팀 표시명. 퇴사 인수인계서 PDF 헤더에 소속 팀 이름을 스냅샷으로 찍기 위해서다
+     * (생성 시점 1회 조회, {@code team_name_snap} 컬럼).
+     *
+     * <p>default 로 두고 예외를 던진다 — B(조직) 도메인의 실 구현이 붙기 전까지는 이 메서드를
+     * 부르는 순간 연동 필요성이 즉시 드러나야 한다. 조용히 null 을 주면 스냅샷이 빈 채로 굳는다.
+     */
+    default String findTeamName(Long teamId) {
+        throw new UnsupportedOperationException(
+                "OrgQueryPort#findTeamName 은 B(조직) 도메인의 실 구현이 필요합니다.");
+    }
+
     record MemberSnapshot(Long memberId, String name, String position) {
     }
 

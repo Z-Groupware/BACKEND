@@ -11,7 +11,8 @@ package com.module06.backend.action.domain.model;
     연결된 클래스
     - Action                 : 이 값을 갖는 애그리거트 루트
     - ActionDistributionPort : 분배 시 PENDING으로 생성되는 진입점 (application.port)
-    - ReviewActionUseCase    : HUMAN_CONFIRMED로 전환하는 기능 계약 (FR-AC-04, 미착수)
+    - Action.applyHumanReview  : HUMAN_CONFIRMED/REJECTED로 전환하는 도메인 메서드
+                                 (review(A)의 ActionReviewApplyPort가 호출, FR-AC-04)
 */
 public enum ActionReviewStatus {
     PENDING,

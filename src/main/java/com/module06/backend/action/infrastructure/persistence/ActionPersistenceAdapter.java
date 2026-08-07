@@ -67,6 +67,34 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         return springDataActionRepository.findById(id).map(this::toDomain);
     }
 
+    // 내 액션 목록 — PERSONAL만 담당자 개념이 있다.
+    @Override
+    public List<Action> findAllByAssigneeMemberId(Long assigneeMemberId) {
+        return springDataActionRepository.findAllByActionTypeAndAssigneeMemberId(ActionType.PERSONAL, assigneeMemberId)
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    // 배치 조회 — 빈 id 목록이면 IN 절 쿼리 자체를 건너뛴다.
+    @Override
+    public List<Action> findAllByIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionRepository.findAllById(ids).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    /* id로 지운다 — 도메인 객체를 엔티티로 되돌려 지우면 detached 인스턴스를 merge한 뒤
+       삭제하게 되어, 그 사이 다른 트랜잭션이 고친 값이 되살아난다(RVW-04, 2026-08-07). */
+    @Override
+    public void delete(Action action) {
+        springDataActionRepository.deleteById(action.getId());
+    }
+
     @Override
     public List<Action> findHandoverablePersonalActions(Long memberId, boolean includeDoneActions) {
         List<ActionJpaEntity> candidates =
@@ -98,6 +126,25 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         }
 
         return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, teamIds).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    // FR-AC-06 — 팀 액션 목록. 기존 findAllByActionTypeAndTeamIdIn을 단일 teamId로 재사용한다.
+    @Override
+    public List<Action> findAllByTeamId(Long teamId) {
+        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, List.of(teamId)).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    // FR-AC-08 — 팀 액션 타임라인. companyId·PERSONAL 조건을 조회 자체에 넣어 다른 회사 행이나
+    // TEAM 액션이 섞여 들어올 여지를 원천 차단한다.
+    @Override
+    public List<Action> findAllByParentActionId(Long companyId, Long parentActionId) {
+        return springDataActionRepository
+                .findAllByActionTypeAndCompanyIdAndParentActionId(ActionType.PERSONAL, companyId, parentActionId)
+                .stream()
                 .map(this::toDomain)
                 .toList();
     }
@@ -140,6 +187,8 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .title(action.getTitle())
                 .description(action.getDescription())
                 .status(action.getStatus())
+                .isDone(action.isDone())
+                .startDate(action.getStartDate())
                 .dueDate(action.getDueDate())
                 .dueDateDefaulted(action.isDueDateDefaulted())
                 .reviewStatus(action.getReviewStatus())
@@ -163,7 +212,8 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 entity.getActionType(),
                 entity.getTitle(),
                 entity.getDescription(),
-                entity.getStatus(),
+                entity.isDone(),
+                entity.getStartDate(),
                 entity.getDueDate(),
                 entity.isDueDateDefaulted(),
                 entity.getReviewStatus(),

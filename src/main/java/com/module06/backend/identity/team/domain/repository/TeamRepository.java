@@ -11,15 +11,17 @@ public interface TeamRepository {
 
     Optional<Team> findByIdAndCompanyId(Long id, Long companyId);
 
-    Team create(Long companyId, Long parentTeamId, String name);
+    Team create(Long companyId, String name);
 
     void rename(Long id, String name);
 
+    /**
+     * 팀장 교체. 구성원 상세의 역할 변경(§7-4)이 흡수한 부수효과 전용이다 — 별도 팀장 지정
+     * 엔드포인트는 폐기됐다(§6-5). {@code leaderMemberId} 가 null 이면 팀장 미지정 상태가 된다.
+     */
+    void updateLeader(Long id, Long leaderMemberId);
+
     void delete(Long id);
 
-    boolean existsByCompanyIdAndParentTeamIdAndName(Long companyId, Long parentTeamId, String name);
-
-    boolean existsByCompanyIdAndParentTeamIdIsNullAndName(Long companyId, String name);
-
-    boolean existsByParentTeamId(Long parentTeamId);
+    boolean existsByCompanyIdAndName(Long companyId, String name);
 }

@@ -54,4 +54,25 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
     interface MemberIdProjection {
         Long getId();
     }
+
+    /**
+     * 회의 참석자 roster 배치 조회용(MEET-01, {@code MemberQueryPort}). 다른 회사·삭제된
+     * 구성원은 조건에서 자연히 빠진다 — 호출자가 따로 걸러낼 필요가 없다.
+     *
+     * <p>team 을 함께 읽는 이유: roster 응답에 teamName 이 들어가는데, 지연 프록시에 기대면
+     * N+1 이 붙는다({@link #findByCompanyIdAndEmail} 과 같은 이유).
+     */
+    @EntityGraph(attributePaths = {"team"})
+    List<MemberJpaEntity> findByCompanyIdAndIdInAndDeletedAtIsNull(Long companyId, List<Long> ids);
+
+    /**
+     * 구성원 관리 화면(§7) 전용 — 목록·조직도·좌석 수 세기가 전부 이 스냅샷 하나에서 갈린다.
+     * 필터·검색·페이징은 서비스가 Java 단에서 한다(TeamService.buildContext 와 같은 이유) —
+     * Gate 1(QUERY_002)이 신규 {@code @Query} 를 막아 조건절을 늘려가는 파생 메서드를 새로 파지 않는다.
+     */
+    @EntityGraph(attributePaths = {"team", "role", "position"})
+    List<MemberJpaEntity> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+
+    /** 계정 발급 이메일 중복 확인(§5-1). 퇴사자의 이메일은 다시 쓸 수 있다. */
+    boolean existsByCompanyIdAndEmailAndDeletedAtIsNull(Long companyId, String email);
 }

@@ -1,7 +1,12 @@
 package com.module06.backend.action.presentation.api;
 
+import java.util.List;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -9,10 +14,16 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Parameter;
 
+import com.module06.backend.action.application.command.BulkUpdateActionStatusCommand;
 import com.module06.backend.action.application.command.CreateActionCommand;
+import com.module06.backend.action.application.usecase.BulkUpdateActionStatusUseCase;
 import com.module06.backend.action.application.usecase.CreateActionUseCase;
+import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
+import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.presentation.api.request.BulkUpdateActionStatusRequest;
 import com.module06.backend.action.presentation.api.request.CreateActionRequest;
+import com.module06.backend.action.presentation.api.response.ActionDetailResponse;
 import com.module06.backend.action.presentation.api.response.ActionSummaryResponse;
 import com.module06.backend.global.response.ApiResponse;
 
@@ -20,14 +31,12 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /* comment.
-    FR-AC-01,02,03,04,05,09 — 개인 액션·체크리스트·회의별 조회 API 진입점.
+    FR-AC-01,02,03,05,09 — 개인 액션·체크리스트·회의별 조회 API 진입점.
     담당 엔드포인트
     - POST   /api/actions                                수동 추가 (예외 경로, MEMBER+)
     - GET    /api/actions                                내 액션 목록 조회 (호출자 본인 소유분만)
     - GET    /api/actions/{actionId}                     상세 조회 (전 구성원)
-    - PATCH  /api/actions/{actionId}                     상태 변경 (담당자 본인)
     - PATCH  /api/actions/status/bulk                     보드 저장 시 일괄 상태 변경 (담당자 본인)
-    - PATCH  /api/actions/{actionId}/review               AI 검토 확인·수정 (담당자 본인)
     - POST   /api/actions/{actionId}/checklist            체크리스트 추가 (담당자 본인)
     - PATCH  /api/actions/{actionId}/checklist/{itemId}   체크리스트 수정 (담당자 본인)
     - DELETE /api/actions/{actionId}/checklist/{itemId}   체크리스트 삭제 (담당자 본인)
@@ -36,11 +45,17 @@ import lombok.RequiredArgsConstructor;
     응답은 ApiResponse, 예외는 BusinessException으로만 낸다 — 개별 try-catch 금지(0절 4항).
     지금은 수동 추가(POST /api/actions)만 배선한다 — 나머지는 각 유스케이스 착수 시 추가.
 
+    FR-AC-03은 벌크 엔드포인트만 둔다(2026-08-07 결정) — Figma 확인 결과 개인 액션 상세는
+    "조회 전용"이고 상태변경은 보드(칸반+저장) 화면에서만 일어난다. 단건 PATCH는 화면 근거가
+    없어 만들지 않는다(UpdateActionStatusUseCase·Command·Request도 함께 삭제).
+    FR-AC-04(리뷰확정)는 C에 없다 — review(A)의 RVW-02가 자체 엔드포인트로 이미 처리하고,
+    C는 ActionReviewApplyPort(A가 선언)를 어댑터로 받기만 한다(ActionService 주석 참고).
+
     연결된 클래스
-    - CreateActionUseCase · GetMyActionsUseCase · GetActionDetailUseCase · UpdateActionStatusUseCase ·
-      BulkUpdateActionStatusUseCase · ReviewActionUseCase · GetActionsByMeetingUseCase · ChecklistItemUseCase : 호출 대상
-    - CreateActionRequest · UpdateActionStatusRequest · BulkUpdateActionStatusRequest ·
-      ReviewActionRequest · CreateChecklistItemRequest · UpdateChecklistItemRequest        : 입력 DTO
+    - CreateActionUseCase · GetMyActionsUseCase · GetActionDetailUseCase ·
+      BulkUpdateActionStatusUseCase · GetActionsByMeetingUseCase · ChecklistItemUseCase : 호출 대상
+    - CreateActionRequest · BulkUpdateActionStatusRequest ·
+      CreateChecklistItemRequest · UpdateChecklistItemRequest                          : 입력 DTO
     - ActionSummaryResponse · ActionDetailResponse · ChecklistItemResponse                 : 출력 DTO
     - ApiResponse                                                                          : 성공 응답 래퍼
 */
@@ -50,6 +65,9 @@ import lombok.RequiredArgsConstructor;
 public class ActionController {
 
     private final CreateActionUseCase createActionUseCase;
+    private final GetMyActionsUseCase getMyActionsUseCase;
+    private final GetActionDetailUseCase getActionDetailUseCase;
+    private final BulkUpdateActionStatusUseCase bulkUpdateActionStatusUseCase;
 
     @PostMapping
     @PreAuthorize("isAuthenticated()")
@@ -70,5 +88,50 @@ public class ActionController {
         ));
 
         return ApiResponse.created("액션을 추가했습니다.", ActionSummaryResponse.from(action));
+    }
+
+    // 내 액션 목록 — 호출자 memberId는 토큰에서만 꺼낸다(헤더로 받으면 남의 목록을 조회할 수 있다).
+    @GetMapping
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<List<ActionSummaryResponse>> list(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId
+    ) {
+        List<ActionSummaryResponse> response = getMyActionsUseCase.getMyActions(memberId).stream()
+                .map(ActionSummaryResponse::from)
+                .toList();
+
+        return ApiResponse.success("내 액션 목록을 조회했습니다.", response);
+    }
+
+    // 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).
+    @GetMapping("/{actionId}")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<ActionDetailResponse> detail(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long actionId
+    ) {
+        ActionDetailResponse response = ActionDetailResponse.from(
+                getActionDetailUseCase.getActionDetail(companyId, actionId));
+
+        return ApiResponse.success("액션 상세를 조회했습니다.", response);
+    }
+
+    // 보드 "저장" 버튼 — 담당자 본인 검사는 항목별로 서비스가 한다. requesterId도 토큰에서만 꺼낸다.
+    @PatchMapping("/status/bulk")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<Void> bulkUpdateStatus(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @Valid @RequestBody BulkUpdateActionStatusRequest request
+    ) {
+        List<BulkUpdateActionStatusCommand.Item> items = request.items().stream()
+                .map(item -> new BulkUpdateActionStatusCommand.Item(item.actionId(), item.status()))
+                .toList();
+
+        bulkUpdateActionStatusUseCase.bulkUpdateStatus(new BulkUpdateActionStatusCommand(memberId, items));
+
+        return ApiResponse.successWithoutData("액션 상태를 일괄 변경했습니다.");
     }
 }

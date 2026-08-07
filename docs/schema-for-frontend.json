@@ -1,7 +1,7 @@
 {
   "$comment": "module06 identity 스키마 — 프론트 공유용. 2026-08-06 네이밍 통일(V2.3.x) 반영본. Flyway 마이그레이션 기준이며 JPA 엔티티와 일치한다.",
   "generatedAt": "2026-08-06",
-  "migrationLevel": "V2.3.10",
+  "migrationLevel": "V2.3.11",
 
   "namingRule": {
     "$comment": "화면 라벨과 DB 이름을 1:1로 맞췄다. 이 세 줄만 외우면 된다.",
@@ -29,12 +29,15 @@
   },
 
   "breakingChanges": {
-    "$comment": "프론트가 지금 쓰고 있다면 반드시 고쳐야 하는 것들. 기존 발급 토큰은 전부 무효 — 재로그인 필요.",
+    "$comment": "프론트가 지금 쓰고 있다면 반드시 고쳐야 하는 것들. 기존 access token은 만료 전까지 구 role 클레임을 그대로 들고 있다 — refresh token은 그대로 살아 있어 재로그인 없이 재발급 시점에 새 authority 클레임으로 자동 교체된다.",
     "jwtClaim": { "before": "role", "after": "authority" },
     "responseKeys": [
       { "before": "role", "after": "authority", "where": "GET /api/auth/me" },
       { "before": "roleLabel", "after": "roleName", "where": "GET /api/auth/me" },
       { "before": "jobPositionId", "after": "positionId", "where": "GET /api/auth/me" }
+    ],
+    "renamedColumns": [
+      { "table": "company", "before": "business_number", "after": "registration_no" }
     ],
     "removed": [
       { "field": "annual_leave_granted", "reason": "연차 이번 범위 아님" },
@@ -48,7 +51,7 @@
         { "name": "id",                  "type": "BIGINT",       "nullable": false, "pk": true },
         { "name": "code",                "type": "VARCHAR(20)",  "nullable": false, "unique": true, "note": "로그인 1단계 키. 예 NOVA-7K3D. 혼동문자 O·0·I·1 제외. 수정 불가" },
         { "name": "name",                "type": "VARCHAR(100)", "nullable": false, "note": "기업명" },
-        { "name": "business_number",     "type": "VARCHAR(20)",  "nullable": true,  "unique": true, "note": "사업자등록번호 000-00-00000" },
+        { "name": "registration_no",     "type": "VARCHAR(20)",  "nullable": true,  "unique": true, "note": "사업자등록번호 000-00-00000" },
         { "name": "representative_name", "type": "VARCHAR(50)",  "nullable": true,  "note": "대표자명" },
         { "name": "manager_email",       "type": "VARCHAR(255)", "nullable": true,  "note": "담당자 이메일 — 오너 계정 ID 가 된다" },
         { "name": "manager_phone",       "type": "VARCHAR(30)",  "nullable": true },
