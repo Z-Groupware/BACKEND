@@ -53,6 +53,64 @@ class MeetingTest {
         );
     }
 
+    /* 예약 회의 수정이 MEET-05 소유 값만 바꾸고 참석자·개설자·상태를 유지하는지 검증한다. */
+    @Test
+    @DisplayName("예약 회의 수정은 메타와 슬롯 범위만 바꾸고 참석자와 상태를 유지한다")
+    void updatesScheduledMeetingWithoutChangingOwnership() {
+        /* 개설자와 두 참석자를 가진 기존 예약 회의를 준비한다. */
+        Meeting scheduled = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L, 11L)
+        );
+
+        /* 프로젝트·회의실·제목·예약 시간·녹음 동의를 새로운 최종 값으로 변경한다. */
+        Meeting updated = scheduled.updateSchedule(
+                13L,
+                4L,
+                " 변경된 정기 회의 ",
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                LocalDateTime.of(2026, 8, 6, 16, 0),
+                false
+        );
+
+        /* MEET-05 대상 필드는 정규화된 최종값으로 교체돼야 한다. */
+        assertThat(updated.getProjectId()).isEqualTo(13L);
+        assertThat(updated.getMeetingRoomId()).isEqualTo(4L);
+        assertThat(updated.getTitle()).isEqualTo("변경된 정기 회의");
+        assertThat(updated.getStartAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 15, 0));
+        assertThat(updated.getEndAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 16, 0));
+        assertThat(updated.isRecordingConsent()).isFalse();
+
+        /* 개설자·참석자·상태·관련 액션은 수정 API 범위 밖이므로 그대로 유지돼야 한다. */
+        assertThat(updated.getHostMemberId()).isEqualTo(3L);
+        assertThat(updated.getAttendeeMemberIds()).containsExactly(3L, 7L, 11L);
+        assertThat(updated.getStatus()).isEqualTo(MeetingStatus.SCHEDULED);
+        assertThat(updated.getRelatedActionId()).isEqualTo(305L);
+    }
+
+    /* 진행 중 회의를 도메인 메서드로 직접 수정하는 잘못된 내부 호출을 거절하는지 검증한다. */
+    @Test
+    @DisplayName("시작된 회의는 예약 정보 수정으로 되돌릴 수 없다")
+    void rejectsUpdatingStartedMeeting() {
+        /* 예약 회의를 최초 입장 처리해 IN_PROGRESS 상태로 만든다. */
+        Meeting inProgress = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L)
+        ).enter(LocalDateTime.of(2026, 8, 6, 13, 58));
+
+        /* 서비스 검증을 우회하더라도 진행 회의의 예약 정보 변경은 도메인에서 차단돼야 한다. */
+        assertThatThrownBy(() -> inProgress.updateSchedule(
+                13L,
+                4L,
+                "변경 시도",
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                LocalDateTime.of(2026, 8, 6, 16, 0),
+                false
+        )).isInstanceOf(IllegalStateException.class);
+    }
+
     /* 최초 입장과 재입장이 상태와 startedAt 불변식을 지키는지 검증한다. */
     @Test
     @DisplayName("최초 입장만 상태와 startedAt을 변경하고 재입장은 이를 유지한다")

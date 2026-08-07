@@ -220,6 +220,52 @@ public class Meeting {
         return memberId != null && hostMemberId.equals(memberId);
     }
 
+    /* 예약 상태 회의의 메타와 예약 범위를 검증된 최종 값으로 변경한다. */
+    public Meeting updateSchedule(
+            Long projectId,
+            Long meetingRoomId,
+            String title,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
+            boolean recordingConsent
+    ) {
+        /* 시작된 회의가 애플리케이션 서비스를 우회해 예약 상태로 되돌아가지 못하게 한다. */
+        if (status != MeetingStatus.SCHEDULED) {
+            throw new IllegalStateException("시작된 회의는 수정할 수 없습니다.");
+        }
+
+        /* 필수 메타와 예약 경계가 없는 상태는 영속성 NOT NULL 계약을 깨므로 거절한다. */
+        if (projectId == null
+                || meetingRoomId == null
+                || title == null
+                || title.isBlank()
+                || startAt == null
+                || endAt == null) {
+            throw new IllegalArgumentException("회의 수정 필수값이 누락되었습니다.");
+        }
+
+        /* 참석자·개설자·상태·실측 시각은 유지하고 MEET-05가 소유한 값만 교체한다. */
+        return new Meeting(
+                id,
+                companyId,
+                projectId,
+                teamId,
+                meetingRoomId,
+                hostMemberId,
+                title.trim(),
+                status,
+                startAt,
+                endAt,
+                recordingConsent,
+                relatedActionId,
+                attendeeMemberIds,
+                startedAt,
+                endedAt,
+                createdAt,
+                updatedAt
+        );
+    }
+
     /* 예약 회의를 최초 입장 시각과 함께 진행 상태로 전이하고 재입장은 현재 상태를 유지한다. */
     public Meeting enter(LocalDateTime enteredAt) {
         /* 실제 시작 시각을 기록할 수 없는 null 값은 도메인 상태 전이에 사용할 수 없다. */

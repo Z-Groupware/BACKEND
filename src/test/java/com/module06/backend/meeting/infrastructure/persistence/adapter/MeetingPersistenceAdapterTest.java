@@ -20,6 +20,7 @@ import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
+import com.module06.backend.meeting.domain.repository.MeetingUpdateRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingReservationSlotRepository;
@@ -42,6 +43,10 @@ class MeetingPersistenceAdapterTest {
     /* MEET-08에서 회의 행 잠금 조회와 완료 상태 저장에 사용하는 도메인 저장소 계약이다. */
     @Autowired
     private MeetingCompletionRepository meetingCompletionRepository;
+
+    /* MEET-05에서 회사 범위 잠금 조회와 예약 슬롯 교체 저장에 사용하는 도메인 저장소다. */
+    @Autowired
+    private MeetingUpdateRepository meetingUpdateRepository;
 
     /* 저장된 회의 기본 행을 조회하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -242,18 +247,145 @@ class MeetingPersistenceAdapterTest {
                 .containsExactly(3L, 7L, 11L);
     }
 
+    /* 회의 수정이 meeting 행과 최종 예약 슬롯을 같은 트랜잭션에 반영하는지 검증한다. */
+    @Test
+    @DisplayName("예약 시간 수정은 meeting 값과 슬롯 차이를 원자적으로 저장한다")
+    void updatesMeetingAndReservationSlotsAtomically() {
+        /* 14시부터 15시까지 예약한 회의를 먼저 커밋한다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
+                meeting("수정 전 회의", List.of(3L, 7L, 11L))
+        ));
+
+        /* 별도 트랜잭션에서 회의를 잠그고 15시부터 16시 예약으로 이동한다. */
+        Meeting updatedMeeting = transaction.execute(status -> {
+            Meeting locked = meetingUpdateRepository.findForUpdate(10L, savedMeeting.getId()).orElseThrow();
+            Meeting updated = locked.updateSchedule(
+                    13L,
+                    2L,
+                    "수정 후 회의",
+                    LocalDateTime.of(2026, 8, 6, 15, 0),
+                    LocalDateTime.of(2026, 8, 6, 16, 0),
+                    false
+            );
+            return meetingUpdateRepository.saveUpdate(updated, true);
+        });
+
+        /* meeting 기본 행은 프로젝트·제목·시간·녹음 동의의 최종값을 가져야 한다. */
+        assertThat(updatedMeeting.getProjectId()).isEqualTo(13L);
+        assertThat(updatedMeeting.getTitle()).isEqualTo("수정 후 회의");
+        assertThat(updatedMeeting.getStartAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 15, 0));
+        assertThat(updatedMeeting.isRecordingConsent()).isFalse();
+
+        /* 기존 14시 슬롯은 사라지고 최종 15시·15시 30분 슬롯만 같은 회의에 남아야 한다. */
+        assertThat(springDataMeetingReservationSlotRepository
+                .findAllByMeetingIdOrderBySlotStartAsc(savedMeeting.getId()))
+                .extracting(slot -> slot.getSlotStart())
+                .containsExactly(
+                        LocalDateTime.of(2026, 8, 6, 15, 0),
+                        LocalDateTime.of(2026, 8, 6, 15, 30)
+                );
+
+        /* MEET-05는 참석자 명단을 수정하지 않으므로 기존 세 명이 그대로 유지돼야 한다. */
+        assertThat(springDataMeetingAttendeeRepository
+                .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
+                .extracting(attendee -> attendee.getMemberId())
+                .containsExactly(3L, 7L, 11L);
+    }
+
+    /* 신규 슬롯 충돌 시 기존 meeting과 슬롯이 모두 롤백되는지 검증한다. */
+    @Test
+    @DisplayName("변경할 슬롯이 점유됐으면 MT-002를 반환하고 기존 예약을 유지한다")
+    void rollsBackMeetingUpdateWhenNewSlotConflicts() {
+        /* 수정 대상 14시 회의와 동일 회의실의 15시 차단 회의를 각각 커밋한다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting target = transaction.execute(status -> meetingRepository.saveReservation(
+                meetingAt(
+                        "수정 대상",
+                        2L,
+                        LocalDateTime.of(2026, 8, 6, 14, 0),
+                        LocalDateTime.of(2026, 8, 6, 15, 0),
+                        List.of(3L, 7L)
+                )
+        ));
+        transaction.executeWithoutResult(status -> meetingRepository.saveReservation(
+                meetingAt(
+                        "기존 15시 예약",
+                        2L,
+                        LocalDateTime.of(2026, 8, 6, 15, 0),
+                        LocalDateTime.of(2026, 8, 6, 16, 0),
+                        List.of(3L, 11L)
+                )
+        ));
+
+        /* 수정 대상을 이미 점유된 15시 슬롯으로 이동하면 MT-002로 실패해야 한다. */
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            Meeting locked = meetingUpdateRepository.findForUpdate(10L, target.getId()).orElseThrow();
+            Meeting conflicting = locked.updateSchedule(
+                    13L,
+                    2L,
+                    "롤백돼야 할 제목",
+                    LocalDateTime.of(2026, 8, 6, 15, 0),
+                    LocalDateTime.of(2026, 8, 6, 16, 0),
+                    false
+            );
+            meetingUpdateRepository.saveUpdate(conflicting, true);
+        }))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo("MT-002");
+
+        /* 실패한 트랜잭션의 meeting UPDATE도 롤백돼 원래 제목·프로젝트·시간이 유지돼야 한다. */
+        assertThat(springDataMeetingRepository.findById(target.getId()))
+                .get()
+                .satisfies(entity -> {
+                    assertThat(entity.getTitle()).isEqualTo("수정 대상");
+                    assertThat(entity.getProjectId()).isEqualTo(12L);
+                    assertThat(entity.getStartAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 14, 0));
+                    assertThat(entity.getEndAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 15, 0));
+                    assertThat(entity.isRecordingConsent()).isTrue();
+                });
+
+        /* 기존 14시 예약 슬롯도 삭제되지 않고 두 칸 모두 유지돼야 한다. */
+        assertThat(springDataMeetingReservationSlotRepository
+                .findAllByMeetingIdOrderBySlotStartAsc(target.getId()))
+                .extracting(slot -> slot.getSlotStart())
+                .containsExactly(
+                        LocalDateTime.of(2026, 8, 6, 14, 0),
+                        LocalDateTime.of(2026, 8, 6, 14, 30)
+                );
+    }
+
     /* 테스트 제목과 참석자로 같은 회의실·시간의 신규 회의를 생성한다. */
     private Meeting meeting(String title, List<Long> attendees) {
-        /* 영속성 검증에 필요한 모든 필드를 정상값으로 채운다. */
+        /* 기존 테스트의 회의실과 한 시간 예약을 공통 생성기로 전달한다. */
+        return meetingAt(
+                title,
+                2L,
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                attendees
+        );
+    }
+
+    /* 지정한 회의실과 시간으로 영속성 검증용 신규 회의를 생성한다. */
+    private Meeting meetingAt(
+            String title,
+            Long meetingRoomId,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
+            List<Long> attendees
+    ) {
+        /* 선택값 이외의 회사·프로젝트·host·팀 값은 정상 예약 계약으로 고정한다. */
         return Meeting.create(
                 10L,
                 12L,
                 100L,
-                2L,
+                meetingRoomId,
                 3L,
                 title,
-                LocalDateTime.of(2026, 8, 6, 14, 0),
-                LocalDateTime.of(2026, 8, 6, 15, 0),
+                startAt,
+                endAt,
                 true,
                 305L,
                 attendees
