@@ -54,8 +54,9 @@ public class AnalysisAsyncConfig {
          * 큰 회의는 넘을 수 있다) 그대로 끊긴다. 무한정 기다리게 두지 않는 이유는 배포가 그만큼
          * 멈추기 때문이다 — 종료를 못 하는 서버는 그 자체로 사고다.
          *
-         * 남은 RUNNING 을 되찾는 경로(오래된 RUNNING 을 FAILED 로 내리는 회수 작업)는 아직 없다.
-         * 이 설정이 그 필요를 줄일 뿐이고, 없애지는 못한다.
+         * 그래서 남은 RUNNING 을 되찾는 경로를 따로 뒀다(#177) — 계층 잠금에 심장 박동을 찍고,
+         * 멈춘 것만 다음 실행이 회수한다(LayerLiveness). 이 대기는 그 회수가 필요한 빈도를
+         * 줄일 뿐이고, 없애지는 못한다.
          */
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(180);

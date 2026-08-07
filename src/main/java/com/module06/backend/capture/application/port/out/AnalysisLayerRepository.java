@@ -43,6 +43,22 @@ public interface AnalysisLayerRepository {
         ACQUIRED, ALREADY_RUNNING, SUPERSEDED
     }
 
+    /*
+     * 이 계층을 잡은 실행이 **아직 살아 있다**고 알린다(#177).
+     *
+     * 잠금은 "돌고 있는가"를 말하지만, 잠근 프로세스가 죽어도 행은 그대로 RUNNING 이다.
+     * 그 구분이 없으면 배포·크래시로 끊긴 회의를 되찾을 방법이 없어진다 — ANLZ-01 도
+     * force 도 ANLZ-02 도 그 잠금에 막힌다.
+     *
+     * **모델 호출이 돌아올 때마다 부른다.** 계층 경계에서만 찍으면 L5 처럼 tuple 마다 도는
+     * 계층이 한 번의 갱신 사이에 몇 분을 보내고, 그 시간을 견디려고 유예를 늘리면 이번에는
+     * 진짜 죽은 잠금이 그만큼 늦게 풀린다.
+     *
+     * 실패해도 분석을 세우지 않는다(호출자 책임). 심장이 한 번 안 뛰는 것보다 그 때문에
+     * 계층이 통째로 실패하는 쪽이 나쁘다.
+     */
+    void heartbeat(long meetingId, LayerName layer);
+
     /* 성공으로 닫는다. 토큰·모델·프롬프트 버전을 함께 기록한다 — 나중에 붙이면 그때까지 데이터가 없다. */
     void markDone(long meetingId, LayerName layer, LayerRun run);
 
@@ -61,7 +77,14 @@ public interface AnalysisLayerRepository {
     /* CAP-06 이 내려주는 계층 상태 목록이다. */
     List<LayerState> findStates(long meetingId);
 
-    /* 계층 하나의 현재 상태. 없으면 아직 시작하지 않은 것이다. */
-    record LayerState(LayerName layer, LayerStatus status, int tokensIn, int tokensOut) {
+    /*
+     * 계층 하나의 현재 상태. 없으면 아직 시작하지 않은 것이다.
+     *
+     * @param stalled RUNNING 인데 심장이 멈춘 계층이다(#177). status 를 FAILED 로 바꿔서
+     *                내려주지 않는 이유 — DB 의 값은 여전히 RUNNING 이고, 조회가 저장된 값과
+     *                다른 말을 하면 그 둘을 대조하는 사람이 어느 쪽을 믿을지 알 수 없다.
+     *                "무엇이 저장돼 있는가"와 "그게 아직 유효한가"를 따로 준다.
+     */
+    record LayerState(LayerName layer, LayerStatus status, int tokensIn, int tokensOut, boolean stalled) {
     }
 }
