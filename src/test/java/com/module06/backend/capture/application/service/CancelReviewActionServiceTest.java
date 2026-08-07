@@ -1,6 +1,7 @@
 package com.module06.backend.capture.application.service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -97,6 +98,13 @@ class CancelReviewActionServiceTest {
         @Override
         public Optional<ReviewTarget> findOne(long companyId, long meetingId, long actionId) {
             return Optional.ofNullable(target);
+        }
+
+        // develop HEAD 기준 ActionReviewQueryPort에 이미 있는 계약(RVW-05, dispatchedAtOf) —
+        // 이 테스트는 관여하지 않는 경로라 항상 비워서 준다. C 브랜치 한정 임시 보강, review(A)에 별도 통보.
+        @Override
+        public Optional<LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
+            return Optional.empty();
         }
     }
 
