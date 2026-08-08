@@ -133,6 +133,11 @@ class ManualRecordingServiceTest {
             public Optional<Long> findCompanyId(Long meetingId) {
                 return Optional.of(1L);
             }
+
+            @Override
+            public int countAttendees(Long meetingId) {
+                return 0;
+            }
         };
         // 선검사는 통과(false)하지만 저장에서 제약위반 → 어댑터가 CAP-014로 변환하는 상황을 재현.
         RecordingRepository recordingRepo = new RecordingRepository() {
@@ -190,6 +195,11 @@ class ManualRecordingServiceTest {
             @Override
             public Optional<Long> findCompanyId(Long meetingId) {
                 return companyId;
+            }
+
+            @Override
+            public int countAttendees(Long meetingId) {
+                return 0;
             }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {

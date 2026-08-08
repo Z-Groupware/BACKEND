@@ -47,9 +47,35 @@ class ProcessingStatusResponseTest {
     void 계층은_전송값으로_내려간다() {
         ProcessingStatusResponse response = ProcessingStatusResponse.from(
                 ProcessingStatus.of(List.of(
-                        new LayerProgress(LayerName.L1_5, LayerStatus.DONE, 100, 20))));
+                        new LayerProgress(LayerName.L1_5, LayerStatus.DONE, 100, 20, false))));
 
         assertThat(response.layers()).hasSize(1);
         assertThat(response.layers().get(0).layer()).isEqualTo("L1.5");
+    }
+
+    @Test
+    @DisplayName("멈춘 RUNNING 은 전체 FAILED 로 내려간다 — 「AI 처리 중」이 끝나지 않으면 안 된다")
+    void 멈춘_계층은_실패로_접힌다() {
+        ProcessingStatusResponse response = ProcessingStatusResponse.from(
+                ProcessingStatus.of(List.of(
+                        new LayerProgress(LayerName.L1_5, LayerStatus.DONE, 100, 20, false),
+                        new LayerProgress(LayerName.L2, LayerStatus.RUNNING, 0, 0, true))));
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        // 계층 자체는 저장된 값(RUNNING)을 그대로 말하고, 멈췄다는 사실은 따로 준다 —
+        // 화면이 "중단됨 · 다시 분석"으로 안내할 근거다.
+        assertThat(response.layers().get(1).status()).isEqualTo("RUNNING");
+        assertThat(response.layers().get(1).stalled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("살아 있는 RUNNING 은 그대로 RUNNING — 도는 분석을 멈춘 것으로 보이면 안 된다")
+    void 살아있는_계층은_처리중으로_남는다() {
+        ProcessingStatusResponse response = ProcessingStatusResponse.from(
+                ProcessingStatus.of(List.of(
+                        new LayerProgress(LayerName.L2, LayerStatus.RUNNING, 0, 0, false))));
+
+        assertThat(response.status()).isEqualTo("RUNNING");
+        assertThat(response.layers().get(0).stalled()).isFalse();
     }
 }

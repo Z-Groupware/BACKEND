@@ -99,8 +99,27 @@ class AnalysisLayerLockAcquirer {
         if (existing.isPresent()) {
             AnalysisLayerJpaEntity entity = existing.get();
             if (entity.getStatus() == LayerStatus.RUNNING) {
-                // 다른 실행이 잡고 있다. 오류가 아니라 중복이 걸러진 것이다.
-                return LockResult.ALREADY_RUNNING;
+                /*
+                 * RUNNING 이라고 다 살아 있는 것은 아니다(#177).
+                 *
+                 * 배포나 크래시로 잠근 프로세스가 사라지면 이 행은 그대로 남는데, 예전에는
+                 * 그것도 "돌고 있음"으로 보고 물러났다 — 그 회의는 ANLZ-01 도 force 도
+                 * ANLZ-02 도 통과하지 못해 **영원히 분석되지 않았다.**
+                 *
+                 * 그래서 심장이 뛰는지를 본다. 뛰고 있으면 지금까지와 같이 물러난다 —
+                 * 그게 중복 방어이고, 여기서 잘못 회수하면 같은 회의를 두 번 태운다.
+                 */
+                if (!LayerLiveness.isStalled(entity, now)) {
+                    // 다른 실행이 잡고 있다. 오류가 아니라 중복이 걸러진 것이다.
+                    return LockResult.ALREADY_RUNNING;
+                }
+                /*
+                 * 멈춘 잠금을 회수한다. **warn 으로 남긴다** — 정상 흐름이 아니라 앞선 실행이
+                 * 끊겼다는 증거이고, 자주 찍히면 종료 대기(AnalysisAsyncConfig)가 짧다는 뜻이다.
+                 * 조용히 되잡으면 서버가 죽었다는 사실이 어디에도 남지 않는다.
+                 */
+                log.warn("멈춘 계층 잠금을 회수한다 — meetingId={} layer={} 마지막생존={} 유예={}",
+                        meetingId, layer.wireValue(), entity.lastAliveAt(), LayerLiveness.STALE_AFTER);
             }
             entity.restart(now);
             repository.save(entity);

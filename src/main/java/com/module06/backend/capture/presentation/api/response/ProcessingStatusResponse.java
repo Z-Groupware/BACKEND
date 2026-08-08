@@ -41,7 +41,8 @@ public record ProcessingStatusResponse(
                                 layer.layer().wireValue(),
                                 layer.status().name(),
                                 layer.tokensIn(),
-                                layer.tokensOut()))
+                                layer.tokensOut(),
+                                layer.stalled()))
                         .toList(),
                 // 채우는 경로(조립·Transcribe·stt_gap)가 아직 없다. 빈 목록 + checked=false 가
                 // 지금 상태를 정확히 말한다 — "구멍이 없다"가 아니라 "확인하지 않았다".
@@ -49,8 +50,16 @@ public record ProcessingStatusResponse(
                 false);
     }
 
-    /* layer 는 "L1.5"·"L3.5" 같은 전송 값이다. enum 이름(L1_5)이 아니다. */
-    public record LayerResponse(String layer, String status, int tokensIn, int tokensOut) {
+    /*
+     * layer 는 "L1.5"·"L3.5" 같은 전송 값이다. enum 이름(L1_5)이 아니다.
+     *
+     * @param stalled 이 계층을 잡은 실행이 끊겼다(#177 · 배포·크래시). status 는 여전히
+     *                RUNNING 이지만 실제로 도는 것은 없다 — 화면은 이 값을 보고 "중단됨 ·
+     *                다시 분석"으로 안내해야 한다. status 만 보면 「AI 처리 중」이 영원히 뜬다.
+     *                전체 status 는 이 경우 FAILED 로 내려간다.
+     */
+    public record LayerResponse(String layer, String status, int tokensIn, int tokensOut,
+                                boolean stalled) {
     }
 
     /*

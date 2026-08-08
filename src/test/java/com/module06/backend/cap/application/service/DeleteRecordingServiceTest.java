@@ -165,6 +165,11 @@ class DeleteRecordingServiceTest {
             public Optional<Long> findCompanyId(Long meetingId) {
                 return companyId;
             }
+
+            @Override
+            public int countAttendees(Long meetingId) {
+                return 0;
+            }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
             @Override
