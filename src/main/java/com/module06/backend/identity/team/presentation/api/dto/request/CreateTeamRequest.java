@@ -7,9 +7,9 @@ import jakarta.validation.constraints.Size;
 @Schema(description = "부서 생성")
 public record CreateTeamRequest(
 
-        @Schema(description = "부서명 (10자 이하)", example = "개발팀")
+        @Schema(description = "부서명 (20자 이하)", example = "개발팀")
         @NotBlank(message = "부서명을 입력해 주세요.")
-        @Size(max = 10, message = "부서명은 10자 이하로 입력해 주세요.")
+        @Size(max = 20, message = "부서명은 20자 이하로 입력해 주세요.")
         String name
 ) {
 }

@@ -25,6 +25,13 @@ jwt:
   refresh-ttl-default: 1d
   refresh-ttl-extended: 14d
 
+# ── CORS ──
+# 위 JWT 경고와 같은 이유로 여기에도 둔다. main 의 app.cors 는 부팅 시 검증되므로(CorsProperties)
+# 이 블록이 없으면 컨텍스트를 띄우는 테스트가 전부 "allowed-origins 가 비어 있다" 로 죽는다.
+app:
+  cors:
+    allowed-origins: http://localhost:3000
+
 # ── 캡처 배경 워커 ──
 # few-shot 예시 색인 워커(AI-08)를 테스트에서는 끈다. 켜 두면 컨텍스트를 띄우는 모든 테스트가
 # 1분마다 AI 서버로 나가려다 실패해 로그가 그 오류로 덮인다 — 정작 봐야 할 실패가 묻힌다.
