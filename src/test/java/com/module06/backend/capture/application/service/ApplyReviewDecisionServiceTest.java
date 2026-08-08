@@ -480,5 +480,21 @@ class ApplyReviewDecisionServiceTest {
         public void enqueue(VectorEntry entry) {
             entries.add(entry);
         }
+
+        /* 인덱스 반영은 워커(TupleVectorSyncService)의 몫이다 — RVW-02 는 예약까지만 한다. */
+        @Override
+        public List<PendingVector> findPending(int maxAttempts, int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void markSynced(long id, String pointId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void markSyncFailed(long id) {
+            throw new UnsupportedOperationException();
+        }
     }
 }

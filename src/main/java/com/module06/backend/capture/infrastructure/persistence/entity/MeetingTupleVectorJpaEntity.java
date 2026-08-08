@@ -1,5 +1,7 @@
 package com.module06.backend.capture.infrastructure.persistence.entity;
 
+import java.time.LocalDateTime;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -18,13 +20,17 @@ import com.module06.backend.capture.domain.model.VectorProvenance;
 /*
  * meeting_tuple_vector(V5.10) 매핑이다. few-shot 예시의 **원본**이고 Qdrant 는 인덱스다.
  *
- * vector_synced 를 여기서 true 로 만들지 않는다. 이 코드가 하는 일은 "예약"까지이고, 실제
- * 임베딩과 Qdrant upsert 는 AI-08 이 한다 — MySQL 을 먼저 커밋해야 벡터는 있는데 원본이 없는
- * 상태가 생기지 않는다(V5.10 주석). 그래서 synced_at · qdrant_point_id · sync_attempts 는
- * 매핑하지 않는다: 이쪽이 쓸 값이 아니고, DB 기본값이 채운다.
+ * <h2>예약과 반영이 다른 시점이다</h2>
+ * {@link #queued} 는 RVW-02 트랜잭션에서 "예약"만 한다 — vector_synced=false 로 커밋하고 끝이다.
+ * 실제 임베딩과 Qdrant upsert 는 AI-08 이 하고, 그 결과를 뒤늦게 되적는 것이
+ * {@link #markSynced}·{@link #markSyncFailed} 다(TupleVectorSyncService).
  *
- * dept_id 도 매핑하지 않는다. few-shot 범위를 같은 팀으로 좁힐 때 쓰는 값인데 그 판단은
- * AI-09 의 것이고, 지금 채우면 "무엇을 기준으로 좁혔는지"를 두 곳이 정하게 된다.
+ * MySQL 을 먼저 커밋하는 순서는 그대로다. 여기가 원본이라 인덱스가 비어도 라벨은 안전하고,
+ * 순서를 뒤집으면 벡터는 검색에 걸리는데 꺼낼 내용이 없는 상태가 생긴다(V5.10 주석).
+ *
+ * dept_id 는 **읽기만 한다.** few-shot 범위를 같은 팀으로 좁힐 때 쓰는 값인데 예약하는 쪽이
+ * 아직 채우지 않는다(항상 null). 매핑해 두는 이유는 채워지기 시작하면 그대로 AI-08 로 넘어가야
+ * 하기 때문이고, 여기서 지어내지는 않는다.
  */
 @Entity
 @Table(name = "meeting_tuple_vector")
@@ -70,9 +76,48 @@ public class MeetingTupleVectorJpaEntity {
     @Column(name = "review_log_id")
     private Long reviewLogId;
 
+    /*
+     * few-shot 범위를 같은 팀으로 좁힐 때 쓴다(AI-09 의 dept 필터). **예약하는 쪽이 아직
+     * 채우지 않아 항상 null 이다** — 매핑만 해 두고 여기서 지어내지 않는다.
+     */
+    @Column(name = "dept_id")
+    private Long deptId;
+
     /* Qdrant 반영 여부. false 면 재시도 워커 대상이다 — 예약 시점에는 항상 false 다. */
     @Column(name = "vector_synced", nullable = false)
     private boolean vectorSynced;
+
+    /*
+     * 몇 번 올리려다 실패했는가. 이 값이 워커의 **자르는 기준**이다 — 계속 실패하는 행 하나가
+     * 뒤의 정상 행을 영원히 막지 않게 한다.
+     */
+    @Column(name = "sync_attempts", nullable = false)
+    private int syncAttempts;
+
+    @Column(name = "synced_at")
+    private LocalDateTime syncedAt;
+
+    /* Qdrant 포인트 id. 없으면 그 포인트를 우리가 만든 것인지 확인할 방법이 없다. */
+    @Column(name = "qdrant_point_id", length = 64)
+    private String qdrantPointId;
+
+    /*
+     * 인덱스에 올라갔다. 시각과 포인트 id 를 함께 적는다 — 둘 중 하나만 있으면 "올라갔다고
+     * 하는데 어느 포인트인지 모르는" 행이 남는다.
+     */
+    public void markSynced(String pointId, LocalDateTime now) {
+        this.vectorSynced = true;
+        this.qdrantPointId = pointId;
+        this.syncedAt = now;
+    }
+
+    /*
+     * 못 올라갔다. **시도 횟수만 올린다** — vector_synced 는 false 그대로여서 다음 주기에 다시
+     * 잡히고, 횟수가 상한을 넘으면 조회에서 빠진다.
+     */
+    public void markSyncFailed() {
+        this.syncAttempts += 1;
+    }
 
     public static MeetingTupleVectorJpaEntity queued(long companyId, long meetingId, String layer,
                                                      String inputText, String payload, Long reviewLogId) {
