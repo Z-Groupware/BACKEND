@@ -33,6 +33,18 @@ public record CorsProperties(
                 throw new IllegalStateException(
                         "app.cors.allowed-origins 에 빈 값이 있다: " + allowedOrigins);
             }
+            if ("null".equalsIgnoreCase(origin)) {
+                /*
+                 * 문자열 "null" 은 자바 null 이 아니라 실제 오리진 값으로 매칭된다 — 허용하면
+                 * Origin: null 요청에 Access-Control-Allow-Origin: null 을 돌려준다.
+                 * 브라우저가 그 헤더를 보내는 맥락(샌드박스 iframe · file:// · data: URL)은
+                 * 공격자가 직접 만들 수 있으므로, 아무 사이트에나 여는 것과 같아진다.
+                 * 설정 템플릿이 빈 값을 "null" 로 렌더링하면 조용히 이 상태가 된다.
+                 */
+                throw new IllegalStateException(
+                        "app.cors.allowed-origins 에 \"null\" 을 쓸 수 없다."
+                                + " Origin: null 은 샌드박스 iframe·file:// 처럼 공격자가 만들 수 있는 맥락이 보낸다.");
+            }
             if (origin.contains("*")) {
                 /*
                  * "*" 는 모든 사이트에서 이 API 를 부를 수 있게 연다. 토큰이 쿠키가 아니라 헤더로

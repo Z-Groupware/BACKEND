@@ -32,6 +32,27 @@ class CorsPropertiesTest {
                 .hasMessageContaining("와일드카드");
     }
 
+    /*
+     * 문자열 "null" 은 자바 null 이 아니라 실제 오리진 값으로 매칭된다 — 확인해보면
+     * allowedOrigins=["null"] 일 때 checkOrigin("null") 이 4글자 문자열을 그대로 돌려준다(=허용).
+     * Origin: null 을 보내는 맥락(샌드박스 iframe·file://)은 공격자가 만들 수 있다.
+     */
+    @Test
+    @DisplayName("문자열 \"null\" 은 거부한다 — Origin: null 은 공격자가 만들 수 있는 맥락이 보낸다")
+    void rejectsLiteralNullOrigin() {
+        assertThatThrownBy(() -> new CorsProperties(List.of("null")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("\"null\"");
+    }
+
+    @Test
+    @DisplayName("대소문자를 바꿔 쓴 \"NULL\" 도 거부한다")
+    void rejectsLiteralNullOriginIgnoringCase() {
+        assertThatThrownBy(() -> new CorsProperties(List.of("http://localhost:3000", "NULL")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("\"null\"");
+    }
+
     @Test
     @DisplayName("빈 목록은 거부한다 — 아무도 허용 안 하는 상태로 조용히 뜨면 안 된다")
     void rejectsEmptyList() {
