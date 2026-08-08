@@ -29,6 +29,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberRoleCommand;
 import com.module06.backend.identity.member.application.dto.MemberDetail;
 import com.module06.backend.identity.member.application.dto.MemberListFilter;
@@ -241,6 +242,14 @@ class MemberControllerTest {
                 .andExpect(jsonPath("$.data.isAdmin").value(false))
                 .andExpect(jsonPath("$.data.roleLabel").value("프론트엔드"))
                 .andExpect(jsonPath("$.data.joinedOn").value("2022-05-10"));
+
+        ArgumentCaptor<UpdateMemberAdminCommand> captor = ArgumentCaptor.forClass(UpdateMemberAdminCommand.class);
+        verify(updateMemberAdminUseCase).update(captor.capture());
+        UpdateMemberAdminCommand command = captor.getValue();
+
+        assertThat(command.companyId()).isEqualTo(1L);
+        assertThat(command.targetMemberId()).isEqualTo(3L);
+        assertThat(command.isAdmin()).isTrue();
     }
 
     @Test
