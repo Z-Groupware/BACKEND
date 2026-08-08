@@ -10,9 +10,9 @@ import com.module06.backend.identity.member.domain.model.Authority;
 @Schema(description = "직급 수정")
 public record UpdatePositionRequest(
 
-        @Schema(description = "직급명 (5자 이하)", example = "수석")
+        @Schema(description = "직급명 (20자 이하)", example = "수석")
         @NotBlank(message = "직급명을 입력해 주세요.")
-        @Size(max = 5, message = "직급명은 5자 이하로 입력해 주세요.")
+        @Size(max = 20, message = "직급명은 20자 이하로 입력해 주세요.")
         String name,
 
         @Schema(description = "이 직급으로 발급되는 계정의 권한 (LEADER 또는 MEMBER)", example = "LEADER")
