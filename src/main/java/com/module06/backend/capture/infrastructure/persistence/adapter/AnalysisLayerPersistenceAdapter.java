@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.LayerRun;
 import com.module06.backend.capture.domain.model.LayerName;
+import com.module06.backend.capture.domain.model.LayerStatus;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataAnalysisLayerRepository;
 
 /*
@@ -86,13 +87,38 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
                 });
     }
 
+    /*
+     * 심장을 한 번 찍는다(#177).
+     *
+     * RUNNING 일 때만 쓴다. 이미 닫힌(DONE·FAILED) 계층에 찍으면 늦게 도착한 갱신이 끝난
+     * 계층을 살아 있는 것처럼 만들고, 그 행은 회수 대상에서도 빠진다.
+     *
+     * REQUIRES_NEW 인 이유는 이 어댑터의 다른 쓰기와 같다 — 분석 트랜잭션과 생사를 같이 하면
+     * 롤백될 때 심장 기록도 함께 사라진다. 게다가 이 값은 **분석이 도는 중에** 다른 실행에게
+     * 보여야 하므로, 끝날 때 한꺼번에 커밋되면 아무 소용이 없다.
+     */
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void heartbeat(long meetingId, LayerName layer) {
+        repository.findByMeetingIdAndLayer(meetingId, layer.wireValue())
+                .filter(entity -> entity.getStatus() == LayerStatus.RUNNING)
+                .ifPresent(entity -> {
+                    entity.touch(LocalDateTime.now(clock));
+                    repository.save(entity);
+                });
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<LayerState> findStates(long meetingId) {
+        LocalDateTime now = LocalDateTime.now(clock);
         return repository.findByMeetingIdOrderByIdAsc(meetingId).stream()
                 .map(entity -> new LayerState(
                         entity.layerName(), entity.getStatus(),
-                        entity.getTokensIn(), entity.getTokensOut()))
+                        entity.getTokensIn(), entity.getTokensOut(),
+                        // 잠금을 회수하는 쪽과 **같은 기준**을 쓴다. 갈리면 잠금은 풀렸는데
+                        // 화면은 「AI 처리 중」이거나, 그 반대가 된다.
+                        LayerLiveness.isStalled(entity, now)))
                 .toList();
     }
 }

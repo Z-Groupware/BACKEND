@@ -104,7 +104,8 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     private List<LayerProgress> layerProgress(long meetingId) {
         return analysisLayerRepository.findStates(meetingId).stream()
                 .map(state -> new LayerProgress(
-                        state.layer(), state.status(), state.tokensIn(), state.tokensOut()))
+                        state.layer(), state.status(), state.tokensIn(), state.tokensOut(),
+                        state.stalled()))
                 .toList();
     }
 }

@@ -21,6 +21,11 @@ import com.module06.backend.capture.infrastructure.persistence.repository.Spring
  * **커밋 때까지 미루기** 때문에, 같은 메서드 안에서 try/catch 로 감싸도 예외는 그 catch 를
  * 지나쳐 트랜잭션 커밋에서 나온다. 실제로 그렇게 짰다가 테스트에서 잡혔다.
  *
+ * ⚠ 그 충돌이 **일어난다는 것 자체**가 엔티티 쪽 장치에 달려 있다. 식별자를 직접 정하는
+ * 엔티티는 save 가 merge 로 가고, merge 는 먼저 커밋된 행을 보면 INSERT 대신 UPDATE 를 낸다 —
+ * 그러면 경합이 충돌 없이 통과해 두 실행이 같은 번호를 갖는다. 그래서
+ * {@link MeetingAnalysisRunJpaEntity} 가 Persistable 로 persist 를 못박는다(그쪽 주석).
+ *
  * 그래서 트랜잭션 경계를 여기 두고, 잡는 것은 **경계 밖**(어댑터)에서 한다. 커밋이 이 메서드를
  * 벗어나는 순간에 일어나므로 호출자에게는 평범한 예외로 보인다.
  *
