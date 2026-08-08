@@ -111,10 +111,13 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
             throw new BusinessException(CapErrorCode.CAP_PART_KEY_MISMATCH);
         }
 
-        // TODO(실 S3 어댑터 배선 후): 저장 전 CapObjectStoragePort로 S3 HEAD 조회 — 객체 실제 존재 확인 +
-        //   실제 크기/콘텐츠타입을 신뢰(현재는 요청 본문 sizeBytes를 그대로 기록). 지금은 스토리지가 Stub이라
-        //   HEAD를 붙여도 가짜로 통과하므로, 실 어댑터가 생길 때 함께 반영한다(그래야 없는 객체를 UPLOADED로
-        //   기록해 조립이 깨지는 걸 막는다).
+        // 요청 본문 sizeBytes를 그대로 믿지 않는다(#155) — 실제로 그 크기로 업로드가 됐는지 S3
+        // HEAD로 확인한다. 없거나 크기가 다르면 클라이언트가 업로드도 안 하고(또는 다른 크기로)
+        // 완료를 통보한 것이므로, 없는 객체를 UPLOADED로 기록해 조립이 깨지는 것을 막는다.
+        if (!capObjectStoragePort.objectMatches(command.s3Key(), command.sizeBytes())) {
+            throw new BusinessException(CapErrorCode.CAP_PART_NOT_UPLOADED);
+        }
+
         // recording_part.content_type(NOT NULL)을 채운다 — 확장자에서 역산(webm→audio/webm, mp4→audio/mp4).
         RecordingPart part = RecordingPart.create(command.meetingId(), state.getSegmentSeq(), command.seq(),
                 expectedKey, contentTypeForExtension(extension), command.sizeBytes(), command.callerId());
