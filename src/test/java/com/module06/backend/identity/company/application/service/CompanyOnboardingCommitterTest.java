@@ -111,6 +111,29 @@ class CompanyOnboardingCommitterTest {
     }
 
     @Test
+    @DisplayName("직급 권한에 OWNER 를 넣으면 거절한다 — 온보딩으로 오너를 늘릴 수 없다")
+    void rejectsOwnerAsPositionRole() {
+        FakePosition position = new FakePosition();
+        FakeMemberCommand command = new FakeMemberCommand();
+
+        /*
+         * Authority 는 OWNER 를 포함하는 3값 enum이라 역직렬화만으로는 걸러지지 않는다.
+         * 막지 않으면 오너가 온보딩 한 번으로 OWNER 계정을 여러 개 만들 수 있다.
+         */
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                position, new FakeMemberQuery(), command)
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of())),
+                        List.of(position("p1", "대표", Authority.OWNER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", null, "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.POSITION_ROLE_NOT_ASSIGNABLE);
+
+        /* 직급도 계정도 만들어지기 전에 끊겨야 한다. */
+        assertThat(command.issuedIds).isEmpty();
+    }
+
+    @Test
     @DisplayName("좌석 한도를 넘으면 거절한다")
     void rejectsSeatLimitExceeded() {
         FakeMemberQuery query = new FakeMemberQuery();

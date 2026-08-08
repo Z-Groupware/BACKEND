@@ -69,6 +69,8 @@ class CompanyOnboardingCommitter {
             throw new BusinessException(AuthErrorCode.ALREADY_ONBOARDED);
         }
 
+        assertPositionRolesAssignable(command);
+
         Map<String, Authority> positionAuthorityByTempId = command.jobPositions().stream()
                 .collect(Collectors.toMap(OnboardCompanyCommand.JobPositionNode::tempId,
                         OnboardCompanyCommand.JobPositionNode::defaultRole));
@@ -144,6 +146,22 @@ class CompanyOnboardingCommitter {
 
         return new CommitResult(now, teamIdByTempId.size(), subTeamCount, positionIdByTempId.size(),
                 issuedAccounts, skipped);
+    }
+
+    /**
+     * 직급으로 권한을 상승시킬 경로를 온보딩에도 막는다(§4-1 검증 6).
+     *
+     * <p>{@code Authority} 는 OWNER 를 포함하는 3값 enum이라 역직렬화만으로는 걸러지지 않는다.
+     * §5-1(계정 발급)과 §6-7(직급 CRUD)이 각각 {@code assertAssignable} 로 막고 있지만, 온보딩은
+     * 직급과 구성원을 한 번에 만들어 그 두 관문을 모두 우회한다 — 막지 않으면 오너가 온보딩으로
+     * OWNER 계정을 여러 개 만들 수 있다("OWNER 는 기업당 1명" 위반).
+     */
+    private void assertPositionRolesAssignable(OnboardCompanyCommand command) {
+        for (OnboardCompanyCommand.JobPositionNode position : command.jobPositions()) {
+            if (position.defaultRole() != Authority.LEADER && position.defaultRole() != Authority.MEMBER) {
+                throw new BusinessException(AuthErrorCode.POSITION_ROLE_NOT_ASSIGNABLE);
+            }
+        }
     }
 
     /** tempId 참조가 요청 안의 다른 배열을 실제로 가리키는지 확인한다 — DB 조회 없이 메모리에서. */
