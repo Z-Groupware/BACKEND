@@ -49,4 +49,10 @@ public class MeetingReferenceRepositoryAdapter implements MeetingReferenceReposi
     public int countAttendees(Long meetingId) {
         return springDataCapMeetingAttendeeReferenceRepository.countByIdMeetingId(meetingId);
     }
+
+    // meeting 테이블에서 project_id만 뽑아옴 — access-guard의 프로젝트 멤버 판정용
+    @Override
+    public Optional<Long> findProjectId(Long meetingId) {
+        return springDataCapMeetingReferenceRepository.findById(meetingId).map(CapMeetingReferenceEntity::getProjectId);
+    }
 }

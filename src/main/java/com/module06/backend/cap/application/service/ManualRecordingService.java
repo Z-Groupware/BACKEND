@@ -1,6 +1,7 @@
 package com.module06.backend.cap.application.service;
 
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
@@ -19,13 +20,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class ManualRecordingService implements RegisterManualRecordingUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final RecordingRepository recordingRepository;
     private final MeetingRecordingSttPort meetingRecordingSttPort;
 
     public ManualRecordingService(MeetingReferenceRepository meetingReferenceRepository,
+                                  CapMeetingAccessGuard accessGuard,
                                   RecordingRepository recordingRepository,
                                   MeetingRecordingSttPort meetingRecordingSttPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.meetingRecordingSttPort = meetingRecordingSttPort;
     }
@@ -37,7 +41,7 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
                 .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
 
         // Host만 가능(403). 참석자보다 좁은 권한 — 회의 담당자 본인만.
-        if (!meetingReferenceRepository.isHost(command.meetingId(), command.callerId())) {
+        if (!accessGuard.isHost(command.meetingId(), command.callerId())) {
             throw new BusinessException(CapErrorCode.CAP_NOT_HOST);
         }
 

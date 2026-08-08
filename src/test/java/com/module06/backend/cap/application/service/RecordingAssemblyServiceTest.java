@@ -11,12 +11,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
+import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -176,6 +178,11 @@ class RecordingAssemblyServiceTest {
             public int countAttendees(Long meetingId) {
                 return 0;
             }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
         };
         CaptureUploadStateRepository stateRepo = new CaptureUploadStateRepository() {
             @Override
@@ -204,7 +211,9 @@ class RecordingAssemblyServiceTest {
             }
         };
         RecordingAssemblyPort assemblyPort = (meetingId, lastSegmentSeq, lastSeq) -> assemblyTriggered[0] = true;
-        return new RecordingAssemblyService(meetingRef, stateRepo, partRepo, assemblyPort);
+        ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
+        CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
+        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, partRepo, assemblyPort);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

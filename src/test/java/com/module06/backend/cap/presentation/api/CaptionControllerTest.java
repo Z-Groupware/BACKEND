@@ -60,7 +60,7 @@ class CaptionControllerTest {
         };
         CaptionController controller = new CaptionController(failingSubmit(), getCaptionsUseCase, failingSubscribe());
 
-        ApiResponse<CaptionsResponse> response = controller.list(500L, 7L, 1L, "MEMBER", false);
+        ApiResponse<CaptionsResponse> response = controller.list(500L, 7L, 1L, null, "MEMBER", false);
 
         assertThat(captured[0].memberId()).isEqualTo(7L);
         assertThat(captured[0].companyId()).isEqualTo(1L);

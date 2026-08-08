@@ -63,7 +63,7 @@ public class CaptionController {
             summary = "자막 전체 조회",
             description = "이 회의에 쌓인 자막 전체를 시간순으로 반환한다(백필용). SSE(CAP-13)는 구독 시점 이후 "
                     + "분만 push하므로, 그 이전 분은 이 API로 먼저 채운 뒤 이어받는다. "
-                    + "회의 참석자, 또는 같은 회사의 owner/admin만 가능합니다."
+                    + "회의 참석자, 같은 회사의 owner/admin, 또는 프로젝트 멤버만 가능합니다."
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @GetMapping
@@ -71,10 +71,12 @@ public class CaptionController {
             @Parameter(description = "회의 ID") @PathVariable Long meetingId,
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
             @AuthenticationPrincipal(expression = "authority") String role,
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin) {
-        // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자 or 같은 회사 owner/admin)은 서비스가 판정.
-        GetCaptionsUseCase.Requester requester = new GetCaptionsUseCase.Requester(memberId, companyId, role, isAdmin);
+        // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자/owner·admin/프로젝트 멤버)은 access-guard가 판정.
+        GetCaptionsUseCase.Requester requester =
+                new GetCaptionsUseCase.Requester(memberId, companyId, teamId, role, isAdmin);
         GetCaptionsUseCase.Result result = getCaptionsUseCase.getCaptions(meetingId, requester);
         return ApiResponse.success("조회 성공", CaptionsResponse.from(result));
     }

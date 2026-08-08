@@ -126,6 +126,11 @@ class SubmitCaptionsServiceTest {
             public int countAttendees(Long meetingId) {
                 return 0;
             }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
         };
         CaptionChunkRepository captionChunkRepository = new CaptionChunkRepository() {
             @Override

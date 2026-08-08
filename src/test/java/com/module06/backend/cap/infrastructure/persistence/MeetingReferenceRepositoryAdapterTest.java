@@ -77,4 +77,19 @@ class MeetingReferenceRepositoryAdapterTest {
         // 존재하지 않는 회의는 0.
         assertThat(meetingReferenceRepository.countAttendees(999_999L)).isZero();
     }
+
+    /* meeting.project_id를 그대로 돌려주는지, 회의가 없으면 empty인지 검증한다(access-guard의 프로젝트
+       멤버 판정 원천). */
+    @Test
+    @DisplayName("회의가 태그된 프로젝트 id를 조회한다")
+    void findsProjectId() {
+        Long meetingId = springDataMeetingRepository.save(MeetingJpaEntity.from(Meeting.create(
+                10L, 12L, null, 2L, 3L, "프로젝트 id 조회 테스트 회의",
+                LocalDateTime.of(2026, 8, 6, 14, 0), LocalDateTime.of(2026, 8, 6, 15, 0),
+                false, null, List.of(3L)))).getId();
+
+        assertThat(meetingReferenceRepository.findProjectId(meetingId)).contains(12L);
+        // 존재하지 않는 회의는 empty.
+        assertThat(meetingReferenceRepository.findProjectId(999_999L)).isEmpty();
+    }
 }
