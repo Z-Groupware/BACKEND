@@ -104,6 +104,8 @@ public class ActionReassignAdapter implements ActionReassignPort {
                         action.getActionType().name(),
                         action.getStatus().name(),
                         action.getDueDate(),
+                        // E(인수인계) 요청 필드: 상세 타임라인 막대 시작점(액션 생성시각). @Getter 자동 생성.
+                        action.getCreatedAt(),
                         action.getSourceMeetingId(),
                         action.getSourceMeetingId() == null ? null : meetingTitlesById.get(action.getSourceMeetingId()),
                         action.getDescription()

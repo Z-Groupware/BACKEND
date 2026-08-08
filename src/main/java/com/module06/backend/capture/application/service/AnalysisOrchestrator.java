@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
+import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockOutcome;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockResult;
 import com.module06.backend.capture.application.port.out.AnalysisRunRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
@@ -52,6 +53,8 @@ import com.module06.backend.capture.domain.model.ReferenceType;
 import com.module06.backend.capture.domain.model.ResolvedReference;
 import com.module06.backend.capture.domain.model.TopicSegment;
 import com.module06.backend.capture.domain.model.Utterance;
+import com.module06.backend.metering.application.command.RecordTokenUsageCommand;
+import com.module06.backend.metering.application.port.in.RecordTokenUsagePort;
 
 /*
  * 분석 파이프라인의 오케스트레이터다. **계층 순서·잠금·상태 기록이 이 저장소의 몫**이고,
@@ -89,6 +92,10 @@ import com.module06.backend.capture.domain.model.Utterance;
  * 파이프라인 전체가 아니라 **계층 단위로** RUNNING 을 잡는다. 그래야 ANLZ-02(계층 재개)가
  * 성립한다 — 실패한 계층부터 이어서 돌리려면 앞 계층이 DONE 으로 남아 있어야 하고,
  * 잠금이 회의 단위면 "어디까지 됐는지"가 사라져 처음부터 다시 돌게 된다. 그만큼 재과금이다.
+ *
+ * ⚠ 잠금은 "돌고 있는가"만 말하지 **잠근 쪽이 살아 있는가**를 말하지 않는다. 배포나 크래시로
+ * 실행이 끊기면 RUNNING 이 그대로 남아 그 회의가 영원히 분석되지 않았다(#177). 그래서 계층이
+ * 한 걸음 나아갈 때마다 심장을 찍고({@link #heartbeat}), 멈춘 잠금만 다음 실행이 회수한다.
  *
  * <h2>실패를 삼키지 않는다</h2>
  * 계층이 실패하면 그 계층을 FAILED 로 남기고 **거기서 멈춘다.** 다음 계층으로 넘어가면
@@ -141,6 +148,8 @@ public class AnalysisOrchestrator {
     private final AutoConfirmGate autoConfirmGate;
     private final TupleDistributionService tupleDistributionService;
     private final AiLayerPort aiLayerPort;
+    // A→미터링 인바운드 포트. 분석이 끝까지 성공하면 이 실행의 토큰 사용량을 원장에 1회 기록한다(usage-based 과금).
+    private final RecordTokenUsagePort recordTokenUsagePort;
 
     /*
      * 회의 하나를 분석한다.
@@ -635,6 +644,12 @@ public class AnalysisOrchestrator {
             return distributed.toAnalysisOutcome(LayerName.DIST);
         }
 
+        // 분석이 끝까지 성공했다. 이 실행이 쓴 토큰을 미터링 원장에 1회 기록한다.
+        recordTokenUsage(companyId, meetingId, runSeq, java.util.Arrays.asList(
+                attributed.run(), resolved.run(), segmented.run(), summarized.run(),
+                gated.run(), extracted.run(), verified.run(), checked.run(),
+                gated7.run(), distributed.run()));
+
         long autoConfirmed = gated7.value().values().stream()
                 .filter(AutoConfirmGate.Verdict::autoConfirmed).count();
         log.info("분석 완료 — meetingId={} 주제 {}개 항목 {}건 tuple {}건 검증 {}건 자동확정 {}건 액션 {}건",
@@ -642,6 +657,49 @@ public class AnalysisOrchestrator {
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
                 extracted.value(), verified.value(), autoConfirmed, distributed.value());
         return AnalysisOutcome.done(decisions.size());
+    }
+
+    /*
+     * 분석이 끝까지 성공한 이 실행의 토큰 사용량을 미터링 원장에 1회 기록한다(usage-based 과금).
+     *
+     * 멱등키 = runSeq. 실행마다 유일하고, force 재실행은 새 runSeq 라 새 과금 이벤트가 된다.
+     * SQS 중복 등으로 같은 실행이 두 번 기록돼도 원장의 job_id UNIQUE 가 이중청구를 막는다.
+     *
+     * model 은 이 실행에서 실제로 부른 LLM 계층의 모델명(원가 계수용)이다. 코드 계층(L1·L6·L7·DIST)은
+     * 토큰 0·모델 없음이라 건너뛴다. LLM 계층이 하나도 안 돌았으면 기록할 원가 축이 없어 생략한다.
+     *
+     * teamId 는 아직 null 이다 — 부서별 집계는 회의 teamId 배선(후속) 후. 회사 단위 실측은 지금 동작한다.
+     *
+     * ⚠ 기록 실패로 분석을 실패시키지 않는다. 분석은 이미 완료됐고 토큰도 이미 썼다 — 예외를 올리면
+     * 완료된 회의가 FAILED 로 뒤집혀 ANLZ-02 가 재분석하고, 그게 진짜 이중과금이다. 미터링 누락은
+     * 원장 한 건 빠지는 것이라 크게 로깅하고 넘어간다(대시보드 소진율로 관측 가능).
+     */
+    private void recordTokenUsage(long companyId, long meetingId, long runSeq, List<LayerRun> runs) {
+        LayerRun total = LayerRun.empty();
+        String model = null;
+        for (LayerRun run : runs) {
+            if (run == null) {
+                continue;
+            }
+            total = total.plus(run);
+            if (model == null && run.modelName() != null && !run.modelName().isBlank()) {
+                model = run.modelName();
+            }
+        }
+        if (model == null) {
+            log.warn("토큰 미터링 기록 생략 — LLM 계층 토큰이 없어 모델을 정할 수 없다. meetingId={} runSeq={}",
+                    meetingId, runSeq);
+            return;
+        }
+        String jobId = "meeting-" + meetingId + "-run-" + runSeq;
+        try {
+            recordTokenUsagePort.record(new RecordTokenUsageCommand(
+                    companyId, null, meetingId, jobId,
+                    total.tokensIn(), total.tokensOut(), model));
+        } catch (RuntimeException e) {
+            log.error("토큰 미터링 기록 실패 — 분석은 완료됨, 원장만 누락. meetingId={} runSeq={} jobId={}",
+                    meetingId, runSeq, jobId, e);
+        }
     }
 
     /*
@@ -680,7 +738,13 @@ public class AnalysisOrchestrator {
      * 같은 계층을 돌고 있으므로 여기서는 조용히 물러난다.
      */
     private <T> LayerOutcome<T> runLayer(long meetingId, long runSeq, LayerName layer, LayerCall<T> call) {
-        LockResult lock = analysisLayerRepository.tryLock(meetingId, layer, runSeq);
+        LockOutcome acquired = analysisLayerRepository.tryLock(meetingId, layer, runSeq);
+        LockResult lock = acquired.result();
+        /*
+         * 이 잠금의 주인 번호(#212). 심장과 상태 기록에 그대로 실어, **뺏긴 뒤의 쓰기**를
+         * 저장소가 걸러낼 수 있게 한다 — 회수(#177)가 생기면서 잠금은 도중에 주인이 바뀔 수 있다.
+         */
+        int attempt = acquired.attempt();
         if (lock == LockResult.ALREADY_RUNNING) {
             log.info("계층 잠금 실패 — 이미 실행 중이다. meetingId={} layer={}", meetingId, layer.wireValue());
             return LayerOutcome.locked();
@@ -702,10 +766,10 @@ public class AnalysisOrchestrator {
          * 터져도 앞의 2번은 이미 과금됐다 — 그걸 0 으로 기록하면 QLTY-03 이 실제보다 싼
          * 기준선을 보여주고, 그 숫자로 특화 모델 전환의 손익분기점을 계산하게 된다.
          */
-        UsageSink sink = new UsageSink();
+        UsageSink sink = new UsageSink(() -> heartbeat(meetingId, layer, attempt));
         try {
             Accumulated<T> accumulated = call.execute(sink);
-            analysisLayerRepository.markDone(meetingId, layer, accumulated.run());
+            analysisLayerRepository.markDone(meetingId, layer, attempt, accumulated.run());
             return LayerOutcome.success(accumulated.value(), accumulated.run());
         } catch (AiLayerException e) {
             // 계층이 던진 분류를 그대로 남긴다. 여기서 다시 판정하면 Python 과 두 곳에서
@@ -714,15 +778,36 @@ public class AnalysisOrchestrator {
                     meetingId, layer.wireValue(), e.getErrorCode(), e.isRetryable(),
                     sink.spent().tokensIn(), sink.spent().tokensOut(), e);
             analysisLayerRepository.markFailed(
-                    meetingId, layer, e.getErrorCode(), e.getMessage(), sink.spent());
+                    meetingId, layer, attempt, e.getErrorCode(), e.getMessage(), sink.spent());
             return LayerOutcome.failure(e.getErrorCode(), e.getMessage(), e.isRetryable());
         } catch (RuntimeException e) {
             // 우리 코드의 버그다. 제공자 실패와 섞으면 "재시도하면 되는 것"으로 오분류되어
             // 같은 버그를 세 번 돌린다.
             log.error("계층 실행 중 내부 오류 — meetingId={} layer={}", meetingId, layer.wireValue(), e);
             analysisLayerRepository.markFailed(
-                    meetingId, layer, "ORCHESTRATION_ERROR", e.toString(), sink.spent());
+                    meetingId, layer, attempt, "ORCHESTRATION_ERROR", e.toString(), sink.spent());
             return LayerOutcome.failure("ORCHESTRATION_ERROR", e.toString(), false);
+        }
+    }
+
+    /*
+     * 이 계층을 잡은 실행이 아직 살아 있다고 알린다(#177).
+     *
+     * **실패해도 계층을 세우지 않는다.** 심장 기록은 부기(簿記)이고, 그것 때문에 계층이 통째로
+     * 실패하면 잠금을 되찾으려고 만든 장치가 오히려 분석을 죽인다. 여기서 잡지 않으면 runLayer
+     * 의 catch 가 이 예외를 우리 코드의 버그(ORCHESTRATION_ERROR)로 분류하게 된다 —
+     * 그건 사실도 아니고, 그 계층이 실제로 한 일까지 함께 실패로 기록된다.
+     *
+     * 한 번 못 찍는 것의 대가는 작다. 다음 호출에서 다시 찍히고, 유예(5분)가 그 사이를 덮는다.
+     *
+     * @param attempt 내가 잡은 잠금의 주인 번호(#212). 뺏긴 뒤라면 저장소가 무시한다
+     */
+    private void heartbeat(long meetingId, LayerName layer, int attempt) {
+        try {
+            analysisLayerRepository.heartbeat(meetingId, layer, attempt);
+        } catch (RuntimeException e) {
+            log.warn("계층 심장 기록 실패 — 분석은 계속한다. meetingId={} layer={}",
+                    meetingId, layer.wireValue(), e);
         }
     }
 
@@ -969,7 +1054,23 @@ public class AnalysisOrchestrator {
 
         private LayerRun spent = LayerRun.empty();
 
+        /*
+         * 모델 호출 하나가 끝날 때마다 부를 것(#177). 계층 경계에서만 심장을 찍으면 L5 처럼
+         * tuple 마다 도는 계층이 한 번의 갱신 사이에 몇 분을 보내고, 그 시간을 견디려고 유예를
+         * 늘리면 진짜 죽은 잠금이 그만큼 늦게 풀린다.
+         */
+        private final Runnable heartbeat;
+
+        private UsageSink(Runnable heartbeat) {
+            this.heartbeat = heartbeat;
+        }
+
         void add(LayerRun run) {
+            /*
+             * 심장은 토큰이 있든 없든 찍는다. sink.add 는 계층이 **한 걸음 나아갈 때마다**
+             * 불리는 유일한 자리이고, 그게 곧 "아직 살아 있다"의 뜻이다.
+             */
+            heartbeat.run();
             if (run != null) {
                 spent = spent.plus(run);
             }

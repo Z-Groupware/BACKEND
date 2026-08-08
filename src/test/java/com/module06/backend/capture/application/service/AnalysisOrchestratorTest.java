@@ -800,7 +800,7 @@ class AnalysisOrchestratorTest {
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
                         // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
                         (companyId, meetingId) -> true, new ObjectMapper()),
-                ai)
+                ai, command -> {})
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         // 분석은 실패가 아니다. 액션만 만들지 않는다 — 지우는 쪽이 아니라 멈추는 쪽이 안전하다.
@@ -832,7 +832,7 @@ class AnalysisOrchestratorTest {
                         // 것이다 — 분배할 것이 없는 정상 상태가 아니라 데이터 오류다.
                         meetingId -> Optional.empty(),
                         (companyId, meetingId) -> false, new ObjectMapper()),
-                ai)
+                ai, command -> {})
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         /*
@@ -1017,7 +1017,7 @@ class AnalysisOrchestratorTest {
                 new TupleDistributionService(tuples, actions,
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
                         new ObjectMapper()),
-                ai);
+                ai, command -> {});
     }
 
     private static List<Utterance> utterances() {
@@ -1430,30 +1430,44 @@ class AnalysisOrchestratorTest {
         }
 
         @Override
-        public LockResult tryLock(long meetingId, LayerName layer, long runSeq) {
+        public LockOutcome tryLock(long meetingId, LayerName layer, long runSeq) {
             beforeLock.accept(layer);
             if (runs != null && runSeq < runs.current) {
-                return LockResult.SUPERSEDED;
+                return LockOutcome.of(LockResult.SUPERSEDED);
             }
             locked.add(layer);
-            return LockResult.ACQUIRED;
+            // 실물은 attempt_count 를 준다. 여기서는 늘 첫 주인이다.
+            return LockOutcome.acquired(1);
         }
 
         @Override
-        public void markDone(long meetingId, LayerName layer, LayerRun run) {
+        public void markDone(long meetingId, LayerName layer, int attempt, LayerRun run) {
             done.add(layer);
+            attempts.add(attempt);
         }
 
         @Override
-        public void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage,
-                               LayerRun spent) {
+        public void markFailed(long meetingId, LayerName layer, int attempt, String errorCode,
+                               String errorMessage, LayerRun spent) {
             failed.put(layer, errorCode);
+            attempts.add(attempt);
+        }
+
+        /* 계층이 한 걸음 나아갈 때마다 찍히는 심장(#177). 몇 번 찍혔는지만 센다. */
+        private int heartbeats;
+        /* 쓰기에 실려 온 주인 번호(#212). 잠금이 준 값이 그대로 와야 한다. */
+        private final List<Integer> attempts = new ArrayList<>();
+
+        @Override
+        public void heartbeat(long meetingId, LayerName layer, int attempt) {
+            heartbeats++;
+            attempts.add(attempt);
         }
 
         @Override
         public List<LayerState> findStates(long meetingId) {
             return done.stream()
-                    .map(layer -> new LayerState(layer, LayerStatus.DONE, 0, 0))
+                    .map(layer -> new LayerState(layer, LayerStatus.DONE, 0, 0, false))
                     .toList();
         }
     }

@@ -13,6 +13,7 @@ public record CreateHandoverCommand(
         LocalDateTime leaveStartAt,
         LocalDateTime leaveEndAt,
         LocalDate lastWorkingDay,
+        String note,
         List<Long> selectedActionIds
 ) {
 }

@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,6 +31,7 @@ class HandoverPackageServiceTest {
     private static final Long TEAM = 10L;
     private static final LocalDate REFERENCE_DATE = LocalDate.of(2026, 8, 3);
     private static final LocalDate LAST_WORKING_DAY = LocalDate.of(2026, 8, 31);
+    private static final LocalDateTime ACTION_CREATED_AT = LocalDateTime.of(2026, 7, 20, 9, 0);
 
     @Mock
     private HandoverRepository handoverRepository;
@@ -78,6 +80,7 @@ class HandoverPackageServiceTest {
         assertThat(result.items()).extracting(GetHandoverPackageUseCase.Item::title)
                 .containsExactly("Prepare runbook", "Close billing", "Update access", "Archive docs");
         assertThat(result.items().get(0).deadline()).isEqualTo(REFERENCE_DATE.plusDays(7));
+        assertThat(result.items().get(0).startAt()).isEqualTo(ACTION_CREATED_AT.toLocalDate());
         assertThat(result.items().get(0).sourceMeetingTitle()).isEqualTo("Weekly Sync");
         assertThat(result.contextCards()).extracting(GetHandoverPackageUseCase.ContextCard::contentSnap)
                 .containsExactly("Runbook context", "Billing context", "Access context", "Archive context");
@@ -98,7 +101,7 @@ class HandoverPackageServiceTest {
                                      Long meetingId, String meetingTitle, String content,
                                      Long reassigneeId, String reassigneeName) {
         return new HandoverItem(null, actionId, title, status, "PRJ", "TEAM", deadline,
-                meetingId, meetingTitle, content, reassigneeId, reassigneeName,
+                ACTION_CREATED_AT, meetingId, meetingTitle, content, reassigneeId, reassigneeName,
                 reassigneeId == null ? null : "Staff", null, null, null, true);
     }
 }

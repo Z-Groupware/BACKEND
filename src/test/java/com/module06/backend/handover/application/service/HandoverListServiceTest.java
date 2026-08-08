@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +31,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class HandoverListServiceTest {
 
+    private static final Long HANDOVER_ID = 1000L;
     private static final Long MEMBER = 1L;
     private static final Long TEAM = 10L;
     private static final Long COMPANY = 100L;
@@ -104,18 +106,36 @@ class HandoverListServiceTest {
                 .isEqualTo(HandoverErrorCode.HO_LIST_SCOPE_REQUIRED);
     }
 
+    @Test
+    void getReturnsHandoverById() {
+        Handover handover = handover();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+
+        assertThat(service.get(HANDOVER_ID)).isSameAs(handover);
+    }
+
+    @Test
+    void getThrowsNotFoundWhenMissing() {
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.get(HANDOVER_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(HandoverErrorCode.HO_NOT_FOUND);
+    }
+
     private static Handover handover() {
         return handover(HandoverStatus.SUBMITTED);
     }
 
     private static Handover handover(HandoverStatus status) {
-        return Handover.restore(1000L, MEMBER, TEAM, HandoverType.VACATION, status,
+        return Handover.restore(HANDOVER_ID, MEMBER, TEAM, HandoverType.VACATION, status,
                 LocalDateTime.of(2026, 8, 10, 9, 0), LocalDateTime.of(2026, 8, 20, 18, 0), null,
                 "Kim", "Manager", null, null, null, null, null, null, null, 1L, List.of(item()));
     }
 
     private static HandoverItem item() {
         return HandoverItem.create(100L, "Action", "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), 500L, "Meeting", "Content", true);
+                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content", true);
     }
 }

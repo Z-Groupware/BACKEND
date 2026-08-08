@@ -7,7 +7,9 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
+import com.module06.backend.meeting.application.event.MeetingCanceledEvent;
 import com.module06.backend.meeting.application.event.MeetingUpdatedEvent;
+import com.module06.backend.meeting.application.port.out.MeetingCancellationEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingUpdateEventPublisher;
 
@@ -18,7 +20,10 @@ import com.module06.backend.meeting.application.port.out.MeetingUpdateEventPubli
  */
 @Component
 @RequiredArgsConstructor
-public class SpringMeetingEventPublisher implements MeetingEventPublisher, MeetingUpdateEventPublisher {
+public class SpringMeetingEventPublisher implements
+        MeetingEventPublisher,
+        MeetingUpdateEventPublisher,
+        MeetingCancellationEventPublisher {
 
     /* 프로세스 내부 이벤트를 전달하는 Spring 발행기다. */
     private final ApplicationEventPublisher applicationEventPublisher;
@@ -40,6 +45,13 @@ public class SpringMeetingEventPublisher implements MeetingEventPublisher, Meeti
     /* 회의 정보 수정 이벤트를 Spring 애플리케이션 이벤트 채널에 발행한다. */
     @Override
     public void publish(MeetingUpdatedEvent event) {
+        /* 트랜잭션 안에서 발행하고 알림 소비자가 AFTER_COMMIT 단계에서 처리하게 한다. */
+        applicationEventPublisher.publishEvent(event);
+    }
+
+    /* 최초 회의 취소 이벤트를 Spring 애플리케이션 이벤트 채널에 발행한다. */
+    @Override
+    public void publish(MeetingCanceledEvent event) {
         /* 트랜잭션 안에서 발행하고 알림 소비자가 AFTER_COMMIT 단계에서 처리하게 한다. */
         applicationEventPublisher.publishEvent(event);
     }

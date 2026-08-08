@@ -27,7 +27,8 @@ public interface GetHandoverPackageUseCase {
             HandoverType absenceType,
             LocalDateTime startDate,
             LocalDateTime returnDate,
-            LocalDate lastWorkingDay
+            LocalDate lastWorkingDay,
+            String note
     ) {
     }
 
@@ -43,6 +44,7 @@ public interface GetHandoverPackageUseCase {
             String title,
             String status,
             LocalDate deadline,
+            LocalDate startAt,   // 타임라인 막대 시작점 = 액션 생성일(스냅샷). null이면 FE가 축 시작으로 대체.
             String projectTag,
             String sourceMeetingTitle
     ) {

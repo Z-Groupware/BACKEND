@@ -30,11 +30,12 @@ class HandoverTest {
 
     @Test
     void createVacationStartsSubmittedAndKeepsSnapshots() {
-        Handover handover = Handover.createVacation(WRITER, TEAM, "Kim", "Manager", START, END,
+        Handover handover = Handover.createVacation(WRITER, TEAM, "Platform Team", "Kim", "Manager", null, START, END,
                 List.of(item(100L)));
 
         assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
         assertThat(handover.getHandoverType()).isEqualTo(HandoverType.VACATION);
+        assertThat(handover.getTeamNameSnap()).isEqualTo("Platform Team");
         assertThat(handover.getWriterNameSnap()).isEqualTo("Kim");
         assertThat(handover.getItems()).hasSize(1);
     }
@@ -153,11 +154,11 @@ class HandoverTest {
 
     private static HandoverItem item(Long actionId) {
         return HandoverItem.create(actionId, "Action " + actionId, "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), 300L, "Weekly", "Context " + actionId, true);
+                LocalDate.of(2026, 8, 30), null, 300L, "Weekly", "Context " + actionId, true);
     }
 
     private static HandoverItem completedItem(Long actionId) {
         return HandoverItem.create(actionId, "Action " + actionId, "DONE", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), 300L, "Weekly", "Context " + actionId, false);
+                LocalDate.of(2026, 8, 30), null, 300L, "Weekly", "Context " + actionId, false);
     }
 }

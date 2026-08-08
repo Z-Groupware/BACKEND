@@ -133,6 +133,11 @@ class PlaybackUrlServiceTest {
             public Optional<Long> findCompanyId(Long meetingId) {
                 return Optional.of(1L);
             }
+
+            @Override
+            public int countAttendees(Long meetingId) {
+                return 0;
+            }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
             @Override

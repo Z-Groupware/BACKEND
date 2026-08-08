@@ -71,6 +71,7 @@ class HandoverServiceTest {
         handoverService = new HandoverService(handoverRepository, actionReassignPort, orgQueryPort, memberStatusPort,
                 finalizeHandoverInsightsUseCase);
         lenient().when(handoverRepository.save(any(Handover.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(orgQueryPort.findTeamName(TEAM)).thenReturn("Platform Team");
     }
 
     @Test
@@ -82,11 +83,13 @@ class HandoverServiceTest {
         ));
 
         Handover handover = handoverService.create(new CreateHandoverCommand(
-                WRITER, TEAM, HandoverType.VACATION, START, END, null, List.of(101L)
+                WRITER, TEAM, HandoverType.VACATION, START, END, null, "인계 서술", List.of(101L)
         ));
 
         assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
+        assertThat(handover.getNote()).isEqualTo("인계 서술");
         assertThat(handover.getWriterNameSnap()).isEqualTo("Kim");
+        assertThat(handover.getTeamNameSnap()).isEqualTo("Platform Team");
         assertThat(handover.getItems()).singleElement()
                 .satisfies(item -> {
                     assertThat(item.getActionId()).isEqualTo(101L);
@@ -99,6 +102,22 @@ class HandoverServiceTest {
                     assertThat(item.isReassignRequired()).isTrue();
                 });
         verify(memberStatusPort).toWaiting(WRITER);
+        verify(orgQueryPort).findTeamName(TEAM);
+    }
+
+    @Test
+    void createSnapshotsTeamNameFromOrgPort() {
+        when(orgQueryPort.findMember(WRITER)).thenReturn(new OrgQueryPort.MemberSnapshot(WRITER, "Kim", "Manager"));
+        when(orgQueryPort.findTeamName(TEAM)).thenReturn("PDF Team");
+        when(actionReassignPort.findHandoverableActions(WRITER, HandoverType.VACATION))
+                .thenReturn(List.of(action(100L, "A", "TODO")));
+
+        Handover handover = handoverService.create(new CreateHandoverCommand(
+                WRITER, TEAM, HandoverType.VACATION, START, END, null, null, List.of(100L)
+        ));
+
+        assertThat(handover.getTeamNameSnap()).isEqualTo("PDF Team");
+        verify(orgQueryPort).findTeamName(TEAM);
     }
 
     @Test
@@ -110,7 +129,7 @@ class HandoverServiceTest {
         ));
 
         Handover handover = handoverService.create(new CreateHandoverCommand(
-                WRITER, TEAM, HandoverType.OFFBOARDING, null, null, LAST_WORKING_DAY, List.of(101L)
+                WRITER, TEAM, HandoverType.OFFBOARDING, null, null, LAST_WORKING_DAY, null, List.of(101L)
         ));
 
         assertThat(handover.getHandoverType()).isEqualTo(HandoverType.OFFBOARDING);
@@ -129,7 +148,7 @@ class HandoverServiceTest {
         ));
 
         Handover handover = handoverService.create(new CreateHandoverCommand(
-                WRITER, TEAM, HandoverType.OFFBOARDING, null, null, LAST_WORKING_DAY, null
+                WRITER, TEAM, HandoverType.OFFBOARDING, null, null, LAST_WORKING_DAY, null, null
         ));
 
         assertThat(handover.getItems()).extracting(HandoverItem::isReassignRequired).containsExactly(true, false);
@@ -140,7 +159,7 @@ class HandoverServiceTest {
         when(handoverRepository.existsActiveByWriter(WRITER)).thenReturn(true);
 
         assertThatThrownBy(() -> handoverService.create(new CreateHandoverCommand(
-                WRITER, TEAM, HandoverType.VACATION, START, END, null, List.of(101L))))
+                WRITER, TEAM, HandoverType.VACATION, START, END, null, null, List.of(101L))))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(HandoverErrorCode.HO_ACTIVE_ALREADY_EXISTS));
@@ -155,7 +174,7 @@ class HandoverServiceTest {
                 .thenReturn(List.of(action(100L, "A", "TODO")));
 
         assertThatThrownBy(() -> handoverService.create(new CreateHandoverCommand(
-                        WRITER, TEAM, HandoverType.VACATION, START, END, null, List.of(100L, 999L))))
+                        WRITER, TEAM, HandoverType.VACATION, START, END, null, null, List.of(100L, 999L))))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(HandoverErrorCode.HO_SELECTED_ACTION_NOT_HANDOVERABLE));
@@ -250,7 +269,7 @@ class HandoverServiceTest {
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
         return new ActionReassignPort.HandoverableAction(id, title, "PRJ", 700L, "TEAM", status,
-                LocalDate.of(2026, 8, 30), 500L + (id - 100L), "Meeting " + title, "Content " + title);
+                LocalDate.of(2026, 8, 30), null, 500L + (id - 100L), "Meeting " + title, "Content " + title);
     }
 
     private static Handover submittedWithOneItem() {
@@ -273,11 +292,11 @@ class HandoverServiceTest {
 
     private static HandoverItem item(Long actionId) {
         return HandoverItem.create(actionId, "Action", "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), 500L, "Meeting", "Content", true);
+                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content", true);
     }
 
     private static HandoverItem completedItem(Long actionId) {
         return HandoverItem.create(actionId, "Action", "DONE", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), 500L, "Meeting", "Content", false);
+                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content", false);
     }
 }

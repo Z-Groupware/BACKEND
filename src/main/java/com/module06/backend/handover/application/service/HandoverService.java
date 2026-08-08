@@ -70,13 +70,15 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             // 갭2: 작성자별 활성 handover(SUBMITTED/REASSIGNED)는 1개만 허용.
             throw new BusinessException(HandoverErrorCode.HO_ACTIVE_ALREADY_EXISTS);
         }
-        OrgQueryPort.MemberSnapshot writer = orgQueryPort().findMember(command.writerMemberId());
+        OrgQueryPort orgQueryPort = orgQueryPort();
+        OrgQueryPort.MemberSnapshot writer = orgQueryPort.findMember(command.writerMemberId());
+        String teamName = orgQueryPort.findTeamName(command.teamId());
         List<HandoverItem> items = snapshotItems(command);
         Handover handover = command.handoverType() == HandoverType.VACATION
-                ? Handover.createVacation(command.writerMemberId(), command.teamId(), writer.name(), writer.position(),
-                        command.leaveStartAt(), command.leaveEndAt(), items)
-                : Handover.createOffboarding(command.writerMemberId(), command.teamId(), writer.name(), writer.position(),
-                        command.lastWorkingDay(), items);
+                ? Handover.createVacation(command.writerMemberId(), command.teamId(), teamName, writer.name(),
+                        writer.position(), command.note(), command.leaveStartAt(), command.leaveEndAt(), items)
+                : Handover.createOffboarding(command.writerMemberId(), command.teamId(), teamName, writer.name(),
+                        writer.position(), command.note(), command.lastWorkingDay(), items);
         Handover saved = handoverRepository.save(handover);
         memberStatusPort().toWaiting(command.writerMemberId());
         return saved;
@@ -165,6 +167,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                         action.projectTag(),
                         action.actionType(),
                         action.deadline(),
+                        action.actionCreatedAt(),
                         action.sourceMeetingId(),
                         action.sourceMeetingTitle(),
                         action.content(),

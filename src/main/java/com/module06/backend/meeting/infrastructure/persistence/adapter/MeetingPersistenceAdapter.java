@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.repository.MeetingCancellationRepository;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
@@ -38,7 +39,8 @@ public class MeetingPersistenceAdapter implements
         MeetingRepository,
         MeetingEntryRepository,
         MeetingCompletionRepository,
-        MeetingUpdateRepository {
+        MeetingUpdateRepository,
+        MeetingCancellationRepository {
 
     /* meeting 기본 행을 저장하고 데이터베이스 생성 식별자를 받는 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -147,6 +149,38 @@ public class MeetingPersistenceAdapter implements
         }
 
         /* 수정 API는 참석자 명단을 바꾸지 않으므로 잠금 조회에서 복원한 목록을 그대로 유지한다. */
+        return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
+    }
+
+    /* 회사 범위의 취소 대상 회의를 잠그고 최신 참석자 명단과 함께 복원한다. */
+    @Override
+    public Optional<Meeting> findForCancellation(Long companyId, Long meetingId) {
+        /* 회의 행 잠금으로 같은 회의의 취소·수정·입장·종료 요청을 하나씩 처리한다. */
+        return springDataMeetingRepository.findLockedByIdAndCompanyId(meetingId, companyId)
+                .map(meeting -> meeting.toDomain(
+                        springDataMeetingAttendeeRepository
+                                .findAllByMeetingIdOrderByMemberIdAsc(meeting.getId())
+                                .stream()
+                                .map(MeetingAttendeeJpaEntity::getMemberId)
+                                .toList()
+                ));
+    }
+
+    /* 취소 상태를 저장하고 현재 회의가 점유한 모든 예약 슬롯을 같은 트랜잭션에서 해제한다. */
+    @Override
+    public Meeting saveCancellationAndReleaseSlots(Meeting meeting) {
+        /* CANCELED와 canceledAt을 먼저 영속성 컨텍스트에 반영해 상태 이력을 보존한다. */
+        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(MeetingJpaEntity.from(meeting));
+
+        /* 슬롯은 예약 충돌을 막는 현재 점유 정보이므로 취소 시 모두 삭제해 재예약 가능하게 한다. */
+        springDataMeetingReservationSlotRepository
+                .findAllByMeetingIdOrderBySlotStartAsc(meeting.getId())
+                .forEach(entityManager::remove);
+
+        /* 상태 변경과 슬롯 해제의 무결성 오류가 트랜잭션 밖으로 늦게 새지 않도록 즉시 반영한다. */
+        entityManager.flush();
+
+        /* 참석자 이력은 삭제하지 않고 잠금 조회에서 복원한 명단과 저장 결과를 합친다. */
         return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
     }
 

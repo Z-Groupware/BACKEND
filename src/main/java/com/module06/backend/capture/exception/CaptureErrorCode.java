@@ -138,7 +138,62 @@ public enum CaptureErrorCode implements ErrorCode {
      * 할 일이 그 모양이고, 명세의 요청 예시도 evidenceTranscriptId 가 null 이다.
      */
     REVIEW_EVIDENCE_NOT_IN_MEETING(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_6",
-            "이 회의의 발화가 아닙니다.");
+            "이 회의의 발화가 아닙니다."),
+
+    /*
+     * RVW-02 — 담당자 없는 PERSONAL 액션을 확정하려 했다.
+     *
+     * AI 분배 경로는 담당자 미정을 허용한다(2026-08-07 합의 · ActionTypeShapePolicy#checkDistribution).
+     * 회의에서 담당자가 정해지지 않은 할 일이 검토 화면에서 통째로 사라지지 않게 하기 위해서이고,
+     * **채우는 자리가 이 검토 화면**이다. 그래서 담당자를 안 채운 채로 지나가는 것을 여기서 막는다.
+     *
+     * 왜 막아야 하나 — 두 가지가 함께 망가진다.
+     *   ① 라벨   확정은 review_log 에 {AI 입력 → 사람이 인정한 정답} 으로 남고 few-shot 예시로도
+     *            예약된다. 담당자 null 을 정답으로 적으면 **담당자를 비우는 것이 정답이라고 AI 에게
+     *            가르친다**(명단 밖 담당자를 422 로 막는 것과 같은 이유다).
+     *   ② 분배   RVW-05 는 담당자 없는 액션을 NO_ASSIGNEE 로 남기고 내보내지 않는데, 그 관문은
+     *            미검토(PENDING)만 보므로 **확정까지 끝난 이 액션은 강행 없이 조용히 빠진다.**
+     *            사람은 검토를 마쳤다고 생각하는데 그 할 일은 아무의 보드에도 가지 않는다.
+     *
+     * TEAM 액션은 대상이 아니다 — 담당자 개념 자체가 없다(ActionTypeShapePolicy). 함께 막으면
+     * 팀 액션은 영원히 확정되지 않는다.
+     *
+     * 무수정 승인(CONFIRM)에는 담당자를 실을 수 없으므로(MEETING_422_4) 담당자를 정해 수정(MODIFY)으로
+     * 다시 보내야 한다. 메시지가 그 다음 행동을 가리켜야 사람이 화면에서 막힌 채로 남지 않는다.
+     */
+    REVIEW_ASSIGNEE_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_7",
+            "담당자 없이 확정할 수 없습니다. 담당자를 지정해 수정으로 보내주세요."),
+
+    /*
+     * STT-04 — 그 회의의 블록이 아니다(없는 blockSeq 도 여기로 온다).
+     *
+     * REVIEW_ACTION_NOT_FOUND 와 같은 이유로 404 다. 관문(MeetingAccessGuard)은 회의까지만
+     * 보므로 회의는 내 것인데 blockSeq 만 다른 것을 넣는 경로가 남는데, 그 시도에 다른 응답을
+     * 주면 "그 블록은 존재한다"가 새어 나간다.
+     */
+    STT_BLOCK_NOT_FOUND(HttpStatus.NOT_FOUND, "MEETING_404_3", "STT 블록을 찾을 수 없습니다."),
+
+    /*
+     * STT-04 — 실패하지 않은 블록을 다시 돌리려 했다.
+     *
+     * **재처리 대상은 FAILED 뿐이다.** 성공했거나 아직 도는 블록을 다시 돌리면 같은 구간에
+     * STT 요금이 두 번 나가고, 이미 들어온 발화 위에 같은 결과가 덮인다. 화면이 버튼을 가려도
+     * blockSeq 를 직접 넣는 경로가 남으므로 서버에서 막는다.
+     *
+     * 409 인 이유 — 요청이 잘못된 것이 아니라 **그 블록의 지금 상태와 맞지 않는다.** 잠시 뒤
+     * 실패로 바뀌면 같은 요청이 성립한다.
+     */
+    STT_BLOCK_NOT_RETRYABLE(HttpStatus.CONFLICT, "MEETING_409_8", "실패한 블록만 다시 처리할 수 있습니다."),
+
+    /*
+     * STT-04 — 다시 돌릴 오디오가 없다.
+     *
+     * 두 EC2 사이 파일 전달은 S3 경유만이라(V5.4 주석) audio_s3_key 가 없으면 제출할 대상 자체가
+     * 없다. 그대로 보내면 제공자가 실패로 답하고 **시도 횟수만 올라간 채 같은 자리로 돌아온다** —
+     * 사람이 버튼을 눌러도 아무것도 나아지지 않는 상태가 반복된다.
+     */
+    STT_BLOCK_AUDIO_MISSING(HttpStatus.CONFLICT, "MEETING_409_9",
+            "블록 오디오가 없어 다시 처리할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

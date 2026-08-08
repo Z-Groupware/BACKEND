@@ -27,9 +27,34 @@ public interface AnalysisLayerRepository {
      * 따로 확인하면 확인과 저장 사이가 다시 벌어지고, 저장 경로마다(화자·요약·게이트·tuple·분배)
      * 같은 검사를 반복해야 한다. 계층의 모든 쓰기는 이 잠금 안에서 일어나므로 관문이 하나로 준다.
      *
+     * <h2>획득한 잠금의 주인 번호를 함께 준다 (#212)</h2>
+     * 회수(#177)가 생기면서 **잠금을 뺏기는 실행**이 존재하게 됐다. 뺏긴 쪽이 뒤늦게 상태를
+     * 쓰면 새 주인이 아직 돌고 있는 계층을 DONE 으로 닫아버린다 — 그러면 그 계층을 또 잠글 수
+     * 있게 되어 같은 계층이 동시에 두 번 돈다. 그래서 이 잠금이 **몇 번째 주인의 것인가**를
+     * 함께 돌려주고, 쓰기마다 그 번호를 되짚는다.
+     *
      * @param runSeq 이 실행의 번호({@link AnalysisRunRepository#begin})
      */
-    LockResult tryLock(long meetingId, LayerName layer, long runSeq);
+    LockOutcome tryLock(long meetingId, LayerName layer, long runSeq);
+
+    /*
+     * 잠금 시도의 결과와 **획득한 주인 번호**.
+     *
+     * @param attempt 이 잠금의 주인 번호(= analysis_layer.attempt_count). 잠금을 잡을 때마다
+     *                오르므로 그 값이 곧 "몇 번째 주인인가"다. 별도 컬럼을 두지 않는 이유 —
+     *                회수·재실행마다 이미 오르는 값이고, 같은 뜻을 두 곳에 두면 갈린다.
+     *                잡지 못했으면(ALREADY_RUNNING · SUPERSEDED) 0 이다 — 쓸 자격이 없다는 뜻이다
+     */
+    record LockOutcome(LockResult result, int attempt) {
+
+        public static LockOutcome acquired(int attempt) {
+            return new LockOutcome(LockResult.ACQUIRED, attempt);
+        }
+
+        public static LockOutcome of(LockResult result) {
+            return new LockOutcome(result, 0);
+        }
+    }
 
     /*
      * 잠금 시도의 결과. 셋을 **섞지 않는 것**이 요점이다 — 셋 다 "계층을 돌리지 않는다"로
@@ -43,8 +68,32 @@ public interface AnalysisLayerRepository {
         ACQUIRED, ALREADY_RUNNING, SUPERSEDED
     }
 
-    /* 성공으로 닫는다. 토큰·모델·프롬프트 버전을 함께 기록한다 — 나중에 붙이면 그때까지 데이터가 없다. */
-    void markDone(long meetingId, LayerName layer, LayerRun run);
+    /*
+     * 이 계층을 잡은 실행이 **아직 살아 있다**고 알린다(#177).
+     *
+     * 잠금은 "돌고 있는가"를 말하지만, 잠근 프로세스가 죽어도 행은 그대로 RUNNING 이다.
+     * 그 구분이 없으면 배포·크래시로 끊긴 회의를 되찾을 방법이 없어진다 — ANLZ-01 도
+     * force 도 ANLZ-02 도 그 잠금에 막힌다.
+     *
+     * **모델 호출이 돌아올 때마다 부른다.** 계층 경계에서만 찍으면 L5 처럼 tuple 마다 도는
+     * 계층이 한 번의 갱신 사이에 몇 분을 보내고, 그 시간을 견디려고 유예를 늘리면 이번에는
+     * 진짜 죽은 잠금이 그만큼 늦게 풀린다.
+     *
+     * 실패해도 분석을 세우지 않는다(호출자 책임). 심장이 한 번 안 뛰는 것보다 그 때문에
+     * 계층이 통째로 실패하는 쪽이 나쁘다.
+     *
+     * @param attempt 내가 잡은 주인 번호. 다르면 **아무것도 하지 않는다** — 잠금을 뺏긴 실행이
+     *                새 주인의 심장을 대신 찍으면, 정작 새 주인이 죽었을 때 회수가 막힌다
+     */
+    void heartbeat(long meetingId, LayerName layer, int attempt);
+
+    /*
+     * 성공으로 닫는다. 토큰·모델·프롬프트 버전을 함께 기록한다 — 나중에 붙이면 그때까지 데이터가 없다.
+     *
+     * @param attempt 내가 잡은 주인 번호. 다르면 **닫지 않는다** — 잠금을 뺏긴 실행이 새 주인이
+     *                돌고 있는 계층을 DONE 으로 닫으면, 그 계층을 제3의 실행이 또 잠글 수 있다
+     */
+    void markDone(long meetingId, LayerName layer, int attempt, LayerRun run);
 
     /*
      * 실패로 닫는다.
@@ -52,16 +101,26 @@ public interface AnalysisLayerRepository {
      * errorCode 를 남기는 것이 중요하다. SCHEMA_INVALID·CONTEXT_EXCEEDED 는 재시도해도 토큰만
      * 태우는 영구 실패이고, 그 판정을 나중에 사람이 다시 하려면 무엇으로 실패했는지가 있어야 한다.
      *
+     * @param attempt 내가 잡은 주인 번호. 다르면 **닫지 않는다** — 뺏긴 실행의 실패가 새 주인의
+     *                계층을 FAILED 로 만들면, 멀쩡히 돌던 실행의 결과가 실패로 기록된다
      * @param spent 실패 전까지 실제로 쓴 토큰. **버리면 안 된다** — L3 처럼 주제마다 부르는
      *              계층은 3번째에서 터져도 앞의 2번은 이미 과금됐다. 0 으로 기록하면 QLTY-03 이
      *              실제보다 싼 기준선을 보여주고, 그 숫자로 특화 모델 전환을 판단하게 된다.
      */
-    void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage, LayerRun spent);
+    void markFailed(long meetingId, LayerName layer, int attempt, String errorCode, String errorMessage,
+                    LayerRun spent);
 
     /* CAP-06 이 내려주는 계층 상태 목록이다. */
     List<LayerState> findStates(long meetingId);
 
-    /* 계층 하나의 현재 상태. 없으면 아직 시작하지 않은 것이다. */
-    record LayerState(LayerName layer, LayerStatus status, int tokensIn, int tokensOut) {
+    /*
+     * 계층 하나의 현재 상태. 없으면 아직 시작하지 않은 것이다.
+     *
+     * @param stalled RUNNING 인데 심장이 멈춘 계층이다(#177). status 를 FAILED 로 바꿔서
+     *                내려주지 않는 이유 — DB 의 값은 여전히 RUNNING 이고, 조회가 저장된 값과
+     *                다른 말을 하면 그 둘을 대조하는 사람이 어느 쪽을 믿을지 알 수 없다.
+     *                "무엇이 저장돼 있는가"와 "그게 아직 유효한가"를 따로 준다.
+     */
+    record LayerState(LayerName layer, LayerStatus status, int tokensIn, int tokensOut, boolean stalled) {
     }
 }

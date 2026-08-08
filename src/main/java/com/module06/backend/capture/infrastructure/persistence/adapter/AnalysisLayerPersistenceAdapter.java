@@ -15,6 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.LayerRun;
 import com.module06.backend.capture.domain.model.LayerName;
+import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.infrastructure.persistence.entity.AnalysisLayerJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataAnalysisLayerRepository;
 
 /*
@@ -53,7 +55,7 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
      * 밖에서 INSERT 경합만 걸러낸다 — 커밋 시점에 나오는 예외라 안쪽에서는 잡히지 않는다.
      */
     @Override
-    public LockResult tryLock(long meetingId, LayerName layer, long runSeq) {
+    public LockOutcome tryLock(long meetingId, LayerName layer, long runSeq) {
         try {
             return lockAcquirer.acquire(meetingId, layer, runSeq);
         } catch (DataIntegrityViolationException e) {
@@ -61,27 +63,72 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
             // 이 경합이 실제로 일어나는 자리라서 예외를 잠금 실패로 옮긴다. 여기서 터뜨리면
             // 정상적인 중복 방어가 장애로 보고된다.
             log.info("계층 잠금 경합 — meetingId={} layer={}", meetingId, layer.wireValue());
-            return LockResult.ALREADY_RUNNING;
+            return LockOutcome.of(LockResult.ALREADY_RUNNING);
         }
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markDone(long meetingId, LayerName layer, LayerRun run) {
-        repository.findByMeetingIdAndLayer(meetingId, layer.wireValue())
-                .ifPresent(entity -> {
-                    entity.markDone(run, LocalDateTime.now(clock));
-                    repository.save(entity);
-                });
+    public void markDone(long meetingId, LayerName layer, int attempt, LayerRun run) {
+        withOwnedLock(meetingId, layer, attempt, "완료 기록",
+                entity -> entity.markDone(run, LocalDateTime.now(clock)));
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage,
-                           LayerRun spent) {
+    public void markFailed(long meetingId, LayerName layer, int attempt, String errorCode,
+                           String errorMessage, LayerRun spent) {
+        withOwnedLock(meetingId, layer, attempt, "실패 기록",
+                entity -> entity.markFailed(errorCode, errorMessage, spent, LocalDateTime.now(clock)));
+    }
+
+    /*
+     * **내가 잡은 잠금일 때만** 쓴다(#212).
+     *
+     * 회수(#177)가 생기면서 잠금을 뺏기는 실행이 존재하게 됐다. 뺏긴 쪽이 뒤늦게 상태를 쓰면
+     * 새 주인이 아직 돌고 있는 계층이 DONE·FAILED 로 닫히고, 닫힌 계층은 다시 잠글 수 있으므로
+     * **제3의 실행이 새 주인과 동시에 같은 계층을 돌게 된다.** 그 앞을 여기서 막는다.
+     *
+     * 예외를 올리지 않고 warn 으로 넘긴다 — 뺏긴 실행은 이미 밀린 실행이고, 정리하다가 터뜨리면
+     * 그 실행의 로그가 실패로 뒤덮여 **정작 뺏긴 원인(심장이 멈췄던 것)을 찾기 어려워진다.**
+     * 무시했다는 사실 자체는 남겨야 하므로 조용히 지나가지도 않는다.
+     */
+    private void withOwnedLock(long meetingId, LayerName layer, int attempt, String what,
+                               java.util.function.Consumer<AnalysisLayerJpaEntity> write) {
         repository.findByMeetingIdAndLayer(meetingId, layer.wireValue())
                 .ifPresent(entity -> {
-                    entity.markFailed(errorCode, errorMessage, spent, LocalDateTime.now(clock));
+                    if (entity.getAttemptCount() != attempt) {
+                        log.warn("{} 무시 — 이 잠금의 주인이 아니다. meetingId={} layer={} 내번호={} 현재주인={}",
+                                what, meetingId, layer.wireValue(), attempt, entity.getAttemptCount());
+                        return;
+                    }
+                    write.accept(entity);
+                    repository.save(entity);
+                });
+    }
+
+    /*
+     * 심장을 한 번 찍는다(#177).
+     *
+     * RUNNING 일 때만 쓴다. 이미 닫힌(DONE·FAILED) 계층에 찍으면 늦게 도착한 갱신이 끝난
+     * 계층을 살아 있는 것처럼 만들고, 그 행은 회수 대상에서도 빠진다.
+     *
+     * REQUIRES_NEW 인 이유는 이 어댑터의 다른 쓰기와 같다 — 분석 트랜잭션과 생사를 같이 하면
+     * 롤백될 때 심장 기록도 함께 사라진다. 게다가 이 값은 **분석이 도는 중에** 다른 실행에게
+     * 보여야 하므로, 끝날 때 한꺼번에 커밋되면 아무 소용이 없다.
+     */
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void heartbeat(long meetingId, LayerName layer, int attempt) {
+        repository.findByMeetingIdAndLayer(meetingId, layer.wireValue())
+                .filter(entity -> entity.getStatus() == LayerStatus.RUNNING)
+                /*
+                 * 내가 잡은 잠금일 때만 찍는다(#212). 뺏긴 실행이 새 주인의 심장을 대신 찍으면
+                 * **정작 새 주인이 죽었을 때 회수가 막힌다** — 회수 장치를 회수 못 하게 만든다.
+                 */
+                .filter(entity -> entity.getAttemptCount() == attempt)
+                .ifPresent(entity -> {
+                    entity.touch(LocalDateTime.now(clock));
                     repository.save(entity);
                 });
     }
@@ -89,10 +136,14 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
     @Override
     @Transactional(readOnly = true)
     public List<LayerState> findStates(long meetingId) {
+        LocalDateTime now = LocalDateTime.now(clock);
         return repository.findByMeetingIdOrderByIdAsc(meetingId).stream()
                 .map(entity -> new LayerState(
                         entity.layerName(), entity.getStatus(),
-                        entity.getTokensIn(), entity.getTokensOut()))
+                        entity.getTokensIn(), entity.getTokensOut(),
+                        // 잠금을 회수하는 쪽과 **같은 기준**을 쓴다. 갈리면 잠금은 풀렸는데
+                        // 화면은 「AI 처리 중」이거나, 그 반대가 된다.
+                        LayerLiveness.isStalled(entity, now)))
                 .toList();
     }
 }

@@ -155,12 +155,26 @@ class MeetingDetailQueryServiceTest {
             }
         };
 
-        /* 개설자와 두 참석자의 이름·팀·직급 정보를 일괄 반환하는 B Port 대역을 만든다. */
-        MemberQueryPort memberPort = (companyId, memberIds) -> List.of(
-                new MemberQueryPort.MemberSnapshot(3L, "지우", 100L, "기획", "팀장"),
-                new MemberQueryPort.MemberSnapshot(7L, "이든", 200L, "개발", "시니어"),
-                new MemberQueryPort.MemberSnapshot(11L, "하린", 300L, "디자인", "디자이너")
-        );
+        /* 과거 회의 상세가 삭제 구성원을 포함하는 B Port 계약만 사용하는지 검증하는 대역을 만든다. */
+        MemberQueryPort memberPort = new MemberQueryPort() {
+            /* MEET-04가 활성 구성원 전용 계약으로 회귀하면 즉시 실패시킨다. */
+            @Override
+            public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
+                /* 과거 회의 참석자는 퇴사 후에도 보여야 하므로 이 경로를 사용하면 안 된다. */
+                throw new AssertionError("MEET-04는 활성 구성원 전용 조회를 호출하지 않습니다.");
+            }
+
+            /* 개설자와 퇴사 가능성이 있는 두 참석자의 과거 표시 정보를 일괄 반환한다. */
+            @Override
+            public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+                /* 상세 응답 조립에 필요한 이름·팀·직급 표시 정보를 제공한다. */
+                return List.of(
+                        new MemberSnapshot(3L, "지우", 100L, "기획", "팀장"),
+                        new MemberSnapshot(7L, "이든", 200L, "개발", "시니어"),
+                        new MemberSnapshot(11L, "하린", 300L, "디자인", "디자이너")
+                );
+            }
+        };
 
         /* 네 경계 대역을 주입한 실제 상세 조회 서비스를 반환한다. */
         return new MeetingDetailQueryService(

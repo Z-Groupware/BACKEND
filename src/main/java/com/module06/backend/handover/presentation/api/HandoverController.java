@@ -1,19 +1,24 @@
 package com.module06.backend.handover.presentation.api;
 
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
+import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.presentation.api.dto.request.CreateHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRequest;
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
+import com.module06.backend.handover.presentation.api.dto.response.HandoverPackageResponse;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverResponse;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverSummaryResponse;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -31,6 +36,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -44,6 +50,8 @@ public class HandoverController {
     private final FinalizeHandoverUseCase finalizeHandoverUseCase;
     private final RejectHandoverUseCase rejectHandoverUseCase;
     private final GetHandoverListUseCase getHandoverListUseCase;
+    private final GetHandoverUseCase getHandoverUseCase;
+    private final GetHandoverPackageUseCase getHandoverPackageUseCase;
     private final OrgQueryPort orgQueryPort;
 
     public HandoverController(CreateHandoverUseCase createHandoverUseCase,
@@ -52,6 +60,8 @@ public class HandoverController {
                               FinalizeHandoverUseCase finalizeHandoverUseCase,
                               RejectHandoverUseCase rejectHandoverUseCase,
                               GetHandoverListUseCase getHandoverListUseCase,
+                              GetHandoverUseCase getHandoverUseCase,
+                              GetHandoverPackageUseCase getHandoverPackageUseCase,
                               OrgQueryPort orgQueryPort) {
         this.createHandoverUseCase = createHandoverUseCase;
         this.reassignHandoverItemUseCase = reassignHandoverItemUseCase;
@@ -59,6 +69,8 @@ public class HandoverController {
         this.finalizeHandoverUseCase = finalizeHandoverUseCase;
         this.rejectHandoverUseCase = rejectHandoverUseCase;
         this.getHandoverListUseCase = getHandoverListUseCase;
+        this.getHandoverUseCase = getHandoverUseCase;
+        this.getHandoverPackageUseCase = getHandoverPackageUseCase;
         this.orgQueryPort = orgQueryPort;
     }
 
@@ -87,6 +99,32 @@ public class HandoverController {
             return GetHandoverListUseCase.HandoverListQuery.team(principal.teamId(), status);
         }
         return GetHandoverListUseCase.HandoverListQuery.self(principal.memberId(), status);
+    }
+
+    // 상세 = PDF용 전 필드. 스코프 게이트(assertCanRead)로 본인/자기팀/회사 밖 접근을 코드 레벨에서 막는다.
+    @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<HandoverResponse> get(@PathVariable Long id,
+                                             @Parameter(hidden = true)
+                                             @AuthenticationPrincipal AuthPrincipal principal) {
+        Handover handover = getHandoverUseCase.get(id);
+        assertCanRead(handover, principal);
+        return ApiResponse.success("인수인계 상세를 조회했습니다.", HandoverResponse.from(handover));
+    }
+
+    /*
+     * 상세 "패키지" = FE 인수인계 상세 화면 전용 리치 뷰(액션 타임라인·인계 패키지·회의 맥락).
+     * 단순 aggregate를 주는 GET /{id}와 별개 경로로 공존한다. 스코프 게이트는 get()과 동일(assertCanRead).
+     * dueSoon(마감 임박) 기준일 = 요청 시점(서버 오늘).
+     */
+    @GetMapping("/{id}/package")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<HandoverPackageResponse> getPackage(@PathVariable Long id,
+                                                           @Parameter(hidden = true)
+                                                           @AuthenticationPrincipal AuthPrincipal principal) {
+        assertCanRead(getHandoverUseCase.get(id), principal);
+        GetHandoverPackageUseCase.HandoverPackage pkg = getHandoverPackageUseCase.getPackage(id, LocalDate.now());
+        return ApiResponse.success("인수인계 상세 패키지를 조회했습니다.", HandoverPackageResponse.from(pkg));
     }
 
     // 신청자·팀은 본문이 아니라 토큰에서 — 남의 명의로 대신 신청하는 것을 원천 차단.
@@ -143,5 +181,31 @@ public class HandoverController {
                                                 @Valid @RequestBody RejectHandoverRequest request) {
         Handover handover = rejectHandoverUseCase.reject(request.toCommand(id));
         return ApiResponse.success("Handover rejected.", HandoverResponse.from(handover));
+    }
+
+    /*
+     * 상세 조회 스코프 게이트 — list의 scopeFor 규칙과 동일: 오너·어드민=회사 전체, 리더=자기 팀, 그 외=본인.
+     * findById를 그냥 반환하면 id만 바꿔 남의 퇴사 사유·재분배 명단을 열람할 수 있어 코드 레벨로 막는다.
+     */
+    private void assertCanRead(Handover handover, AuthPrincipal principal) {
+        if (principal == null) {
+            throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+        }
+        if (hasCompanyScope(principal)
+                && principal.companyId() != null
+                && orgQueryPort.findMemberIdsByCompany(principal.companyId()).contains(handover.getWriterMemberId())) {
+            return;
+        }
+        if ("LEADER".equals(principal.authority()) && handover.getTeamId().equals(principal.teamId())) {
+            return;
+        }
+        if (handover.getWriterMemberId().equals(principal.memberId())) {
+            return;
+        }
+        throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+    }
+
+    private boolean hasCompanyScope(AuthPrincipal principal) {
+        return principal.isAdmin() || "OWNER".equals(principal.authority());
     }
 }

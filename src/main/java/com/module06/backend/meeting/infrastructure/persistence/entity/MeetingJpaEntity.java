@@ -86,6 +86,10 @@ public class MeetingJpaEntity {
     @Column(name = "ended_at")
     private LocalDateTime endedAt;
 
+    /* 시작 전 취소가 확정된 일시이며 취소되지 않은 회의에서는 null이다. */
+    @Column(name = "canceled_at")
+    private LocalDateTime canceledAt;
+
     /* 선택한 관련 팀 액션 식별자다. */
     @Column(name = "related_action_id")
     private Long relatedActionId;
@@ -116,6 +120,7 @@ public class MeetingJpaEntity {
         this.recordingConsent = meeting.isRecordingConsent();
         this.startedAt = meeting.getStartedAt();
         this.endedAt = meeting.getEndedAt();
+        this.canceledAt = meeting.getCanceledAt();
         this.relatedActionId = meeting.getRelatedActionId();
     }
 
@@ -144,6 +149,7 @@ public class MeetingJpaEntity {
                 attendeeMemberIds,
                 startedAt,
                 endedAt,
+                canceledAt,
                 createdAt,
                 updatedAt
         );

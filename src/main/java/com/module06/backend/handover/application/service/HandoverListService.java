@@ -3,6 +3,7 @@ package com.module06.backend.handover.application.service;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverUseCase;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
@@ -14,7 +15,7 @@ import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
-public class HandoverListService implements GetHandoverListUseCase {
+public class HandoverListService implements GetHandoverListUseCase, GetHandoverUseCase {
 
     private final HandoverRepository handoverRepository;
     private final OrgQueryPort orgQueryPort;
@@ -22,6 +23,12 @@ public class HandoverListService implements GetHandoverListUseCase {
     public HandoverListService(HandoverRepository handoverRepository, OrgQueryPort orgQueryPort) {
         this.handoverRepository = handoverRepository;
         this.orgQueryPort = orgQueryPort;
+    }
+
+    @Override
+    public Handover get(Long handoverId) {
+        return handoverRepository.findById(handoverId)
+                .orElseThrow(() -> new BusinessException(HandoverErrorCode.HO_NOT_FOUND));
     }
 
     @Override

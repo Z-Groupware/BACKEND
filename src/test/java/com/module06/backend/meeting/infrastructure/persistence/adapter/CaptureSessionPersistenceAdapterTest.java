@@ -6,7 +6,10 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -14,6 +17,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +62,12 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 })
 @DisplayName("CAP-01~03·10 캡처 세션 영속성 어댑터")
 class CaptureSessionPersistenceAdapterTest {
+
+    /* CAP 생명주기 시각을 시스템 부하와 무관하게 재현할 테스트 기준 순간이다. */
+    private static final Instant TEST_BASE_INSTANT = Instant.parse("2026-08-06T05:00:00Z");
+
+    /* 운영 Clock과 동일하게 오프셋 없는 로컬 일시를 KST로 생성할 테스트 시간대다. */
+    private static final ZoneId TEST_ZONE = ZoneId.of("Asia/Seoul");
 
     /* 실제 트랜잭션 프록시를 거쳐 CAP-01 전체 흐름을 실행하는 인바운드 Port다. */
     @Autowired
@@ -107,12 +117,22 @@ class CaptureSessionPersistenceAdapterTest {
     @MockitoBean
     private MemberQueryPort memberQueryPort;
 
+    /* CAP-01·02·03 호출마다 1초씩 전진하는 결정적 시각을 제공할 테스트 전용 Clock이다. */
+    @MockitoBean
+    private Clock clock;
+
     /* 동시 시작 요청을 실행한 작업 스레드를 테스트 종료 후 정리하기 위한 실행기다. */
     private ExecutorService executorService;
 
     /* 각 테스트 전에 테이블을 초기화하고 정상 참석자 조회 대역을 준비한다. */
     @BeforeEach
     void setUp() {
+        /* 각 테스트가 동일 기준 순간에서 시작하고 동시 호출에도 중복 없는 순번을 사용하게 한다. */
+        AtomicLong clockStep = new AtomicLong();
+        when(clock.getZone()).thenReturn(TEST_ZONE);
+        when(clock.instant()).thenAnswer(invocation ->
+                TEST_BASE_INSTANT.plusSeconds(clockStep.getAndIncrement()));
+
         /* 자식 캡처·슬롯·참석자 행부터 지운 뒤 회의 기본 행을 삭제한다. */
         springDataCaptureSessionRepository.deleteAll();
         springDataMeetingReservationSlotRepository.deleteAll();
@@ -197,6 +217,11 @@ class CaptureSessionPersistenceAdapterTest {
         assertThat(paused.status().name()).isEqualTo("PAUSED");
         assertThat(paused.isPaused()).isTrue();
         assertThat(paused.pausedAt()).isNotNull();
+        /* 고정 순번 Clock으로 일시정지 시각이 세션 시작 시각보다 엄격히 뒤인지 확인한다. */
+        assertThat(paused.pausedAt()).isAfter(LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(started.startedAtEpochMs()),
+                TEST_ZONE
+        ));
 
         /* 실제 capture_session 행도 PAUSED 상태와 동일 pausedAt으로 갱신돼야 한다. */
         assertThat(springDataCaptureSessionRepository.findById(started.captureSessionId()))
@@ -221,7 +246,7 @@ class CaptureSessionPersistenceAdapterTest {
         CaptureSessionStartResult started = startCaptureSessionUseCase.startCaptureSession(
                 new StartCaptureSessionCommand(10L, 3L, meeting.getId())
         );
-        pauseCaptureSessionUseCase.pauseCaptureSession(
+        CaptureSessionPauseResult paused = pauseCaptureSessionUseCase.pauseCaptureSession(
                 new PauseCaptureSessionCommand(10L, 3L, meeting.getId())
         );
 
@@ -235,6 +260,8 @@ class CaptureSessionPersistenceAdapterTest {
         assertThat(resumed.status().name()).isEqualTo("ACTIVE");
         assertThat(resumed.isPaused()).isFalse();
         assertThat(resumed.resumedAt()).isNotNull();
+        /* 재개 시각도 직전 일시정지 시각보다 엄격히 뒤여서 DB 반올림에 영향을 받지 않아야 한다. */
+        assertThat(resumed.resumedAt()).isAfter(paused.pausedAt());
 
         /* 실제 capture_session 행도 ACTIVE이며 시작 시간축은 유지되고 pausedAt만 비워져야 한다. */
         assertThat(springDataCaptureSessionRepository.findById(started.captureSessionId()))

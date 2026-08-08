@@ -8,6 +8,8 @@ import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
+import com.module06.backend.handover.application.usecase.GetHandoverUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
@@ -55,6 +57,7 @@ class HandoverControllerTest {
     private static final Long COMPANY = 1L;
     private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
     private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
+    private static final LocalDateTime ACTION_CREATED_AT = LocalDateTime.of(2026, 7, 20, 9, 0);
 
     @Autowired
     private MockMvc mockMvc;
@@ -76,6 +79,12 @@ class HandoverControllerTest {
 
     @MockitoBean
     private GetHandoverListUseCase getHandoverListUseCase;
+
+    @MockitoBean
+    private GetHandoverUseCase getHandoverUseCase;
+
+    @MockitoBean
+    private GetHandoverPackageUseCase getHandoverPackageUseCase;
 
     @MockitoBean
     private OrgQueryPort orgQueryPort;
@@ -288,38 +297,135 @@ class HandoverControllerTest {
         return captor.getValue();
     }
 
+    @Test
+    void getReturnsDetailForWriterSelfScope() throws Exception {
+        authenticateAs(WRITER, COMPANY, "MEMBER", false, TEAM);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+
+        mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(HANDOVER_ID))
+                .andExpect(jsonPath("$.data.teamNameSnap").value("Platform Team"))
+                .andExpect(jsonPath("$.data.items[0].actionId").value(ACTION));
+    }
+
+    @Test
+    void getDeniesMemberReadingAnotherWriterHandover() throws Exception {
+        authenticateAs(999L, COMPANY, "MEMBER", false, TEAM);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+
+        mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("HO-026"));
+    }
+
+    @Test
+    void getReturnsDetailForLeaderOfSameTeam() throws Exception {
+        authenticateAs(999L, COMPANY, "LEADER", false, TEAM);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+
+        mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(HANDOVER_ID));
+    }
+
+    @Test
+    void getDeniesLeaderOfAnotherTeam() throws Exception {
+        authenticateAs(999L, COMPANY, "LEADER", false, 77L);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+
+        mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("HO-026"));
+    }
+
+    @Test
+    void getReturnsDetailForOwnerWhenWriterInCompany() throws Exception {
+        authenticateAs(999L, COMPANY, "OWNER", false, 77L);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+        when(orgQueryPort.findMemberIdsByCompany(1L)).thenReturn(List.of(WRITER));
+
+        mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(HANDOVER_ID));
+    }
+
+    @Test
+    void getDeniesOwnerWhenWriterOutsideCompany() throws Exception {
+        authenticateAs(999L, COMPANY, "OWNER", false, 77L);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+        when(orgQueryPort.findMemberIdsByCompany(1L)).thenReturn(List.of(12345L));
+
+        mockMvc.perform(get("/api/handovers/{id}", HANDOVER_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("HO-026"));
+    }
+
+    @Test
+    void getPackageReturnsRichDetailForId() throws Exception {
+        authenticateAs(WRITER, COMPANY, "LEADER", false, TEAM);
+        when(getHandoverUseCase.get(HANDOVER_ID)).thenReturn(submitted());
+        when(getHandoverPackageUseCase.getPackage(eq(HANDOVER_ID), any(LocalDate.class)))
+                .thenReturn(handoverPackage());
+
+        mockMvc.perform(get("/api/handovers/{id}/package", HANDOVER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.basicInfo.writerName").value("Kim"))
+                .andExpect(jsonPath("$.data.basicInfo.note").value("인계 서술"))
+                .andExpect(jsonPath("$.data.gapSummary.totalItems").value(1))
+                .andExpect(jsonPath("$.data.items[0].actionId").value(ACTION))
+                .andExpect(jsonPath("$.data.items[0].startAt").value("2026-07-20"))
+                .andExpect(jsonPath("$.data.reassigneeGroups[0].reassigneeName").value("미배정"));
+
+        verify(getHandoverPackageUseCase).getPackage(eq(HANDOVER_ID), any(LocalDate.class));
+    }
+
+    private static GetHandoverPackageUseCase.HandoverPackage handoverPackage() {
+        GetHandoverPackageUseCase.Item item = new GetHandoverPackageUseCase.Item(
+                ACTION, "Action", "TODO", LocalDate.of(2026, 8, 30), LocalDate.of(2026, 7, 20), "PRJ", "Meeting");
+        return new GetHandoverPackageUseCase.HandoverPackage(
+                new GetHandoverPackageUseCase.BasicInfo("Kim", "Manager", TEAM, HandoverType.VACATION,
+                        START, END, null, "인계 서술"),
+                new GetHandoverPackageUseCase.GapSummary(1, 1, 1),
+                List.of(item),
+                List.of(new GetHandoverPackageUseCase.ContextCard(ACTION, "Action", "Content")),
+                List.of(new GetHandoverPackageUseCase.MeetingHistory(
+                        500L, LocalDate.of(2026, 8, 1), List.of("Kim"), "decision", "actions")),
+                List.of(new GetHandoverPackageUseCase.ReassigneeGroup(null, "미배정", List.of(item))));
+    }
+
     private static GetHandoverListUseCase.HandoverSummary summary() {
         return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
                 HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0);
     }
 
     private static Handover submitted() {
-        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.SUBMITTED,
-                START, END, null, "Kim", "Manager", null, null, null, null, null,
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, "Platform Team", HandoverType.VACATION, HandoverStatus.SUBMITTED,
+                START, END, null, "Kim", "Manager", null, null, null, null, null, null,
                 null, null, 1L, List.of(item()));
     }
 
     private static Handover reassigned() {
-        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.REASSIGNED,
-                START, END, null, "Kim", "Manager", APPROVER, "Park", LocalDateTime.now(), null,
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, "Platform Team", HandoverType.VACATION, HandoverStatus.REASSIGNED,
+                START, END, null, "Kim", "Manager", null, APPROVER, "Park", LocalDateTime.now(), null,
                 null, null, null, 1L, List.of(item()));
     }
 
     private static Handover finalized() {
-        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.FINALIZED,
-                START, END, null, "Kim", "Manager", APPROVER, "Park", LocalDateTime.now(), null,
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, "Platform Team", HandoverType.VACATION, HandoverStatus.FINALIZED,
+                START, END, null, "Kim", "Manager", null, APPROVER, "Park", LocalDateTime.now(), null,
                 LocalDateTime.now(), APPROVER, "Park", 1L, List.of(item()));
     }
 
     private static Handover rejected() {
-        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.REJECTED,
-                START, END, null, "Kim", "Manager", null, null, null, "needs more detail",
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, "Platform Team", HandoverType.VACATION, HandoverStatus.REJECTED,
+                START, END, null, "Kim", "Manager", null, null, null, null, "needs more detail",
                 null, null, null, 1L, List.of(item()));
     }
 
     private static HandoverItem item() {
         return HandoverItem.create(ACTION, "Action", "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), 500L, "Meeting", "Content", true);
+                LocalDate.of(2026, 8, 30), ACTION_CREATED_AT, 500L, "Meeting", "Content", true);
     }
 
     /** 필터를 끈 슬라이스라 컨텍스트를 직접 심는다 — 다른 도메인의 컨트롤러 테스트와 같은 방식. */

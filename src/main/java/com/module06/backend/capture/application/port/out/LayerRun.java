@@ -29,11 +29,14 @@ public record LayerRun(
      * 모델·프롬프트 버전은 **나중 것으로 덮지 않고 먼저 것을 유지**한다. 한 계층 안에서
      * 둘이 달라지는 일은 없어야 하고, 만약 달라진다면 그건 배포 중 교체 같은 사고다 —
      * 마지막 값으로 덮으면 그 사고가 기록에서 사라진다.
+     *
+     * 토큰 합은 addExact 로 더한다. int 를 넘겨 조용히 음수로 감기면 미터링 원장이 잘못된
+     * 값을 저장하거나(명령 검증이 거부) 거짓 소진율을 만든다 — 차라리 크게 터뜨려 관측한다.
      */
     public LayerRun plus(LayerRun other) {
         return new LayerRun(
-                tokensIn + other.tokensIn(),
-                tokensOut + other.tokensOut(),
+                Math.addExact(tokensIn, other.tokensIn()),
+                Math.addExact(tokensOut, other.tokensOut()),
                 modelName != null ? modelName : other.modelName(),
                 promptVersion != null ? promptVersion : other.promptVersion()
         );

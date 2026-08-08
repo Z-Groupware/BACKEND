@@ -69,7 +69,8 @@ public class HandoverPackageService implements GetHandoverPackageUseCase {
                 handover.getHandoverType(),
                 handover.getLeaveStartAt(),
                 handover.getLeaveEndAt(),
-                handover.getLastWorkingDay()
+                handover.getLastWorkingDay(),
+                handover.getNote()
         );
     }
 
@@ -98,6 +99,7 @@ public class HandoverPackageService implements GetHandoverPackageUseCase {
                 item.getActionTitleSnap(),
                 item.getActionStatusSnap(),
                 item.getDeadlineSnap(),
+                item.getActionCreatedAtSnap() == null ? null : item.getActionCreatedAtSnap().toLocalDate(),
                 item.getProjectTagSnap(),
                 item.getSourceMeetingTitleSnap()
         );

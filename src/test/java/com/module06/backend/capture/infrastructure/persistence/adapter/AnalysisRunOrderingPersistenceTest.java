@@ -86,10 +86,10 @@ class AnalysisRunOrderingPersistenceTest {
         // 실행 A 가 발화를 읽고 멈춰 있는 사이에 실행 B 가 시작했다.
         long second = analysisRunRepository.begin(meetingId).orElseThrow();
 
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, first))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, first).result())
                 .isEqualTo(LockResult.SUPERSEDED);
         // 최신 실행은 그대로 잡는다 — 조이는 방향으로만 막는다.
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, second))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, second).result())
                 .isEqualTo(LockResult.ACQUIRED);
     }
 
@@ -105,7 +105,7 @@ class AnalysisRunOrderingPersistenceTest {
 
         // 밀린 시도가 행을 만들었다면 최신 실행이 ALREADY_RUNNING 으로 튕긴다.
         assertThat(analysisLayerRepository.findStates(meetingId)).isEmpty();
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L2, current))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L2, current).result())
                 .isEqualTo(LockResult.ACQUIRED);
     }
 
@@ -115,11 +115,11 @@ class AnalysisRunOrderingPersistenceTest {
         long meetingId = 9_106L;
 
         long first = analysisRunRepository.begin(meetingId).orElseThrow();
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, first))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, first).result())
                 .isEqualTo(LockResult.ACQUIRED);
 
         long second = analysisRunRepository.begin(meetingId).orElseThrow();
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, second))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, second).result())
                 .isEqualTo(LockResult.ALREADY_RUNNING);
     }
 
@@ -177,11 +177,49 @@ class AnalysisRunOrderingPersistenceTest {
         assertThat(numbers).isNotEmpty();
     }
 
+    @Test
+    @DisplayName("여러 번 반복해도 번호가 겹치지 않는다 — 한 번만 돌리면 이 경합은 놓친다")
+    void 반복해도_번호가_겹치지_않는다() throws Exception {
+        /*
+         * 위 테스트를 여러 회의로 반복한다.
+         *
+         * **한 판만 돌려서는 부족하다.** 경합의 결과가 매번 갈리므로, 실제로 깨져 있어도 통과할
+         * 때가 있다 — 이 테스트가 CI 에서 간헐적으로만 빨간불이던 이유이고, 그동안 "H2 가 원인인
+         * 플레이키"로 읽혔다. 실제 원인은 save 가 merge 로 가 진 쪽의 INSERT 가 UPDATE 로 바뀌던
+         * 것이었다(MeetingAnalysisRunJpaEntity 주석).
+         *
+         * 회의를 매 판 새로 잡는다. 같은 회의를 다시 쓰면 두 번째 판부터는 행이 이미 있어서
+         * **행 잠금이 줄을 세우고**, 정작 검증하려는 "첫 행 경합"이 일어나지 않는다.
+         */
+        executor = Executors.newFixedThreadPool(2);
+
+        for (int round = 0; round < 20; round++) {
+            long meetingId = 9_200L + round;
+            CountDownLatch start = new CountDownLatch(1);
+
+            List<CompletableFuture<OptionalLong>> futures = List.of(
+                    beginWhenReleased(meetingId, start), beginWhenReleased(meetingId, start));
+
+            start.countDown();
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).get(10, TimeUnit.SECONDS);
+
+            List<Long> numbers = futures.stream().map(CompletableFuture::join)
+                    .filter(OptionalLong::isPresent)
+                    .map(OptionalLong::getAsLong)
+                    .toList();
+
+            assertThat(numbers)
+                    .as("round %d — 같은 번호를 받으면 둘 다 자기가 최신이라고 판단한다", round)
+                    .doesNotHaveDuplicates()
+                    .isNotEmpty();
+        }
+    }
+
     private CompletableFuture<LockResult> lockWhenReleased(long meetingId, long runSeq,
                                                            CountDownLatch start) {
         return CompletableFuture.supplyAsync(() -> {
             awaitStart(start);
-            return analysisLayerRepository.tryLock(meetingId, LayerName.L4, runSeq);
+            return analysisLayerRepository.tryLock(meetingId, LayerName.L4, runSeq).result();
         }, executor);
     }
 
