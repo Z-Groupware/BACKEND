@@ -15,7 +15,6 @@ import com.module06.backend.global.exception.BusinessException;
 
     연결된 클래스
     - ActionService          : 개인 액션 벌크 상태 변경 시 항목별 호출
-    - ActionChecklistService : 체크리스트 CRUD 시 호출
     - ActionErrorCode        : 위반 시 던질 에러 코드 (action.exception)
 */
 public class PersonalActionAssigneeOnlyPolicy {

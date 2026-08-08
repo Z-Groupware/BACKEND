@@ -29,7 +29,6 @@ import lombok.Getter;
     - ActionStatus          : 상태 값(TODO/IN_PROGRESS/DONE)
     - ActionReviewStatus    : AI 분배 검토 상태 (FR-AC-04)
     - AssigneeSource        : AI가 담당자를 특정한 근거
-    - ActionChecklistItem   : 이 액션에 딸린 체크리스트 항목(FR-AC-05)
     - ActionTypeShapePolicy : TEAM↔PERSONAL 필드 제약 규칙
     - ActionRepository      : 저장소 계약
     - ActionJpaEntity       : 영속화 매핑 (infrastructure.persistence)

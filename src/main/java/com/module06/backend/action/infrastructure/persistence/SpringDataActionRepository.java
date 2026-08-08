@@ -1,11 +1,15 @@
 package com.module06.backend.action.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionType;
+
+import jakarta.persistence.LockModeType;
 
 /* comment.
     action 테이블용 Spring Data JPA 인터페이스. 도메인 계층은 이 인터페이스를 모른다 — 어댑터만 안다.
@@ -48,6 +52,12 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
             Long companyId, List<Long> sourceMeetingIds, ActionReviewStatus excludedReviewStatus);
 
     boolean existsByCompanyIdAndId(Long companyId, Long id);
+
+    // ActionReassignAdapter.reassign()의 read-modify-write 전용 — SELECT ... FOR UPDATE로
+    // 같은 행을 노리는 동시 요청을 뒤엣것이 앞엣것을 기다리게 만든다. 호출자가 트랜잭션
+    // 안에서 불러야 잠금이 유지된다(meeting_analysis_run의 findWithLockByMeetingId와 동일 패턴).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<ActionJpaEntity> findWithLockById(Long id);
 
     // FR-AC-09 — 회의별 액션 조회. actionType 조건이 없다 — TEAM·PERSONAL이 섞여 나오는 게
     // 이 조회의 목적이다(회의 상세 화면 전용, TeamActionService 쪽 조회들과 다른 이유).

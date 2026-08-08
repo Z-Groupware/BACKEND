@@ -28,6 +28,12 @@ public interface ActionRepository {
 
     Optional<Action> findById(Long id);
 
+    /* 쓰기 잠금을 걸고 읽는다(SELECT ... FOR UPDATE) — 읽은 뒤 곧바로 같은 트랜잭션에서 다시
+       쓰는 read-modify-write 경로 전용이다(ActionReassignAdapter.reassign()). 잠금 없이
+       읽으면 동시 요청 둘이 같은 값을 읽고 나중에 쓴 쪽이 먼저 쓴 쪽을 조용히 덮어쓴다 —
+       담당자 재배정처럼 "누가 최종 담당자인가"가 중요한 경로에서 유실이 생긴다. */
+    Optional<Action> findByIdForUpdate(Long id);
+
     // FR-AC-02 — 개인 액션 목록(호출자 본인 소유분만).
     List<Action> findAllByAssigneeMemberId(Long assigneeMemberId);
 
