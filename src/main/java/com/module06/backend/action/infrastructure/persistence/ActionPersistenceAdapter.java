@@ -207,7 +207,10 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
             return List.of();
         }
 
-        return chunk(sourceMeetingIds, MEETING_ID_BATCH_SIZE).stream()
+        // 입력에 중복 meetingId가 있으면 서로 다른 청크에 나뉘어 들어갈 수 있고, 그러면 같은
+        // 회의의 실제 DB 행이 두 청크의 쿼리에서 각각 조회돼 집계에서 두 번 세어진다(코드래빗
+        // 지적, PR #229). distinct()로 청킹 전에 제거한다.
+        return chunk(sourceMeetingIds.stream().distinct().toList(), MEETING_ID_BATCH_SIZE).stream()
                 .flatMap(chunk -> springDataActionRepository
                         .findAllByCompanyIdAndSourceMeetingIdInAndDispatchedAtIsNullAndReviewStatusNot(
                                 companyId, chunk, ActionReviewStatus.REJECTED)

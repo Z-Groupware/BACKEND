@@ -1,5 +1,6 @@
 package com.module06.backend.action.infrastructure.persistence;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -17,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -107,6 +109,27 @@ class ActionPersistenceAdapterTest {
         assertThat(result).hasSize(2);
         assertThat(result).extracting(MeetingUndispatchedActions::sourceMeetingId)
                 .containsExactlyInAnyOrder(1L, 201L);
+    }
+
+    @Test
+    void deduplicatesMeetingIdsBeforeChunkingToAvoidDoubleCounting() {
+        // 코드래빗 지적(PR #229): 중복 meetingId가 서로 다른 청크로 쪼개지면 같은 DB 행이
+        // 두 청크의 쿼리에서 각각 잡혀 집계가 부풀려진다. 201개(중복 1건 포함)를 넣어도
+        // distinct 후엔 200개 한 청크로 끝나야 한다 — 쿼리 1회, 집계 중복 없음.
+        List<Long> uniqueIds = IntStream.rangeClosed(1, 200).mapToObj(Long::valueOf).toList();
+        List<Long> idsWithDuplicate = new ArrayList<>(uniqueIds);
+        idsWithDuplicate.add(1L);
+
+        when(springDataActionRepository.findAllByCompanyIdAndSourceMeetingIdInAndDispatchedAtIsNullAndReviewStatusNot(
+                eq(1L), eq(uniqueIds), eq(ActionReviewStatus.REJECTED)))
+                .thenReturn(List.of(projection(1L)));
+
+        List<MeetingUndispatchedActions> result = adapter.findMeetingsWithUndispatchedActions(1L, idsWithDuplicate);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).undispatchedCount()).isEqualTo(1L);
+        verify(springDataActionRepository, times(1))
+                .findAllByCompanyIdAndSourceMeetingIdInAndDispatchedAtIsNullAndReviewStatusNot(any(), anyList(), any());
     }
 
     @Test

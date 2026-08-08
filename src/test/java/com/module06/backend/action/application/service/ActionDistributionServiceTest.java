@@ -27,6 +27,7 @@ import com.module06.backend.global.exception.BusinessException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
@@ -177,7 +178,9 @@ class ActionDistributionServiceTest {
 
         service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee)));
 
-        verify(actionReferenceRepository, never()).existsMemberInCompany(anyLong(), anyLong());
+        // anyLong()은 null과 매칭되지 않아 existsMemberInCompany(null, companyId) 호출을 놓칠 수
+        // 있다 — any()로 null까지 포함해 검증한다(코드래빗 지적, PR #229).
+        verify(actionReferenceRepository, never()).existsMemberInCompany(any(), any());
     }
 
     @Test
