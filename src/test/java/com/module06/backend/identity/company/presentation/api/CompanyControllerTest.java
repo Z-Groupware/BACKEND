@@ -27,7 +27,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.company.application.command.OnboardCompanyCommand;
 import com.module06.backend.identity.company.application.command.UpdateCompanyCommand;
 import com.module06.backend.identity.company.application.dto.OnboardingResult;
@@ -191,6 +193,24 @@ class CompanyControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(onboardCompanyUseCase, never()).onboard(any());
+    }
+
+    @Test
+    @DisplayName("직급 defaultRole 이 OWNER 면 400·AU-021 — 온보딩으로는 오너를 못 만든다")
+    void ownerDefaultRoleIsRejected() throws Exception {
+        authenticateAs(1L);
+        when(onboardCompanyUseCase.onboard(any()))
+                .thenThrow(new BusinessException(AuthErrorCode.POSITION_ROLE_NOT_ASSIGNABLE));
+
+        mockMvc.perform(post("/api/companies/me/onboarding")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"teams":[{"tempId":"t1","name":"개발팀","subTeams":[]}],
+                                 "jobPositions":[{"tempId":"p1","name":"대표","defaultRole":"OWNER"}],
+                                 "invites":[]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("AU-021"));
     }
 
     /* ── 기업 기본 정보 ──────────────────────────────────────────────────────── */
