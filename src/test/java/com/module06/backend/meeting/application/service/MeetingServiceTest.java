@@ -167,8 +167,21 @@ class MeetingServiceTest {
     @DisplayName("관련 액션을 선택하지 않으면 액션 조회 없이 회의를 예약한다")
     void createsMeetingWithoutRelatedAction() {
         /* 호출되는 순간 실패하는 액션 Port를 포함해 나머지 정상 의존성을 직접 조립한다. */
-        ActionQueryPort pendingActionPort = (companyId, actionId) -> {
-            throw new AssertionError("relatedActionId가 없으면 ActionQueryPort를 호출하면 안 됩니다.");
+        ActionQueryPort pendingActionPort = new ActionQueryPort() {
+            /* 관련 액션이 없는 예약에서는 존재 확인이 호출되면 안 된다. */
+            @Override
+            public boolean existsAction(Long companyId, Long actionId) {
+                throw new AssertionError("relatedActionId가 없으면 ActionQueryPort를 호출하면 안 됩니다.");
+            }
+
+            /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */
+            @Override
+            public java.util.List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
+                    Long companyId,
+                    java.util.List<Long> meetingIds
+            ) {
+                throw new AssertionError("회의 예약 경로에서 분배 대기 배치 조회를 호출하면 안 됩니다.");
+            }
         };
         MeetingService service = serviceWithActionPort(pendingActionPort);
 
@@ -300,7 +313,22 @@ class MeetingServiceTest {
         MemberQueryPort memberPort = (companyId, memberIds) -> members;
 
         /* 테스트에서 정한 관련 액션 존재 결과를 반환하는 포트 대역이다. */
-        ActionQueryPort actionPort = (companyId, actionId) -> actionExists;
+        ActionQueryPort actionPort = new ActionQueryPort() {
+            /* 테스트가 정한 관련 액션 존재 결과를 그대로 반환한다. */
+            @Override
+            public boolean existsAction(Long companyId, Long actionId) {
+                return actionExists;
+            }
+
+            /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */
+            @Override
+            public java.util.List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
+                    Long companyId,
+                    java.util.List<Long> meetingIds
+            ) {
+                return java.util.List.of();
+            }
+        };
 
         /* 고정 시계를 포함한 실제 서비스를 반환한다. */
         return new MeetingService(

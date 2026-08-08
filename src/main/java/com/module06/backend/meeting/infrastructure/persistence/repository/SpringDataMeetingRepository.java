@@ -32,6 +32,13 @@ public interface SpringDataMeetingRepository
             Long projectId
     );
 
+    /* MEET-10 후보 조회 — 요청 회사에서 사용자가 host인 특정 상태 회의를 최근 시작 순으로 읽는다. */
+    List<MeetingJpaEntity> findAllByCompanyIdAndHostMemberIdAndStatusOrderByStartAtDescIdDesc(
+            Long companyId,
+            Long hostMemberId,
+            MeetingStatus status
+    );
+
     /* 배치 참석자 조회 전에 요청 회사에 속한 회의 식별자만 선별한다. */
     List<MeetingJpaEntity> findAllByIdInAndCompanyId(List<Long> ids, Long companyId);
 
