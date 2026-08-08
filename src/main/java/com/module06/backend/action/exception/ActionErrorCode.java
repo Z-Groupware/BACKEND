@@ -39,7 +39,12 @@ public enum ActionErrorCode implements ErrorCode {
        review_log에 남길 판정 대상 자체가 사라져 되돌릴 수 없어 여기서도 본다(2026-08-07). */
     ACTION_DELETE_NOT_MANUAL(HttpStatus.CONFLICT, "AC-009", "직접 추가한 액션만 삭제할 수 있습니다."),
     // develop 머지 중 AC-009가 이미 ACTION_DELETE_NOT_MANUAL(RVW-04)에 쓰이고 있어 AC-010으로 밀림(2026-08-07).
-    ACTION_INVALID_STATUS_TRANSITION(HttpStatus.BAD_REQUEST, "AC-010", "허용되지 않는 상태 전환입니다.");
+    ACTION_INVALID_STATUS_TRANSITION(HttpStatus.BAD_REQUEST, "AC-010", "허용되지 않는 상태 전환입니다."),
+
+    // FR-AC-09 — 회의별 조회는 companyId로 액션 행만 스코프하는 것만으로는 다른 회사·존재하지
+    // 않는 meetingId를 "액션 없음"과 구분 못 한다. meeting(D)의 공개 조회 포트로 먼저 소유를
+    // 확인한다(코드래빗 지적, PR #229 — handover(E)의 MeetingQueryPortDelegatingAdapter와 같은 이유).
+    ACTION_MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-011", "존재하지 않거나 접근할 수 없는 회의입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

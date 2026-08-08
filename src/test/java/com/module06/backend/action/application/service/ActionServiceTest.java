@@ -25,6 +25,8 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository.T
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.meeting.application.port.in.MeetingQueryPort;
+import com.module06.backend.meeting.application.result.MeetingHistoryResult;
 import com.module06.backend.project.application.port.ProjectQueryPort;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,8 +53,11 @@ class ActionServiceTest {
     @Mock
     private ProjectQueryPort projectQueryPort;
 
+    @Mock
+    private MeetingQueryPort meetingQueryPort;
+
     private ActionService actionService() {
-        return new ActionService(actionRepository, actionReferenceRepository, projectQueryPort);
+        return new ActionService(actionRepository, actionReferenceRepository, projectQueryPort, meetingQueryPort);
     }
 
     @Test
@@ -345,6 +350,7 @@ class ActionServiceTest {
     @Test
     void getActionsByMeetingReturnsMixedTeamAndPersonalActionsWithSeparateDisplayFields() {
         ActionService service = actionService();
+        when(meetingQueryPort.findMeeting(COMPANY, 200L)).thenReturn(java.util.Optional.of(meetingHistory(200L)));
         Action teamAction = teamAction(1L, COMPANY, PROJECT, 7L, 200L, ActionStatus.TODO);
         Action personalAction = personalAction(2L, COMPANY, PROJECT, null, 200L, null, ActionStatus.TODO, 5L);
         when(actionRepository.findAllByCompanyIdAndSourceMeetingId(COMPANY, 200L))
@@ -368,11 +374,30 @@ class ActionServiceTest {
     @Test
     void getActionsByMeetingReturnsEmptyListWithoutQueryingReferencesWhenMeetingHasNoActions() {
         ActionService service = actionService();
+        when(meetingQueryPort.findMeeting(COMPANY, 200L)).thenReturn(java.util.Optional.of(meetingHistory(200L)));
         when(actionRepository.findAllByCompanyIdAndSourceMeetingId(COMPANY, 200L)).thenReturn(List.of());
 
         assertThat(service.getActionsByMeeting(COMPANY, 200L)).isEmpty();
         verify(actionReferenceRepository, never()).findMemberReferences(anyList());
         verify(actionReferenceRepository, never()).findTeamReferences(anyList());
+    }
+
+    @Test
+    void getActionsByMeetingThrowsWhenMeetingDoesNotBelongToCallerCompany() {
+        // 다른 회사 회의·존재하지 않는 회의를 "액션 없음"과 구분해야 한다(코드래빗 지적, PR #229).
+        ActionService service = actionService();
+        when(meetingQueryPort.findMeeting(COMPANY, 999L)).thenReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> service.getActionsByMeeting(COMPANY, 999L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_MEETING_NOT_FOUND);
+
+        verify(actionRepository, never()).findAllByCompanyIdAndSourceMeetingId(any(), any());
+    }
+
+    private MeetingHistoryResult meetingHistory(Long meetingId) {
+        return new MeetingHistoryResult(
+                meetingId, PROJECT, "회의 제목", null, null, null, null, null, null, List.of());
     }
 
     private Action teamAction(Long id, Long companyId, Long projectId, Long teamId,
