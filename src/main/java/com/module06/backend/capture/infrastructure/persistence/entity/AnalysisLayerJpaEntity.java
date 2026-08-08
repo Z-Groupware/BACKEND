@@ -74,6 +74,16 @@ public class AnalysisLayerJpaEntity {
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
+    /*
+     * 이 계층을 잡은 실행이 마지막으로 살아 있던 시각(V5.18 · #177).
+     *
+     * started_at 과 나뉘어야 하는 이유 — started_at 은 잠근 순간에 고정되므로 "오래 걸리는
+     * 계층"과 "죽은 계층"을 구분하지 못한다. L5 는 tuple 수에 비례해 길어져서 어떤 고정 유예를
+     * 잡아도 살아 있는 실행을 죽었다고 판정할 수 있고, 그러면 같은 회의를 두 번 태운다.
+     */
+    @Column(name = "heartbeat_at")
+    private LocalDateTime heartbeatAt;
+
     @Column(name = "finished_at")
     private LocalDateTime finishedAt;
 
@@ -84,7 +94,23 @@ public class AnalysisLayerJpaEntity {
         entity.status = LayerStatus.RUNNING;
         entity.attemptCount = 1;
         entity.startedAt = now;
+        entity.heartbeatAt = now;
         return entity;
+    }
+
+    /* 아직 살아 있다고 알린다. 모델 호출이 돌아올 때마다 찍힌다(#177). */
+    public void touch(LocalDateTime now) {
+        this.heartbeatAt = now;
+    }
+
+    /*
+     * 이 계층이 마지막으로 살아 있던 시각. 회수 판정의 기준이다.
+     *
+     * heartbeat 가 없으면 started_at 을 본다 — V5.18 이전부터 RUNNING 이던 행이 그 모양이고,
+     * 그 행들이 정확히 이 이슈가 말하는 갇힌 회의다. null 로 두면 그것만 영원히 회수되지 않는다.
+     */
+    public LocalDateTime lastAliveAt() {
+        return heartbeatAt != null ? heartbeatAt : startedAt;
     }
 
     /*
@@ -104,6 +130,9 @@ public class AnalysisLayerJpaEntity {
         this.status = LayerStatus.RUNNING;
         this.attemptCount += 1;
         this.startedAt = now;
+        // 새 실행이 잡았으므로 살아 있는 시각도 지금이다. 이전 실행의 값을 남겨 두면
+        // 방금 잡은 계층이 곧바로 "멈춘 것"으로 판정된다.
+        this.heartbeatAt = now;
         this.finishedAt = null;
         this.errorCode = null;
         this.errorMessage = null;

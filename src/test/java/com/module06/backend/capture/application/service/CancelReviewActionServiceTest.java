@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.application.port.out.ReviewActionDeletePort;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort.ReviewAction;
@@ -79,7 +80,7 @@ class CancelReviewActionServiceTest {
 
     private ActionReviewQueryPort query(boolean manual) {
         return new StubQueryPort(new ActionReviewQueryPort.ReviewTarget(
-                ACTION, 42L, LocalDate.of(2026, 8, 8), "결제 실패 케이스 정리",
+                ACTION, ActionType.PERSONAL, 42L, LocalDate.of(2026, 8, 8), "결제 실패 케이스 정리",
                 manual, manual ? "HUMAN_CONFIRMED" : "PENDING", null, null, null, null));
     }
 

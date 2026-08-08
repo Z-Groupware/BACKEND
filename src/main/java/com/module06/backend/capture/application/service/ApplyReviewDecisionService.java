@@ -15,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionReviewApplyPort;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort.AiValue;
@@ -45,6 +46,12 @@ import com.module06.backend.global.exception.BusinessException;
  * **{AI 입력 → 사람이 인정한 정답} 한 쌍**이다. 그게 특화 모델의 유일한 연료이고, 지나간
  * 회의는 다시 만들 수 없다(V5.9 주석). 그래서 CONFIRM 도 기록한다 — 맞힌 것을 안 남기면
  * 라벨셋에 오답만 쌓여 분포가 왜곡된다.
+ *
+ * <h2>담당자 없는 액션은 여기서 채워야 확정된다</h2>
+ * AI 분배는 담당자 미정을 허용한다(2026-08-07 합의) — 담당자가 안 정해진 할 일이 검토 화면에서
+ * 통째로 사라지지 않게 하기 위해서다. 그 대신 **채우는 자리가 여기**이고, 안 채운 채로 확정되면
+ * 담당자 null 이 정답 라벨로 학습되고 RVW-05 에서도 조용히 빠진다. 그래서 막는다
+ * ({@link #requireAssigneeForConfirm}).
  *
  * <h2>회사 스코프를 두 겹으로 지난다</h2>
  * MeetingAccessGuard 가 회의를, 조회가 actionId 를 본다. 관문은 회의까지만 보므로 회의는 내
@@ -84,6 +91,7 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         List<AiLayerPort.Participant> roster = meetingParticipantProvider.participantsOf(command.meetingId());
 
         Long assignee = requireInRoster(command, roster);
+        requireAssigneeForConfirm(command, target, assignee);
         String reviewStatus = command.decision() == ReviewDecision.REJECT
                 ? STATUS_REJECTED
                 : STATUS_HUMAN_CONFIRMED;
@@ -157,6 +165,33 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
             throw new BusinessException(CaptureErrorCode.REVIEW_ASSIGNEE_NOT_IN_ROSTER);
         }
         return assignee;
+    }
+
+    /*
+     * 확정(CONFIRM·MODIFY)은 담당자가 정해진 뒤에만 지나간다.
+     *
+     * 담당자 미정인 액션이 여기까지 오는 것은 정상이다 — AI 분배 경로가 그 상태를 허용하고
+     * (2026-08-07 합의 · ActionTypeShapePolicy#checkDistribution), **채우는 자리가 이 화면**이다.
+     * 막는 것은 "안 채운 채로 확정되는 것"뿐이다.
+     *
+     * 이번 요청의 담당자를 먼저 보고, 없으면 액션의 현재 값을 본다. 순서가 반대면 담당자를
+     * 채워 보낸 MODIFY 가 액션의 옛 값(null)때문에 거절된다 — applyHumanReview 가 값을 반영하는
+     * 순서와 같게 맞춘 것이다.
+     *
+     * ⚠ 반려는 대상이 아니다. 반려는 값을 고치지 않고 상태만 바꾸며, 담당자를 못 정해서 버리는
+     * 액션이 정확히 반려로 가는 길이다 — 여기서 막으면 그 길이 닫힌다.
+     *
+     * ⚠ TEAM 액션도 대상이 아니다. 담당자 개념이 없으므로(ActionTypeShapePolicy) 함께 막으면
+     * 팀 액션은 영원히 확정되지 않는다. actionType 을 읽지 못한 경우(null)는 면제하지 않는다 —
+     * 게이트는 조이는 방향으로만 쓴다.
+     */
+    private void requireAssigneeForConfirm(ReviewDecisionCommand command, ReviewTarget target, Long assignee) {
+        if (command.decision() == ReviewDecision.REJECT || target.actionType() == ActionType.TEAM) {
+            return;
+        }
+        if (assignee == null && target.assigneeMemberId() == null) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_ASSIGNEE_REQUIRED);
+        }
     }
 
     /*

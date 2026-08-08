@@ -92,6 +92,10 @@ import com.module06.backend.metering.application.port.in.RecordTokenUsagePort;
  * 성립한다 — 실패한 계층부터 이어서 돌리려면 앞 계층이 DONE 으로 남아 있어야 하고,
  * 잠금이 회의 단위면 "어디까지 됐는지"가 사라져 처음부터 다시 돌게 된다. 그만큼 재과금이다.
  *
+ * ⚠ 잠금은 "돌고 있는가"만 말하지 **잠근 쪽이 살아 있는가**를 말하지 않는다. 배포나 크래시로
+ * 실행이 끊기면 RUNNING 이 그대로 남아 그 회의가 영원히 분석되지 않았다(#177). 그래서 계층이
+ * 한 걸음 나아갈 때마다 심장을 찍고({@link #heartbeat}), 멈춘 잠금만 다음 실행이 회수한다.
+ *
  * <h2>실패를 삼키지 않는다</h2>
  * 계층이 실패하면 그 계층을 FAILED 로 남기고 **거기서 멈춘다.** 다음 계층으로 넘어가면
  * 입력이 빈 채로 도는데, 그 결과는 "산출물 없음"이 되어 품질 문제로 위장된다.
@@ -755,7 +759,7 @@ public class AnalysisOrchestrator {
          * 터져도 앞의 2번은 이미 과금됐다 — 그걸 0 으로 기록하면 QLTY-03 이 실제보다 싼
          * 기준선을 보여주고, 그 숫자로 특화 모델 전환의 손익분기점을 계산하게 된다.
          */
-        UsageSink sink = new UsageSink();
+        UsageSink sink = new UsageSink(() -> heartbeat(meetingId, layer));
         try {
             Accumulated<T> accumulated = call.execute(sink);
             analysisLayerRepository.markDone(meetingId, layer, accumulated.run());
@@ -776,6 +780,25 @@ public class AnalysisOrchestrator {
             analysisLayerRepository.markFailed(
                     meetingId, layer, "ORCHESTRATION_ERROR", e.toString(), sink.spent());
             return LayerOutcome.failure("ORCHESTRATION_ERROR", e.toString(), false);
+        }
+    }
+
+    /*
+     * 이 계층을 잡은 실행이 아직 살아 있다고 알린다(#177).
+     *
+     * **실패해도 계층을 세우지 않는다.** 심장 기록은 부기(簿記)이고, 그것 때문에 계층이 통째로
+     * 실패하면 잠금을 되찾으려고 만든 장치가 오히려 분석을 죽인다. 여기서 잡지 않으면 runLayer
+     * 의 catch 가 이 예외를 우리 코드의 버그(ORCHESTRATION_ERROR)로 분류하게 된다 —
+     * 그건 사실도 아니고, 그 계층이 실제로 한 일까지 함께 실패로 기록된다.
+     *
+     * 한 번 못 찍는 것의 대가는 작다. 다음 호출에서 다시 찍히고, 유예(5분)가 그 사이를 덮는다.
+     */
+    private void heartbeat(long meetingId, LayerName layer) {
+        try {
+            analysisLayerRepository.heartbeat(meetingId, layer);
+        } catch (RuntimeException e) {
+            log.warn("계층 심장 기록 실패 — 분석은 계속한다. meetingId={} layer={}",
+                    meetingId, layer.wireValue(), e);
         }
     }
 
@@ -1022,7 +1045,23 @@ public class AnalysisOrchestrator {
 
         private LayerRun spent = LayerRun.empty();
 
+        /*
+         * 모델 호출 하나가 끝날 때마다 부를 것(#177). 계층 경계에서만 심장을 찍으면 L5 처럼
+         * tuple 마다 도는 계층이 한 번의 갱신 사이에 몇 분을 보내고, 그 시간을 견디려고 유예를
+         * 늘리면 진짜 죽은 잠금이 그만큼 늦게 풀린다.
+         */
+        private final Runnable heartbeat;
+
+        private UsageSink(Runnable heartbeat) {
+            this.heartbeat = heartbeat;
+        }
+
         void add(LayerRun run) {
+            /*
+             * 심장은 토큰이 있든 없든 찍는다. sink.add 는 계층이 **한 걸음 나아갈 때마다**
+             * 불리는 유일한 자리이고, 그게 곧 "아직 살아 있다"의 뜻이다.
+             */
+            heartbeat.run();
             if (run != null) {
                 spent = spent.plus(run);
             }

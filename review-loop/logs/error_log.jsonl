@@ -58,3 +58,22 @@
 {"timestamp":"2026-08-07T09:28:17.556540","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":19,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
 {"timestamp":"2026-08-07T11:50:49.590547","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":2,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
 {"timestamp":"2026-08-08T06:06:17.135904","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-07T16:58:22.136538400","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:26.438094900","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:28.270750200","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:32.990956200","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:37.536811300","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:40.775297800","round":6,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:28:26.598957","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:28:29.918098300","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:15.361494700","round":3,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:19.501472600","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:21.806695500","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:24.512806600","round":6,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:30.674468800","round":7,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:34.140329500","round":8,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:38.393397600","round":9,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:40.703647100","round":10,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:48.724332","round":11,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:52.479322600","round":12,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:54.888167800","round":13,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}

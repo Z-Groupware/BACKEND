@@ -34,3 +34,11 @@ ai:
   internal-token: test-internal-token
   connect-timeout: 1s
   read-timeout: 5s
+
+# ── CAP-13 자막 SSE Redis pub/sub ──
+# RedisMessageListenerContainer는 빈이 뜨자마자 실제로 Redis에 연결을 시도한다(지연 연결 아님).
+# CI엔 Redis 서비스가 없어서 켜두면 cap과 무관한 도메인까지 포함해 전체 @SpringBootTest가 깨진다.
+cap:
+  captions:
+    sse:
+      enabled: false

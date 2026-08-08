@@ -121,6 +121,11 @@ class GetCaptionsServiceTest {
             public Optional<Long> findCompanyId(Long meetingId) {
                 return Optional.of(1L);
             }
+
+            @Override
+            public int countAttendees(Long meetingId) {
+                return 0;
+            }
         };
         CaptionChunkRepository captionChunkRepository = new CaptionChunkRepository() {
             @Override

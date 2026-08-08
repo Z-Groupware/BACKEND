@@ -20,4 +20,7 @@ public interface MeetingReferenceRepository {
 
     /** S3 키 경로(org-{companyId}/meeting-{meetingId}/...) 조립용. 회의가 없으면 empty. */
     Optional<Long> findCompanyId(Long meetingId);
+
+    /** 이 회의의 전체 참석자 수(CAP-13 SSE participant 이벤트의 totalCount). */
+    int countAttendees(Long meetingId);
 }

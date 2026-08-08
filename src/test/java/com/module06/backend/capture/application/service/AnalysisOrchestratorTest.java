@@ -1450,10 +1450,18 @@ class AnalysisOrchestratorTest {
             failed.put(layer, errorCode);
         }
 
+        /* 계층이 한 걸음 나아갈 때마다 찍히는 심장(#177). 몇 번 찍혔는지만 센다. */
+        private int heartbeats;
+
+        @Override
+        public void heartbeat(long meetingId, LayerName layer) {
+            heartbeats++;
+        }
+
         @Override
         public List<LayerState> findStates(long meetingId) {
             return done.stream()
-                    .map(layer -> new LayerState(layer, LayerStatus.DONE, 0, 0))
+                    .map(layer -> new LayerState(layer, LayerStatus.DONE, 0, 0, false))
                     .toList();
         }
     }
