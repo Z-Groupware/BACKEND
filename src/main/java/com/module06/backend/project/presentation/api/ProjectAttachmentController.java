@@ -1,10 +1,11 @@
 package com.module06.backend.project.presentation.api;
 
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,6 +21,7 @@ import com.module06.backend.project.presentation.api.request.ConfirmAttachmentRe
 import com.module06.backend.project.presentation.api.request.IssueUploadUrlRequest;
 import com.module06.backend.project.presentation.api.response.AttachmentResponse;
 
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -33,6 +35,11 @@ import lombok.RequiredArgsConstructor;
     - DELETE /api/projects/{projectId}/attachments/{attachmentId}  삭제
     첨부파일 목록 조회는 이 컨트롤러에 없음 — 별도 엔드포인트로 뺄지, 프로젝트 상세 응답에 인라인으로
     유지할지 아직 미정(08/06 TBD, 사용자 확인 필요).
+
+    회사·요청자를 토큰에서 꺼낸다(ProjectController 와 같은 이유). 헤더(X-Company-Id·X-Member-Id)로
+    받던 것을 2026-08-08 에 바로잡았다 — 로그인만 한 사람이 남의 회사 번호를 적어 보내면 서비스의
+    회사 검증이 그대로 통과했고, 삭제는 실제 업로더의 id 를 적는 것만으로 "업로더 본인만" 규칙이
+    무력화됐다. 인증을 걸어도 막히지 않는 구멍이라 게이트가 아니라 신원의 출처를 고쳐야 한다.
 
     연결된 클래스
     - IssueAttachmentUploadUrlUseCase · ConfirmAttachmentUseCase · DeleteAttachmentUseCase : 호출 대상
@@ -49,21 +56,27 @@ public class ProjectAttachmentController {
     private final DeleteAttachmentUseCase deleteAttachmentUseCase;
 
     @PostMapping("/upload-url")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<IssuedUploadUrl> issueUploadUrl(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
             @PathVariable Long projectId,
             @Valid @RequestBody IssueUploadUrlRequest request
     ) {
         IssuedUploadUrl issuedUploadUrl = issueAttachmentUploadUrlUseCase.issueUploadUrl(
-                new IssueAttachmentUploadUrlCommand(request.fileName(), request.fileSize())
+                new IssueAttachmentUploadUrlCommand(companyId, projectId, request.fileName(), request.fileSize())
         );
 
         return ApiResponse.success("업로드 URL이 발급되었습니다.", issuedUploadUrl);
     }
 
     @PostMapping("/confirm")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<AttachmentResponse> confirm(
-            @RequestHeader("X-Company-Id") Long companyId,
-            @RequestHeader("X-Member-Id") Long memberId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @PathVariable Long projectId,
             @Valid @RequestBody ConfirmAttachmentRequest request
     ) {
@@ -80,12 +93,16 @@ public class ProjectAttachmentController {
     }
 
     @DeleteMapping("/{attachmentId}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<Void> delete(
-            @RequestHeader("X-Member-Id") Long memberId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @PathVariable Long projectId,
             @PathVariable Long attachmentId
     ) {
-        deleteAttachmentUseCase.delete(new DeleteAttachmentCommand(attachmentId, memberId));
+        deleteAttachmentUseCase.delete(new DeleteAttachmentCommand(companyId, projectId, attachmentId, memberId));
 
         return ApiResponse.successWithoutData("첨부파일이 삭제되었습니다.");
     }
