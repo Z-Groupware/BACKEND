@@ -1,11 +1,15 @@
 package com.module06.backend.capture.presentation.api;
 
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,12 +18,16 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.GetQualityCostUseCase;
 import com.module06.backend.capture.application.usecase.GetQualityMetricsUseCase;
 import com.module06.backend.capture.application.usecase.RegisterGoldSetUseCase;
 import com.module06.backend.capture.application.usecase.RegisterGoldSetUseCase.RegisterGoldSetCommand;
 import com.module06.backend.capture.presentation.api.request.RegisterGoldSetRequest;
 import com.module06.backend.capture.presentation.api.response.GoldSetRegisteredResponse;
+import com.module06.backend.capture.presentation.api.response.QualityCostResponse;
 import com.module06.backend.capture.presentation.api.response.QualityMetricsResponse;
+import com.module06.backend.capture.exception.CaptureErrorCode;
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 
@@ -43,6 +51,7 @@ public class QualityController {
 
     private final RegisterGoldSetUseCase registerGoldSetUseCase;
     private final GetQualityMetricsUseCase getQualityMetricsUseCase;
+    private final GetQualityCostUseCase getQualityCostUseCase;
 
     /*
      * QLTY-01 · gold set 등록.
@@ -98,5 +107,48 @@ public class QualityController {
         return ApiResponse.success(
                 "조회 성공",
                 QualityMetricsResponse.from(getQualityMetricsUseCase.getMetrics(me.getCompanyId())));
+    }
+
+    /*
+     * QLTY-03 · 비용 조회.
+     *
+     * **기준선이 없으면 특화 모델 전환의 절감 효과를 증명할 수 없다.** 상시 서빙 인스턴스 값이
+     * 회의당 호출 비용보다 비싼 구간이 넓어서, 재봤더니 전환이 무의미한 결과도 가능하다 —
+     * 그 판단을 하려면 지금 얼마인지가 먼저 있어야 한다.
+     */
+    @Operation(
+            summary = "비용 조회 (QLTY-03)",
+            description = "기간(YYYY-MM)의 계층별 토큰과 비용을 낸다. 생략하면 이번 달이다. "
+                    + "요금제가 없으면 costKrw 는 null 이다(0 이 아니다) — 0 으로 채우면 공짜로 "
+                    + "읽혀 특화 모델 전환이 언제나 이득으로 나온다. sttCostKrw 는 아직 낼 수 "
+                    + "없어 항상 null 이다(stt_block 에 요금 데이터가 없다). "
+                    + "calls 는 모델 호출 수가 아니라 계층 실행 수다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    @GetMapping("/cost")
+    public ApiResponse<QualityCostResponse> getCost(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @Parameter(description = "YYYY-MM. 생략하면 이번 달(KST)")
+            @RequestParam(required = false) String period
+    ) {
+        return ApiResponse.success(
+                "조회 성공",
+                QualityCostResponse.from(
+                        getQualityCostUseCase.getCost(me.getCompanyId(), parsePeriod(period))));
+    }
+
+    /*
+     * 형식이 틀리면 422 다. **이번 달로 대신 답하지 않는다** — 사람은 지난달을 물었는데 이번 달
+     * 숫자를 받으면 그게 어느 달인지 모른 채로 비용을 판단하게 된다.
+     */
+    private YearMonth parsePeriod(String period) {
+        if (period == null || period.isBlank()) {
+            return null;
+        }
+        try {
+            return YearMonth.parse(period);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(CaptureErrorCode.QUALITY_PERIOD_INVALID);
+        }
     }
 }

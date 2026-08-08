@@ -228,7 +228,17 @@ public enum CaptureErrorCode implements ErrorCode {
      * 얼리면 그걸로 잰 precision 이 조용히 0 이 된다. 동결은 되돌릴 수 없으므로 차라리 실패한다.
      */
     GOLD_SET_LABEL_SERIALIZATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "MEETING_500_1",
-            "정답 라벨을 저장할 수 없습니다.");
+            "정답 라벨을 저장할 수 없습니다."),
+
+    /*
+     * QLTY-03 — period 형식이 YYYY-MM 이 아니다.
+     *
+     * **이번 달로 대신 답하지 않는다.** 사람은 지난달 비용을 물었는데 이번 달 숫자를 받으면,
+     * 그게 어느 달인지 모른 채로 비용을 판단하게 된다 — 이 API 는 특화 모델 전환의 손익분기점을
+     * 계산하는 근거라 달이 어긋나면 결론이 통째로 바뀐다.
+     */
+    QUALITY_PERIOD_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_8",
+            "기간 형식이 올바르지 않습니다(YYYY-MM).");
 
     private final HttpStatus httpStatus;
     private final String code;
