@@ -159,8 +159,13 @@ class ManageMemberControllerTest {
                 Authority.MEMBER, false, MemberStatus.ACTIVE);
     }
 
+    /*
+     * 발급자는 어드민 겸직자다. authority 에 "ADMIN" 을 넣지 않는 이유가 있다 — Authority 는
+     * OWNER·LEADER·MEMBER 3값이고 어드민은 값이 아니라 isAdmin 겸직 플래그다(V2.2.3).
+     * ROLE_ADMIN 은 JwtAuthenticationFilter 가 그 플래그를 보고 따로 얹는다.
+     */
     private void authenticateAs(Long companyId) {
-        AuthPrincipal principal = new AuthPrincipal(3L, companyId, "ADMIN", true, 2L);
+        AuthPrincipal principal = new AuthPrincipal(3L, companyId, "MEMBER", true, 2L);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }
