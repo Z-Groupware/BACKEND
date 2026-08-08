@@ -2,6 +2,8 @@ package com.module06.backend.capture.infrastructure.ai;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -83,7 +85,28 @@ public class TupleVectorIndexHttpAdapter implements TupleVectorIndexPort {
             return List.of();
         }
 
+        /*
+         * 응답 행을 **검증한 뒤** 옮긴다. 세 가지를 본다.
+         *
+         *   null 행·null vectorId  변환에서 그대로 터진다
+         *   null·빈 pointId        뒤의 toMap 에서 터지거나 **"올라갔는데 포인트 id 를 모르는"
+         *                          성공**으로 기록된다 — 그 예시는 나중에 다시 올리거나 지울 수 없다
+         *   보낸 적 없는 vectorId   그 행이 **다른 예시의 성공으로 기록된다.** 이 포트의 계약이
+         *                          "실제로 올라간 것만"이므로 그 판정을 호출자에게 미루지 않는다 —
+         *                          무엇을 보냈는지 아는 것은 여기뿐이다
+         *
+         * 걸러낸 행은 응답에 없는 것과 같아진다. 워커가 실패로 세고 다음 주기에 다시 집으므로,
+         * 이상한 응답 하나가 배치를 세우지도 않고 조용히 성공으로 둔갑하지도 않는다.
+         * (CodeRabbit PR #219 · #223 지적)
+         */
+        Set<Long> submitted = items.stream()
+                .map(VectorUpsertItemDto::vectorId)
+                .collect(Collectors.toSet());
+
         return response.upserted().stream()
+                .filter(Objects::nonNull)
+                .filter(result -> result.vectorId() != null && submitted.contains(result.vectorId()))
+                .filter(result -> result.pointId() != null && !result.pointId().isBlank())
                 .map(result -> new IndexedVector(result.vectorId(), result.pointId()))
                 .toList();
     }

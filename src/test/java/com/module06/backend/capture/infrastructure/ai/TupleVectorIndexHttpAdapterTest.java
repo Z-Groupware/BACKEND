@@ -92,6 +92,37 @@ class TupleVectorIndexHttpAdapterTest {
         server.verify();
     }
 
+    @Test
+    @DisplayName("포인트 id 가 없는 응답 행은 버린다 — 성공으로 세면 다시 올리거나 지울 방법이 없다")
+    void 포인트_id가_없는_행은_버린다() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/internal/vector/upsert"))
+                .andRespond(withSuccess("""
+                        {"upserted":[
+                          {"vectorId":1,"pointId":"point-1"},
+                          {"vectorId":2,"pointId":null},
+                          {"vectorId":3,"pointId":"  "},
+                          {"vectorId":null,"pointId":"point-x"}
+                        ],"model":"gemini-embedding-001"}
+                        """, MediaType.APPLICATION_JSON));
+
+        TupleVectorIndexHttpAdapter adapter =
+                new TupleVectorIndexHttpAdapter(builder.build(), new ObjectMapper());
+
+        List<IndexedVector> indexed = adapter.upsert(List.of(
+                vector(1L, "{\"title\":\"정리\"}"),
+                vector(2L, "{\"title\":\"둘\"}"),
+                vector(3L, "{\"title\":\"셋\"}")));
+
+        /*
+         * 온전한 행만 남는다. 2·3 은 응답에 없는 것과 같아져 워커가 실패로 세고 다음 주기에
+         * 다시 집는다 — 이상한 응답 하나가 배치를 세우지도, 조용히 성공으로 둔갑하지도 않는다.
+         */
+        assertThat(indexed).extracting(IndexedVector::vectorId).containsExactly(1L);
+        server.verify();
+    }
+
     private static VectorToIndex vector(long id, String payload) {
         return new VectorToIndex(id, 7L, LayerName.L4, "서준님이 정리해주세요.",
                 payload, null, VectorProvenance.HUMAN_VERIFIED);
