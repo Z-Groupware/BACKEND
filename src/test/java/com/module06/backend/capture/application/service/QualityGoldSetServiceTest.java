@@ -187,7 +187,7 @@ class QualityGoldSetServiceTest {
                 throw new DataIntegrityViolationException("duplicate version");
             }
             frozen = command;
-            return new GoldSetView(4L, command.version(), 0, LocalDateTime.of(2026, 8, 5, 16, 0));
+            return new GoldSetView(4L, command.version(), LocalDateTime.of(2026, 8, 5, 16, 0));
         }
 
         @Override

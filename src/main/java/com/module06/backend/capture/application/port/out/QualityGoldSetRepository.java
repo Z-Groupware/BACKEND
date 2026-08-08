@@ -36,9 +36,15 @@ public interface QualityGoldSetRepository {
     }
 
     /*
-     * @param actionCount 동결된 정답 액션 수. 응답에 그대로 나간다 — 몇 건짜리 정답지인지가
-     *                    지표의 신뢰 구간을 정한다(5건짜리 precision 과 100건짜리는 다른 값이다)
+     * 동결된 결과.
+     *
+     * **액션 수를 담지 않는다.** 이 저장소는 라벨을 JSON 문자열로만 받아서 그 안에 몇 건이
+     * 들어 있는지 모른다 — 담아 두면 값을 채울 수 없어 언제나 0 이 되고, 나중에 QLTY-02 가
+     * 그 0 을 "정답 액션 수"로 읽는다. 지표의 신뢰 구간을 정하는 값이라(5건으로 잰 precision 과
+     * 100건으로 잰 것은 다른 값이다) 조용히 0 이 되면 안 된다.
+     *
+     * 액션 수는 **라벨을 만든 쪽이 소유한다**(CodeRabbit PR #244).
      */
-    record GoldSetView(long id, int version, int actionCount, LocalDateTime frozenAt) {
+    record GoldSetView(long id, int version, LocalDateTime frozenAt) {
     }
 }

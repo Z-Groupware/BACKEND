@@ -48,7 +48,7 @@ public class QualityGoldSetPersistenceAdapter implements QualityGoldSetRepositor
                 command.note(),
                 LocalDateTime.now(clock)));
 
-        return new GoldSetView(saved.getId(), saved.getVersion(), 0, saved.getFrozenAt());
+        return new GoldSetView(saved.getId(), saved.getVersion(), saved.getFrozenAt());
     }
 
     @Override
