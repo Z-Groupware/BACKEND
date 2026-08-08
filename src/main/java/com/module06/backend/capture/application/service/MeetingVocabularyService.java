@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.service;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
@@ -66,8 +67,17 @@ public class MeetingVocabularyService implements GetMeetingVocabularyUseCase, Re
                         0L, meetingId, VocabularyStatus.PENDING, 0, null, null));
     }
 
+    /*
+     * <h2>@Transactional 을 두지 않는다 — 안에서 외부 제공자를 부른다</h2>
+     * 제출은 몇 분 걸리는 작업이다. 트랜잭션으로 감싸면 그 시간만큼 DB 커넥션을 쥐고 있게 되고,
+     * 더 나쁜 것은 **제출이 성공한 뒤 커밋이 실패하는 경우**다 — 제공자에는 리소스가 만들어졌는데
+     * 그 이름이 DB 에 없어 영영 지울 수 없고, 계정 상한 한 칸이 잠긴 채로 남는다. 이 기능이
+     * 막으려던 실패 그대로다(CodeRabbit PR #241).
+     *
+     * 그래서 상태 전이(선점)·이름 기록·실패 표시는 저장소가 각자 자기 트랜잭션에서 하고,
+     * 제출은 그 사이 트랜잭션 밖에서 일어난다.
+     */
     @Override
-    @Transactional
     public VocabularyView rebuild(RebuildVocabularyCommand command) {
         meetingAccessGuard.requireAccessible(command.companyId(), command.meetingId());
         requireHost(command);
@@ -82,17 +92,33 @@ public class MeetingVocabularyService implements GetMeetingVocabularyUseCase, Re
         }
 
         /*
-         * 상태를 먼저 PENDING 으로 올린다. 제출이 몇 분 걸리는 작업이라, 그 사이 화면이 이전
-         * 상태(READY·FAILED)를 그대로 보여주면 사람이 버튼을 다시 누른다 — 그 반복이 그대로
-         * 계정 상한을 갉아먹는다.
+         * 재생성을 선점한다. 이미 만드는 중이면 **제출하지 않고** 진행 중인 상태를 그대로
+         * 돌려준다 — 겹친 요청이 각자 제출하면 같은 회의의 어휘가 두 벌 만들어져 계정 상한을
+         * 그만큼 갉아먹는다. 사용자에게는 오류가 아니다: 이미 시작된 그 작업이 답이다.
          */
-        VocabularyView view = meetingVocabularyRepository.markRebuilding(command.meetingId());
+        Optional<VocabularyView> claimed = meetingVocabularyRepository.claimRebuild(command.meetingId());
+        if (claimed.isEmpty()) {
+            log.info("커스텀 어휘 재생성 선점 실패 — 이미 진행 중이다. meetingId={}", command.meetingId());
+            return getVocabulary(command.companyId(), command.meetingId());
+        }
+        VocabularyView view = claimed.get();
 
-        String providerName = customVocabularyPort.requestBuild(
-                new BuildRequest(command.meetingId(), phrases));
-        // 제출이 성공한 뒤에 적는다 — 미리 적으면 만들어지지도 않은 이름이 남고, 정리 작업이
-        // 그 이름을 지우려다 정작 상한을 쓰는 진짜 리소스를 놓친다.
-        meetingVocabularyRepository.assignProviderName(view.id(), providerName);
+        String providerName;
+        try {
+            providerName = customVocabularyPort.requestBuild(
+                    new BuildRequest(command.meetingId(), phrases));
+        } catch (RuntimeException e) {
+            /*
+             * 제출이 실패했다. **PENDING 으로 두면 안 된다** — 선점이 PENDING 을 막으므로
+             * 사람이 다시 누를 수도 없고, 화면은 영원히 "만드는 중"으로 남는다.
+             */
+            meetingVocabularyRepository.markBuildFailed(view.id(), "VOCABULARY_BUILD_FAILED");
+            throw e;
+        }
+
+        // 제출이 성공한 뒤에 적는다. **대기 칸에** 적는다 — 활성 이름을 덮으면 아직 쓰이고 있는
+        // 이전 리소스를 영영 못 지운다.
+        meetingVocabularyRepository.assignPendingName(view.id(), providerName);
 
         log.info("커스텀 어휘 재생성 접수 — meetingId={} 단어={}개 resource={}",
                 command.meetingId(), phrases.size(), providerName);

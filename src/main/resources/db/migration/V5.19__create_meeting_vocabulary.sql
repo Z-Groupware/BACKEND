@@ -15,6 +15,12 @@
 --   ② 참조 — STT 제출 때 이 이름을 실어 보낸다. 이름을 매번 규칙으로 다시 만들면
 --      규칙이 바뀌는 순간 예전 회의의 어휘를 못 찾는다.
 --
+-- 활성 이름과 대기 이름을 나눠 둔다(pending_vocabulary_name).
+--   재생성이 도는 동안 제공자에는 **이전 어휘가 그대로 살아 있고 실제로 쓰인다.** 새 이름을
+--   활성 칸에 곧바로 덮으면 이전 리소스 이름이 사라져 그것만 영영 못 지운다 — 재생성을
+--   반복할수록 지울 수 없는 리소스가 쌓여 계정 상한이 누수된다. 새 어휘가 READY 로 확인된
+--   뒤에 활성으로 승격하고 이전 것을 지우는 것이 맞는 순서다(승격은 후속).
+--
 -- UNIQUE(meeting_id) : 회의당 하나다. 재생성은 새 행이 아니라 같은 행을 갱신한다 —
 -- 여러 행이 생기면 어느 것이 지금 리소스인지 알 수 없고, 정리에서 빠진 이름이 상한을
 -- 갉아먹는다.
@@ -26,6 +32,7 @@ CREATE TABLE `meeting_vocabulary` (
     `status`                   ENUM('PENDING', 'READY', 'FAILED') NOT NULL DEFAULT 'PENDING',
     `phrase_count`             INT          NOT NULL DEFAULT 0 COMMENT '마지막으로 성공한 생성의 단어 수',
     `provider_vocabulary_name` VARCHAR(200) NULL COMMENT '계정 내 유일. 삭제와 STT 제출에 모두 필요하다',
+    `pending_vocabulary_name`  VARCHAR(200) NULL COMMENT '재생성 중인 리소스. READY 확인 후 활성으로 승격(후속). 활성 이름을 덮으면 이전 리소스를 영영 못 지운다',
     `error_code`               VARCHAR(50)  NULL COMMENT '사용자에게 그대로 노출하지 않는다',
     `built_at`                 DATETIME     NULL COMMENT '마지막으로 성공한 생성 시각. 재생성 중에도 남는다',
     `deleted_at`               DATETIME     NULL COMMENT '제공자 리소스를 정리한 시각. NULL 이면 아직 계정 상한을 쓰고 있다',

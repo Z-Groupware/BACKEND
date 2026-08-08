@@ -68,6 +68,35 @@ class MeetingVocabularyServiceTest {
     }
 
     @Test
+    @DisplayName("이미 재생성 중이면 제공자를 다시 부르지 않는다 — 어휘가 두 벌 만들어져 상한을 갉아먹는다")
+    void 이미_재생성_중이면_제출하지_않는다() {
+        FakeVocabularyRepository vocabularies = new FakeVocabularyRepository();
+        vocabularies.alreadyRebuilding = true;
+        RecordingVocabularyPort provider = new RecordingVocabularyPort();
+
+        service(vocabularies, provider).rebuild(new RebuildVocabularyCommand(COMPANY, MEETING, HOST));
+
+        // 오류가 아니다 — 이미 시작된 그 작업이 답이다. 다만 제출을 또 하면 안 된다.
+        assertThat(provider.built).isEmpty();
+    }
+
+    @Test
+    @DisplayName("제출이 실패하면 FAILED 로 남긴다 — PENDING 이면 선점에 막혀 다시 누를 수도 없다")
+    void 제출이_실패하면_FAILED로_남긴다() {
+        FakeVocabularyRepository vocabularies = new FakeVocabularyRepository();
+        RecordingVocabularyPort provider = new RecordingVocabularyPort();
+        provider.failing = true;
+
+        assertThatThrownBy(() -> service(vocabularies, provider)
+                .rebuild(new RebuildVocabularyCommand(COMPANY, MEETING, HOST)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(vocabularies.failedCode).isEqualTo("VOCABULARY_BUILD_FAILED");
+        // 만들어지지도 않은 이름을 적어 두면 정리 작업이 없는 리소스를 찾는다.
+        assertThat(vocabularies.assignedName).isNull();
+    }
+
+    @Test
     @DisplayName("넣을 참석자가 없으면 409 — 빈 어휘가 계정 상한을 하나 차지한다")
     void 참석자가_없으면_거절한다() {
         RecordingVocabularyPort provider = new RecordingVocabularyPort();
@@ -143,6 +172,9 @@ class MeetingVocabularyServiceTest {
 
         private boolean queried;
         private String assignedName;
+        private String failedCode;
+        /* 이미 재생성 중인 상태를 흉내낸다 — 선점에 실패하는 쪽. */
+        private boolean alreadyRebuilding;
 
         @Override
         public Optional<VocabularyView> findByMeeting(long meetingId) {
@@ -151,23 +183,36 @@ class MeetingVocabularyServiceTest {
         }
 
         @Override
-        public VocabularyView markRebuilding(long meetingId) {
-            return new VocabularyView(1L, meetingId, VocabularyStatus.PENDING, 0, null,
-                    LocalDateTime.of(2026, 8, 4, 9, 12));
+        public Optional<VocabularyView> claimRebuild(long meetingId) {
+            if (alreadyRebuilding) {
+                return Optional.empty();
+            }
+            return Optional.of(new VocabularyView(1L, meetingId, VocabularyStatus.PENDING, 0, null,
+                    LocalDateTime.of(2026, 8, 4, 9, 12)));
         }
 
         @Override
-        public void assignProviderName(long vocabularyId, String providerVocabularyName) {
-            assignedName = providerVocabularyName;
+        public void markBuildFailed(long vocabularyId, String errorCode) {
+            failedCode = errorCode;
+        }
+
+        @Override
+        public void assignPendingName(long vocabularyId, String pendingVocabularyName) {
+            assignedName = pendingVocabularyName;
         }
     }
 
     private static final class RecordingVocabularyPort implements CustomVocabularyPort {
 
         private final List<BuildRequest> built = new ArrayList<>();
+        private boolean failing;
 
         @Override
         public String requestBuild(BuildRequest request) {
+            if (failing) {
+                // 실물에서는 연결 실패·제공자 오류가 이 모양으로 온다.
+                throw new IllegalStateException("제공자에 닿지 않는다");
+            }
             built.add(request);
             return "resource-" + request.meetingId();
         }

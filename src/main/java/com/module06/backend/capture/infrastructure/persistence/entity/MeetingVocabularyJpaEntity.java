@@ -54,6 +54,19 @@ public class MeetingVocabularyJpaEntity {
     @Column(name = "provider_vocabulary_name", length = 200)
     private String providerVocabularyName;
 
+    /*
+     * 재생성 중인 리소스 이름.
+     *
+     * **활성 이름을 덮지 않는 이유** — 재생성이 도는 동안 제공자에는 이전 어휘가 살아 있고
+     * 실제로 그게 쓰인다. 새 이름으로 덮으면 이전 리소스 이름이 사라져 그것만 영영 못 지우고,
+     * 재생성을 반복할수록 지울 수 없는 리소스가 쌓여 **계정 상한이 누수된다**(CodeRabbit PR #241).
+     *
+     * 승격(READY 확인 후 활성으로 옮기고 이전 것을 삭제)은 후속이다 — 완료 확인 경로가 아직 없다.
+     * 그때까지도 두 이름이 다 남아 있어 **정리 작업이 둘 다 지울 수 있다.**
+     */
+    @Column(name = "pending_vocabulary_name", length = 200)
+    private String pendingVocabularyName;
+
     @Column(name = "error_code", length = 50)
     private String errorCode;
 
@@ -73,20 +86,42 @@ public class MeetingVocabularyJpaEntity {
     }
 
     /*
-     * 재생성을 접수한다.
+     * 재생성을 **선점한다.** 이미 PENDING 이면 false 다.
+     *
+     * 선점이 필요한 이유 — 같은 회의에 재생성 요청이 겹치면 둘 다 제공자를 불러 **어휘 리소스가
+     * 중복 생성되고 계정 상한을 그만큼 갉아먹는다**(CodeRabbit PR #241). 이긴 요청만 제출하고
+     * 진 요청은 진행 중인 작업을 그대로 돌려준다.
      *
      * 이전 실패 흔적(errorCode)은 지운다 — 남겨 두면 지금 만드는 중인데도 화면이 지난 실패를
      * 이번 것으로 보여준다. 반대로 phraseCount·builtAt 은 **그대로 둔다**(클래스 주석).
      */
-    public void markRebuilding() {
+    public boolean claimRebuild() {
+        if (this.status == VocabularyStatus.PENDING && this.id != null) {
+            return false;
+        }
         this.status = VocabularyStatus.PENDING;
         this.errorCode = null;
+        this.pendingVocabularyName = null;
         // 새 리소스를 만들기 시작했으므로 이전 것을 지운 적은 없다.
         this.deletedAt = null;
+        return true;
     }
 
-    /* 제공자에 제출한 리소스 이름을 적어 둔다. 이 값이 없으면 나중에 지울 수 없다. */
-    public void assignProviderName(String providerVocabularyName) {
-        this.providerVocabularyName = providerVocabularyName;
+    /*
+     * 제출한 리소스 이름을 **대기 칸에** 적는다. 활성 이름은 건드리지 않는다 — 그 리소스가
+     * 아직 쓰이고 있고, 덮으면 지울 방법이 사라진다.
+     */
+    public void assignPendingName(String pendingVocabularyName) {
+        this.pendingVocabularyName = pendingVocabularyName;
+    }
+
+    /*
+     * 제출이 실패했다. **PENDING 으로 두지 않는다** — 그러면 화면이 영원히 "만드는 중"으로
+     * 보여주고 사람이 다시 누를 수도 없다(선점이 PENDING 을 막는다).
+     */
+    public void markBuildFailed(String errorCode) {
+        this.status = VocabularyStatus.FAILED;
+        this.errorCode = errorCode;
+        this.pendingVocabularyName = null;
     }
 }

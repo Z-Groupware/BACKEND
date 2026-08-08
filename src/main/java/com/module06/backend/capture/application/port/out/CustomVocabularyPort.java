@@ -32,8 +32,10 @@ public interface CustomVocabularyPort {
     void delete(String providerVocabularyName);
 
     /*
-     * @param phrases 참석자 이름 + 프로젝트 태그. **이 목록이 곧 인식률이다** — 비어 있으면
-     *                만들 이유가 없다
+     * @param phrases 어휘에 넣을 단어. **이 목록이 곧 인식률이다** — 비어 있으면 만들 이유가 없다.
+     *                지금은 **참석자 이름뿐**이다. 명세의 프로젝트 태그는 프로젝트 이름을 읽는
+     *                포트가 생긴 뒤에 붙는다(MeetingProjectProvider 는 id 만 준다) — 여기 적어
+     *                두면 구현이 없는 값을 지어내 제공자에 보내게 된다(CodeRabbit PR #241)
      */
     record BuildRequest(long meetingId, java.util.List<String> phrases) {
     }
