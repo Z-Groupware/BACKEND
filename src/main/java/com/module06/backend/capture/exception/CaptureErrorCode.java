@@ -138,7 +138,31 @@ public enum CaptureErrorCode implements ErrorCode {
      * 할 일이 그 모양이고, 명세의 요청 예시도 evidenceTranscriptId 가 null 이다.
      */
     REVIEW_EVIDENCE_NOT_IN_MEETING(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_6",
-            "이 회의의 발화가 아닙니다.");
+            "이 회의의 발화가 아닙니다."),
+
+    /*
+     * RVW-02 — 담당자 없는 PERSONAL 액션을 확정하려 했다.
+     *
+     * AI 분배 경로는 담당자 미정을 허용한다(2026-08-07 합의 · ActionTypeShapePolicy#checkDistribution).
+     * 회의에서 담당자가 정해지지 않은 할 일이 검토 화면에서 통째로 사라지지 않게 하기 위해서이고,
+     * **채우는 자리가 이 검토 화면**이다. 그래서 담당자를 안 채운 채로 지나가는 것을 여기서 막는다.
+     *
+     * 왜 막아야 하나 — 두 가지가 함께 망가진다.
+     *   ① 라벨   확정은 review_log 에 {AI 입력 → 사람이 인정한 정답} 으로 남고 few-shot 예시로도
+     *            예약된다. 담당자 null 을 정답으로 적으면 **담당자를 비우는 것이 정답이라고 AI 에게
+     *            가르친다**(명단 밖 담당자를 422 로 막는 것과 같은 이유다).
+     *   ② 분배   RVW-05 는 담당자 없는 액션을 NO_ASSIGNEE 로 남기고 내보내지 않는데, 그 관문은
+     *            미검토(PENDING)만 보므로 **확정까지 끝난 이 액션은 강행 없이 조용히 빠진다.**
+     *            사람은 검토를 마쳤다고 생각하는데 그 할 일은 아무의 보드에도 가지 않는다.
+     *
+     * TEAM 액션은 대상이 아니다 — 담당자 개념 자체가 없다(ActionTypeShapePolicy). 함께 막으면
+     * 팀 액션은 영원히 확정되지 않는다.
+     *
+     * 무수정 승인(CONFIRM)에는 담당자를 실을 수 없으므로(MEETING_422_4) 담당자를 정해 수정(MODIFY)으로
+     * 다시 보내야 한다. 메시지가 그 다음 행동을 가리켜야 사람이 화면에서 막힌 채로 남지 않는다.
+     */
+    REVIEW_ASSIGNEE_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_7",
+            "담당자 없이 확정할 수 없습니다. 담당자를 지정해 수정으로 보내주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;
