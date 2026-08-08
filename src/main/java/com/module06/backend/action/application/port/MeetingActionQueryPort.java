@@ -21,10 +21,18 @@ public interface MeetingActionQueryPort {
 
     // 마이페이지 확정 대기 목록용 배치 조회 — 아직 분배되지 않은 액션이 남은 회의만 반환.
     // companyId 또는 sourceMeetingIds가 null이거나 비면 조회 없이 List.of().
-    // sourceMeetingIds 최대 200건(D의 MEETING_ID_BATCH_SIZE와 동일). 초과분은 C가 분할 조회한다.
+    //
+    // 크기 제한 없음 — 호출자가 몇 건을 보내든 그대로 받는다. 배치 청킹은 이 구현체(내부적으로
+    // 200건씩) 관심사이지 계약이 아니다 — 호출자가 크기를 맞춰 보낼 필요가 없다(2026-08-08,
+    // 모성진 확인 후 정리 — 이전 "sourceMeetingIds 최대 200건" 서술은 착오였다).
+    //
+    // 반환값은 undispatchedCount >= 1인 회의만 담는다 — groupingBy(counting())로 만들어서
+    // 매칭되는 행이 하나도 없는 meetingId는 애초에 키로 생기지 않는다. count=0인 항목은 절대
+    // 안 나오므로 호출자가 방어적으로 걸러낼 필요 없다.
     List<MeetingUndispatchedActions> findMeetingsWithUndispatchedActions(
             Long companyId, List<Long> sourceMeetingIds);
 
+    // undispatchedCount는 항상 1 이상이다(위 계약 참고).
     record MeetingUndispatchedActions(Long sourceMeetingId, long undispatchedCount) {
     }
 }
