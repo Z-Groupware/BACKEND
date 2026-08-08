@@ -198,34 +198,6 @@ class PendingActionMeetingQueryServiceTest {
                 .containsExactly(13L);
     }
 
-    /* 대기 건수가 0 이하인 회의는 목록에서 제외되는지 검증한다. */
-    @Test
-    @DisplayName("분배 대기 건수가 0인 회의는 제외한다")
-    void excludesMeetingWithZeroCount() {
-        /* 액션 도메인이 건수 0으로 반환한 회의를 포함한 상황을 준비한다. */
-        PendingActionMeetingQueryService service = new PendingActionMeetingQueryService(
-                new RecordingPendingActionMeetingRepository(List.of(
-                        candidate(13L, 12L, "대기 있음", LocalDateTime.of(2026, 8, 7, 14, 0)),
-                        candidate(11L, 12L, "대기 없음", LocalDateTime.of(2026, 8, 6, 14, 0))
-                )),
-                new RecordingActionQueryPort(List.of(
-                        new ActionQueryPort.UndispatchedActionMeeting(13L, 1L),
-                        new ActionQueryPort.UndispatchedActionMeeting(11L, 0L)
-                )),
-                projectPort()
-        );
-
-        /* 확정 대기 목록을 조회한다. */
-        PendingActionMeetingListResult result = service.getPendingActionMeetings(
-                new GetPendingActionMeetingsQuery(10L, 3L)
-        );
-
-        /* 건수가 0인 회의는 처리할 일이 없으므로 목록에서 빠져야 한다. */
-        assertThat(result.meetings())
-                .extracting(PendingActionMeetingListResult.MeetingItem::meetingId)
-                .containsExactly(13L);
-    }
-
     /* 인증 식별자가 없으면 저장소 조회 전에 거절하는지 검증한다. */
     @Test
     @DisplayName("인증 식별자가 없으면 Z-001로 거절한다")

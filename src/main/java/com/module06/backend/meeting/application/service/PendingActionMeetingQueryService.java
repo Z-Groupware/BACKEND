@@ -119,16 +119,20 @@ public class PendingActionMeetingQueryService implements GetPendingActionMeeting
      * 호출자가 목록을 잘라 보내지 않는다. 배치 크기는 데이터를 소유한 액션 도메인의 관심사이며,
      * 실제로 액션 어댑터가 중복 제거 후 내부에서 분할한다. 호출자가 먼저 자르면 그 중복 제거가
      * 조각 안에서만 동작해 같은 회의가 두 조각에서 각각 집계될 수 있다.
+     *
+     * 반환 항목의 건수는 액션 도메인 계약이 1 이상을 보장한다(집계 키가 생기려면 행이 있어야 한다).
+     * 그래서 0 이하를 걸러내지 않는다 — 여기서 다시 거르면 계약을 믿지 않는다는 뜻이 되고,
+     * 나중에 계약이 바뀌어도 이 방어가 그 사실을 조용히 덮는다.
      */
     private Map<Long, Long> findUndispatchedCounts(Long companyId, List<Long> meetingIds) {
         /* 회의별 반복 호출도, 크기 기준 분할도 없이 후보 전체를 한 번에 묻는다. */
         List<UndispatchedActionMeeting> undispatchedMeetings =
                 actionQueryPort.findMeetingsWithUndispatchedActions(companyId, meetingIds);
 
-        /* 분배 대기 건수가 0 이하인 회의는 목록에 남길 이유가 없으므로 제외한다. */
+        /* 건수는 계약이 1 이상을 보장하므로 걸러내지 않고, 식별자 유무만 확인해 맵으로 만든다. */
         Map<Long, Long> counts = new LinkedHashMap<>();
         for (UndispatchedActionMeeting meeting : undispatchedMeetings) {
-            if (meeting.meetingId() != null && meeting.undispatchedCount() > 0L) {
+            if (meeting.meetingId() != null) {
                 counts.put(meeting.meetingId(), meeting.undispatchedCount());
             }
         }
