@@ -47,4 +47,7 @@ public interface ActionRepository {
 
     // FR-AC-08 — 팀 액션 타임라인. 이 팀 액션(parentActionId) 아래 걸린, 같은 회사 소속 PERSONAL 액션 전체.
     List<Action> findAllByParentActionId(Long companyId, Long parentActionId);
+
+    // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL이 actionType으로 섞여 나온다(회의 상세 화면 전용).
+    List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
 }

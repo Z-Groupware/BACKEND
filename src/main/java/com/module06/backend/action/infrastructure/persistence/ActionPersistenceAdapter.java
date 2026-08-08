@@ -4,11 +4,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.action.application.port.ActionQueryPort;
+import com.module06.backend.action.application.port.MeetingActionQueryPort;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionRepository;
@@ -30,8 +33,13 @@ import lombok.RequiredArgsConstructor;
     바꿨다 — 완료된 프로젝트 제외, 팀장 소속 판별을 이 어댑터가 자바 레벨에서 처리한다
     (2026-08-06).
 
+    MeetingActionQueryPort는 meeting(D)이 부르는 인바운드 포트다(2026-08-08). 마이페이지
+    확정 대기 목록 배치조회는 D의 MEETING_ID_BATCH_SIZE(200)에 맞춰 청킹하고, COUNT GROUP BY가
+    Gate 1에 막혀 프로젝션으로 행을 읽어 자바에서 집계한다.
+
     연결된 클래스
     - ActionRepository                        : 구현하는 도메인 계약
+    - MeetingActionQueryPort                  : 구현하는 인바운드 포트 (meeting(D) 호출)
     - SpringDataActionRepository               : action 조회 위임 대상
     - SpringDataProjectReferenceRepository     : 완료된 프로젝트 제외 필터용
     - SpringDataActionTeamReferenceRepository  : 팀장 소속 팀 조회용
@@ -40,7 +48,10 @@ import lombok.RequiredArgsConstructor;
 */
 @Component
 @RequiredArgsConstructor
-public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPort {
+public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPort, MeetingActionQueryPort {
+
+    // D(meeting)의 MEETING_ID_BATCH_SIZE와 동일 — IN 절 크기를 맞춰 청킹한다.
+    private static final int MEETING_ID_BATCH_SIZE = 200;
 
     private final SpringDataActionRepository springDataActionRepository;
     private final SpringDataProjectReferenceRepository springDataProjectReferenceRepository;
@@ -149,6 +160,14 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL 조건 없이 그대로 옮겨 담는다.
+    @Override
+    public List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId) {
+        return springDataActionRepository.findAllByCompanyIdAndSourceMeetingId(companyId, sourceMeetingId).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     @Override
     public List<TeamActionSummary> findTeamActionsByProjectId(Long projectId) {
         List<ActionJpaEntity> teamActions =
@@ -171,6 +190,41 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                         entity.getStatus(),
                         entity.getDueDate()
                 ))
+                .toList();
+    }
+
+    // MEET-01 회의 예약 시 relatedActionId 검증용 — 단순 위임.
+    @Override
+    public boolean existsAction(Long companyId, Long actionId) {
+        return springDataActionRepository.existsByCompanyIdAndId(companyId, actionId);
+    }
+
+    // 마이페이지 확정 대기 목록 — 200건씩 청킹해 조회하고 회의별로 미분배 건수를 집계한다.
+    @Override
+    public List<MeetingUndispatchedActions> findMeetingsWithUndispatchedActions(
+            Long companyId, List<Long> sourceMeetingIds) {
+        if (companyId == null || sourceMeetingIds == null || sourceMeetingIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 입력에 중복 meetingId가 있으면 서로 다른 청크에 나뉘어 들어갈 수 있고, 그러면 같은
+        // 회의의 실제 DB 행이 두 청크의 쿼리에서 각각 조회돼 집계에서 두 번 세어진다(코드래빗
+        // 지적, PR #229). distinct()로 청킹 전에 제거한다.
+        return chunk(sourceMeetingIds.stream().distinct().toList(), MEETING_ID_BATCH_SIZE).stream()
+                .flatMap(chunk -> springDataActionRepository
+                        .findAllByCompanyIdAndSourceMeetingIdInAndDispatchedAtIsNullAndReviewStatusNot(
+                                companyId, chunk, ActionReviewStatus.REJECTED)
+                        .stream())
+                .collect(Collectors.groupingBy(
+                        SpringDataActionRepository.UndispatchedProjection::getSourceMeetingId, Collectors.counting()))
+                .entrySet().stream()
+                .map(entry -> new MeetingUndispatchedActions(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private static List<List<Long>> chunk(List<Long> ids, int size) {
+        return IntStream.range(0, (ids.size() + size - 1) / size)
+                .mapToObj(i -> ids.subList(i * size, Math.min(ids.size(), (i + 1) * size)))
                 .toList();
     }
 
