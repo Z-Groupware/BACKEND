@@ -87,6 +87,9 @@ class TupleVectorIndexHttpAdapterTest {
                 new TupleVectorIndexHttpAdapter(builder.build(), new ObjectMapper());
 
         assertThat(adapter.upsert(List.of(vector(1L, "{\"title\":\"정리\"}")))).isEmpty();
+        // verify 가 없으면 요청을 아예 안 보내도 이 테스트가 통과한다 — 그러면 검증하려던
+        // "2xx 인데 본문이 빈" 경로를 지나지 않는다(CodeRabbit PR #219 지적).
+        server.verify();
     }
 
     private static VectorToIndex vector(long id, String payload) {
