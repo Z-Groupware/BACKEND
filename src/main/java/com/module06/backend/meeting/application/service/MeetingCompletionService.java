@@ -65,8 +65,9 @@ public class MeetingCompletionService implements CompleteMeetingUseCase {
             throw new BusinessException(MeetingErrorCode.MEETING_HOST_ONLY);
         }
 
-        /* 중복 분석 트리거를 막기 위해 이미 DONE인 요청은 멱등 성공이 아닌 MT-009로 거절한다. */
-        if (meeting.getStatus() == MeetingStatus.DONE) {
+        /* 완료·취소된 회의가 분석 시작 경로로 되돌아가지 않도록 MT-009로 거절한다. */
+        if (meeting.getStatus() == MeetingStatus.DONE
+                || meeting.getStatus() == MeetingStatus.CANCELED) {
             throw new BusinessException(MeetingErrorCode.MEETING_ALREADY_DONE);
         }
 

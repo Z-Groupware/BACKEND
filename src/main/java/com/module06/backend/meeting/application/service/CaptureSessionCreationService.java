@@ -83,8 +83,9 @@ public class CaptureSessionCreationService {
             throw new BusinessException(MeetingErrorCode.MEETING_NOT_STARTED);
         }
 
-        /* 종료된 회의가 새 캡처 세션으로 다시 활성화되는 상태 역행을 차단한다. */
-        if (meeting.getStatus() == MeetingStatus.DONE) {
+        /* 종료·취소된 회의가 새 캡처 세션으로 다시 활성화되는 상태 역행을 차단한다. */
+        if (meeting.getStatus() == MeetingStatus.DONE
+                || meeting.getStatus() == MeetingStatus.CANCELED) {
             throw new BusinessException(MeetingErrorCode.MEETING_ALREADY_DONE);
         }
     }
