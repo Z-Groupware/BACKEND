@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionType;
 
 /* comment.
@@ -33,4 +34,23 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
     // 조건에 넣어 조회 자체에서 보장한다(2026-08-07, CodeRabbit 지적).
     List<ActionJpaEntity> findAllByActionTypeAndCompanyIdAndParentActionId(
             ActionType actionType, Long companyId, Long parentActionId);
+
+    // 마이페이지 확정 대기 목록(MeetingActionQueryPort) — 아직 분배되지 않은(dispatched_at IS NULL)
+    // 액션이 남은 회의를 찾는다. review_status = PENDING만 보면 틀린다 — HUMAN_CONFIRMED인데
+    // 아직 분배 확정 버튼을 안 누른 액션을 놓친다(V5.17__add_dispatched_at_to_action.sql:12-17).
+    // REJECTED는 분배에서 skip되어 dispatched_at이 영원히 NULL로 남으므로 제외해야 무한 잔류를 막는다.
+    //
+    // 프로젝션인 이유: 회의당 몇 건이 미분배인지만 필요한데 엔티티를 통째로 읽으면 description
+    // (TEXT)·gate_signals(json)까지 전건 메모리에 올라온다(identity/member의
+    // SpringDataMemberRepository:41-56과 동일한 이유). 집계(COUNT GROUP BY)는 CI Gate 1
+    // Semgrep(QUERY_002)이 신규 @Query를 막아 SQL로 못 하고, 행을 읽어 자바에서 집계한다.
+    List<UndispatchedProjection> findAllByCompanyIdAndSourceMeetingIdInAndDispatchedAtIsNullAndReviewStatusNot(
+            Long companyId, List<Long> sourceMeetingIds, ActionReviewStatus excludedReviewStatus);
+
+    boolean existsByCompanyIdAndId(Long companyId, Long id);
+
+    // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다.
+    interface UndispatchedProjection {
+        Long getSourceMeetingId();
+    }
 }
