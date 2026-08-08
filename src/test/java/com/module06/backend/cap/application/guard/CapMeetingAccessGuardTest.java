@@ -58,19 +58,19 @@ class CapMeetingAccessGuardTest {
     }
 
     @Test
-    @DisplayName("참석 안 하고 owner/admin도 아니어도, 회의 프로젝트에 자기 팀이 배정돼 있으면 허용한다")
+    @DisplayName("참석 안 하고 owner/admin도 아니어도, 같은 회사이고 회의 프로젝트에 자기 팀이 배정돼 있으면 허용한다")
     void projectMemberAllowed() {
         CapMeetingAccessGuard guard = guard(false, true);
 
-        assertThat(guard.canView(MEETING_ID, viewer(7L, 2L, 9L, "MEMBER", false))).isTrue();
+        assertThat(guard.canView(MEETING_ID, viewer(7L, COMPANY_ID, 9L, "MEMBER", false))).isTrue();
     }
 
     @Test
-    @DisplayName("팀이 배정돼 있지 않으면 프로젝트 멤버로 인정하지 않는다")
+    @DisplayName("같은 회사여도 팀이 배정돼 있지 않으면 프로젝트 멤버로 인정하지 않는다")
     void unassignedTeamRejected() {
         CapMeetingAccessGuard guard = guard(false, false);
 
-        assertThat(guard.canView(MEETING_ID, viewer(7L, 2L, 9L, "MEMBER", false))).isFalse();
+        assertThat(guard.canView(MEETING_ID, viewer(7L, COMPANY_ID, 9L, "MEMBER", false))).isFalse();
     }
 
     @Test
@@ -78,7 +78,7 @@ class CapMeetingAccessGuardTest {
     void nullTeamIdRejected() {
         CapMeetingAccessGuard guard = guard(false, true);
 
-        assertThat(guard.canView(MEETING_ID, viewer(7L, 2L, null, "MEMBER", false))).isFalse();
+        assertThat(guard.canView(MEETING_ID, viewer(7L, COMPANY_ID, null, "MEMBER", false))).isFalse();
     }
 
     @Test
@@ -89,6 +89,16 @@ class CapMeetingAccessGuardTest {
             throw new AssertionError("프로젝트가 없는 회의는 프로젝트 배정 조회 자체를 하면 안 됩니다.");
         };
         CapMeetingAccessGuard guard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
+
+        assertThat(guard.canView(MEETING_ID, viewer(7L, COMPANY_ID, 9L, "MEMBER", false))).isFalse();
+    }
+
+    /* 팀이 배정돼 있어도 요청자가 다른 회사면 거절하는지 검증한다(CodeRabbit 지적 — project_team
+       조인만으로는 회사 스코프가 보장되지 않으므로, 프로젝트 멤버 분기 이전에 회사 스코프를 먼저 통과해야 한다). */
+    @Test
+    @DisplayName("팀은 배정돼 있어도 다른 회사면 거절한다(프로젝트 멤버 경로의 cross-tenant 차단)")
+    void projectMemberFromOtherCompanyRejected() {
+        CapMeetingAccessGuard guard = guard(false, true);
 
         assertThat(guard.canView(MEETING_ID, viewer(7L, 2L, 9L, "MEMBER", false))).isFalse();
     }

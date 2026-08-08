@@ -98,13 +98,14 @@ class GetCaptionsServiceTest {
         assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 2L, null, "MEMBER", true)), "CAP-010");
     }
 
-    /* 참석 안 하고 owner/admin도 아니어도, 회의 프로젝트에 자기 팀이 배정돼 있으면 조회하는지 검증한다. */
+    /* 참석 안 하고 owner/admin도 아니어도, 같은 회사이고 회의 프로젝트에 자기 팀이 배정돼 있으면
+       조회하는지 검증한다. 회의는 회사 1 소속이므로 요청자도 회사 1이어야 한다. */
     @Test
-    @DisplayName("프로젝트 멤버는 참석 안 해도 조회한다")
+    @DisplayName("같은 회사 프로젝트 멤버는 참석 안 해도 조회한다")
     void projectMemberGetsCaptions() {
         GetCaptionsService service = service(true, false, List.of(), List.of(9L));
 
-        GetCaptionsUseCase.Result result = service.getCaptions(500L, new Requester(7L, 2L, 9L, "MEMBER", false));
+        GetCaptionsUseCase.Result result = service.getCaptions(500L, new Requester(7L, 1L, 9L, "MEMBER", false));
 
         assertThat(result.captions()).isEmpty();
     }
@@ -115,7 +116,17 @@ class GetCaptionsServiceTest {
     void rejectsUnassignedTeam() {
         GetCaptionsService service = service(true, false, List.of(), List.of(9L));
 
-        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 2L, 99L, "MEMBER", false)), "CAP-010");
+        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 1L, 99L, "MEMBER", false)), "CAP-010");
+    }
+
+    /* 팀이 배정돼 있어도 요청자가 다른 회사면 거절하는지 검증한다(프로젝트 멤버 경로의 cross-tenant 차단,
+       CodeRabbit 지적 — project_team 조인만으로는 회사 스코프가 보장되지 않는다). */
+    @Test
+    @DisplayName("팀은 배정돼 있어도 다른 회사면 거절한다")
+    void rejectsProjectMemberFromOtherCompany() {
+        GetCaptionsService service = service(true, false, List.of(), List.of(9L));
+
+        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
     }
 
     // 일반 멤버 요청자(회사 지정, 팀 없음).

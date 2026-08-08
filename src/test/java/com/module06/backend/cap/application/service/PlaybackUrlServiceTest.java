@@ -89,25 +89,36 @@ class PlaybackUrlServiceTest {
         assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 2L, null, "MEMBER", true)), "CAP-010");
     }
 
-    /* 참석 안 하고 owner/admin도 아니어도, 회의 프로젝트에 자기 팀이 배정돼 있으면 발급받는지 검증한다. */
+    /* 참석 안 하고 owner/admin도 아니어도, 같은 회사이고 회의 프로젝트에 자기 팀이 배정돼 있으면
+       발급받는지 검증한다. 회의는 회사 1 소속이므로 요청자도 회사 1이어야 한다. */
     @Test
-    @DisplayName("프로젝트 멤버는 참석 안 해도 발급받는다")
+    @DisplayName("같은 회사 프로젝트 멤버는 참석 안 해도 발급받는다")
     void projectMemberGetsUrl() {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of(9L));
 
         GetPlaybackUrlUseCase.Result result =
-                service.getPlaybackUrl(500L, new Requester(7L, 2L, 9L, "MEMBER", false));
+                service.getPlaybackUrl(500L, new Requester(7L, 1L, 9L, "MEMBER", false));
 
         assertThat(result.url()).isEqualTo("https://stub/playback/" + KEY);
     }
 
-    /* 팀이 이 회의의 프로젝트에 배정돼 있지 않으면 프로젝트 멤버로 인정되지 않는지 검증한다. */
+    /* 같은 회사여도 팀이 이 회의의 프로젝트에 배정돼 있지 않으면 프로젝트 멤버로 인정되지 않는지 검증한다. */
     @Test
     @DisplayName("다른 프로젝트 팀은 거절한다")
     void rejectsUnassignedTeam() {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of(9L));
 
-        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 2L, 99L, "MEMBER", false)), "CAP-010");
+        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 1L, 99L, "MEMBER", false)), "CAP-010");
+    }
+
+    /* 팀이 배정돼 있어도 요청자가 다른 회사면 거절하는지 검증한다(프로젝트 멤버 경로의 cross-tenant 차단,
+       CodeRabbit 지적 — project_team 조인만으로는 회사 스코프가 보장되지 않는다). */
+    @Test
+    @DisplayName("팀은 배정돼 있어도 다른 회사면 거절한다")
+    void rejectsProjectMemberFromOtherCompany() {
+        PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of(9L));
+
+        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
     }
 
     /* 녹음본이 없으면 CAP-016으로 거절되는지 검증한다(권한 통과 후). */

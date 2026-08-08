@@ -11,10 +11,14 @@ import org.springframework.stereotype.Component;
 
     판정 순서:
     1. 참석자면 무조건 허용(참석자는 회의=회사 소속이 이미 보장됨).
-    2. 참석자가 아니어도 같은 회사의 owner/admin이면 허용(감독 열람).
-    3. 참석자도 아니고 owner/admin도 아니어도, 회의가 태그된 프로젝트에 자기 팀이 배정돼
-       있으면 허용(프로젝트 멤버 열람 — CAP-10/CAP-12/CAP-14에서 계속 미뤄뒀던 확대).
-    4. 전부 아니면 거부.
+    2. 참석자가 아니면, 그 뒤로는 무조건 같은 회사여야 한다(cross-tenant 차단) — 다른 회사면
+       owner/admin이든 프로젝트 멤버든 여기서 거부.
+    3. 같은 회사인 참석자 외 요청자 중 owner/admin이면 허용(감독 열람).
+    4. owner/admin도 아니면, 회의가 태그된 프로젝트에 자기 팀이 배정돼 있으면 허용(프로젝트
+       멤버 열람 — CAP-10/CAP-12/CAP-14에서 계속 미뤄뒀던 확대). team_id는 요청자 자신의
+       회사 소속 팀이지만, project_team 조인만으로는 그 프로젝트가 같은 회사 것인지 보장되지
+       않으므로(데이터 이상 시 IDOR) 2번의 회사 스코프 확인을 먼저 통과해야만 이 분기에 온다.
+    5. 전부 아니면 거부.
 */
 @Component
 public class CapMeetingAccessGuard {
@@ -32,7 +36,10 @@ public class CapMeetingAccessGuard {
         if (meetingReferenceRepository.isAttendee(meetingId, viewer.memberId())) {
             return true;
         }
-        if (viewer.isOwnerOrAdmin() && isSameCompany(meetingId, viewer.companyId())) {
+        if (!isSameCompany(meetingId, viewer.companyId())) {
+            return false;
+        }
+        if (viewer.isOwnerOrAdmin()) {
             return true;
         }
         return viewer.teamId() != null && isProjectMember(meetingId, viewer.teamId());
@@ -63,7 +70,7 @@ public class CapMeetingAccessGuard {
      */
     public boolean isSameCompany(Long meetingId, Long companyId) {
         return meetingReferenceRepository.findCompanyId(meetingId)
-                .map(companyId::equals)
+                .map(meetingCompanyId -> meetingCompanyId.equals(companyId))
                 .orElse(false);
     }
 
