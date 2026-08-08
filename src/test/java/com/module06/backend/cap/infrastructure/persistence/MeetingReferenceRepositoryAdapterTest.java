@@ -14,11 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
 
 /*
- * CAP 회의 참조 어댑터의 isHost 판정(meeting.host_member_id 비교)을 실제 JPA로 검증한다.
+ * CAP 회의 참조 어댑터의 isHost 판정(meeting.host_member_id 비교), countAttendees(CAP-13 participant
+ * 이벤트의 totalCount)를 실제 JPA로 검증한다.
  */
 @SpringBootTest
 @Transactional
@@ -30,6 +33,9 @@ class MeetingReferenceRepositoryAdapterTest {
 
     @Autowired
     private SpringDataMeetingRepository springDataMeetingRepository;
+
+    @Autowired
+    private SpringDataMeetingAttendeeRepository springDataMeetingAttendeeRepository;
 
     @BeforeEach
     void clear() {
@@ -50,5 +56,25 @@ class MeetingReferenceRepositoryAdapterTest {
         assertThat(meetingReferenceRepository.isHost(meetingId, 9L)).isFalse();
         // 존재하지 않는 회의는 false.
         assertThat(meetingReferenceRepository.isHost(999_999L, 3L)).isFalse();
+    }
+
+    /* 개설자(host)를 포함해 중복 없이 참석자 수를 세는지 검증한다(CAP-13 participant 이벤트의 totalCount). */
+    @Test
+    @DisplayName("전체 참석자 수를 센다(개설자 포함, 중복 제거)")
+    void countsAttendeesIncludingHost() {
+        // 개설자(3L) + 요청 참석자(9L, 15L). MeetingJpaEntity.from()은 meeting 행만 저장하므로
+        // (실제 저장 어댑터 MeetingPersistenceAdapter가 별도로 meeting_attendee를 함께 쓴다),
+        // 참석자 행은 여기서 직접 넣는다 — 회의실 예약 슬롯 FK 등 이 테스트와 무관한 경로는 타지 않는다.
+        Long meetingId = springDataMeetingRepository.save(MeetingJpaEntity.from(Meeting.create(
+                10L, 12L, null, 2L, 3L, "참석자 카운트 테스트 회의",
+                LocalDateTime.of(2026, 8, 6, 14, 0), LocalDateTime.of(2026, 8, 6, 15, 0),
+                false, null, List.of(9L, 15L)))).getId();
+        for (Long memberId : List.of(3L, 9L, 15L)) {
+            springDataMeetingAttendeeRepository.save(new MeetingAttendeeJpaEntity(meetingId, memberId));
+        }
+
+        assertThat(meetingReferenceRepository.countAttendees(meetingId)).isEqualTo(3);
+        // 존재하지 않는 회의는 0.
+        assertThat(meetingReferenceRepository.countAttendees(999_999L)).isZero();
     }
 }

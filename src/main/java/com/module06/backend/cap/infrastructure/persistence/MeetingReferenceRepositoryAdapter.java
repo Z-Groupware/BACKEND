@@ -43,4 +43,10 @@ public class MeetingReferenceRepositoryAdapter implements MeetingReferenceReposi
     public Optional<Long> findCompanyId(Long meetingId) {
         return springDataCapMeetingReferenceRepository.findById(meetingId).map(CapMeetingReferenceEntity::getCompanyId);
     }
+
+    // meeting_attendee 복합키의 meetingId로 카운트 — CAP-13 SSE participant 이벤트의 totalCount
+    @Override
+    public int countAttendees(Long meetingId) {
+        return springDataCapMeetingAttendeeReferenceRepository.countByIdMeetingId(meetingId);
+    }
 }
