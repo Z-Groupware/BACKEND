@@ -1,6 +1,7 @@
 package com.module06.backend.capture.application.port.out;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /*
  * quality_gold_set(V5.11) 접근 포트다. QLTY-01(등록)이 쓰고 QLTY-02(지표)가 읽는다.
@@ -23,6 +24,23 @@ public interface QualityGoldSetRepository {
 
     /* 이 회의의 마지막 버전. 없으면 0 이다 — 다음 등록이 1 번이 된다. */
     int latestVersionOf(long meetingId);
+
+    /*
+     * 회사의 표본 — 회의마다 **마지막 버전의 동결 라벨**을 준다(QLTY-02 채점용).
+     *
+     * <h2>왜 라벨 자체를 읽나 — 회의 id 만 읽으면 동결이 무의미하다</h2>
+     * 표본 회의만 고정하고 채점은 현재 review_log 로 하면, **동결 뒤에 판정을 바꾸거나 액션을
+     * 직접 추가하는 순간 과거 표본의 precision 이 달라진다.** "지난주 0.82"를 재현할 수 없게
+     * 되는데, 그게 정확히 이 표를 만든 이유다(V5.11 주석).
+     *
+     * 마지막 버전을 쓰는 이유 — 재라벨링은 앞의 라벨이 틀렸다는 뜻이라 최신이 정답이다.
+     * 옛 버전으로 잰 수치는 그 버전이 그대로 남아 있어 언제든 다시 낼 수 있다.
+     */
+    List<FrozenLabels> latestLabelsOf(long companyId);
+
+    /* @param labeledActions 동결된 정답 목록(JSON 배열 문자열). 파싱은 읽는 쪽이 한다 */
+    record FrozenLabels(long meetingId, int version, String labeledActions) {
+    }
 
     record FreezeCommand(
             long companyId,

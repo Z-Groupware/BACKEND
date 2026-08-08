@@ -1,8 +1,10 @@
 package com.module06.backend.capture.infrastructure.persistence.adapter;
 
 import java.time.Clock;
+import java.util.List;
 import java.time.LocalDateTime;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +24,22 @@ import com.module06.backend.capture.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class QualityGoldSetPersistenceAdapter implements QualityGoldSetRepository {
 
+    /* 회의마다 마지막 버전 하나. 재라벨링은 앞의 라벨이 틀렸다는 뜻이라 최신이 정답이다. */
+    private static final String LATEST_LABELS_SQL = """
+            SELECT g.meeting_id      AS meeting_id,
+                   g.version         AS version,
+                   g.labeled_actions AS labeled_actions
+              FROM quality_gold_set g
+             WHERE g.company_id = ?
+               AND g.version = (SELECT MAX(latest.version)
+                                  FROM quality_gold_set latest
+                                 WHERE latest.meeting_id = g.meeting_id)
+             ORDER BY g.meeting_id
+            """;
+
     private final SpringDataQualityGoldSetRepository goldSetRepository;
+
+    private final JdbcTemplate jdbcTemplate;
 
     /*
      * ⚠ 프로젝트 전체에 Clock 빈이 하나뿐이라(MeetingTimeConfiguration#meetingClock, KST)
@@ -49,6 +66,23 @@ public class QualityGoldSetPersistenceAdapter implements QualityGoldSetRepositor
                 LocalDateTime.now(clock)));
 
         return new GoldSetView(saved.getId(), saved.getVersion(), saved.getFrozenAt());
+    }
+
+    /*
+     * 회의마다 **마지막 버전**의 동결 라벨.
+     *
+     * 파생 쿼리로는 표현할 수 없다 — "그룹 안의 최대값을 가진 행"이라 상관 서브쿼리가 필요하고,
+     * 그래서 이 조회만 JdbcTemplate 을 쓴다(IX_QUALITY_GOLD_SET_LATEST 가 받는다).
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<FrozenLabels> latestLabelsOf(long companyId) {
+        return jdbcTemplate.query(LATEST_LABELS_SQL,
+                (rs, rowNum) -> new FrozenLabels(
+                        rs.getLong("meeting_id"),
+                        rs.getInt("version"),
+                        rs.getString("labeled_actions")),
+                companyId);
     }
 
     @Override

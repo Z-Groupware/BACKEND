@@ -194,5 +194,11 @@ class QualityGoldSetServiceTest {
         public int latestVersionOf(long meetingId) {
             return latestVersion;
         }
+
+        /* 동결 라벨 조회는 QLTY-02 채점의 몫이다 — 등록은 쓰지 않는다. */
+        @Override
+        public java.util.List<FrozenLabels> latestLabelsOf(long companyId) {
+            throw new UnsupportedOperationException();
+        }
     }
 }

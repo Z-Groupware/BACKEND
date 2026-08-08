@@ -130,6 +130,12 @@ public class QualityGoldSetService implements RegisterGoldSetUseCase {
                     // 사람이 반려한 것도 정답이다 — "이건 액션이 아니다"가 그 회의의 정답이고,
                     // 빼면 hallucination 을 잡았는지 채점할 수 없다.
                     entry.put("rejected", "REJECTED".equals(action.reviewStatus()));
+                    /*
+                     * 사람이 직접 넣은 것인가. **recall 의 분모가 이 값에 걸린다** — AI 가 안
+                     * 만들어서 손으로 넣은 액션이 "놓친 것"이다. 스냅샷에 없으면 채점할 때
+                     * 현재 review_log 를 다시 봐야 하고, 그 순간 동결이 무의미해진다.
+                     */
+                    entry.put("manual", action.manual());
                     return entry;
                 })
                 .toList();
