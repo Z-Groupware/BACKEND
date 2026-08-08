@@ -14,6 +14,7 @@ import org.springframework.test.context.TestPropertySource;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LayerState;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockResult;
+import com.module06.backend.capture.application.port.out.LayerRun;
 import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
 import com.module06.backend.capture.domain.model.LayerName;
@@ -84,11 +85,11 @@ class AnalysisLayerReclaimPersistenceTest {
     @DisplayName("오래 걸리는 계층이어도 심장이 뛰면 회수되지 않는다 — L5 가 이 자리다")
     void 심장이_뛰는_동안은_회수되지_않는다() {
         long meetingId = 9_303L;
-        lock(meetingId, LayerName.L5);
+        int attempt = lockAttempt(meetingId, LayerName.L5);
 
         // 시작한 지는 오래됐다(tuple 이 많은 회의). 하지만 아직 돌고 있다.
         stopHeartbeat(meetingId, LayerName.L5, 30);
-        analysisLayerRepository.heartbeat(meetingId, LayerName.L5);
+        analysisLayerRepository.heartbeat(meetingId, LayerName.L5, attempt);
 
         assertThat(lock(meetingId, LayerName.L5)).isEqualTo(LockResult.ALREADY_RUNNING);
         assertThat(attemptCountOf(meetingId, LayerName.L5)).isEqualTo(1);
@@ -128,11 +129,80 @@ class AnalysisLayerReclaimPersistenceTest {
         assertThat(lock(meetingId, LayerName.L1)).isEqualTo(LockResult.ACQUIRED);
     }
 
+    @Test
+    @DisplayName("잠금을 뺏긴 실행의 완료 기록은 무시된다 — 새 주인이 돌고 있는 계층을 닫으면 안 된다")
+    void 뺏긴_실행은_계층을_닫지_못한다() {
+        long meetingId = 9_306L;
+        int oldAttempt = lockAttempt(meetingId, LayerName.L3);
+
+        // A 가 멈춘 사이 B 가 회수한다. 이 순간 주인이 바뀐다.
+        stopHeartbeat(meetingId, LayerName.L3, 10);
+        int newAttempt = lockAttempt(meetingId, LayerName.L3);
+        assertThat(newAttempt).isNotEqualTo(oldAttempt);
+
+        // A 가 깨어나 자기 계층을 닫으려 한다.
+        analysisLayerRepository.markDone(meetingId, LayerName.L3, oldAttempt, LayerRun.empty());
+
+        /*
+         * 닫히면 안 된다. 닫힌 계층은 다시 잠글 수 있으므로, 제3의 실행이 B 와 **동시에**
+         * 같은 계층을 돌게 된다 — 잠금이 막으려던 상태가 잠금을 통해 만들어진다.
+         */
+        assertThat(stateOf(meetingId, LayerName.L3).status()).isEqualTo(LayerStatus.RUNNING);
+    }
+
+    @Test
+    @DisplayName("잠금을 뺏긴 실행의 실패 기록도 무시된다 — 멀쩡히 도는 실행이 실패로 남으면 안 된다")
+    void 뺏긴_실행은_계층을_실패시키지_못한다() {
+        long meetingId = 9_307L;
+        int oldAttempt = lockAttempt(meetingId, LayerName.L4);
+        stopHeartbeat(meetingId, LayerName.L4, 10);
+        lockAttempt(meetingId, LayerName.L4);
+
+        analysisLayerRepository.markFailed(meetingId, LayerName.L4, oldAttempt,
+                "ORCHESTRATION_ERROR", "뺏긴 실행이 뒤늦게 실패했다", LayerRun.empty());
+
+        assertThat(stateOf(meetingId, LayerName.L4).status()).isEqualTo(LayerStatus.RUNNING);
+    }
+
+    @Test
+    @DisplayName("뺏긴 실행의 심장은 새 주인을 살려두지 않는다 — 회수 장치가 회수를 막게 된다")
+    void 뺏긴_실행의_심장은_무시된다() {
+        long meetingId = 9_308L;
+        int oldAttempt = lockAttempt(meetingId, LayerName.L2);
+        stopHeartbeat(meetingId, LayerName.L2, 10);
+        lockAttempt(meetingId, LayerName.L2);
+
+        // 새 주인(B)도 죽었다. 그 심장이 멈춘 상태를 만든다.
+        stopHeartbeat(meetingId, LayerName.L2, 10);
+        // 그런데 옛 주인(A)이 아직 살아서 심장을 찍는다.
+        analysisLayerRepository.heartbeat(meetingId, LayerName.L2, oldAttempt);
+
+        // A 의 심장이 B 의 잠금을 살려두면 이 계층은 다시 영원히 갇힌다(#177 로 되돌아간다).
+        assertThat(stateOf(meetingId, LayerName.L2).stalled()).isTrue();
+        assertThat(lock(meetingId, LayerName.L2)).isEqualTo(LockResult.ACQUIRED);
+    }
+
+    @Test
+    @DisplayName("현재 주인의 쓰기는 그대로 반영된다 — 조이기만 하고 막지는 않는다")
+    void 현재_주인의_쓰기는_반영된다() {
+        long meetingId = 9_309L;
+        int attempt = lockAttempt(meetingId, LayerName.L7);
+
+        analysisLayerRepository.markDone(meetingId, LayerName.L7, attempt, LayerRun.empty());
+
+        assertThat(stateOf(meetingId, LayerName.L7).status()).isEqualTo(LayerStatus.DONE);
+    }
+
     // ── 조립 ────────────────────────────────────────────────────────────────────
 
     /* 실행 번호 행이 없으면 순서 검사는 통과한다(AnalysisLayerLockAcquirer) — 여기서 볼 축이 아니다. */
     private LockResult lock(long meetingId, LayerName layer) {
-        return analysisLayerRepository.tryLock(meetingId, layer, 1L);
+        return analysisLayerRepository.tryLock(meetingId, layer, 1L).result();
+    }
+
+    /* 잠금과 함께 받은 주인 번호(#212). */
+    private int lockAttempt(long meetingId, LayerName layer) {
+        return analysisLayerRepository.tryLock(meetingId, layer, 1L).attempt();
     }
 
     /* 잠근 프로세스가 죽어 심장이 멈춘 상태를 만든다. */
