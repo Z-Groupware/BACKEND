@@ -9,11 +9,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
+import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -138,6 +140,11 @@ class ManualRecordingServiceTest {
             public int countAttendees(Long meetingId) {
                 return 0;
             }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
         };
         // 선검사는 통과(false)하지만 저장에서 제약위반 → 어댑터가 CAP-014로 변환하는 상황을 재현.
         RecordingRepository recordingRepo = new RecordingRepository() {
@@ -161,7 +168,9 @@ class ManualRecordingServiceTest {
             }
         };
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
-        ManualRecordingService service = new ManualRecordingService(meetingRef, recordingRepo, sttPort);
+        ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
+        CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
+        ManualRecordingService service = new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort);
 
         assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 100L)), "CAP-014");
         assertThat(sttTriggered[0]).isFalse();
@@ -201,6 +210,11 @@ class ManualRecordingServiceTest {
             public int countAttendees(Long meetingId) {
                 return 0;
             }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
             @Override
@@ -224,7 +238,9 @@ class ManualRecordingServiceTest {
             }
         };
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
-        return new ManualRecordingService(meetingRef, recordingRepo, sttPort);
+        ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
+        CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
+        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

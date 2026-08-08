@@ -40,6 +40,9 @@ public class CapMeetingReferenceEntity {
     @Column(name = "company_id")
     private Long companyId;
 
+    @Column(name = "project_id")
+    private Long projectId;
+
     @Column(name = "host_member_id")
     private Long hostMemberId;
 

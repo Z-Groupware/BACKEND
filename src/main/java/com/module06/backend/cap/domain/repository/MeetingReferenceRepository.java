@@ -23,4 +23,7 @@ public interface MeetingReferenceRepository {
 
     /** 이 회의의 전체 참석자 수(CAP-13 SSE participant 이벤트의 totalCount). */
     int countAttendees(Long meetingId);
+
+    /** 이 회의가 태그된 프로젝트 id(프로젝트 멤버 열람권한 판정용, access-guard). 회의가 없으면 empty. */
+    Optional<Long> findProjectId(Long meetingId);
 }
