@@ -92,9 +92,16 @@ public class TupleVectorIndexHttpAdapter implements TupleVectorIndexPort {
      * payload 를 객체로 바꿔 싣는다. Python 은 `payload: dict` 로 받으므로 문자열 그대로
      * 보내면 422 다.
      *
-     * 파싱이 실패하면 **그 행만 빼고 보낸다.** 깨진 payload 는 다시 보내도 계속 깨져 있어서,
-     * 배치 전체를 세우면 그 한 행이 뒤의 정상 행을 영원히 막는다(워커의 시도 횟수 상한이
-     * 같은 이유로 있다). 로그로 남겨 원본을 고칠 수 있게 한다.
+     * <h2>파싱 성공만으로는 부족하다 — 객체인지까지 본다</h2>
+     * {@code readTree} 는 {@code []} · {@code "text"} · {@code 123} · {@code null} 도 예외 없이
+     * 돌려준다. 그 값이 그대로 실려 나가면 **객체가 아닌 payload 한 줄 때문에 배치 전체가 422**
+     * 가 되고, 같이 실려 간 정상 행까지 실패로 기록된다. 그게 다섯 번 반복되면 정상 행이
+     * 시도 횟수 상한에 걸려 조회에서 빠진다 — 상한은 깨진 행을 자르라고 둔 것인데 멀쩡한 행을
+     * 자르게 된다. (CodeRabbit PR #219 지적)
+     *
+     * 그래서 **그 행만 빼고 보낸다.** 빠진 행은 응답에 없으므로 워커가 실패로 세고 다음 주기에
+     * 다시 집는다 — 몇 번 더 시도한 뒤 상한에 걸려 멈추고, 원본은 남아 있어 고친 뒤 다시 올릴
+     * 수 있다. 로그로 어느 행인지 남긴다.
      */
     private VectorUpsertItemDto toItem(VectorToIndex vector) {
         JsonNode payload;
@@ -103,6 +110,12 @@ public class TupleVectorIndexHttpAdapter implements TupleVectorIndexPort {
         } catch (JacksonException e) {
             log.warn("벡터 payload 를 해석할 수 없어 이 예시는 보내지 않는다. vectorId={}",
                     vector.vectorId(), e);
+            return null;
+        }
+
+        if (payload == null || !payload.isObject()) {
+            log.warn("벡터 payload 가 객체가 아니라 이 예시는 보내지 않는다 — 배치 전체가 422 가 된다. "
+                    + "vectorId={} type={}", vector.vectorId(), payload == null ? "null" : payload.getNodeType());
             return null;
         }
 

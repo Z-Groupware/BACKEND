@@ -2,6 +2,7 @@ package com.module06.backend.capture.application.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -90,7 +91,16 @@ public class TupleVectorSyncService {
             return 0;
         }
 
+        /*
+         * **이번에 보낸 행만 센다.** 응답에 우리가 요청하지 않은 vectorId 가 섞이면, 그 값은
+         * markSynced 되지도 않으면서 성공 건수만 부풀린다 — 그러면 하나가 빠지고 엉뚱한 하나가
+         * 온 응답에서 수가 맞아떨어져 **누락 경고가 뜨지 않는다.** 조용히 빠지는 것이 이 워커에서
+         * 가장 나쁜 실패라(다시 올릴 기회를 영영 잃는다) 응답을 그대로 믿지 않는다.
+         * (CodeRabbit PR #219 지적)
+         */
+        Set<Long> requested = pending.stream().map(PendingVector::id).collect(Collectors.toSet());
         Map<Long, String> pointIdByVectorId = indexed.stream()
+                .filter(result -> requested.contains(result.vectorId()))
                 .collect(Collectors.toMap(IndexedVector::vectorId, IndexedVector::pointId,
                         // 같은 행이 두 번 오면 나중 것을 쓴다. 어느 쪽이든 같은 포인트를 가리키므로
                         // 값은 같고, 여기서 터뜨리면 정상 배치가 통째로 밀린다.

@@ -52,6 +52,23 @@ class TupleVectorSyncServiceTest {
     }
 
     @Test
+    @DisplayName("요청하지 않은 id 가 응답에 섞여도 성공으로 세지 않는다 — 누락 경고가 묻힌다")
+    void 요청하지_않은_id는_세지_않는다() {
+        RecordingVectorRepository vectors = new RecordingVectorRepository(pending(1L), pending(2L));
+        /*
+         * 하나가 빠지고 엉뚱한 하나가 온 응답. 응답을 그대로 믿으면 **수가 맞아떨어져
+         * 누락 경고가 뜨지 않는다** — 조용히 빠지는 것이 이 워커에서 가장 나쁜 실패다.
+         */
+        FakeIndexPort index = FakeIndexPort.answering(1L, 999L);
+
+        int synced = new TupleVectorSyncService(vectors, index).syncOnce();
+
+        assertThat(synced).isEqualTo(1);
+        assertThat(vectors.synced).containsOnlyKeys(1L);
+        assertThat(vectors.failed).containsExactly(2L);
+    }
+
+    @Test
     @DisplayName("배치가 통째로 실패해도 예외를 올리지 않는다 — 스케줄러가 죽으면 색인이 영구히 멈춘다")
     void 배치_실패는_예외로_올리지_않는다() {
         RecordingVectorRepository vectors = new RecordingVectorRepository(pending(1L), pending(2L));
@@ -136,24 +153,31 @@ class TupleVectorSyncServiceTest {
     private static final class FakeIndexPort implements TupleVectorIndexPort {
 
         private final List<Long> succeeding;
+        /* 요청과 무관하게 이 id 들로 답한다. 응답에 엉뚱한 값이 섞이는 경우를 만든다. */
+        private final List<Long> answering;
         private final boolean throwing;
         private boolean called;
 
-        private FakeIndexPort(List<Long> succeeding, boolean throwing) {
+        private FakeIndexPort(List<Long> succeeding, List<Long> answering, boolean throwing) {
             this.succeeding = succeeding;
+            this.answering = answering;
             this.throwing = throwing;
         }
 
         private static FakeIndexPort succeedingAll() {
-            return new FakeIndexPort(null, false);
+            return new FakeIndexPort(null, null, false);
         }
 
         private static FakeIndexPort succeedingOnly(Long... ids) {
-            return new FakeIndexPort(List.of(ids), false);
+            return new FakeIndexPort(List.of(ids), null, false);
+        }
+
+        private static FakeIndexPort answering(Long... ids) {
+            return new FakeIndexPort(null, List.of(ids), false);
         }
 
         private static FakeIndexPort throwing() {
-            return new FakeIndexPort(null, true);
+            return new FakeIndexPort(null, null, true);
         }
 
         @Override
@@ -162,6 +186,11 @@ class TupleVectorSyncServiceTest {
             if (throwing) {
                 // 실물에서는 연결 실패·타임아웃이 이 모양으로 온다.
                 throw new IllegalStateException("AI 서버에 닿지 않는다");
+            }
+            if (answering != null) {
+                return answering.stream()
+                        .map(id -> new IndexedVector(id, "point-" + id))
+                        .toList();
             }
             return vectors.stream()
                     .filter(vector -> succeeding == null || succeeding.contains(vector.vectorId()))
