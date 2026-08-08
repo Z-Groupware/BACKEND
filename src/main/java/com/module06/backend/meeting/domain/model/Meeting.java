@@ -91,6 +91,9 @@ public class Meeting {
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
+        /* 모든 생성·전이 경로가 이 생성자를 지나므로 상태와 취소 시각의 불변식을 여기서 한 번만 검증한다. */
+        validateCancellationState(status, canceledAt);
+
         /* 전달받은 값을 외부 엔티티 참조 없이 순수 값으로 보관한다. */
         this.id = id;
         this.companyId = companyId;
@@ -110,6 +113,29 @@ public class Meeting {
         this.canceledAt = canceledAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    /*
+     * 회의 상태와 취소 시각이 서로 어긋나지 않는지 검증한다.
+     *
+     * CANCELED인데 취소 시각이 없으면 취소 이력과 알림 이벤트의 시간 계약이 비고,
+     * 취소되지 않았는데 취소 시각만 있으면 조회 응답이 취소된 회의처럼 보인다.
+     * 두 값은 항상 함께 결정되므로 어느 쪽으로도 어긋난 애그리거트를 만들 수 없게 막는다.
+     *
+     * @param status 복원하거나 전이한 회의 상태
+     * @param canceledAt 회의 취소 시각
+     * @throws IllegalArgumentException 상태와 취소 시각이 서로 어긋나는 경우
+     */
+    private static void validateCancellationState(MeetingStatus status, LocalDateTime canceledAt) {
+        /* 취소 상태는 취소 시각을 반드시 동반해야 한다. */
+        if (status == MeetingStatus.CANCELED && canceledAt == null) {
+            throw new IllegalArgumentException("CANCELED 회의에는 canceledAt이 필요합니다.");
+        }
+
+        /* 취소되지 않은 상태에 취소 시각이 남아 있으면 취소 여부 판단이 상태와 갈린다. */
+        if (status != MeetingStatus.CANCELED && canceledAt != null) {
+            throw new IllegalArgumentException("취소되지 않은 회의에는 canceledAt을 설정할 수 없습니다.");
+        }
     }
 
     /*
@@ -182,6 +208,12 @@ public class Meeting {
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
+        /* 이 오버로드는 취소 시각을 null로 고정하므로 CANCELED를 넘기면 상태와 취소 시각이 어긋난다.
+           취소된 회의는 canceledAt을 받는 오버로드로만 복원해야 하며, 여기서 먼저 막아 원인을 분명히 남긴다. */
+        if (status == MeetingStatus.CANCELED) {
+            throw new IllegalArgumentException("CANCELED 회의 복원에는 canceledAt이 필요합니다.");
+        }
+
         /* 취소 시각 컬럼 도입 전 호출부는 취소되지 않은 회의로 안전하게 복원한다. */
         return reconstitute(
                 id,

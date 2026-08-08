@@ -231,6 +231,90 @@ class MeetingTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /* 취소 시각 없는 오버로드로 CANCELED 회의를 복원하려는 시도가 차단되는지 검증한다. */
+    @Test
+    @DisplayName("취소 시각을 받지 않는 복원 오버로드로는 CANCELED 회의를 만들 수 없다")
+    void rejectsCanceledStatusOnLegacyReconstitute() {
+        /* 이 오버로드는 canceledAt을 null로 고정하므로 CANCELED 복원 자체를 거절해야 한다. */
+        assertThatThrownBy(() -> reconstituteWithoutCanceledAt(MeetingStatus.CANCELED))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("canceledAt");
+
+        /* 취소되지 않은 상태는 기존 호출부 그대로 정상 복원돼야 한다. */
+        assertThat(reconstituteWithoutCanceledAt(MeetingStatus.SCHEDULED).getCanceledAt()).isNull();
+    }
+
+    /* 상태와 취소 시각이 어긋난 회의가 복원되지 않는지 검증한다. */
+    @Test
+    @DisplayName("상태와 취소 시각이 어긋난 회의는 복원할 수 없다")
+    void rejectsInconsistentCancellationState() {
+        /* CANCELED인데 취소 시각이 없으면 취소 이력의 시간 계약이 빈다. */
+        assertThatThrownBy(() -> reconstituteWithCanceledAt(MeetingStatus.CANCELED, null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        /* 취소되지 않은 회의에 취소 시각만 남아 있으면 상태와 취소 여부가 갈린다. */
+        assertThatThrownBy(() -> reconstituteWithCanceledAt(
+                MeetingStatus.SCHEDULED,
+                LocalDateTime.of(2026, 8, 6, 10, 0)
+        ))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        /* 상태와 취소 시각이 맞으면 그대로 복원돼야 한다. */
+        LocalDateTime canceledAt = LocalDateTime.of(2026, 8, 6, 10, 0);
+        Meeting canceled = reconstituteWithCanceledAt(MeetingStatus.CANCELED, canceledAt);
+        assertThat(canceled.getStatus()).isEqualTo(MeetingStatus.CANCELED);
+        assertThat(canceled.getCanceledAt()).isEqualTo(canceledAt);
+    }
+
+    /* 취소 시각을 받지 않는 기존 오버로드로 회의를 복원한다. */
+    private Meeting reconstituteWithoutCanceledAt(MeetingStatus status) {
+        /* 취소 시각 컬럼 도입 전 호출부와 동일한 인자 구성을 사용한다. */
+        return Meeting.reconstitute(
+                91L,
+                10L,
+                12L,
+                100L,
+                2L,
+                3L,
+                "주간 회의",
+                status,
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                true,
+                305L,
+                List.of(3L, 7L),
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 5, 10, 0),
+                LocalDateTime.of(2026, 8, 5, 10, 0)
+        );
+    }
+
+    /* 취소 시각을 받는 오버로드로 회의를 복원한다. */
+    private Meeting reconstituteWithCanceledAt(MeetingStatus status, LocalDateTime canceledAt) {
+        /* 영속성 어댑터와 동일하게 저장된 모든 값을 그대로 전달한다. */
+        return Meeting.reconstitute(
+                91L,
+                10L,
+                12L,
+                100L,
+                2L,
+                3L,
+                "주간 회의",
+                status,
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                true,
+                305L,
+                List.of(3L, 7L),
+                null,
+                null,
+                canceledAt,
+                LocalDateTime.of(2026, 8, 5, 10, 0),
+                LocalDateTime.of(2026, 8, 5, 10, 0)
+        );
+    }
+
     /* 테스트마다 동일한 필수값으로 신규 회의를 생성한다. */
     private Meeting createMeeting(
             LocalDateTime startAt,
