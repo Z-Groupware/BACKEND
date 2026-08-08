@@ -39,15 +39,19 @@ class CapS3ObjectStorageAdapterTest {
                     AwsBasicCredentials.create("test-access-key", "test-secret-key")))
             .build();
 
-    /* PUT 서명 URL에 버킷·키·Content-Type이 반영되고, 만료가 900초(15분)로 응답되는지 검증한다. */
+    /* PUT 서명 URL에 버킷·키·Content-Type이 반영되고, 만료가 900초(15분)로 응답되는지 검증한다.
+       Content-Type이 실제로 서명 대상(X-Amz-SignedHeaders)에 포함되는지까지 봐야 한다(CodeRabbit
+       지적) — 안 그러면 .contentType(...) 호출을 지워도 이 테스트가 그대로 통과해서, 클라이언트가
+       PUT 때 다른 Content-Type을 보내도 서명이 안 막아주는 회귀를 못 잡는다. */
     @Test
-    @DisplayName("presign PUT: 버킷·키가 담긴 URL과 900초 만료를 반환한다")
+    @DisplayName("presign PUT: 버킷·키·Content-Type 서명이 담긴 URL과 900초 만료를 반환한다")
     void issuePartUploadUrl_returnsSignedPutUrl() {
         CapS3ObjectStorageAdapter adapter = adapter();
 
         CapObjectStoragePort.IssuedPartUploadUrl issued = adapter.issuePartUploadUrl(KEY, "audio/webm");
 
         assertThat(issued.presignedUrl()).contains(BUCKET).contains(KEY).contains("X-Amz-Expires=900");
+        assertThat(issued.presignedUrl()).containsPattern("X-Amz-SignedHeaders=[^&]*content-type");
         assertThat(issued.expiresInSeconds()).isEqualTo(900);
     }
 

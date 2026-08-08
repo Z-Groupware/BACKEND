@@ -327,7 +327,8 @@ class CaptureUploadServiceTest {
                 return recorderAlive;
             }
         };
-        return new CaptureUploadService(meetingRef, accessGuard, stateRepo, partRepo, storage, heartbeat);
+        CompletePartUploadWriter writer = new CompletePartUploadWriter(partRepo, stateRepo, heartbeat);
+        return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, writer);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {
