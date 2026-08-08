@@ -61,6 +61,9 @@ public class Meeting {
     /* 실제 회의 종료 시각이며 예약 단계에서는 null이다. */
     private final LocalDateTime endedAt;
 
+    /* 회의 취소 시각이며 취소되지 않은 회의에서는 null이다. */
+    private final LocalDateTime canceledAt;
+
     /* 회의 생성 시각이며 저장 전에는 null이다. */
     private final LocalDateTime createdAt;
 
@@ -84,6 +87,7 @@ public class Meeting {
             List<Long> attendeeMemberIds,
             LocalDateTime startedAt,
             LocalDateTime endedAt,
+            LocalDateTime canceledAt,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
@@ -103,6 +107,7 @@ public class Meeting {
         this.attendeeMemberIds = List.copyOf(attendeeMemberIds);
         this.startedAt = startedAt;
         this.endedAt = endedAt;
+        this.canceledAt = canceledAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -148,6 +153,7 @@ public class Meeting {
                 null,
                 null,
                 null,
+                null,
                 null
         );
     }
@@ -176,6 +182,50 @@ public class Meeting {
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
+        /* 취소 시각 컬럼 도입 전 호출부는 취소되지 않은 회의로 안전하게 복원한다. */
+        return reconstitute(
+                id,
+                companyId,
+                projectId,
+                teamId,
+                meetingRoomId,
+                hostMemberId,
+                title,
+                status,
+                startAt,
+                endAt,
+                recordingConsent,
+                relatedActionId,
+                attendeeMemberIds,
+                startedAt,
+                endedAt,
+                null,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    /* 취소 시각을 포함한 영속성 조회 결과로 회의 애그리거트를 복원한다. */
+    public static Meeting reconstitute(
+            Long id,
+            Long companyId,
+            Long projectId,
+            Long teamId,
+            Long meetingRoomId,
+            Long hostMemberId,
+            String title,
+            MeetingStatus status,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
+            boolean recordingConsent,
+            Long relatedActionId,
+            List<Long> attendeeMemberIds,
+            LocalDateTime startedAt,
+            LocalDateTime endedAt,
+            LocalDateTime canceledAt,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
+    ) {
         /* 저장된 모든 값을 손실 없이 애그리거트로 복원한다. */
         return new Meeting(
                 id,
@@ -193,6 +243,7 @@ public class Meeting {
                 attendeeMemberIds,
                 startedAt,
                 endedAt,
+                canceledAt,
                 createdAt,
                 updatedAt
         );
@@ -261,6 +312,7 @@ public class Meeting {
                 attendeeMemberIds,
                 startedAt,
                 endedAt,
+                canceledAt,
                 createdAt,
                 updatedAt
         );
@@ -278,9 +330,9 @@ public class Meeting {
             return this;
         }
 
-        /* 종료된 회의를 다시 진행 상태로 되돌리는 잘못된 내부 호출을 허용하지 않는다. */
-        if (status == MeetingStatus.DONE) {
-            throw new IllegalStateException("종료된 회의에는 입장할 수 없습니다.");
+        /* 종료·취소된 회의를 다시 진행 상태로 되돌리는 잘못된 내부 호출을 허용하지 않는다. */
+        if (status != MeetingStatus.SCHEDULED) {
+            throw new IllegalStateException("종료되거나 취소된 회의에는 입장할 수 없습니다.");
         }
 
         /* SCHEDULED 회의의 나머지 예약·참석자 값은 유지하고 상태와 최초 시작 시각만 변경한다. */
@@ -300,6 +352,7 @@ public class Meeting {
                 attendeeMemberIds,
                 enteredAt,
                 endedAt,
+                canceledAt,
                 createdAt,
                 updatedAt
         );
@@ -312,8 +365,8 @@ public class Meeting {
             throw new IllegalStateException("이미 종료된 회의입니다.");
         }
 
-        /* 입장되지 않은 예약 회의는 종료 상태로 건너뛸 수 없다. */
-        if (status == MeetingStatus.SCHEDULED) {
+        /* 입장되지 않았거나 취소된 회의는 종료 상태로 건너뛸 수 없다. */
+        if (status != MeetingStatus.IN_PROGRESS) {
             throw new IllegalStateException("시작되지 않은 회의입니다.");
         }
 
@@ -339,8 +392,49 @@ public class Meeting {
                 attendeeMemberIds,
                 startedAt,
                 completedAt,
+                canceledAt,
                 createdAt,
                 completedAt
+        );
+    }
+
+    /* 시작 전 회의를 취소 시각과 함께 CANCELED로 전이하고 재취소는 현재 상태를 유지한다. */
+    public Meeting cancel(LocalDateTime requestedCanceledAt) {
+        /* 이미 취소된 회의는 최초 취소 시각을 바꾸지 않는 멱등 동작이다. */
+        if (status == MeetingStatus.CANCELED) {
+            return this;
+        }
+
+        /* 실제 시작 또는 종료된 회의를 취소해 확정된 회의 이력을 되돌릴 수 없다. */
+        if (status != MeetingStatus.SCHEDULED) {
+            throw new IllegalStateException("이미 시작된 회의는 취소할 수 없습니다.");
+        }
+
+        /* 취소 시각이 없으면 취소 이력과 이벤트의 시간 계약을 만들 수 없다. */
+        if (requestedCanceledAt == null) {
+            throw new IllegalArgumentException("회의 취소 시각은 필수입니다.");
+        }
+
+        /* 예약·참석자 원본은 보존하고 상태와 취소·수정 시각만 변경한다. */
+        return new Meeting(
+                id,
+                companyId,
+                projectId,
+                teamId,
+                meetingRoomId,
+                hostMemberId,
+                title,
+                MeetingStatus.CANCELED,
+                startAt,
+                endAt,
+                recordingConsent,
+                relatedActionId,
+                attendeeMemberIds,
+                startedAt,
+                endedAt,
+                requestedCanceledAt,
+                createdAt,
+                requestedCanceledAt
         );
     }
 

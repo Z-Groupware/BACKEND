@@ -52,8 +52,9 @@ public class MeetingEntryService implements EnterMeetingUseCase {
         /* 한 요청 안의 입장 창 판정과 최초 시작 시각이 달라지지 않도록 현재 시각을 한 번만 읽는다. */
         LocalDateTime now = LocalDateTime.now(clock);
 
-        /* DONE 상태는 예약 시간이 남아 있더라도 다시 진행 상태로 전이할 수 없다. */
-        if (meeting.getStatus() == MeetingStatus.DONE) {
+        /* DONE·CANCELED 상태는 예약 시간이 남아 있더라도 다시 진행 상태로 전이할 수 없다. */
+        if (meeting.getStatus() == MeetingStatus.DONE
+                || meeting.getStatus() == MeetingStatus.CANCELED) {
             throw new BusinessException(MeetingErrorCode.MEETING_ALREADY_DONE);
         }
 

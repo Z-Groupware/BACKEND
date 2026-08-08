@@ -182,6 +182,55 @@ class MeetingTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    /* 시작 전 취소가 상태·시각을 바꾸고 예약·참석자 이력을 보존하는지 검증한다. */
+    @Test
+    @DisplayName("SCHEDULED 회의를 CANCELED로 전이하고 최초 취소 시각을 보존한다")
+    void cancelsScheduledMeetingIdempotently() {
+        /* 정상 예약 회의와 서로 다른 최초·재요청 취소 시각을 준비한다. */
+        Meeting scheduled = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L, 11L)
+        );
+        LocalDateTime firstCanceledAt = LocalDateTime.of(2026, 8, 6, 10, 0);
+
+        /* 최초 취소는 상태와 취소·수정 시각만 변경해야 한다. */
+        Meeting canceled = scheduled.cancel(firstCanceledAt);
+        assertThat(canceled.getStatus()).isEqualTo(MeetingStatus.CANCELED);
+        assertThat(canceled.getCanceledAt()).isEqualTo(firstCanceledAt);
+        assertThat(canceled.getUpdatedAt()).isEqualTo(firstCanceledAt);
+        assertThat(canceled.getAttendeeMemberIds()).containsExactly(3L, 7L, 11L);
+        assertThat(canceled.getStartAt()).isEqualTo(scheduled.getStartAt());
+
+        /* 재취소는 같은 객체를 반환해 최초 취소 시각을 덮어쓰지 않아야 한다. */
+        Meeting recanceled = canceled.cancel(LocalDateTime.of(2026, 8, 6, 10, 5));
+        assertThat(recanceled).isSameAs(canceled);
+        assertThat(recanceled.getCanceledAt()).isEqualTo(firstCanceledAt);
+    }
+
+    /* 진행·완료 회의와 취소 시각 누락이 도메인 전이에서 차단되는지 검증한다. */
+    @Test
+    @DisplayName("시작된 회의와 취소 시각이 없는 요청은 취소할 수 없다")
+    void rejectsInvalidCancellationTransitions() {
+        /* 진행 중 회의는 확정된 실제 시작 시각 때문에 CANCELED로 되돌릴 수 없다. */
+        Meeting inProgress = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L)
+        ).enter(LocalDateTime.of(2026, 8, 6, 13, 58));
+        assertThatThrownBy(() -> inProgress.cancel(LocalDateTime.of(2026, 8, 6, 14, 5)))
+                .isInstanceOf(IllegalStateException.class);
+
+        /* SCHEDULED 회의도 취소 이력 시각이 없으면 유효한 취소 상태를 만들 수 없다. */
+        Meeting scheduled = createMeeting(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                List.of(7L)
+        );
+        assertThatThrownBy(() -> scheduled.cancel(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     /* 테스트마다 동일한 필수값으로 신규 회의를 생성한다. */
     private Meeting createMeeting(
             LocalDateTime startAt,

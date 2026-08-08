@@ -65,8 +65,9 @@ public class MeetingAttendeeCommandService implements ReplaceMeetingAttendeesUse
             throw new BusinessException(MeetingErrorCode.MEETING_HOST_ONLY);
         }
 
-        /* 종료된 회의의 확정 명단과 A도메인 화자 스냅숏은 변경할 수 없다. */
-        if (meeting.status() == MeetingStatus.DONE) {
+        /* 종료·취소된 회의의 확정 명단과 이력은 변경할 수 없다. */
+        if (meeting.status() == MeetingStatus.DONE
+                || meeting.status() == MeetingStatus.CANCELED) {
             throw new BusinessException(MeetingErrorCode.MEETING_ALREADY_DONE);
         }
 
