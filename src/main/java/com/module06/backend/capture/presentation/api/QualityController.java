@@ -2,6 +2,7 @@ package com.module06.backend.capture.presentation.api;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,10 +14,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+import com.module06.backend.capture.application.usecase.GetQualityMetricsUseCase;
 import com.module06.backend.capture.application.usecase.RegisterGoldSetUseCase;
 import com.module06.backend.capture.application.usecase.RegisterGoldSetUseCase.RegisterGoldSetCommand;
 import com.module06.backend.capture.presentation.api.request.RegisterGoldSetRequest;
 import com.module06.backend.capture.presentation.api.response.GoldSetRegisteredResponse;
+import com.module06.backend.capture.presentation.api.response.QualityMetricsResponse;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 
@@ -39,6 +42,7 @@ import com.module06.backend.global.security.AuthPrincipal;
 public class QualityController {
 
     private final RegisterGoldSetUseCase registerGoldSetUseCase;
+    private final GetQualityMetricsUseCase getQualityMetricsUseCase;
 
     /*
      * QLTY-01 · gold set 등록.
@@ -65,5 +69,34 @@ public class QualityController {
                 GoldSetRegisteredResponse.from(registerGoldSetUseCase.register(
                         new RegisterGoldSetCommand(
                                 me.getCompanyId(), request.meetingId(), me.getMemberId(), request.note()))));
+    }
+
+    /*
+     * QLTY-02 · 품질 지표 조회.
+     *
+     * <h2>표본은 gold set 이 정한다</h2>
+     * 채점에 필요한 값은 review_log 에 이미 다 있다. gold set 의 역할은 **어느 회의로 잴지를
+     * 고정하는 것**이다 — 표본이 매번 달라지면 지표가 올라도 모델이 좋아진 것인지 쉬운 회의가
+     * 섞인 것인지 알 수 없다.
+     *
+     * ⚠ 정답지가 아직 없으면 비율이 **null 이다.** 0.0 으로 채우지 않는다 — "다 틀렸다"와
+     * "못 잰다"는 해야 할 일이 정반대다.
+     */
+    @Operation(
+            summary = "품질 지표 조회 (QLTY-02)",
+            description = "gold set 표본 위에서 precision·recall·게이트 오류율·검토 필요 비율을 낸다. "
+                    + "needsReviewRate 는 비용 지표이지 품질 지표가 아니다 — 줄어드는 이유가 "
+                    + "'정확해졌다'와 '모델이 과신한다' 둘이라 목표로 걸면 임계값을 낮춰 숫자를 "
+                    + "맞추려는 유인이 생긴다. metricKind 로 분류를 함께 준다. "
+                    + "표본이 없으면 비율은 null 이다(0.0 이 아니다)."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    @GetMapping("/metrics")
+    public ApiResponse<QualityMetricsResponse> getMetrics(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me
+    ) {
+        return ApiResponse.success(
+                "조회 성공",
+                QualityMetricsResponse.from(getQualityMetricsUseCase.getMetrics(me.getCompanyId())));
     }
 }
