@@ -16,20 +16,28 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.module06.backend.action.application.command.BulkUpdateActionStatusCommand;
 import com.module06.backend.action.application.command.CreateActionCommand;
 import com.module06.backend.action.application.usecase.BulkUpdateActionStatusUseCase;
 import com.module06.backend.action.application.usecase.CreateActionUseCase;
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
+import com.module06.backend.action.application.usecase.GetActionDetailUseCase.ActionDetail;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
+import com.module06.backend.action.application.usecase.GetMyActionsUseCase.ActionListItem;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.global.security.AuthPrincipal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @DisplayName("ActionController")
@@ -105,6 +113,69 @@ class ActionControllerTest {
         verify(createActionUseCase).create(captor.capture());
 
         assertThat(captor.getValue().companyId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("내 액션 목록은 토큰의 memberId로 조회한다")
+    void listUsesMemberIdFromToken() throws Exception {
+        authenticateAs(1L, 5L);
+        when(getMyActionsUseCase.getMyActions(5L))
+                .thenReturn(List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)));
+
+        mockMvc.perform(get("/api/actions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].assigneeName").value("이하윤"));
+
+        verify(getMyActionsUseCase).getMyActions(5L);
+    }
+
+    @Test
+    @DisplayName("상세 조회는 토큰의 companyId로 IDOR을 막는다")
+    void detailUsesCompanyIdFromToken() throws Exception {
+        authenticateAs(1L, 5L);
+        when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
+                .thenReturn(new ActionDetail(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
+
+        mockMvc.perform(get("/api/actions/10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.assigneeName").value("이하윤"));
+
+        verify(getActionDetailUseCase).getActionDetail(1L, 10L);
+    }
+
+    @Test
+    @DisplayName("벌크 상태변경은 토큰의 memberId를 requesterId로, items를 그대로 커맨드로 전달한다")
+    void bulkUpdateStatusConvertsItemsAndUsesMemberIdFromToken() throws Exception {
+        authenticateAs(1L, 5L);
+
+        mockMvc.perform(patch("/api/actions/status/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"items": [{"actionId": 10, "status": "DONE"}, {"actionId": 11, "status": "IN_PROGRESS"}]}
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<BulkUpdateActionStatusCommand> captor = ArgumentCaptor.forClass(BulkUpdateActionStatusCommand.class);
+        verify(bulkUpdateActionStatusUseCase).bulkUpdateStatus(captor.capture());
+
+        BulkUpdateActionStatusCommand command = captor.getValue();
+        assertThat(command.requesterId()).isEqualTo(5L);
+        assertThat(command.items()).containsExactly(
+                new BulkUpdateActionStatusCommand.Item(10L, ActionStatus.DONE),
+                new BulkUpdateActionStatusCommand.Item(11L, ActionStatus.IN_PROGRESS));
+    }
+
+    @Test
+    @DisplayName("벌크 상태변경은 빈 items를 400으로 거부한다")
+    void bulkUpdateStatusRejectsEmptyItems() throws Exception {
+        authenticateAs(1L, 5L);
+
+        mockMvc.perform(patch("/api/actions/status/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"items": []}
+                                """))
+                .andExpect(status().isBadRequest());
     }
 
     private void authenticateAs(Long companyId, Long memberId) {
