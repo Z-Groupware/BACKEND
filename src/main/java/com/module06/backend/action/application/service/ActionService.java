@@ -29,6 +29,7 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository.T
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.meeting.application.port.in.MeetingQueryPort;
 import com.module06.backend.project.application.port.ProjectQueryPort;
 
 import lombok.RequiredArgsConstructor;
@@ -79,6 +80,7 @@ public class ActionService implements
     private final ActionRepository actionRepository;
     private final ActionReferenceRepository actionReferenceRepository;
     private final ProjectQueryPort projectQueryPort;
+    private final MeetingQueryPort meetingQueryPort;
 
     @Override
     @Transactional
@@ -243,6 +245,39 @@ public class ActionService implements
         } else if (target == ActionStatus.DONE) {
             action.complete();
         }
+    }
+
+    // FR-AC-09 — 회의별 액션 조회. TEAM은 담당자, PERSONAL은 팀 개념이 없어 서로 null로 채워진다.
+    //
+    // 액션 조회 자체는 companyId로 스코프되지만, 그것만으로는 "다른 회사 회의"·"존재하지 않는
+    // 회의"가 전부 빈 목록으로 뭉개져 구분이 안 된다 — 회의 소유는 meeting(D)의 공개 조회
+    // 포트로 먼저 확인한다(코드래빗 지적, PR #229). ProjectQueryPort와 같은 직접 주입 패턴.
+    @Override
+    @Transactional(readOnly = true)
+    public List<GetActionsByMeetingUseCase.MeetingActionItem> getActionsByMeeting(Long companyId, Long sourceMeetingId) {
+        if (meetingQueryPort.findMeeting(companyId, sourceMeetingId).isEmpty()) {
+            throw new BusinessException(ActionErrorCode.ACTION_MEETING_NOT_FOUND);
+        }
+
+        List<Action> actions = actionRepository.findAllByCompanyIdAndSourceMeetingId(companyId, sourceMeetingId);
+        if (actions.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, String> assigneeNameById = toDisplayMap(
+                actionReferenceRepository.findMemberReferences(distinctNonNull(actions, Action::getAssigneeMemberId)),
+                MemberReference::memberId, MemberReference::name);
+        Map<Long, String> teamNameById = toDisplayMap(
+                actionReferenceRepository.findTeamReferences(distinctNonNull(actions, Action::getTeamId)),
+                TeamReference::teamId, TeamReference::name);
+
+        return actions.stream()
+                .map(action -> new GetActionsByMeetingUseCase.MeetingActionItem(
+                        action,
+                        action.getAssigneeMemberId() == null ? null : assigneeNameById.get(action.getAssigneeMemberId()),
+                        action.getTeamId() == null ? null : teamNameById.get(action.getTeamId())
+                ))
+                .toList();
     }
 
     private static <T> List<Long> distinct(List<Action> actions, Function<Action, Long> extractor) {

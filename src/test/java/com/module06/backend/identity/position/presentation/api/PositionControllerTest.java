@@ -112,14 +112,14 @@ class PositionControllerTest {
     }
 
     @Test
-    @DisplayName("직급명이 5자를 넘으면 400으로 거절한다")
-    void createRejectsNameLongerThanFiveChars() throws Exception {
+    @DisplayName("직급명이 20자를 넘으면 400으로 거절한다 — 온보딩(§4-1)과 같은 상한이다")
+    void createRejectsNameLongerThanTwentyChars() throws Exception {
         authenticateAs(1L);
 
         mockMvc.perform(post("/api/job-positions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                { "name": "여섯글자직급명", "authority": "MEMBER", "description": "설명" }
+                                { "name": "스물한자가넘는아주긴직급이름입니다정말길다", "authority": "MEMBER", "description": "설명" }
                                 """))
                 .andExpect(status().isBadRequest());
 

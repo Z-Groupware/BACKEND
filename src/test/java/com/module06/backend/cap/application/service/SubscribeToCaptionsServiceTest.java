@@ -84,6 +84,11 @@ class SubscribeToCaptionsServiceTest {
             public int countAttendees(Long meetingId) {
                 return 0;
             }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
         };
     }
 

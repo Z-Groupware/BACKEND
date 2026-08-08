@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.MeetingCancellationRepository;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
@@ -47,6 +48,10 @@ class MeetingPersistenceAdapterTest {
     /* MEET-05에서 회사 범위 잠금 조회와 예약 슬롯 교체 저장에 사용하는 도메인 저장소다. */
     @Autowired
     private MeetingUpdateRepository meetingUpdateRepository;
+
+    /* MEET-06에서 회사 범위 잠금 조회와 취소 상태·슬롯 해제 저장에 사용하는 도메인 저장소다. */
+    @Autowired
+    private MeetingCancellationRepository meetingCancellationRepository;
 
     /* 저장된 회의 기본 행을 조회하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -354,6 +359,54 @@ class MeetingPersistenceAdapterTest {
                         LocalDateTime.of(2026, 8, 6, 14, 0),
                         LocalDateTime.of(2026, 8, 6, 14, 30)
                 );
+    }
+
+    /* 회의 취소가 기본 행과 참석자를 보존하면서 예약 슬롯만 해제하는지 검증한다. */
+    @Test
+    @DisplayName("회의를 CANCELED로 저장하고 예약 슬롯만 해제해 이력을 보존한다")
+    void cancelsMeetingAndReleasesOnlyReservationSlots() {
+        /* 슬롯 두 개와 참석자 세 명을 가진 예약 회의를 먼저 커밋한다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
+                meeting("취소 대상 회의", List.of(3L, 7L, 11L))
+        ));
+        LocalDateTime canceledAt = LocalDateTime.of(2026, 8, 6, 10, 30);
+
+        /* 별도 트랜잭션에서 회사 범위 잠금 조회 후 취소 상태와 슬롯 해제를 저장한다. */
+        Meeting canceledMeeting = transaction.execute(status -> {
+            Meeting locked = meetingCancellationRepository
+                    .findForCancellation(10L, savedMeeting.getId())
+                    .orElseThrow();
+
+            /* 다른 회사 조건으로는 같은 회의 식별자가 노출되지 않아야 한다. */
+            assertThat(meetingCancellationRepository.findForCancellation(20L, savedMeeting.getId()))
+                    .isEmpty();
+
+            /* 도메인의 취소 상태를 기존 meeting 행에 저장하고 현재 슬롯을 해제한다. */
+            return meetingCancellationRepository.saveCancellationAndReleaseSlots(
+                    locked.cancel(canceledAt)
+            );
+        });
+
+        /* 저장 결과와 실제 meeting 행은 CANCELED와 동일한 취소 시각을 가져야 한다. */
+        assertThat(canceledMeeting.getStatus()).isEqualTo(MeetingStatus.CANCELED);
+        assertThat(canceledMeeting.getCanceledAt()).isEqualTo(canceledAt);
+        assertThat(springDataMeetingRepository.findById(savedMeeting.getId()))
+                .get()
+                .satisfies(entity -> {
+                    assertThat(entity.getStatus()).isEqualTo(MeetingStatus.CANCELED);
+                    assertThat(entity.getCanceledAt()).isEqualTo(canceledAt);
+                });
+
+        /* 취소한 회의의 슬롯은 사라지지만 회의 기본 행과 참석자 이력은 그대로 남아야 한다. */
+        assertThat(springDataMeetingReservationSlotRepository
+                .findAllByMeetingIdOrderBySlotStartAsc(savedMeeting.getId()))
+                .isEmpty();
+        assertThat(springDataMeetingRepository.existsById(savedMeeting.getId())).isTrue();
+        assertThat(springDataMeetingAttendeeRepository
+                .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
+                .extracting(attendee -> attendee.getMemberId())
+                .containsExactly(3L, 7L, 11L);
     }
 
     /* 테스트 제목과 참석자로 같은 회의실·시간의 신규 회의를 생성한다. */

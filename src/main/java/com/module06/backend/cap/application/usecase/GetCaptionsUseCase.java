@@ -10,13 +10,10 @@ public interface GetCaptionsUseCase {
     Result getCaptions(Long meetingId, Requester requester);
 
     /**
-     * 요청자 신원 — 열람 권한 판정용. 참석자거나, 같은 회사의 owner/admin(감독 열람)이면 허용한다.
-     * 재생 URL(CAP-14)의 Requester와 동일한 판정 기준 — GetPlaybackUrlUseCase.Requester 참고.
+     * 요청자 신원 — 열람 권한 판정은 {@link com.module06.backend.cap.application.guard.CapMeetingAccessGuard}가
+     * 한다(참석자 / 같은 회사 owner·admin / 프로젝트 멤버). GetPlaybackUrlUseCase.Requester와 동일 관용구.
      */
-    record Requester(Long memberId, Long companyId, String role, boolean isAdmin) {
-        public boolean isOwnerOrAdmin() {
-            return "OWNER".equals(role) || isAdmin;
-        }
+    record Requester(Long memberId, Long companyId, Long teamId, String role, boolean isAdmin) {
     }
 
     record Result(List<CaptionItem> captions) {

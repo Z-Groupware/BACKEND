@@ -2,6 +2,7 @@ package com.module06.backend.cap.application.service;
 
 import com.module06.backend.cap.application.command.CompletePartUploadCommand;
 import com.module06.backend.cap.application.command.IssuePartUploadUrlsCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.CaptureHeartbeatPort;
 import com.module06.backend.cap.application.usecase.CompletePartUploadUseCase;
@@ -26,17 +27,20 @@ import java.util.List;
 public class CaptureUploadService implements IssuePartUploadUrlsUseCase, CompletePartUploadUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingPartRepository recordingPartRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final CaptureHeartbeatPort captureHeartbeatPort;
 
     public CaptureUploadService(MeetingReferenceRepository meetingReferenceRepository,
+                                CapMeetingAccessGuard accessGuard,
                                 CaptureUploadStateRepository captureUploadStateRepository,
                                 RecordingPartRepository recordingPartRepository,
                                 CapObjectStoragePort capObjectStoragePort,
                                 CaptureHeartbeatPort captureHeartbeatPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.recordingPartRepository = recordingPartRepository;
         this.capObjectStoragePort = capObjectStoragePort;
@@ -127,7 +131,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
     // 회의 참석자 명단에 없으면 CAP_NOT_ATTENDEE(403). presign/complete는 참석자만 호출 가능.
     private void requireAttendee(Long meetingId, Long callerId) {
-        if (!meetingReferenceRepository.isAttendee(meetingId, callerId)) {
+        if (!accessGuard.isAttendee(meetingId, callerId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
     }

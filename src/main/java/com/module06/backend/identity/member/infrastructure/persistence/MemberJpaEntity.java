@@ -162,6 +162,22 @@ public class MemberJpaEntity {
         this.authority = Authority.MEMBER;
     }
 
+    /**
+     * 마이페이지 셀프 프로필 수정. null 인 인자는 건드리지 않는다 — 부분 수정. authority·isAdmin은
+     * 이 메서드로 절대 바뀌지 않는다({@link #changeRoleAndPosition}·{@link #changeAdmin} 전용).
+     */
+    void updateProfile(TeamRefEntity team, PositionRefEntity position, String phone) {
+        if (team != null) {
+            this.team = team;
+        }
+        if (position != null) {
+            this.position = position;
+        }
+        if (phone != null) {
+            this.phone = phone;
+        }
+    }
+
     /*
      * ── 생애주기 전이 ────────────────────────────────────────────────────────
      *

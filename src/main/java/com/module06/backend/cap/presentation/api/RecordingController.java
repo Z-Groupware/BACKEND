@@ -89,7 +89,7 @@ public class RecordingController {
     @Operation(
             summary = "재생용 Presigned GET URL 발급",
             description = "녹음본을 재생할 수 있는 presigned GET URL(HTTP Range 지원, 만료 3시간)을 발급합니다. "
-                    + "회의 참석자, 또는 같은 회사의 owner/admin만 가능합니다."
+                    + "회의 참석자, 같은 회사의 owner/admin, 또는 프로젝트 멤버만 가능합니다."
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @GetMapping("/playback-url")
@@ -97,12 +97,13 @@ public class RecordingController {
             @Parameter(description = "회의 ID") @PathVariable Long meetingId,
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
             // ⚠️ AuthPrincipal엔 role이 없고 authority만 있다 — "role"로 두면 SpEL 평가 실패로 실제 요청이 500난다.
             @AuthenticationPrincipal(expression = "authority") String role,
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin) {
-        // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자 or 같은 회사 owner/admin)은 서비스가 판정.
+        // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자/owner·admin/프로젝트 멤버)은 access-guard가 판정.
         GetPlaybackUrlUseCase.Requester requester =
-                new GetPlaybackUrlUseCase.Requester(memberId, companyId, role, isAdmin);
+                new GetPlaybackUrlUseCase.Requester(memberId, companyId, teamId, role, isAdmin);
         GetPlaybackUrlUseCase.Result result = getPlaybackUrlUseCase.getPlaybackUrl(meetingId, requester);
         return ApiResponse.success("재생 URL이 발급되었습니다.", PlaybackUrlResponse.from(result));
     }

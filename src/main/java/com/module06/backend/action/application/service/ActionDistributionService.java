@@ -19,6 +19,8 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
+import com.module06.backend.action.exception.ActionErrorCode;
+import com.module06.backend.global.exception.BusinessException;
 
 import lombok.RequiredArgsConstructor;
 
@@ -134,6 +136,14 @@ public class ActionDistributionService implements ActionDistributionPort {
 
         // 분배 경로 — PERSONAL이어도 담당자가 없을 수 있다(2026-08-07, 이태연 요청).
         ACTION_TYPE_SHAPE_POLICY.checkDistribution(item.actionType(), teamId, item.assigneeMemberId());
+
+        // 담당자가 실려 왔으면 같은 회사 소속인지 검증한다 — 아니면 다른 회사 멤버가 우리 회사
+        // 액션 담당자로 붙는 IDOR이 된다(2026-08-08, 이태연 코드리뷰 지적, 이슈 #228). 담당자
+        // 없는 분배는 위 checkDistribution이 이미 허용하므로 여기서도 그대로 통과시킨다.
+        if (item.assigneeMemberId() != null
+                && !actionReferenceRepository.existsMemberInCompany(item.assigneeMemberId(), item.companyId())) {
+            throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+        }
 
         return Action.create(
                 item.companyId(),

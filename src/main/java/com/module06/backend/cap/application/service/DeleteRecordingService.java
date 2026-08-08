@@ -1,5 +1,6 @@
 package com.module06.backend.cap.application.service;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
@@ -23,17 +24,20 @@ import java.time.LocalDateTime;
 public class DeleteRecordingService implements DeleteRecordingUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final RecordingRepository recordingRepository;
     private final RecordingPartRepository recordingPartRepository;
     private final ProcessingCompletionRepository processingCompletionRepository;
     private final CapObjectStoragePort capObjectStoragePort;
 
     public DeleteRecordingService(MeetingReferenceRepository meetingReferenceRepository,
+                                  CapMeetingAccessGuard accessGuard,
                                   RecordingRepository recordingRepository,
                                   RecordingPartRepository recordingPartRepository,
                                   ProcessingCompletionRepository processingCompletionRepository,
                                   CapObjectStoragePort capObjectStoragePort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.recordingPartRepository = recordingPartRepository;
         this.processingCompletionRepository = processingCompletionRepository;
@@ -43,11 +47,12 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
     @Override
     public Result deleteRecording(Long meetingId, Long companyId, boolean confirm) {
         // 회의(따라서 녹음)가 없으면 404. 존재 여부를 회사 밖으로 노출하지 않도록 회사 스코프 전에 회의 유무만 본다.
-        Long meetingCompanyId = meetingReferenceRepository.findCompanyId(meetingId)
-                .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_RECORDING_NOT_FOUND));
+        if (!meetingReferenceRepository.existsById(meetingId)) {
+            throw new BusinessException(CapErrorCode.CAP_RECORDING_NOT_FOUND);
+        }
 
         // 회사 스코프(403) — owner/admin이라도 다른 회사 녹음은 삭제할 수 없다.
-        if (!meetingCompanyId.equals(companyId)) {
+        if (!accessGuard.isSameCompany(meetingId, companyId)) {
             throw new BusinessException(CommonErrorCode.ACCESS_DENIED);
         }
 

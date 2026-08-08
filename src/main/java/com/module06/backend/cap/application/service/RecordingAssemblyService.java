@@ -1,6 +1,7 @@
 package com.module06.backend.cap.application.service;
 
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
@@ -23,15 +24,18 @@ import java.util.Set;
 public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingPartRepository recordingPartRepository;
     private final RecordingAssemblyPort recordingAssemblyPort;
 
     public RecordingAssemblyService(MeetingReferenceRepository meetingReferenceRepository,
+                                    CapMeetingAccessGuard accessGuard,
                                     CaptureUploadStateRepository captureUploadStateRepository,
                                     RecordingPartRepository recordingPartRepository,
                                     RecordingAssemblyPort recordingAssemblyPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.recordingPartRepository = recordingPartRepository;
         this.recordingAssemblyPort = recordingAssemblyPort;
@@ -48,7 +52,7 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
         if (!meetingReferenceRepository.existsById(command.meetingId())) {
             throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
         }
-        if (!meetingReferenceRepository.isAttendee(command.meetingId(), command.callerId())) {
+        if (!accessGuard.isAttendee(command.meetingId(), command.callerId())) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(command.meetingId())

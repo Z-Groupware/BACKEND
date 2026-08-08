@@ -23,6 +23,7 @@ import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
 import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
+import com.module06.backend.identity.member.application.usecase.UpdateMyProfileUseCase;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.model.Authority;
@@ -59,6 +60,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private GetMyProfileUseCase getMyProfileUseCase;
+
+    @MockitoBean
+    private UpdateMyProfileUseCase updateMyProfileUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -257,6 +261,33 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.plan").doesNotExist())
                 .andExpect(jsonPath("$.data.isOnboarded").value(false))
                 .andExpect(jsonPath("$.data.landingPath").value("/owner"));
+    }
+
+    @Test
+    @DisplayName("프로필 수정은 바디가 아니라 토큰의 memberId·companyId 로 대상을 정한다")
+    void updateMeUsesPrincipalNotBody() throws Exception {
+        authenticateAs(3L);
+        when(updateMyProfileUseCase.update(any())).thenReturn(new MyProfile(
+                3L, 1L, "(주)테크스타트", "NOVA-7K3D",
+                "이하윤", "hayun@zgroup.co.kr", "010-9999-0000",
+                1L, "개발팀", "프론트엔드", 4L, "선임",
+                Authority.MEMBER, false, true,
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.FREE));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/auth/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"010-9999-0000"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.phone").value("010-9999-0000"));
+
+        ArgumentCaptor<com.module06.backend.identity.member.application.command.UpdateMyProfileCommand> captor =
+                ArgumentCaptor.forClass(com.module06.backend.identity.member.application.command.UpdateMyProfileCommand.class);
+        verify(updateMyProfileUseCase).update(captor.capture());
+        assertThat(captor.getValue().memberId()).isEqualTo(3L);
+        assertThat(captor.getValue().companyId()).isEqualTo(1L);
+        assertThat(captor.getValue().phone()).isEqualTo("010-9999-0000");
     }
 
     /** 필터를 끈 슬라이스 테스트라 컨텍스트를 직접 심는다 — JwtAuthenticationFilterTest 와 같은 방식. */

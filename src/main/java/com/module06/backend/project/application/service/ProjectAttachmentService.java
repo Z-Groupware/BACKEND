@@ -43,6 +43,7 @@ public class ProjectAttachmentService implements
         if (command.fileSize() <= 0) {
             throw new IllegalArgumentException("fileSize는 0보다 커야 합니다.");
         }
+        requireProjectInCompany(command.companyId(), command.projectId());
 
         return projectAttachmentStoragePort.issueUploadUrl(command.fileName(), command.fileSize());
     }
@@ -50,9 +51,7 @@ public class ProjectAttachmentService implements
     @Override
     @Transactional
     public ProjectAttachment confirm(ConfirmAttachmentCommand command) {
-        if (!projectRepository.existsActiveByCompanyIdAndId(command.companyId(), command.projectId())) {
-            throw new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND);
-        }
+        requireProjectInCompany(command.companyId(), command.projectId());
 
         return projectAttachmentRepository.findByProjectIdAndFileUrl(command.projectId(), command.fileUrl())
                 .orElseGet(() -> {
@@ -70,14 +69,30 @@ public class ProjectAttachmentService implements
     @Override
     @Transactional
     public void delete(DeleteAttachmentCommand command) {
+        requireProjectInCompany(command.companyId(), command.projectId());
+
         ProjectAttachment attachment = projectAttachmentRepository.findById(command.attachmentId())
                 .orElseThrow(() -> new BusinessException(ProjectErrorCode.ATTACHMENT_NOT_FOUND));
 
+        /*
+            경로의 프로젝트에 속하지 않은 첨부는 "없는 것"으로 답한다. 403 으로 구분해 주면
+            남의 회사 첨부 id 를 하나씩 넣어보는 것만으로 존재 여부가 새어 나간다.
+        */
+        if (!command.projectId().equals(attachment.getProjectId())) {
+            throw new BusinessException(ProjectErrorCode.ATTACHMENT_NOT_FOUND);
+        }
         if (!attachment.isUploadedBy(command.requesterId())) {
             throw new BusinessException(ProjectErrorCode.NOT_ATTACHMENT_UPLOADER);
         }
 
         projectAttachmentRepository.deleteById(command.attachmentId());
         projectAttachmentStoragePort.deleteObject(attachment.getFileUrl());
+    }
+
+    /* 타 회사 프로젝트는 403 이 아니라 404 다 — 403 은 "그 id 는 존재한다"를 알려준다. */
+    private void requireProjectInCompany(Long companyId, Long projectId) {
+        if (!projectRepository.existsActiveByCompanyIdAndId(companyId, projectId)) {
+            throw new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND);
+        }
     }
 }

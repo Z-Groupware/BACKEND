@@ -103,13 +103,23 @@ class ProcessingCompletionRepositoryAdapterTest {
         assertThat(processingCompletionRepository.hasUnfinishedProcessing(500L, false)).isFalse();
     }
 
-    // H2 test 스키마는 create-drop이라 CapSttBlockReferenceEntity가 매핑한 컬럼(id/meeting_id/status)만
-    // 존재한다(Flyway 전체 DDL은 MySQL 전용이라 test 프로파일에 안 돈다) — 그 두 컬럼만 채운다.
+    // capture 쪽에 쓰기 엔티티(SttBlockJpaEntity · STT-03·04)가 붙으면서 H2 test 스키마가 실제
+    // 스키마(V5.4)와 같은 NOT NULL 컬럼들을 갖게 됐다 — 예전에는 CapSttBlockReferenceEntity가
+    // 매핑한 셋(id/meeting_id/status)만 존재해서 두 컬럼만 채워도 들어갔다.
+    //
+    // 아래 값들은 이 테스트가 보지 않는다(판정은 status만 본다). 실제 스키마에서도 NOT NULL이라
+    // 그때 안 채우면 어차피 못 넣는 값들이고, analysis_layer를 이미 같은 이유로 채우고 있다.
     private void insertSttBlock(Long meetingId, String status) {
         jdbcTemplate.update(
-                "INSERT INTO stt_block (meeting_id, status) VALUES (?, ?)",
-                meetingId, status);
+                "INSERT INTO stt_block "
+                        + "(meeting_id, block_seq, start_offset_ms, end_offset_ms, cut_reason, "
+                        + " provider, status, retry_count) "
+                        + "VALUES (?, ?, 0, 0, 'VAD_SILENCE', 'aws-transcribe', ?, 0)",
+                meetingId, nextBlockSeq++, status);
     }
+
+    /* UNIQUE(meeting_id, block_seq) 라 같은 회의에 여러 건을 넣는 테스트가 순번을 나눠 써야 한다. */
+    private int nextBlockSeq = 0;
 
     // attempt_count/tokens_in/tokens_out은 Flyway 마이그레이션엔 DEFAULT 0이 있지만, H2 test 스키마는
     // AnalysisLayerJpaEntity(create-drop)로 생성돼 기본값 없이 NOT NULL이라 명시적으로 채운다.

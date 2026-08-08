@@ -22,11 +22,17 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
+import com.module06.backend.action.exception.ActionErrorCode;
+import com.module06.backend.global.exception.BusinessException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +65,8 @@ class ActionDistributionServiceTest {
         });
         lenient().when(actionReferenceRepository.findMeetingReferences(anyList())).thenReturn(List.of());
         lenient().when(actionReferenceRepository.findProjectReferences(anyList())).thenReturn(List.of());
+        // 기본은 "같은 회사 소속" — 회사 소속 검증 자체를 다루는 테스트에서만 false로 덮어쓴다.
+        lenient().when(actionReferenceRepository.existsMemberInCompany(anyLong(), anyLong())).thenReturn(true);
     }
 
     @Test
@@ -143,6 +151,36 @@ class ActionDistributionServiceTest {
                 service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee)));
 
         assertThat(result).hasSize(1);
+    }
+
+    @Test
+    void rejectsAssigneeFromDifferentCompany() {
+        // 2026-08-08 — 이태연 코드리뷰 지적(이슈 #228): 분배 경로는 담당자의 회사 소속을 검증하지 않았다.
+        when(actionReferenceRepository.findMeetingReferences(List.of(MEETING_WITH_TEAM)))
+                .thenReturn(List.of(new MeetingReference(MEETING_WITH_TEAM, TEAM, PARENT_ACTION, null)));
+        when(actionReferenceRepository.existsMemberInCompany(ASSIGNEE, COMPANY)).thenReturn(false);
+
+        ActionDistributionItem itemWithForeignAssignee = item("제목", ActionType.PERSONAL, ASSIGNEE, LocalDate.of(2026, 8, 21));
+
+        assertThatThrownBy(() -> service.distribute(new DistributeActionsCommand(List.of(itemWithForeignAssignee))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+    }
+
+    @Test
+    void skipsCompanyCheckWhenAssigneeIsAbsent() {
+        // 담당자 없는 분배는 checkDistribution이 이미 허용하는 케이스라 회사 소속 검증 자체를 안 탄다.
+        ActionDistributionItem personalItemWithoutAssignee = new ActionDistributionItem(
+                "담당자 없는 개인 액션", "설명", ActionType.PERSONAL, null,
+                LocalDate.of(2026, 8, 21), null, PROJECT, COMPANY,
+                null, null, null, false
+        );
+
+        service.distribute(new DistributeActionsCommand(List.of(personalItemWithoutAssignee)));
+
+        // anyLong()은 null과 매칭되지 않아 existsMemberInCompany(null, companyId) 호출을 놓칠 수
+        // 있다 — any()로 null까지 포함해 검증한다(코드래빗 지적, PR #229).
+        verify(actionReferenceRepository, never()).existsMemberInCompany(any(), any());
     }
 
     @Test
