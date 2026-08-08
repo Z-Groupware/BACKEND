@@ -32,9 +32,6 @@ import com.module06.backend.meeting.domain.repository.PendingActionMeetingReposi
 @RequiredArgsConstructor
 public class PendingActionMeetingQueryService implements GetPendingActionMeetingsUseCase {
 
-    /* 액션 도메인 배치 계약이 한 번에 허용하는 최대 회의 식별자 개수다. */
-    private static final int MEETING_ID_BATCH_SIZE = 200;
-
     /* 회사·host·종료 상태 조건으로 후보 회의를 조회하는 저장소다. */
     private final PendingActionMeetingRepository pendingActionMeetingRepository;
 
@@ -116,25 +113,23 @@ public class PendingActionMeetingQueryService implements GetPendingActionMeeting
         }
     }
 
-    /* 후보 회의 식별자를 배치로 나눠 액션 도메인의 분배 대기 판정을 모은다. */
+    /*
+     * 후보 회의 전체를 액션 도메인에 한 번만 전달해 분배 대기 판정을 모은다.
+     *
+     * 호출자가 목록을 잘라 보내지 않는다. 배치 크기는 데이터를 소유한 액션 도메인의 관심사이며,
+     * 실제로 액션 어댑터가 중복 제거 후 내부에서 분할한다. 호출자가 먼저 자르면 그 중복 제거가
+     * 조각 안에서만 동작해 같은 회의가 두 조각에서 각각 집계될 수 있다.
+     */
     private Map<Long, Long> findUndispatchedCounts(Long companyId, List<Long> meetingIds) {
-        /* 긴 IN 조건을 피하기 위해 액션 도메인 계약과 동일한 크기로 나눠 호출한다. */
+        /* 회의별 반복 호출도, 크기 기준 분할도 없이 후보 전체를 한 번에 묻는다. */
+        List<UndispatchedActionMeeting> undispatchedMeetings =
+                actionQueryPort.findMeetingsWithUndispatchedActions(companyId, meetingIds);
+
+        /* 분배 대기 건수가 0 이하인 회의는 목록에 남길 이유가 없으므로 제외한다. */
         Map<Long, Long> counts = new LinkedHashMap<>();
-        for (int fromIndex = 0; fromIndex < meetingIds.size(); fromIndex += MEETING_ID_BATCH_SIZE) {
-            /* 현재 배치의 끝 위치가 전체 후보 목록을 넘지 않도록 제한한다. */
-            int toIndex = Math.min(fromIndex + MEETING_ID_BATCH_SIZE, meetingIds.size());
-
-            /* 회의별 반복 호출 대신 배치 단위로 액션 도메인에 한 번씩만 묻는다. */
-            List<UndispatchedActionMeeting> batch = actionQueryPort.findMeetingsWithUndispatchedActions(
-                    companyId,
-                    meetingIds.subList(fromIndex, toIndex)
-            );
-
-            /* 분배 대기 건수가 0 이하인 회의는 목록에 남길 이유가 없으므로 제외한다. */
-            for (UndispatchedActionMeeting meeting : batch) {
-                if (meeting.meetingId() != null && meeting.undispatchedCount() > 0L) {
-                    counts.put(meeting.meetingId(), meeting.undispatchedCount());
-                }
+        for (UndispatchedActionMeeting meeting : undispatchedMeetings) {
+            if (meeting.meetingId() != null && meeting.undispatchedCount() > 0L) {
+                counts.put(meeting.meetingId(), meeting.undispatchedCount());
             }
         }
 

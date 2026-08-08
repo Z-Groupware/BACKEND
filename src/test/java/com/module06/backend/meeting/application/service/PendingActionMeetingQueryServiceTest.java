@@ -95,6 +95,40 @@ class PendingActionMeetingQueryServiceTest {
         assertThat(actionQueryPort.capturedMeetingIds).containsExactly(13L, 12L, 11L);
     }
 
+    /* 후보가 배치 임계치를 넘어도 호출자가 목록을 자르지 않는지 검증한다. */
+    @Test
+    @DisplayName("후보가 201건이어도 자르지 않고 전체를 한 번에 전달한다")
+    void doesNotSplitCandidatesAboveBatchThreshold() {
+        /* 액션 도메인이 내부에서 분할하므로 호출자는 크기와 무관하게 전체를 넘겨야 한다. */
+        List<PendingActionMeetingRepository.PendingActionMeetingCandidate> candidates = new ArrayList<>();
+        for (int index = 0; index < 201; index++) {
+            /* 최근 시작 순 정렬을 유지하도록 식별자와 시각을 함께 내림차순으로 만든다. */
+            candidates.add(candidate(
+                    (long) (300 - index),
+                    12L,
+                    "회의 " + index,
+                    LocalDateTime.of(2026, 8, 7, 14, 0).minusMinutes(index)
+            ));
+        }
+        RecordingActionQueryPort actionQueryPort = new RecordingActionQueryPort(List.of(
+                new ActionQueryPort.UndispatchedActionMeeting(300L, 1L)
+        ));
+        PendingActionMeetingQueryService service = new PendingActionMeetingQueryService(
+                new RecordingPendingActionMeetingRepository(candidates),
+                actionQueryPort,
+                projectPort()
+        );
+
+        /* 201건의 후보로 확정 대기 목록을 조회한다. */
+        service.getPendingActionMeetings(new GetPendingActionMeetingsQuery(10L, 3L));
+
+        /* 200건 단위로 나누면 2회가 되므로 1회여야 분할이 없는 것이다. */
+        assertThat(actionQueryPort.invocationCount).isEqualTo(1);
+
+        /* 잘린 조각이 아니라 후보 201건 전체가 한 번에 전달돼야 한다. */
+        assertThat(actionQueryPort.capturedMeetingIds).hasSize(201);
+    }
+
     /* 후보가 없으면 외부 Port를 전혀 호출하지 않는 단축 경로를 검증한다. */
     @Test
     @DisplayName("후보 회의가 없으면 액션·프로젝트 Port를 호출하지 않는다")
