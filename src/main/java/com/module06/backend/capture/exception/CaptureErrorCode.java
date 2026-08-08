@@ -162,7 +162,38 @@ public enum CaptureErrorCode implements ErrorCode {
      * 다시 보내야 한다. 메시지가 그 다음 행동을 가리켜야 사람이 화면에서 막힌 채로 남지 않는다.
      */
     REVIEW_ASSIGNEE_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_7",
-            "담당자 없이 확정할 수 없습니다. 담당자를 지정해 수정으로 보내주세요.");
+            "담당자 없이 확정할 수 없습니다. 담당자를 지정해 수정으로 보내주세요."),
+
+    /*
+     * STT-04 — 그 회의의 블록이 아니다(없는 blockSeq 도 여기로 온다).
+     *
+     * REVIEW_ACTION_NOT_FOUND 와 같은 이유로 404 다. 관문(MeetingAccessGuard)은 회의까지만
+     * 보므로 회의는 내 것인데 blockSeq 만 다른 것을 넣는 경로가 남는데, 그 시도에 다른 응답을
+     * 주면 "그 블록은 존재한다"가 새어 나간다.
+     */
+    STT_BLOCK_NOT_FOUND(HttpStatus.NOT_FOUND, "MEETING_404_3", "STT 블록을 찾을 수 없습니다."),
+
+    /*
+     * STT-04 — 실패하지 않은 블록을 다시 돌리려 했다.
+     *
+     * **재처리 대상은 FAILED 뿐이다.** 성공했거나 아직 도는 블록을 다시 돌리면 같은 구간에
+     * STT 요금이 두 번 나가고, 이미 들어온 발화 위에 같은 결과가 덮인다. 화면이 버튼을 가려도
+     * blockSeq 를 직접 넣는 경로가 남으므로 서버에서 막는다.
+     *
+     * 409 인 이유 — 요청이 잘못된 것이 아니라 **그 블록의 지금 상태와 맞지 않는다.** 잠시 뒤
+     * 실패로 바뀌면 같은 요청이 성립한다.
+     */
+    STT_BLOCK_NOT_RETRYABLE(HttpStatus.CONFLICT, "MEETING_409_8", "실패한 블록만 다시 처리할 수 있습니다."),
+
+    /*
+     * STT-04 — 다시 돌릴 오디오가 없다.
+     *
+     * 두 EC2 사이 파일 전달은 S3 경유만이라(V5.4 주석) audio_s3_key 가 없으면 제출할 대상 자체가
+     * 없다. 그대로 보내면 제공자가 실패로 답하고 **시도 횟수만 올라간 채 같은 자리로 돌아온다** —
+     * 사람이 버튼을 눌러도 아무것도 나아지지 않는 상태가 반복된다.
+     */
+    STT_BLOCK_AUDIO_MISSING(HttpStatus.CONFLICT, "MEETING_409_9",
+            "블록 오디오가 없어 다시 처리할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
