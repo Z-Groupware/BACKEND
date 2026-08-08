@@ -34,8 +34,10 @@ import lombok.RequiredArgsConstructor;
     (2026-08-06).
 
     MeetingActionQueryPort는 meeting(D)이 부르는 인바운드 포트다(2026-08-08). 마이페이지
-    확정 대기 목록 배치조회는 D의 MEETING_ID_BATCH_SIZE(200)에 맞춰 청킹하고, COUNT GROUP BY가
-    Gate 1에 막혀 프로젝션으로 행을 읽어 자바에서 집계한다.
+    확정 대기 목록 배치조회는 IN 절이 무한정 커지지 않게 200건씩 내부적으로 청킹한다 —
+    이건 이 어댑터만의 관심사이지 계약이 아니라 호출자가 크기를 맞출 필요는 없다(2026-08-08,
+    모성진 확인 후 정리 — D도 같은 크기로 청킹하고 있어 계약처럼 보였지만 착오였다).
+    COUNT GROUP BY가 Gate 1에 막혀 프로젝션으로 행을 읽어 자바에서 집계한다.
 
     연결된 클래스
     - ActionRepository                        : 구현하는 도메인 계약
@@ -50,7 +52,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPort, MeetingActionQueryPort {
 
-    // D(meeting)의 MEETING_ID_BATCH_SIZE와 동일 — IN 절 크기를 맞춰 청킹한다.
+    // 이 어댑터 내부 청킹 크기 — 계약이 아니다(2026-08-08 정리). 호출자는 신경 쓸 필요 없다.
     private static final int MEETING_ID_BATCH_SIZE = 200;
 
     private final SpringDataActionRepository springDataActionRepository;
