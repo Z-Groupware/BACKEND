@@ -78,6 +78,11 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         return springDataActionRepository.findById(id).map(this::toDomain);
     }
 
+    @Override
+    public Optional<Action> findByIdForUpdate(Long id) {
+        return springDataActionRepository.findWithLockById(id).map(this::toDomain);
+    }
+
     // 내 액션 목록 — PERSONAL만 담당자 개념이 있다.
     @Override
     public List<Action> findAllByAssigneeMemberId(Long assigneeMemberId) {

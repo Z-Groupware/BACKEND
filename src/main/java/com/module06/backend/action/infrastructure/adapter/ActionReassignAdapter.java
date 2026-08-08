@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.repository.ActionRepository;
@@ -30,6 +31,9 @@ import lombok.RequiredArgsConstructor;
     findTeamActionsForDeparture(memberId): 이 memberId가 팀장인 팀들의 TEAM 액션 —
     고아경보(팀장 이탈 시 상태변경 권한자 소실) 판정용, 읽기 전용.
     reassign: PERSONAL 액션만 대상(Action.reassignTo가 강제), 담당자 일치 여부를 먼저 확인한다.
+    findByIdForUpdate(SELECT ... FOR UPDATE)로 읽어 같은 트랜잭션(@Transactional) 안에서 바로
+    쓴다 — 동시에 두 인수인계 요청이 같은 액션을 재배정하면, 잠금 없이는 나중에 커밋한 쪽이
+    먼저 커밋한 쪽을 조용히 덮어쓴다(2026-08-08, CodeRabbit PR #126 지적 정리).
 
     연결된 클래스
     - ActionRepository                       : 실제 조회·저장 위임 대상
@@ -51,8 +55,9 @@ public class ActionReassignAdapter implements ActionReassignPort {
     }
 
     @Override
+    @Transactional
     public void reassign(Long actionId, Long fromMemberId, Long toMemberId) {
-        Action action = actionRepository.findById(actionId)
+        Action action = actionRepository.findByIdForUpdate(actionId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 액션입니다: " + actionId));
 
         if (!fromMemberId.equals(action.getAssigneeMemberId())) {
