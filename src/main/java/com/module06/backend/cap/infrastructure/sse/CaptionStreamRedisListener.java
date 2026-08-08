@@ -1,11 +1,11 @@
 package com.module06.backend.cap.infrastructure.sse;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 
@@ -21,11 +21,11 @@ public class CaptionStreamRedisListener implements MessageListener {
     private static final Logger log = LoggerFactory.getLogger(CaptionStreamRedisListener.class);
 
     private final CaptionStreamRegistry registry;
-    // 자동구성된 ObjectMapper 빈이 없어 로컬 인스턴스를 쓴다(CaptionStreamRegistry와 동일 이유).
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public CaptionStreamRedisListener(CaptionStreamRegistry registry) {
+    public CaptionStreamRedisListener(CaptionStreamRegistry registry, ObjectMapper objectMapper) {
         this.registry = registry;
+        this.objectMapper = objectMapper;
     }
 
     @Override

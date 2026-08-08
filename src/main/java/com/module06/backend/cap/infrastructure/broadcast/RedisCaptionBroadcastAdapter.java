@@ -1,7 +1,5 @@
 package com.module06.backend.cap.infrastructure.broadcast;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.module06.backend.cap.application.port.out.CaptionBroadcastPort;
 import com.module06.backend.cap.domain.model.CaptionChunk;
 import com.module06.backend.cap.domain.repository.MemberReferenceRepository;
@@ -12,6 +10,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -30,13 +30,13 @@ public class RedisCaptionBroadcastAdapter implements CaptionBroadcastPort {
 
     private final MemberReferenceRepository memberReferenceRepository;
     private final StringRedisTemplate redisTemplate;
-    // 자동구성된 ObjectMapper 빈이 없어 로컬 인스턴스를 쓴다(CaptionStreamRegistry와 동일 이유).
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     public RedisCaptionBroadcastAdapter(MemberReferenceRepository memberReferenceRepository,
-                                        StringRedisTemplate redisTemplate) {
+                                        StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this.memberReferenceRepository = memberReferenceRepository;
         this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -55,11 +55,19 @@ public class RedisCaptionBroadcastAdapter implements CaptionBroadcastPort {
         publish(new CaptionStreamRegistry.CaptionMessage(meetingId, items));
     }
 
+    // best-effort — 이름 조회 실패(DB 접근 오류 등)로 브로드캐스트 전체를 죽이지 않는다. 저장(CAP-11)은
+    // 이미 끝났으므로, 여기서 예외가 새면 이미 성공한 요청이 500으로 뒤집힌다. 실패 시 빈 이름으로 진행.
     private Map<Long, String> lookupNames(List<CaptionChunk> chunks) {
         List<Long> memberIds = chunks.stream().map(CaptionChunk::getMemberId).distinct().toList();
-        return memberReferenceRepository.findNames(memberIds).stream()
-                .collect(Collectors.toMap(
-                        MemberReferenceRepository.MemberName::memberId, MemberReferenceRepository.MemberName::name));
+        try {
+            return memberReferenceRepository.findNames(memberIds).stream()
+                    .collect(Collectors.toMap(
+                            MemberReferenceRepository.MemberName::memberId,
+                            MemberReferenceRepository.MemberName::name));
+        } catch (RuntimeException e) {
+            log.warn("발신자 이름 조회 실패 — 빈 이름으로 브로드캐스트 계속 진행. memberIds={}", memberIds, e);
+            return Map.of();
+        }
     }
 
     // 브로드캐스트는 best-effort — Redis 장애가 자막 저장(CAP-11) 자체를 실패시키면 안 되므로 여기서 삼킨다.
@@ -67,7 +75,7 @@ public class RedisCaptionBroadcastAdapter implements CaptionBroadcastPort {
         try {
             String json = objectMapper.writeValueAsString(message);
             redisTemplate.convertAndSend(CaptionStreamChannels.CAPTION, json);
-        } catch (DataAccessException | JsonProcessingException e) {
+        } catch (DataAccessException | JacksonException e) {
             log.warn("자막 브로드캐스트 발행 실패(meetingId={}) — Redis 접근 오류, 저장은 이미 완료됨", message.meetingId(), e);
         }
     }

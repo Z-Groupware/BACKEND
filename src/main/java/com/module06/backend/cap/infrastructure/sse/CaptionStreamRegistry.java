@@ -1,7 +1,5 @@
 package com.module06.backend.cap.infrastructure.sse;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.module06.backend.cap.application.port.out.CaptionStreamPort;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import org.slf4j.Logger;
@@ -10,6 +8,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.List;
@@ -26,10 +26,10 @@ import java.util.concurrent.TimeUnit;
     다른 인스턴스에서 온 것도 전부 여기 dispatchXxx로 들어와 로컬 emitter들에게만 전달된다 — 그래서
     인스턴스가 여러 대여도 "이 인스턴스에 붙어있는 클라이언트"에게만 정확히 나간다.
 
-    참석자 수(connectedCount)는 Redis Set(cap:captions:participants:{meetingId})으로 인스턴스 간
-    공유한다 — 로컬 맵만 보면 다른 인스턴스에 붙은 참석자를 못 세기 때문. 같은 사람이 탭을 여러 개 열면
-    Set엔 한 번만 잡혀 중복 집계되지 않는다(반대로 그 사람이 tab 하나만 닫아도 이 로컬 카운트가 0이 되기
-    전까진 Redis에서 안 지운다 — 아래 disconnect 처리 참고).
+    참석자 수(connectedCount)는 Redis Hash(cap:captions:participants:{meetingId}, memberId → 연결 수)로
+    인스턴스 간 공유한다. Set이 아니라 Hash인 이유 — 같은 사람이 다른 인스턴스에도 연결돼 있을 때, 이
+    인스턴스의 연결 하나가 끊겼다고 그 사람 전체를 지우면 안 된다(연결 수를 세야 정확함). 필드값이
+    0 이하가 되면 그때 지운다.
 */
 @Component
 public class CaptionStreamRegistry implements CaptionStreamPort {
@@ -40,9 +40,7 @@ public class CaptionStreamRegistry implements CaptionStreamPort {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final StringRedisTemplate redisTemplate;
-    // 이 프로젝트엔 자동구성된 ObjectMapper 빈이 없다 — 페이로드가 Long/int/String뿐인 단순 record라
-    // JSR310 등 추가 모듈 없이 로컬 인스턴스로 충분하다(스프링 빈 주입에 기대지 않는다).
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     // meetingId -> 이 인스턴스에 연결된 구독자들. 회의당 동시 구독자가 아주 많지 않을 것으로 보고
     // CopyOnWriteArrayList로 단순하게 간다(쓰기=연결/해제는 드물고, 읽기=이벤트 전달은 순회뿐).
@@ -54,9 +52,10 @@ public class CaptionStreamRegistry implements CaptionStreamPort {
     });
 
     public CaptionStreamRegistry(MeetingReferenceRepository meetingReferenceRepository,
-                                 StringRedisTemplate redisTemplate) {
+                                 StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
         heartbeatExecutor.scheduleAtFixedRate(this::sendHeartbeats,
                 HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
@@ -66,7 +65,13 @@ public class CaptionStreamRegistry implements CaptionStreamPort {
     public SseEmitter subscribe(Long meetingId, Long memberId) {
         SseEmitter emitter = new SseEmitter(0L);
         Subscriber subscriber = new Subscriber(memberId, emitter);
-        emittersByMeeting.computeIfAbsent(meetingId, id -> new CopyOnWriteArrayList<>()).add(subscriber);
+        // compute로 "생성 또는 추가"를 원자적으로 — computeIfAbsent+add 두 단계로 나누면 그 사이에
+        // unregister가 끼어들어 방금 만든 빈 리스트를 지워버리는 경합이 생긴다.
+        emittersByMeeting.compute(meetingId, (id, existing) -> {
+            CopyOnWriteArrayList<Subscriber> subscribers = existing != null ? existing : new CopyOnWriteArrayList<>();
+            subscribers.add(subscriber);
+            return subscribers;
+        });
 
         Runnable cleanup = () -> unregister(meetingId, subscriber);
         emitter.onCompletion(cleanup);
@@ -78,21 +83,19 @@ public class CaptionStreamRegistry implements CaptionStreamPort {
         return emitter;
     }
 
+    // remove와 "비었으면 맵에서 제거"를 원자적으로 — subscribe의 compute와 같은 맵 슬롯을 두고 경쟁하므로,
+    // 별도 단계로 나누면 마지막 구독자 해제와 새 구독자 등록이 교차할 때 방금 등록된 구독자가 통째로
+    // 유실될 수 있다(그 구독자는 이후 어떤 이벤트도 못 받음).
     private void unregister(Long meetingId, Subscriber subscriber) {
-        CopyOnWriteArrayList<Subscriber> subscribers = emittersByMeeting.get(meetingId);
-        if (subscribers == null) {
-            return;
-        }
-        subscribers.remove(subscriber);
-        if (subscribers.isEmpty()) {
-            emittersByMeeting.remove(meetingId, subscribers);
-        }
-        // 같은 사람이 이 회의에 다른 탭(로컬 emitter)으로 아직 붙어있으면 Redis 참석자 집합에서 빼지 않는다.
-        boolean stillConnectedLocally = subscribers.stream().anyMatch(s -> s.memberId().equals(subscriber.memberId()));
-        if (!stillConnectedLocally) {
-            removeParticipant(meetingId, subscriber.memberId());
-            publishParticipantSnapshot(meetingId);
-        }
+        emittersByMeeting.compute(meetingId, (id, subscribers) -> {
+            if (subscribers == null) {
+                return null;
+            }
+            subscribers.remove(subscriber);
+            return subscribers.isEmpty() ? null : subscribers;
+        });
+        removeParticipant(meetingId, subscriber.memberId());
+        publishParticipantSnapshot(meetingId);
     }
 
     // Redis pub/sub으로 받은 자막 조각들을 이 인스턴스에 붙은 이 회의 구독자에게만 전달한다.
@@ -133,32 +136,39 @@ public class CaptionStreamRegistry implements CaptionStreamPort {
         }
     }
 
+    // 연결 수를 1 올린다(HINCRBY, 원자적). 다른 인스턴스에 이미 연결돼 있어도 정확히 누적된다.
     private void addParticipant(Long meetingId, Long memberId) {
         try {
-            redisTemplate.opsForSet().add(participantKey(meetingId), memberId.toString());
+            redisTemplate.opsForHash().increment(participantKey(meetingId), memberId.toString(), 1);
         } catch (DataAccessException e) {
             log.warn("참석자 등록 실패(meetingId={}, memberId={}) — Redis 접근 오류, SSE 연결은 계속 진행", meetingId, memberId, e);
         }
     }
 
+    // 연결 수를 1 내리고, 0 이하가 되면 필드 자체를 지운다 — 다른 인스턴스의 연결은 그대로 살아있다.
     private void removeParticipant(Long meetingId, Long memberId) {
         try {
-            redisTemplate.opsForSet().remove(participantKey(meetingId), memberId.toString());
+            String key = participantKey(meetingId);
+            String field = memberId.toString();
+            long remaining = redisTemplate.opsForHash().increment(key, field, -1);
+            if (remaining <= 0) {
+                redisTemplate.opsForHash().delete(key, field);
+            }
         } catch (DataAccessException e) {
             log.warn("참석자 해제 실패(meetingId={}, memberId={}) — Redis 접근 오류", meetingId, memberId, e);
         }
     }
 
-    // connectedCount(Redis Set 크기) + totalCount(회의 전체 참석자)를 묶어 참석자 채널로 발행한다.
+    // connectedCount(Redis Hash 필드 수) + totalCount(회의 전체 참석자)를 묶어 참석자 채널로 발행한다.
     // 발행 자체가 이 인스턴스의 로컬 구독자에게도 그대로 되돌아와 dispatchParticipant로 전달된다.
     private void publishParticipantSnapshot(Long meetingId) {
         try {
-            long connectedCount = redisTemplate.opsForSet().size(participantKey(meetingId));
+            long connectedCount = redisTemplate.opsForHash().size(participantKey(meetingId));
             int totalCount = meetingReferenceRepository.countAttendees(meetingId);
             String json = objectMapper.writeValueAsString(
                     new ParticipantMessage(meetingId, (int) connectedCount, totalCount));
             redisTemplate.convertAndSend(CaptionStreamChannels.PARTICIPANT, json);
-        } catch (DataAccessException | JsonProcessingException e) {
+        } catch (DataAccessException | JacksonException e) {
             log.warn("참석자 스냅샷 발행 실패(meetingId={}) — Redis 접근 오류", meetingId, e);
         }
     }
