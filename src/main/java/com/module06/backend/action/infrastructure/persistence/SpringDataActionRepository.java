@@ -49,6 +49,10 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
 
     boolean existsByCompanyIdAndId(Long companyId, Long id);
 
+    // FR-AC-09 — 회의별 액션 조회. actionType 조건이 없다 — TEAM·PERSONAL이 섞여 나오는 게
+    // 이 조회의 목적이다(회의 상세 화면 전용, TeamActionService 쪽 조회들과 다른 이유).
+    List<ActionJpaEntity> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
+
     // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다.
     interface UndispatchedProjection {
         Long getSourceMeetingId();

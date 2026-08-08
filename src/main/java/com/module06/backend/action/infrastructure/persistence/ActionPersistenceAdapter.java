@@ -160,6 +160,14 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL 조건 없이 그대로 옮겨 담는다.
+    @Override
+    public List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId) {
+        return springDataActionRepository.findAllByCompanyIdAndSourceMeetingId(companyId, sourceMeetingId).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     @Override
     public List<TeamActionSummary> findTeamActionsByProjectId(Long projectId) {
         List<ActionJpaEntity> teamActions =

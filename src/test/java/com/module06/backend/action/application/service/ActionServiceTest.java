@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.module06.backend.action.application.command.BulkUpdateActionStatusCommand;
 import com.module06.backend.action.application.command.CreateActionCommand;
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase.ActionDetail;
+import com.module06.backend.action.application.usecase.GetActionsByMeetingUseCase.MeetingActionItem;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase.ActionListItem;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
@@ -339,6 +340,51 @@ class ActionServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_NOT_FOUND);
 
         verify(actionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void getActionsByMeetingReturnsMixedTeamAndPersonalActionsWithSeparateDisplayFields() {
+        ActionService service = actionService();
+        Action teamAction = teamAction(1L, COMPANY, PROJECT, 7L, 200L, ActionStatus.TODO);
+        Action personalAction = personalAction(2L, COMPANY, PROJECT, null, 200L, null, ActionStatus.TODO, 5L);
+        when(actionRepository.findAllByCompanyIdAndSourceMeetingId(COMPANY, 200L))
+                .thenReturn(List.of(teamAction, personalAction));
+        when(actionReferenceRepository.findMemberReferences(List.of(5L)))
+                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+        when(actionReferenceRepository.findTeamReferences(List.of(7L)))
+                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+
+        List<MeetingActionItem> result = service.getActionsByMeeting(COMPANY, 200L);
+
+        assertThat(result).hasSize(2);
+        MeetingActionItem teamItem = result.stream().filter(i -> i.action().getId().equals(1L)).findFirst().orElseThrow();
+        assertThat(teamItem.teamName()).isEqualTo("개발팀");
+        assertThat(teamItem.assigneeName()).isNull();
+        MeetingActionItem personalItem = result.stream().filter(i -> i.action().getId().equals(2L)).findFirst().orElseThrow();
+        assertThat(personalItem.assigneeName()).isEqualTo("이하윤");
+        assertThat(personalItem.teamName()).isNull();
+    }
+
+    @Test
+    void getActionsByMeetingReturnsEmptyListWithoutQueryingReferencesWhenMeetingHasNoActions() {
+        ActionService service = actionService();
+        when(actionRepository.findAllByCompanyIdAndSourceMeetingId(COMPANY, 200L)).thenReturn(List.of());
+
+        assertThat(service.getActionsByMeeting(COMPANY, 200L)).isEmpty();
+        verify(actionReferenceRepository, never()).findMemberReferences(anyList());
+        verify(actionReferenceRepository, never()).findTeamReferences(anyList());
+    }
+
+    private Action teamAction(Long id, Long companyId, Long projectId, Long teamId,
+                               Long sourceMeetingId, ActionStatus status) {
+        boolean isDone = status == ActionStatus.DONE;
+        LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
+        return Action.reconstitute(
+                id, companyId, projectId, null, sourceMeetingId, teamId, null,
+                ActionType.TEAM, "팀 액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
+                null, null, null
+        );
     }
 
     private Action personalAction(Long id, Long companyId, Long projectId, Long teamId,

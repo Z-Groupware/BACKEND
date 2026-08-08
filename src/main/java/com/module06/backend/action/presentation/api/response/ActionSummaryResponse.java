@@ -2,6 +2,7 @@ package com.module06.backend.action.presentation.api.response;
 
 import java.time.LocalDate;
 
+import com.module06.backend.action.application.usecase.GetActionsByMeetingUseCase.MeetingActionItem;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase.ActionListItem;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
@@ -61,6 +62,12 @@ public record ActionSummaryResponse(
     // teamName·상위액션 제목은 중복이라 안 싣는다. 상위액션 id는 그대로 둔다(카드 클릭 이동용).
     public static ActionSummaryResponse from(TimelineItem item) {
         return from(item.action(), item.assigneeName(), null, null, null, null);
+    }
+
+    // FR-AC-09 회의별 조회 — 이미 회의 상세 화면 안이라 sourceMeetingTitle은 중복이라 안 싣는다.
+    // projectTag도 마찬가지 이유로 뺀다. TEAM은 assigneeName, PERSONAL은 teamName이 null로 온다.
+    public static ActionSummaryResponse from(MeetingActionItem item) {
+        return from(item.action(), item.assigneeName(), null, item.teamName(), null, null);
     }
 
     private static ActionSummaryResponse from(

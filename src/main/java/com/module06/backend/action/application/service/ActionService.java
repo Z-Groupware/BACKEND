@@ -245,6 +245,31 @@ public class ActionService implements
         }
     }
 
+    // FR-AC-09 — 회의별 액션 조회. TEAM은 담당자, PERSONAL은 팀 개념이 없어 서로 null로 채워진다.
+    @Override
+    @Transactional(readOnly = true)
+    public List<GetActionsByMeetingUseCase.MeetingActionItem> getActionsByMeeting(Long companyId, Long sourceMeetingId) {
+        List<Action> actions = actionRepository.findAllByCompanyIdAndSourceMeetingId(companyId, sourceMeetingId);
+        if (actions.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, String> assigneeNameById = toDisplayMap(
+                actionReferenceRepository.findMemberReferences(distinctNonNull(actions, Action::getAssigneeMemberId)),
+                MemberReference::memberId, MemberReference::name);
+        Map<Long, String> teamNameById = toDisplayMap(
+                actionReferenceRepository.findTeamReferences(distinctNonNull(actions, Action::getTeamId)),
+                TeamReference::teamId, TeamReference::name);
+
+        return actions.stream()
+                .map(action -> new GetActionsByMeetingUseCase.MeetingActionItem(
+                        action,
+                        action.getAssigneeMemberId() == null ? null : assigneeNameById.get(action.getAssigneeMemberId()),
+                        action.getTeamId() == null ? null : teamNameById.get(action.getTeamId())
+                ))
+                .toList();
+    }
+
     private static <T> List<Long> distinct(List<Action> actions, Function<Action, Long> extractor) {
         return actions.stream().map(extractor).distinct().toList();
     }
