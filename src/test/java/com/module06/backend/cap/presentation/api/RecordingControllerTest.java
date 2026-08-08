@@ -85,7 +85,7 @@ class RecordingControllerTest {
         RecordingController controller =
                 new RecordingController(failingAssemble(), failingManual(), playbackUseCase, failingDelete());
 
-        ApiResponse<PlaybackUrlResponse> response = controller.playbackUrl(500L, 7L, 1L, "MEMBER", false);
+        ApiResponse<PlaybackUrlResponse> response = controller.playbackUrl(500L, 7L, 1L, null, "MEMBER", false);
 
         assertThat(capturedMeeting[0]).isEqualTo(500L);
         assertThat(capturedRequester[0].memberId()).isEqualTo(7L);

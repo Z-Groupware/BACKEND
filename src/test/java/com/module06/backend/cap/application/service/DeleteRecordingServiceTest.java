@@ -9,12 +9,14 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProcessingCompletionRepository;
+import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
@@ -170,6 +172,11 @@ class DeleteRecordingServiceTest {
             public int countAttendees(Long meetingId) {
                 return 0;
             }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
             @Override
@@ -227,7 +234,10 @@ class DeleteRecordingServiceTest {
                 storageDeleted[0] = true;
             }
         };
-        return new DeleteRecordingService(meetingRef, recordingRepo, partRepo, completion, storage);
+        // 삭제 경로(회사 스코프만 씀)는 프로젝트 멤버 판정을 타지 않으므로 항상 false인 스텁으로 충분하다.
+        ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
+        CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
+        return new DeleteRecordingService(meetingRef, accessGuard, recordingRepo, partRepo, completion, storage);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {
