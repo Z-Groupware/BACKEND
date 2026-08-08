@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.domain.model.SttBlockStatus;
 import com.module06.backend.capture.infrastructure.persistence.entity.SttBlockJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataSttBlockRepository;
 
@@ -41,18 +42,35 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
                 .map(SttBlockPersistenceAdapter::toView);
     }
 
+    /*
+     * **쓰기 잠금을 걸고 다시 확인한 뒤** 바꾼다.
+     *
+     * 서비스가 읽은 스냅샷과 지금 행이 같아야 전이한다 — 그 사이에 다른 재처리 요청이 끼어들어
+     * 시도 횟수를 올렸다면 서비스가 만든 잡 이름은 이미 남의 것과 겹친다. 그대로 제출하면
+     * 계정 내 중복 이름으로 거절되는데, 그게 이름에 횟수를 넣어 막으려던 상황이다
+     * (CodeRabbit PR #223 지적).
+     */
     @Override
     @Transactional
-    public int markQueuedForRetry(long blockId, String provider, String providerJobName) {
-        SttBlockJpaEntity entity = sttBlockRepository.findById(blockId)
-                // 방금 읽은 행이 사라졌다 = 우리 버그이거나 동시 삭제다. 조용히 0 을 돌려주면
+    public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
+                                      String providerJobName) {
+        SttBlockJpaEntity entity = sttBlockRepository.findWithLockById(blockId)
+                // 방금 읽은 행이 사라졌다 = 우리 버그이거나 동시 삭제다. 조용히 넘기면
                 // 응답의 retryCount 가 거짓이 되고, 사람은 접수됐다고 믿는다.
                 .orElseThrow(() -> new IllegalStateException(
                         "재처리할 STT 블록을 찾을 수 없습니다. blockId=" + blockId));
 
-        int retryCount = entity.markQueuedForRetry(provider, providerJobName);
+        /*
+         * 상태와 횟수를 **둘 다** 본다. 상태만 보면 "FAILED → QUEUED → 다시 FAILED" 로 한 바퀴
+         * 돈 뒤에도 통과해, 이미 한 번 쓴 잡 이름을 다시 만들게 된다.
+         */
+        if (entity.getStatus() != SttBlockStatus.FAILED || entity.getRetryCount() != expectedRetryCount) {
+            return false;
+        }
+
+        entity.markQueuedForRetry(provider, providerJobName);
         sttBlockRepository.save(entity);
-        return retryCount;
+        return true;
     }
 
     private static SttBlockView toView(SttBlockJpaEntity entity) {

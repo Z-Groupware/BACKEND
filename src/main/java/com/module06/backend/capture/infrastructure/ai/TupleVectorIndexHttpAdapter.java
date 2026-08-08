@@ -83,7 +83,19 @@ public class TupleVectorIndexHttpAdapter implements TupleVectorIndexPort {
             return List.of();
         }
 
+        /*
+         * 응답 행을 **검증한 뒤** 옮긴다. null 행이나 null vectorId 는 여기서 바로 터지고,
+         * null·빈 pointId 는 뒤의 toMap 에서 터지거나 **"올라갔는데 포인트 id 를 모르는" 성공**으로
+         * 기록된다 — 그 예시는 나중에 다시 올리거나 지울 방법이 없다.
+         *
+         * 걸러낸 행은 응답에 없는 것과 같아진다. 워커가 실패로 세고 다음 주기에 다시 집으므로,
+         * 이상한 응답 하나가 배치를 세우지도 않고 조용히 성공으로 둔갑하지도 않는다.
+         * (CodeRabbit PR #223 지적)
+         */
         return response.upserted().stream()
+                .filter(Objects::nonNull)
+                .filter(result -> result.vectorId() != null)
+                .filter(result -> result.pointId() != null && !result.pointId().isBlank())
                 .map(result -> new IndexedVector(result.vectorId(), result.pointId()))
                 .toList();
     }

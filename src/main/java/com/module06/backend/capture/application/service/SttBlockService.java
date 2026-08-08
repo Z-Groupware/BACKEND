@@ -89,17 +89,34 @@ public class SttBlockService implements GetSttBlocksUseCase, RetrySttBlockUseCas
         /*
          * 상태를 먼저 올린다. **잡 이름에 이 횟수가 들어가기 때문**이다 — 제출 뒤에 올리면
          * 같은 이름으로 두 번 제출하는 창이 생기고, AWS 는 계정 내 중복 이름을 거절한다.
+         *
+         * 그런데 순서만으로는 부족했다. 조회와 갱신 사이에 다른 요청이 끼어들면 **둘이 같은
+         * 스냅샷을 읽어 같은 이름을 만든다** — 그래서 저장소가 쓰기 잠금을 걸고 읽은 값이
+         * 그대로인지 다시 확인한다(compare-and-set · CodeRabbit PR #223 지적).
          */
-        int applied = sttBlockRepository.markQueuedForRetry(block.id(), provider, jobName);
+        boolean transitioned = sttBlockRepository.markQueuedForRetry(
+                block.id(), block.retryCount(), provider, jobName);
+        if (!transitioned) {
+            /*
+             * 다른 요청이 먼저 가져갔다. **제출하지 않는다** — 그쪽이 이미 같은 블록을 제출했고,
+             * 여기서 또 보내면 같은 이름으로 두 번 제출하는 것이 된다.
+             *
+             * 409 로 답하는 것이 맞다. 사용자 관점에서는 "지금은 재처리할 수 없는 상태"이고,
+             * 실제로도 그 블록은 이 순간 FAILED 가 아니다.
+             */
+            log.info("STT 블록 재처리 경합 — 다른 요청이 먼저 가져갔다. meetingId={} blockSeq={}",
+                    command.meetingId(), block.blockSeq());
+            throw new BusinessException(CaptureErrorCode.STT_BLOCK_NOT_RETRYABLE);
+        }
 
         sttJobPort.submit(new SttJob(
                 command.meetingId(), block.blockSeq(), provider, jobName,
                 block.audioS3Key(), block.startOffsetMs(), block.endOffsetMs()));
 
         log.info("STT 블록 재처리 접수 — meetingId={} blockSeq={} provider={} 시도={} job={}",
-                command.meetingId(), block.blockSeq(), provider, applied, jobName);
+                command.meetingId(), block.blockSeq(), provider, retryCount, jobName);
 
-        return new RetryAccepted(block.blockSeq(), SttBlockStatus.QUEUED, applied);
+        return new RetryAccepted(block.blockSeq(), SttBlockStatus.QUEUED, retryCount);
     }
 
     /*

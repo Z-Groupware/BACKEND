@@ -1,5 +1,6 @@
 package com.module06.backend.capture.presentation.api;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -7,6 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -87,6 +89,14 @@ public class SttBlockController {
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @PostMapping("/stt-blocks/{blockSeq}/retry")
+    /*
+     * 실제 HTTP 상태도 202 여야 한다. ApiResponse.accepted 는 **본문의 httpStatus 필드만**
+     * 202 로 채우므로, 이게 없으면 헤더는 200 인데 본문은 202 라고 말하는 응답이 나간다 —
+     * 상태코드로 분기하는 클라이언트가 그 둘 중 무엇을 믿을지 알 수 없다
+     * (cap 의 CaptionController·RecordingController 가 같은 방식으로 붙여 둔다 ·
+     * CodeRabbit PR #223 지적).
+     */
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public ApiResponse<SttBlockRetryResponse> retrySttBlock(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
             @PathVariable Long meetingId,

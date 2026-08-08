@@ -30,12 +30,23 @@ public interface SttBlockRepository {
     /*
      * 재처리를 접수한다 — 상태를 QUEUED 로 되돌리고 시도 횟수를 올린다.
      *
-     * @param providerJobName **계정 내 유일해야 한다.** AWS Transcribe 잡 이름이 그렇고, 같은
-     *                        이름을 다시 쓰면 제출이 거절된다. 그래서 retryCount 를 이름에
-     *                        넣는다(meeting-500-block-3-r3) — UNIQUE 가 그 실수를 DB 에서 잡는다
-     * @return 올라간 뒤의 시도 횟수. 응답에 그대로 실린다
+     * <h2>읽은 값이 그대로일 때만 바꾼다 (compare-and-set)</h2>
+     * 조회와 갱신 사이에 다른 재처리 요청이 끼어들 수 있다. 둘이 같은 FAILED 스냅샷을 읽으면
+     * **같은 retryCount 로 같은 잡 이름을 만들고 둘 다 제출한다** — 계정 내 중복 이름이라
+     * 두 번째가 거절되는데, 그건 이 코드가 잡 이름에 횟수를 넣어 막으려던 바로 그 상황이다
+     * (CodeRabbit PR #223 지적).
+     *
+     * 그래서 **쓰기 잠금을 걸고 상태와 시도 횟수를 다시 확인한 뒤** 바꾼다. 진 쪽은 false 를
+     * 받고 제출하지 않는다 — 계층 잠금이 같은 자리를 같은 방식으로 막는다(AnalysisLayerLockAcquirer).
+     *
+     * @param expectedRetryCount 조회 시점의 시도 횟수. 그 사이에 누가 올렸으면 내 잡 이름은
+     *                           이미 남의 것과 겹치므로 바꾸지 않는다
+     * @param providerJobName    **계정 내 유일해야 한다.** 같은 이름을 다시 쓰면 제출이
+     *                           거절된다 — UNIQUE 가 그 실수를 DB 에서 한 번 더 잡는다
+     * @return 내가 전이시켰으면 true. false 면 다른 요청이 먼저 가져갔다
      */
-    int markQueuedForRetry(long blockId, String provider, String providerJobName);
+    boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
+                               String providerJobName);
 
     /*
      * 블록 하나의 상태. 화면(STT-03)이 쓰는 값 그대로다.

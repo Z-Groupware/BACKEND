@@ -125,6 +125,38 @@ class SttBlockServiceTest {
     }
 
     @Test
+    @DisplayName("동시 요청에서 진 쪽은 제출하지 않는다 — 둘 다 보내면 같은 잡 이름이 두 번 나간다")
+    void 전이에_실패하면_제출하지_않는다() {
+        /*
+         * 조회와 갱신 사이에 다른 요청이 끼어들어 이미 전이시킨 상황. 실물에서는 저장소가
+         * 쓰기 잠금을 걸고 읽은 값이 그대로인지 확인해 걸러낸다(compare-and-set).
+         *
+         * 여기서 제출까지 나가면 **둘이 같은 retryCount 로 만든 같은 잡 이름을 두 번 보내고**,
+         * AWS 는 계정 내 중복 이름을 거절한다 — 잡 이름에 횟수를 넣어 막으려던 그 상황이다.
+         */
+        FakeBlockRepository blocks = new FakeBlockRepository(failed(3, 2));
+        blocks.loseRace = true;
+        RecordingJobPort jobs = new RecordingJobPort();
+
+        assertThatThrownBy(() -> service(blocks, jobs)
+                .retry(new RetrySttBlockCommand(COMPANY, MEETING, 3, null)))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(jobs.submitted).isEmpty();
+    }
+
+    @Test
+    @DisplayName("전이에 읽은 시도 횟수를 함께 넘긴다 — 상태만 보면 한 바퀴 돈 뒤에도 통과한다")
+    void 읽은_시도_횟수를_함께_넘긴다() {
+        FakeBlockRepository blocks = new FakeBlockRepository(failed(3, 2));
+
+        service(blocks, new RecordingJobPort()).retry(new RetrySttBlockCommand(COMPANY, MEETING, 3, null));
+
+        // 조회 시점의 값(2)이 그대로 넘어가야 한다. 그 사이 누가 올렸으면 전이가 거절된다.
+        assertThat(blocks.expectedRetryCount).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("그 회의의 블록이 아니면 404 — 회의 관문은 blockSeq 를 보지 않는다")
     void 없는_블록은_404() {
         assertThatThrownBy(() -> service(new FakeBlockRepository(), new RecordingJobPort())
@@ -182,6 +214,9 @@ class SttBlockServiceTest {
         private final List<SttBlockView> blocks;
         private boolean queried;
         private String savedJobName;
+        /* 다른 요청이 먼저 가져간 상황. 실물에서는 잠금 뒤 재확인이 이 판정을 한다. */
+        private boolean loseRace;
+        private int expectedRetryCount = -1;
 
         private FakeBlockRepository(SttBlockView... blocks) {
             this.blocks = List.of(blocks);
@@ -200,13 +235,14 @@ class SttBlockServiceTest {
         }
 
         @Override
-        public int markQueuedForRetry(long blockId, String provider, String providerJobName) {
+        public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
+                                          String providerJobName) {
+            this.expectedRetryCount = expectedRetryCount;
+            if (loseRace) {
+                return false;
+            }
             savedJobName = providerJobName;
-            return blocks.stream()
-                    .filter(block -> block.id() == blockId)
-                    .findFirst()
-                    .map(block -> block.retryCount() + 1)
-                    .orElseThrow();
+            return true;
         }
     }
 
