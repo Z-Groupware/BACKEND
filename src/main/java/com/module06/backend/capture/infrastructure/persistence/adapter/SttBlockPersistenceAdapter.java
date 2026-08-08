@@ -43,31 +43,31 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
     }
 
     /*
-     * **쓰기 잠금을 걸고 다시 확인한 뒤** 바꾼다.
+     * **조건을 DB 가 판정한다** — 자바에서 비교하지 않는다.
      *
-     * 서비스가 읽은 스냅샷과 지금 행이 같아야 전이한다 — 그 사이에 다른 재처리 요청이 끼어들어
-     * 시도 횟수를 올렸다면 서비스가 만든 잡 이름은 이미 남의 것과 겹친다. 그대로 제출하면
-     * 계정 내 중복 이름으로 거절되는데, 그게 이름에 횟수를 넣어 막으려던 상황이다
-     * (CodeRabbit PR #223 지적).
+     * 서비스가 이미 같은 트랜잭션에서 이 행을 조회했으므로 엔티티는 영속성 컨텍스트에 올라와
+     * 있다. 그 상태에서 id 로 다시 찾아 필드를 비교하면 **자기가 읽은 값과 자기를 비교하는 것**이
+     * 된다 — 잠금을 걸어도 캐시된 인스턴스가 돌아오기 때문에 그 사이 바뀐 DB 값이 안 보인다.
+     * 그러면 두 요청이 여전히 같은 잡 이름을 만든다(CodeRabbit PR #223 지적).
+     *
+     * 상태와 시도 횟수를 **조회 조건에** 넣으면 판정이 DB 에서 일어난다. 그 사이 누가 바꿨으면
+     * 이 조회가 비어서 돌아오고 진 쪽은 여기서 멈춘다. 쓰기 잠금이 그 구간을 직렬화한다.
+     *
+     * 상태와 횟수를 **둘 다** 보는 이유 — 상태만 보면 "FAILED → QUEUED → 다시 FAILED" 로 한
+     * 바퀴 돈 뒤에도 통과해, 이미 한 번 쓴 잡 이름을 다시 만들게 된다.
      */
     @Override
     @Transactional
     public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
                                       String providerJobName) {
-        SttBlockJpaEntity entity = sttBlockRepository.findWithLockById(blockId)
-                // 방금 읽은 행이 사라졌다 = 우리 버그이거나 동시 삭제다. 조용히 넘기면
-                // 응답의 retryCount 가 거짓이 되고, 사람은 접수됐다고 믿는다.
-                .orElseThrow(() -> new IllegalStateException(
-                        "재처리할 STT 블록을 찾을 수 없습니다. blockId=" + blockId));
-
-        /*
-         * 상태와 횟수를 **둘 다** 본다. 상태만 보면 "FAILED → QUEUED → 다시 FAILED" 로 한 바퀴
-         * 돈 뒤에도 통과해, 이미 한 번 쓴 잡 이름을 다시 만들게 된다.
-         */
-        if (entity.getStatus() != SttBlockStatus.FAILED || entity.getRetryCount() != expectedRetryCount) {
+        Optional<SttBlockJpaEntity> claimed = sttBlockRepository
+                .findWithLockByIdAndStatusAndRetryCount(blockId, SttBlockStatus.FAILED, expectedRetryCount);
+        if (claimed.isEmpty()) {
+            // 다른 요청이 먼저 가져갔거나 그 사이 상태가 바뀌었다. 호출자가 제출을 멈춘다.
             return false;
         }
 
+        SttBlockJpaEntity entity = claimed.get();
         entity.markQueuedForRetry(provider, providerJobName);
         sttBlockRepository.save(entity);
         return true;
