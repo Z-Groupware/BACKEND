@@ -1430,32 +1430,38 @@ class AnalysisOrchestratorTest {
         }
 
         @Override
-        public LockResult tryLock(long meetingId, LayerName layer, long runSeq) {
+        public LockOutcome tryLock(long meetingId, LayerName layer, long runSeq) {
             beforeLock.accept(layer);
             if (runs != null && runSeq < runs.current) {
-                return LockResult.SUPERSEDED;
+                return LockOutcome.of(LockResult.SUPERSEDED);
             }
             locked.add(layer);
-            return LockResult.ACQUIRED;
+            // 실물은 attempt_count 를 준다. 여기서는 늘 첫 주인이다.
+            return LockOutcome.acquired(1);
         }
 
         @Override
-        public void markDone(long meetingId, LayerName layer, LayerRun run) {
+        public void markDone(long meetingId, LayerName layer, int attempt, LayerRun run) {
             done.add(layer);
+            attempts.add(attempt);
         }
 
         @Override
-        public void markFailed(long meetingId, LayerName layer, String errorCode, String errorMessage,
-                               LayerRun spent) {
+        public void markFailed(long meetingId, LayerName layer, int attempt, String errorCode,
+                               String errorMessage, LayerRun spent) {
             failed.put(layer, errorCode);
+            attempts.add(attempt);
         }
 
         /* 계층이 한 걸음 나아갈 때마다 찍히는 심장(#177). 몇 번 찍혔는지만 센다. */
         private int heartbeats;
+        /* 쓰기에 실려 온 주인 번호(#212). 잠금이 준 값이 그대로 와야 한다. */
+        private final List<Integer> attempts = new ArrayList<>();
 
         @Override
-        public void heartbeat(long meetingId, LayerName layer) {
+        public void heartbeat(long meetingId, LayerName layer, int attempt) {
             heartbeats++;
+            attempts.add(attempt);
         }
 
         @Override

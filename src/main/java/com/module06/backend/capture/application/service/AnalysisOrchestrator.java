@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
+import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockOutcome;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockResult;
 import com.module06.backend.capture.application.port.out.AnalysisRunRepository;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
@@ -737,7 +738,13 @@ public class AnalysisOrchestrator {
      * 같은 계층을 돌고 있으므로 여기서는 조용히 물러난다.
      */
     private <T> LayerOutcome<T> runLayer(long meetingId, long runSeq, LayerName layer, LayerCall<T> call) {
-        LockResult lock = analysisLayerRepository.tryLock(meetingId, layer, runSeq);
+        LockOutcome acquired = analysisLayerRepository.tryLock(meetingId, layer, runSeq);
+        LockResult lock = acquired.result();
+        /*
+         * 이 잠금의 주인 번호(#212). 심장과 상태 기록에 그대로 실어, **뺏긴 뒤의 쓰기**를
+         * 저장소가 걸러낼 수 있게 한다 — 회수(#177)가 생기면서 잠금은 도중에 주인이 바뀔 수 있다.
+         */
+        int attempt = acquired.attempt();
         if (lock == LockResult.ALREADY_RUNNING) {
             log.info("계층 잠금 실패 — 이미 실행 중이다. meetingId={} layer={}", meetingId, layer.wireValue());
             return LayerOutcome.locked();
@@ -759,10 +766,10 @@ public class AnalysisOrchestrator {
          * 터져도 앞의 2번은 이미 과금됐다 — 그걸 0 으로 기록하면 QLTY-03 이 실제보다 싼
          * 기준선을 보여주고, 그 숫자로 특화 모델 전환의 손익분기점을 계산하게 된다.
          */
-        UsageSink sink = new UsageSink(() -> heartbeat(meetingId, layer));
+        UsageSink sink = new UsageSink(() -> heartbeat(meetingId, layer, attempt));
         try {
             Accumulated<T> accumulated = call.execute(sink);
-            analysisLayerRepository.markDone(meetingId, layer, accumulated.run());
+            analysisLayerRepository.markDone(meetingId, layer, attempt, accumulated.run());
             return LayerOutcome.success(accumulated.value(), accumulated.run());
         } catch (AiLayerException e) {
             // 계층이 던진 분류를 그대로 남긴다. 여기서 다시 판정하면 Python 과 두 곳에서
@@ -771,14 +778,14 @@ public class AnalysisOrchestrator {
                     meetingId, layer.wireValue(), e.getErrorCode(), e.isRetryable(),
                     sink.spent().tokensIn(), sink.spent().tokensOut(), e);
             analysisLayerRepository.markFailed(
-                    meetingId, layer, e.getErrorCode(), e.getMessage(), sink.spent());
+                    meetingId, layer, attempt, e.getErrorCode(), e.getMessage(), sink.spent());
             return LayerOutcome.failure(e.getErrorCode(), e.getMessage(), e.isRetryable());
         } catch (RuntimeException e) {
             // 우리 코드의 버그다. 제공자 실패와 섞으면 "재시도하면 되는 것"으로 오분류되어
             // 같은 버그를 세 번 돌린다.
             log.error("계층 실행 중 내부 오류 — meetingId={} layer={}", meetingId, layer.wireValue(), e);
             analysisLayerRepository.markFailed(
-                    meetingId, layer, "ORCHESTRATION_ERROR", e.toString(), sink.spent());
+                    meetingId, layer, attempt, "ORCHESTRATION_ERROR", e.toString(), sink.spent());
             return LayerOutcome.failure("ORCHESTRATION_ERROR", e.toString(), false);
         }
     }
@@ -792,10 +799,12 @@ public class AnalysisOrchestrator {
      * 그건 사실도 아니고, 그 계층이 실제로 한 일까지 함께 실패로 기록된다.
      *
      * 한 번 못 찍는 것의 대가는 작다. 다음 호출에서 다시 찍히고, 유예(5분)가 그 사이를 덮는다.
+     *
+     * @param attempt 내가 잡은 잠금의 주인 번호(#212). 뺏긴 뒤라면 저장소가 무시한다
      */
-    private void heartbeat(long meetingId, LayerName layer) {
+    private void heartbeat(long meetingId, LayerName layer, int attempt) {
         try {
-            analysisLayerRepository.heartbeat(meetingId, layer);
+            analysisLayerRepository.heartbeat(meetingId, layer, attempt);
         } catch (RuntimeException e) {
             log.warn("계층 심장 기록 실패 — 분석은 계속한다. meetingId={} layer={}",
                     meetingId, layer.wireValue(), e);

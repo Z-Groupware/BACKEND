@@ -86,10 +86,10 @@ class AnalysisRunOrderingPersistenceTest {
         // 실행 A 가 발화를 읽고 멈춰 있는 사이에 실행 B 가 시작했다.
         long second = analysisRunRepository.begin(meetingId).orElseThrow();
 
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, first))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, first).result())
                 .isEqualTo(LockResult.SUPERSEDED);
         // 최신 실행은 그대로 잡는다 — 조이는 방향으로만 막는다.
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, second))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L1, second).result())
                 .isEqualTo(LockResult.ACQUIRED);
     }
 
@@ -105,7 +105,7 @@ class AnalysisRunOrderingPersistenceTest {
 
         // 밀린 시도가 행을 만들었다면 최신 실행이 ALREADY_RUNNING 으로 튕긴다.
         assertThat(analysisLayerRepository.findStates(meetingId)).isEmpty();
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L2, current))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L2, current).result())
                 .isEqualTo(LockResult.ACQUIRED);
     }
 
@@ -115,11 +115,11 @@ class AnalysisRunOrderingPersistenceTest {
         long meetingId = 9_106L;
 
         long first = analysisRunRepository.begin(meetingId).orElseThrow();
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, first))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, first).result())
                 .isEqualTo(LockResult.ACQUIRED);
 
         long second = analysisRunRepository.begin(meetingId).orElseThrow();
-        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, second))
+        assertThat(analysisLayerRepository.tryLock(meetingId, LayerName.L3, second).result())
                 .isEqualTo(LockResult.ALREADY_RUNNING);
     }
 
@@ -219,7 +219,7 @@ class AnalysisRunOrderingPersistenceTest {
                                                            CountDownLatch start) {
         return CompletableFuture.supplyAsync(() -> {
             awaitStart(start);
-            return analysisLayerRepository.tryLock(meetingId, LayerName.L4, runSeq);
+            return analysisLayerRepository.tryLock(meetingId, LayerName.L4, runSeq).result();
         }, executor);
     }
 

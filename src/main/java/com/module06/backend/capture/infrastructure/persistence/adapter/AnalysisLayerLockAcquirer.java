@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockOutcome;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockResult;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
@@ -66,7 +67,7 @@ class AnalysisLayerLockAcquirer {
      *         **커밋 시점에** 나온다. 호출자가 잠금 실패로 옮긴다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    LockResult acquire(long meetingId, LayerName layer, long runSeq) {
+    LockOutcome acquire(long meetingId, LayerName layer, long runSeq) {
         LocalDateTime now = LocalDateTime.now(clock);
 
         /*
@@ -83,7 +84,7 @@ class AnalysisLayerLockAcquirer {
             log.info("실행이 밀렸다 — 더 나중 실행이 있어 이 계층을 잡지 않는다. "
                     + "meetingId={} layer={} 내번호={} 최신={}",
                     meetingId, layer.wireValue(), runSeq, current);
-            return LockResult.SUPERSEDED;
+            return LockOutcome.of(LockResult.SUPERSEDED);
         }
 
         /*
@@ -111,7 +112,7 @@ class AnalysisLayerLockAcquirer {
                  */
                 if (!LayerLiveness.isStalled(entity, now)) {
                     // 다른 실행이 잡고 있다. 오류가 아니라 중복이 걸러진 것이다.
-                    return LockResult.ALREADY_RUNNING;
+                    return LockOutcome.of(LockResult.ALREADY_RUNNING);
                 }
                 /*
                  * 멈춘 잠금을 회수한다. **warn 으로 남긴다** — 정상 흐름이 아니라 앞선 실행이
@@ -121,12 +122,17 @@ class AnalysisLayerLockAcquirer {
                 log.warn("멈춘 계층 잠금을 회수한다 — meetingId={} layer={} 마지막생존={} 유예={}",
                         meetingId, layer.wireValue(), entity.lastAliveAt(), LayerLiveness.STALE_AFTER);
             }
+            /*
+             * 재실행이 곧 주인 교체다 — restart 가 attempt_count 를 올리고, 그 값이 이 잠금의
+             * 새 주인 번호가 된다(#212). 이전 주인의 쓰기는 이 번호가 달라져서 걸러진다.
+             */
             entity.restart(now);
             repository.save(entity);
-            return LockResult.ACQUIRED;
+            return LockOutcome.acquired(entity.getAttemptCount());
         }
 
-        repository.save(AnalysisLayerJpaEntity.running(meetingId, layer, now));
-        return LockResult.ACQUIRED;
+        AnalysisLayerJpaEntity created =
+                repository.save(AnalysisLayerJpaEntity.running(meetingId, layer, now));
+        return LockOutcome.acquired(created.getAttemptCount());
     }
 }
