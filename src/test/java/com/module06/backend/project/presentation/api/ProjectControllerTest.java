@@ -237,6 +237,25 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("벌크 상태변경 중 소유자가 아닌 항목이 있으면 예외가 전파된다")
+    void bulkUpdateStatusPropagatesNotOwnerException() throws Exception {
+        authenticateAs(1L, 3L);
+        org.mockito.Mockito.doThrow(new BusinessException(ProjectErrorCode.NOT_PROJECT_OWNER))
+                .when(bulkUpdateProjectStatusUseCase).bulkUpdateStatus(any());
+
+        mockMvc.perform(patch("/api/projects/status/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "items": [
+                                    { "projectId": 1, "status": "DONE" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("타임라인은 토큰의 회사로 조회하고 지연 여부를 그대로 내려준다")
     void getTimelineTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
