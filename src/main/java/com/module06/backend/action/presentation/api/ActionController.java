@@ -39,12 +39,17 @@ import lombok.RequiredArgsConstructor;
     - POST   /api/actions                                수동 추가 (예외 경로, MEMBER+)
     - GET    /api/actions                                내 액션 목록 조회 (호출자 본인 소유분만)
     - GET    /api/actions/{actionId}                     상세 조회 (전 구성원)
-    - PATCH  /api/actions/status/bulk                     보드 저장 시 일괄 상태 변경 (담당자 본인)
+    - PATCH  /api/actions/complete/bulk                   보드 저장 시 일괄 완료/완료취소 (담당자 본인)
     응답은 ApiResponse, 예외는 BusinessException으로만 낸다 — 개별 try-catch 금지(0절 4항).
 
     FR-AC-03은 벌크 엔드포인트만 둔다(2026-08-07 결정) — Figma 확인 결과 개인 액션 상세는
     "조회 전용"이고 상태변경은 보드(칸반+저장) 화면에서만 일어난다. 단건 PATCH는 화면 근거가
     없어 만들지 않는다(UpdateActionStatusUseCase·Command·Request도 함께 삭제).
+
+    URL을 status/bulk → complete/bulk로 개명(2026-08-09) — status가 isDone 파생값이 되면서
+    실제로는 완료/완료취소 토글만 하는 API가 됐는데 이름이 그대로였다. 홍근 확인(연동 전이라
+    자유롭게 바꿔도 된다는 회신) 받고 진행. 클래스·메서드·DTO 이름(BulkUpdateActionStatus*)은
+    안 바꿈 — URL(계약)만 실제 동작과 맞춘 것, 내부 구현은 여전히 상태 파생 로직이라 그대로 둔다.
     FR-AC-04(리뷰확정)는 C에 없다 — review(A)의 RVW-02가 자체 엔드포인트로 이미 처리하고,
     C는 ActionReviewApplyPort(A가 선언)를 어댑터로 받기만 한다(ActionService 주석 참고).
 
@@ -115,7 +120,7 @@ public class ActionController {
     }
 
     // 보드 "저장" 버튼 — 담당자 본인 검사는 항목별로 서비스가 한다. requesterId도 토큰에서만 꺼낸다.
-    @PatchMapping("/status/bulk")
+    @PatchMapping("/complete/bulk")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<Void> bulkUpdateStatus(
             @Parameter(hidden = true)
