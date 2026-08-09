@@ -1,6 +1,7 @@
 package com.module06.backend.meeting.application.service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +31,7 @@ import com.module06.backend.meeting.exception.MeetingErrorCode;
 /*
  * 회의와 참석자 읽기 기능을 조율하는 애플리케이션 서비스다.
  *
- * RESULT-01과 E가 사용하는 공개 MeetingQueryPort가 같은 조회 저장소와 구성원 해석 규칙을
+ * RESULT-01과 E·C가 사용하는 공개 MeetingQueryPort가 같은 조회 저장소와 구성원 해석 규칙을
  * 재사용해 REST와 내부 도메인 연동의 결과가 갈라지지 않게 한다.
  */
 @Service
@@ -129,6 +130,41 @@ public class MeetingQueryService implements GetMeetingAttendeesUseCase, MeetingQ
                         meeting.status()
                 ))
                 .toList();
+    }
+
+    /* 프로젝트 목록에 표시할 취소되지 않은 회의 수를 회사 범위에서 일괄 조회한다. */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+        /* 잘못된 테넌트나 빈 프로젝트 목록은 저장소 IN 조회 없이 빈 결과로 처리한다. */
+        if (companyId == null || companyId <= 0L || projectIds == null || projectIds.isEmpty()) {
+            return Map.of();
+        }
+
+        /* null·0·음수 식별자를 제외하고 요청 순서를 유지한 채 중복 프로젝트를 한 번만 조회한다. */
+        List<Long> distinctProjectIds = projectIds.stream()
+                .filter(projectId -> projectId != null && projectId > 0L)
+                .distinct()
+                .toList();
+
+        /* 유효한 프로젝트가 하나도 없으면 데이터베이스를 호출하지 않고 빈 결과를 반환한다. */
+        if (distinctProjectIds.isEmpty()) {
+            return Map.of();
+        }
+
+        /* 저장소의 실제 집계 결과를 받아 회의가 없는 요청 프로젝트도 명시적인 0으로 채운다. */
+        Map<Long, Long> storedCounts = meetingQueryRepository.countMeetingsByProjectIds(
+                companyId,
+                distinctProjectIds
+        );
+        Map<Long, Long> completedCounts = new LinkedHashMap<>();
+        distinctProjectIds.forEach(projectId -> completedCounts.put(
+                projectId,
+                storedCounts.getOrDefault(projectId, 0L)
+        ));
+
+        /* C가 프로젝트 목록 응답을 조립하는 동안 결과가 변경되지 않도록 불변 맵으로 반환한다. */
+        return Collections.unmodifiableMap(completedCounts);
     }
 
     /* 회사 범위에 속한 여러 회의의 대주제와 소주제를 E 배치 계약으로 조회한다. */

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
@@ -76,7 +77,7 @@ class RecordingControllerTest {
     @DisplayName("재생 URL을 200 공통 응답으로 반환한다")
     void returnsPlaybackUrl() {
         Long[] capturedMeeting = new Long[1];
-        GetPlaybackUrlUseCase.Requester[] capturedRequester = new GetPlaybackUrlUseCase.Requester[1];
+        CapMeetingAccessGuard.ViewerContext[] capturedRequester = new CapMeetingAccessGuard.ViewerContext[1];
         GetPlaybackUrlUseCase playbackUseCase = (meetingId, requester) -> {
             capturedMeeting[0] = meetingId;
             capturedRequester[0] = requester;

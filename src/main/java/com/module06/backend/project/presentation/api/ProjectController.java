@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
@@ -42,6 +44,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/projects")
 @RequiredArgsConstructor
+@Tag(name = "Project", description = "프로젝트 API")
 public class ProjectController {
 
     private final CreateProjectUseCase createProjectUseCase;
@@ -55,6 +58,7 @@ public class ProjectController {
         회사·작성자를 토큰에서 꺼낸다. 헤더로 받으면 로그인만 한 사람이 남의 회사 번호를 적어
         보낼 수 있어서, 인증을 걸어도 막히지 않는 구멍이 된다.
     */
+    @Operation(summary = "프로젝트 생성", description = "OWNER 전용.")
     @PostMapping
     @PreAuthorize("hasRole('OWNER')")
     public ApiResponse<ProjectSummaryResponse> create(
@@ -86,6 +90,7 @@ public class ProjectController {
         같은 상태다. Task 10 이 anyRequest().authenticated() 로 뒤집으면 필터가 그 앞에서 막는다.
         그때 이 줄은 "이 엔드포인트는 로그인 전원용"이라는 의도 표시 + 2차 방어로 남는다.
     */
+    @Operation(summary = "프로젝트 목록 조회", description = "전 구성원 공개, 회사 전체 프로젝트.")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ProjectSummaryResponse>> list(
@@ -99,6 +104,7 @@ public class ProjectController {
         return ApiResponse.success("프로젝트 목록을 조회했습니다.", response);
     }
 
+    @Operation(summary = "프로젝트 상세 조회", description = "기획(description) 포함, 전 구성원 공개.")
     @GetMapping("/{projectId}")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<ProjectDetailResponse> getDetail(
@@ -111,6 +117,7 @@ public class ProjectController {
         return ApiResponse.success("프로젝트 상세를 조회했습니다.", ProjectDetailResponse.from(result));
     }
 
+    @Operation(summary = "프로젝트 수정", description = "OWNER 전용. tag는 파라미터로 받지 않아 불변 보장.")
     @PatchMapping("/{projectId}")
     @PreAuthorize("hasRole('OWNER')")
     public ApiResponse<ProjectSummaryResponse> update(
@@ -132,6 +139,7 @@ public class ProjectController {
         return ApiResponse.success("프로젝트를 수정했습니다.", ProjectSummaryResponse.from(project));
     }
 
+    @Operation(summary = "프로젝트 상태 일괄 변경", description = "보드 \"저장\" 버튼, OWNER 전용, all-or-nothing.")
     @PatchMapping("/status/bulk")
     @PreAuthorize("hasRole('OWNER')")
     public ApiResponse<Void> bulkUpdateStatus(
@@ -148,6 +156,7 @@ public class ProjectController {
         return ApiResponse.successWithoutData("프로젝트 상태를 일괄 변경했습니다.");
     }
 
+    @Operation(summary = "프로젝트 타임라인 조회", description = "이 프로젝트에 하달된 팀 액션 전체, 지연 여부 포함.")
     @GetMapping("/{projectId}/timeline")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ProjectTimelineItemResponse>> getTimeline(

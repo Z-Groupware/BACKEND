@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.action.application.usecase.GetActionsByMeetingUseCase;
 import com.module06.backend.action.presentation.api.response.ActionSummaryResponse;
@@ -35,11 +37,13 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/meetings")
 @RequiredArgsConstructor
+@Tag(name = "Action", description = "개인 액션 API")
 public class MeetingActionController {
 
     private final GetActionsByMeetingUseCase getActionsByMeetingUseCase;
 
     // 전 구성원 공개 — companyId는 토큰에서만 확인한다(IDOR 방지, ActionController.detail과 동일 판단).
+    @Operation(summary = "회의별 액션 조회", description = "회의 상세 화면 전용, TEAM·PERSONAL 혼재 반환.")
     @GetMapping("/{meetingId}/actions")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ActionSummaryResponse>> listByMeeting(

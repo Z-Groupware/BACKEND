@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -276,6 +277,13 @@ class UpcomingMeetingQueryServiceTest {
         public List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId) {
             /* 호출되지 않는 기존 계약을 빈 목록으로 만족시킨다. */
             return List.of();
+        }
+
+        /* 프로젝트별 회의 수 조회는 MEET-03 테스트에서 사용하지 않는다. */
+        @Override
+        public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+            /* 호출되지 않는 신규 배치 계약을 빈 집계로 만족시킨다. */
+            return Map.of();
         }
 
         /* MEET-03 조회 limit을 기록하고 준비된 예정 회의 목록을 반환한다. */

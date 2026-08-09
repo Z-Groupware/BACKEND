@@ -10,14 +10,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.module06.backend.action.application.port.ActionQueryPort;
+import com.module06.backend.action.application.port.ActionQueryPort.ProjectActionCount;
 import com.module06.backend.action.application.port.ActionQueryPort.TeamActionSummary;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
+import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
 import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
+import com.module06.backend.project.application.port.ProjectQueryPort.ProjectSummary;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
+import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
 import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectStatus;
@@ -69,6 +73,71 @@ class ProjectServiceTest {
     private Project project(Long companyId) {
         return Project.create(companyId, "TAG", "이름", "설명", "#16A34A",
                 LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L));
+    }
+
+    // ---------- create ----------
+
+    @Test
+    void createSavesProjectWhenTagIsNotDuplicate() {
+        projectService = service();
+        when(projectRepository.existsByTag("TAG")).thenReturn(false);
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Project created = projectService.create(new CreateProjectCommand(
+                COMPANY, OWNER, "TAG", "새 프로젝트", "설명", "#16A34A",
+                LocalDate.of(2026, 12, 31), List.of(1L, 2L)));
+
+        verify(projectTeamOwnershipPolicy).check(List.of(1L, 2L), COMPANY);
+        verify(projectRepository).save(any(Project.class));
+        assertThat(created.getTag()).isEqualTo("TAG");
+        assertThat(created.getCreatedBy()).isEqualTo(OWNER);
+    }
+
+    @Test
+    void createThrowsWhenTagIsDuplicate() {
+        projectService = service();
+        when(projectRepository.existsByTag("TAG")).thenReturn(true);
+
+        assertThatThrownBy(() -> projectService.create(new CreateProjectCommand(
+                COMPANY, OWNER, "TAG", "새 프로젝트", "설명", "#16A34A",
+                LocalDate.of(2026, 12, 31), List.of(1L))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_TAG_DUPLICATE);
+
+        verify(projectTeamOwnershipPolicy, never()).check(anyList(), any());
+        verify(projectRepository, never()).save(any(Project.class));
+    }
+
+    // ---------- list ----------
+
+    @Test
+    void listReturnsAllProjectsWithZeroCountsWhenNoActions() {
+        projectService = service();
+        Project project = project(COMPANY);
+        when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
+        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
+
+        List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
+
+        assertThat(result).containsExactly(new GetProjectListUseCase.ProjectListItem(project, 0, 0));
+    }
+
+    @Test
+    void listAttachesActionCountsFromBatchQuery() {
+        projectService = service();
+        Project projectA = Project.reconstitute(1L, COMPANY, "TAG-A", "A", "설명", "#000000",
+                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
+        Project projectB = Project.reconstitute(2L, COMPANY, "TAG-B", "B", "설명", "#000000",
+                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
+        when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(projectA, projectB));
+        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
+                new ProjectActionCount(1L, 5, 2)));
+
+        List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
+
+        assertThat(result).containsExactly(
+                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2),
+                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0));
     }
 
     // ---------- getDetail ----------
@@ -224,5 +293,27 @@ class ProjectServiceTest {
         assertThatThrownBy(() -> projectService.getTimeline(COMPANY, PROJECT_ID))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+    }
+
+    // ---------- ProjectQueryPort (meeting(D)이 호출) ----------
+
+    @Test
+    void existsActiveProjectDelegatesToRepository() {
+        projectService = service();
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+
+        assertThat(projectService.existsActiveProject(COMPANY, PROJECT_ID)).isTrue();
+    }
+
+    @Test
+    void findProjectsMapsToProjectSummary() {
+        projectService = service();
+        Project project = project(COMPANY);
+        when(projectRepository.findAllByCompanyIdAndIdIn(COMPANY, List.of(PROJECT_ID))).thenReturn(List.of(project));
+
+        List<ProjectSummary> result = projectService.findProjects(COMPANY, List.of(PROJECT_ID));
+
+        assertThat(result).containsExactly(
+                new ProjectSummary(project.getId(), project.getTag(), project.getName(), project.getColor()));
     }
 }

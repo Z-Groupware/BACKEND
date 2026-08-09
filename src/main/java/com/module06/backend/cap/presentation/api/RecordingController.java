@@ -1,5 +1,6 @@
 package com.module06.backend.cap.presentation.api;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
@@ -102,8 +103,8 @@ public class RecordingController {
             @AuthenticationPrincipal(expression = "authority") String role,
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin) {
         // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자/owner·admin/프로젝트 멤버)은 access-guard가 판정.
-        GetPlaybackUrlUseCase.Requester requester =
-                new GetPlaybackUrlUseCase.Requester(memberId, companyId, teamId, role, isAdmin);
+        CapMeetingAccessGuard.ViewerContext requester =
+                new CapMeetingAccessGuard.ViewerContext(memberId, companyId, teamId, role, isAdmin);
         GetPlaybackUrlUseCase.Result result = getPlaybackUrlUseCase.getPlaybackUrl(meetingId, requester);
         return ApiResponse.success("재생 URL이 발급되었습니다.", PlaybackUrlResponse.from(result));
     }
