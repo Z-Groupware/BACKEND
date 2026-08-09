@@ -23,6 +23,7 @@ import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.notice.application.query.GetNoticeDetailQuery;
 import com.module06.backend.notice.application.command.CreateNoticeCommand;
+import com.module06.backend.notice.application.command.DeleteNoticeCommand;
 import com.module06.backend.notice.application.command.UpdateNoticeCommand;
 import com.module06.backend.notice.application.result.NoticeCreationResult;
 import com.module06.backend.notice.application.query.GetNoticeListQuery;
@@ -32,13 +33,14 @@ import com.module06.backend.notice.application.result.NoticeUpdateResult;
 import com.module06.backend.notice.application.usecase.GetNoticeDetailUseCase;
 import com.module06.backend.notice.application.usecase.GetNoticeListUseCase;
 import com.module06.backend.notice.application.usecase.CreateNoticeUseCase;
+import com.module06.backend.notice.application.usecase.DeleteNoticeUseCase;
 import com.module06.backend.notice.application.usecase.UpdateNoticeUseCase;
 import com.module06.backend.notice.presentation.api.request.CreateNoticeRequest;
 import com.module06.backend.notice.presentation.api.request.UpdateNoticeRequest;
 import com.module06.backend.notice.presentation.api.response.NoticeListResponse;
 
-/* NOTI-01~04 Controller의 인증 정보 전달과 외부 성공·검증 응답 변환을 확인한다. */
-@DisplayName("공지 조회·작성·수정 Controller")
+/* NOTI-01~05 Controller의 인증 정보 전달과 외부 성공·검증 응답 변환을 확인한다. */
+@DisplayName("공지 CRUD Controller")
 class NoticeControllerTest {
 
     /* principal의 회사가 Query에 들어가고 공지 목록이 명세 응답으로 변환되는지 검증한다. */
@@ -59,7 +61,8 @@ class NoticeControllerTest {
                 useCase,
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
-                unusedUpdateUseCase()
+                unusedUpdateUseCase(),
+                unusedDeleteUseCase()
         );
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", false, 100L);
 
@@ -86,7 +89,8 @@ class NoticeControllerTest {
                 query -> new NoticeListResult(List.of()),
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
-                unusedUpdateUseCase()
+                unusedUpdateUseCase(),
+                unusedDeleteUseCase()
         );
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", false, 100L);
 
@@ -118,7 +122,8 @@ class NoticeControllerTest {
                 query -> new NoticeListResult(List.of()),
                 detailUseCase,
                 unusedCreateUseCase(),
-                unusedUpdateUseCase()
+                unusedUpdateUseCase(),
+                unusedDeleteUseCase()
         );
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", false, 100L);
 
@@ -152,7 +157,8 @@ class NoticeControllerTest {
                 query -> new NoticeListResult(List.of()),
                 unusedDetailUseCase(),
                 createUseCase,
-                unusedUpdateUseCase()
+                unusedUpdateUseCase(),
+                unusedDeleteUseCase()
         );
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "OWNER", false, null);
 
@@ -204,7 +210,8 @@ class NoticeControllerTest {
                 command -> {
                     throw new AssertionError("검증 실패 요청은 작성 UseCase까지 전달되면 안 됩니다.");
                 },
-                unusedUpdateUseCase()
+                unusedUpdateUseCase(),
+                unusedDeleteUseCase()
         );
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new NoticeValidationExceptionHandler())
@@ -244,7 +251,8 @@ class NoticeControllerTest {
                 query -> new NoticeListResult(List.of()),
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
-                updateUseCase
+                updateUseCase,
+                unusedDeleteUseCase()
         );
         AuthPrincipal principal = new AuthPrincipal(4L, 10L, "ADMIN", false, 100L);
 
@@ -303,7 +311,8 @@ class NoticeControllerTest {
                 unusedCreateUseCase(),
                 command -> {
                     throw new AssertionError("검증 실패 요청은 수정 UseCase까지 전달되면 안 됩니다.");
-                }
+                },
+                unusedDeleteUseCase()
         );
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new NoticeValidationExceptionHandler())
@@ -321,6 +330,57 @@ class NoticeControllerTest {
                 .andExpect(jsonPath("$.errorCode").value("NT-003"))
                 .andExpect(jsonPath("$.details[*].field")
                         .value(containsInAnyOrder("title", "content")));
+    }
+
+    /* 인증 principal과 경로 식별자가 삭제 Command로 전달되고 data 없는 200을 반환하는지 검증한다. */
+    @Test
+    @DisplayName("OWNER가 공지를 삭제하고 data 없는 200을 반환한다")
+    void deletesNoticeWithAuthenticatedPrincipal() {
+        /* 삭제 Command를 기록하는 유스케이스 대역을 만든다. */
+        DeleteNoticeCommand[] capturedCommand = new DeleteNoticeCommand[1];
+        DeleteNoticeUseCase deleteUseCase = command -> capturedCommand[0] = command;
+        NoticeController controller = new NoticeController(
+                query -> new NoticeListResult(List.of()),
+                unusedDetailUseCase(),
+                unusedCreateUseCase(),
+                unusedUpdateUseCase(),
+                deleteUseCase
+        );
+        AuthPrincipal principal = new AuthPrincipal(3L, 10L, "OWNER", false, null);
+
+        /* 인증 OWNER와 경로 공지 41로 삭제 Controller 메서드를 호출한다. */
+        var response = controller.deleteNotice(principal, 41L);
+
+        /* 회사·삭제자·역할은 인증 원본이고 공지 식별자는 경로 원본이어야 한다. */
+        assertThat(capturedCommand[0].companyId()).isEqualTo(10L);
+        assertThat(capturedCommand[0].noticeId()).isEqualTo(41L);
+        assertThat(capturedCommand[0].requesterMemberId()).isEqualTo(3L);
+        assertThat(capturedCommand[0].requesterRole()).isEqualTo("OWNER");
+
+        /* 삭제 성공은 명세의 200 메시지와 null data를 반환해야 한다. */
+        assertThat(response.getHttpStatus()).isEqualTo(200);
+        assertThat(response.getMessage()).isEqualTo("공지를 삭제했습니다.");
+        assertThat(response.getData()).isNull();
+    }
+
+    /* NOTI-05 메서드가 DELETE 경로와 OWNER·ADMIN 권한만 선언하는지 검증한다. */
+    @Test
+    @DisplayName("공지 삭제는 OWNER·ADMIN에게만 열린 DELETE API다")
+    void declaresDeleteNoticeAuthorizationAndMethod() throws NoSuchMethodException {
+        /* Controller 삭제 메서드의 권한과 DELETE 매핑 애노테이션을 조회한다. */
+        var method = NoticeController.class.getDeclaredMethod(
+                "deleteNotice",
+                AuthPrincipal.class,
+                Long.class
+        );
+        PreAuthorize preAuthorize = method.getAnnotation(PreAuthorize.class);
+        var deleteMapping = method.getAnnotation(org.springframework.web.bind.annotation.DeleteMapping.class);
+
+        /* 삭제 권한에는 OWNER·ADMIN만 있고 경로는 공지 식별자를 포함해야 한다. */
+        assertThat(preAuthorize).isNotNull();
+        assertThat(preAuthorize.value()).contains("OWNER", "ADMIN").doesNotContain("LEADER", "MEMBER");
+        assertThat(deleteMapping).isNotNull();
+        assertThat(deleteMapping.value()).containsExactly("/{noticeId}");
     }
 
     /* 목록 Controller 테스트에서 사용하지 않는 상세 유스케이스 대역을 만든다. */
@@ -344,6 +404,14 @@ class NoticeControllerTest {
         /* 잘못 수정 호출되면 테스트를 즉시 실패시켜 Controller 경로 분리를 검증한다. */
         return command -> {
             throw new AssertionError("공지 조회·작성에서 수정 UseCase를 호출하면 안 됩니다.");
+        };
+    }
+
+    /* 조회·작성·수정 Controller 테스트에서 사용하지 않는 삭제 유스케이스 대역을 만든다. */
+    private DeleteNoticeUseCase unusedDeleteUseCase() {
+        /* 잘못 삭제 호출되면 테스트를 즉시 실패시켜 Controller 경로 분리를 검증한다. */
+        return command -> {
+            throw new AssertionError("공지 조회·작성·수정에서 삭제 UseCase를 호출하면 안 됩니다.");
         };
     }
 }

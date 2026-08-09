@@ -71,6 +71,12 @@ public class Notice {
         return new Notice(id, companyId, title, content, createdBy, deletedAt, createdAt, updatedAt);
     }
 
+    /* 공지 원본과 수정 이력을 보존하면서 삭제 시각만 기록해 소프트 삭제한다. */
+    public Notice softDelete(LocalDateTime deletedAt) {
+        /* 식별자·회사·내용·작성·수정 이력은 유지하고 활성 여부를 결정하는 삭제 시각만 채운다. */
+        return new Notice(id, companyId, title, content, createdBy, deletedAt, createdAt, updatedAt);
+    }
+
     /* 데이터베이스에서 읽은 공지의 전체 상태를 복원한다. */
     public static Notice reconstitute(
             Long id,
