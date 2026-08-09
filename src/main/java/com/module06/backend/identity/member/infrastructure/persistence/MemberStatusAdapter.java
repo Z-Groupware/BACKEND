@@ -10,6 +10,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
+import com.module06.backend.identity.team.domain.repository.TeamRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -29,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 public class MemberStatusAdapter implements MemberStatusPort {
 
     private final SpringDataMemberRepository memberRepository;
+    private final TeamRepository teamRepository;
     private final RefreshTokenStore refreshTokenStore;
     private final Clock clock;
 
@@ -51,11 +53,19 @@ public class MemberStatusAdapter implements MemberStatusPort {
      * 오프보딩은 상태만 바꾸는 것으로 끝나지 않는다. 계정을 닫아도 이미 발급된 갱신표가 남아 있으면
      * 퇴사자가 최대 14일간 스스로 액세스 토큰을 재발급할 수 있다 — 그래서 함께 폐기한다.
      *
-     * <p>순서가 중요하다. 전이 검사를 먼저 통과시켜야, 잘못된 요청으로 남의 세션을 끊는 일이 없다.
+     * <p>팀장 자리도 같은 트랜잭션에서 비운다. {@code member.authority} 강등만으로는 부족하다 —
+     * 후임 팀장 지정을 막는 검사({@code MemberIssuer#persist})가 보는 것은 권한이 아니라
+     * {@code team.leader_member_id} 이고, 퇴사자 id 가 거기 남아 있으면 후임이
+     * {@code MEMBER_TEAM_LEADER_ALREADY_EXISTS} 로 막힌다.
+     *
+     * <p>순서가 중요하다. 전이 검사를 먼저 통과시켜야, 잘못된 요청으로 남의 세션을 끊거나
+     * 멀쩡한 부서의 팀장을 지우는 일이 없다.
      */
     @Override
     public void offboard(Long memberId) {
         find(memberId).offboard(LocalDateTime.now(clock));
+        teamRepository.findByLeaderMemberId(memberId)
+                .ifPresent(team -> teamRepository.updateLeader(team.id(), null));
         refreshTokenStore.revokeAllByMember(memberId);
     }
 

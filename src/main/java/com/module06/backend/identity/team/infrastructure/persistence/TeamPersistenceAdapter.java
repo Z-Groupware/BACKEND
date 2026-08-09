@@ -35,6 +35,11 @@ public class TeamPersistenceAdapter implements TeamRepository {
     }
 
     @Override
+    public Optional<Team> findByLeaderMemberId(Long leaderMemberId) {
+        return repository.findByLeaderMemberId(leaderMemberId).map(this::toDomain);
+    }
+
+    @Override
     public Team create(Long companyId, String name) {
         TeamJpaEntity saved;
         try {
