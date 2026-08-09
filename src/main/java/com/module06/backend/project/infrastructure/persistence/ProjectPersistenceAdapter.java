@@ -78,6 +78,13 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
                 .toList();
     }
 
+    @Override
+    public List<Project> findAllByCompanyIdAndCreatedBy(Long companyId, Long createdBy) {
+        return springDataProjectRepository.findAllByCompanyIdAndCreatedByAndDeletedAtIsNull(companyId, createdBy).stream()
+                .map(entity -> toDomain(entity, findTeamIds(entity.getId())))
+                .toList();
+    }
+
     private List<Long> findTeamIds(Long projectId) {
         return springDataProjectTeamRepository.findAllById_ProjectId(projectId).stream()
                 .map(teamEntity -> teamEntity.getId().getTeamId())
