@@ -19,4 +19,6 @@ public interface SpringDataProjectRepository extends JpaRepository<ProjectJpaEnt
 
     // soft-delete 포함 배치조회 — 과거 회의가 참조하는 프로젝트 표시 유지용
     List<ProjectJpaEntity> findAllByCompanyIdAndIdIn(Long companyId, List<Long> ids);
+
+    List<ProjectJpaEntity> findAllByCompanyIdAndCreatedByAndDeletedAtIsNull(Long companyId, Long createdBy);
 }

@@ -21,4 +21,6 @@ public interface ProjectRepository {
     boolean existsActiveByCompanyIdAndId(Long companyId, Long id);
 
     List<Project> findAllByCompanyIdAndIdIn(Long companyId, List<Long> ids);
+
+    List<Project> findAllByCompanyIdAndCreatedBy(Long companyId, Long createdBy);
 }
