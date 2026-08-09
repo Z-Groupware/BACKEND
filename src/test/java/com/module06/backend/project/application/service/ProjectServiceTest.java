@@ -2,6 +2,7 @@ package com.module06.backend.project.application.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -61,11 +62,14 @@ class ProjectServiceTest {
     @Mock
     private ActionQueryPort actionQueryPort;
 
+    @Mock
+    private com.module06.backend.project.application.port.MeetingQueryPort meetingQueryPort;
+
     private ProjectService projectService;
 
     private ProjectService service() {
         return new ProjectService(projectRepository, projectAttachmentRepository,
-                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort);
+                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort, meetingQueryPort);
     }
 
     private Project project(Long companyId) {
@@ -76,19 +80,21 @@ class ProjectServiceTest {
     // ---------- list ----------
 
     @Test
-    void listReturnsAllProjectsWithZeroCountsWhenNoActions() {
+    void listReturnsAllProjectsWithZeroCountsWhenNoActionsOrMeetings() {
         projectService = service();
-        Project project = project(COMPANY);
+        Project project = Project.reconstitute(1L, COMPANY, "TAG", "이름", "설명", "#16A34A",
+                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
+        when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
 
         List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
-        assertThat(result).containsExactly(new GetProjectListUseCase.ProjectListItem(project, 0, 0));
+        assertThat(result).containsExactly(new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0));
     }
 
     @Test
-    void listAttachesActionCountsFromBatchQuery() {
+    void listAttachesActionAndMeetingCountsFromBatchQueries() {
         projectService = service();
         Project projectA = Project.reconstitute(1L, COMPANY, "TAG-A", "A", "설명", "#000000",
                 ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
@@ -97,12 +103,13 @@ class ProjectServiceTest {
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(projectA, projectB));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
+        when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
 
         List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
         assertThat(result).containsExactly(
-                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2),
-                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0));
+                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2, 3),
+                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0, 0));
     }
 
     // ---------- getDetail ----------

@@ -16,6 +16,7 @@ import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
 import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
+import com.module06.backend.project.application.port.MeetingQueryPort;
 import com.module06.backend.project.application.port.ProjectQueryPort;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
@@ -52,6 +53,7 @@ public class ProjectService implements
     private final ProjectOwnerOnlyPolicy projectOwnerOnlyPolicy;
     private final ProjectTeamOwnershipPolicy projectTeamOwnershipPolicy;
     private final ActionQueryPort actionQueryPort;
+    private final MeetingQueryPort meetingQueryPort;
 
     @Override
     @Transactional
@@ -85,13 +87,15 @@ public class ProjectService implements
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
                 actionQueryPort.countActionsByProjectIds(projectIds).stream()
                         .collect(Collectors.toMap(ActionQueryPort.ProjectActionCount::projectId, count -> count));
+        Map<Long, Long> meetingCountByProjectId = meetingQueryPort.countMeetingsByProjectIds(companyId, projectIds);
 
         return projects.stream()
                 .map(project -> {
                     ActionQueryPort.ProjectActionCount count = countsByProjectId.get(project.getId());
+                    int meetingCount = Math.toIntExact(meetingCountByProjectId.getOrDefault(project.getId(), 0L));
                     return count == null
-                            ? new ProjectListItem(project, 0, 0)
-                            : new ProjectListItem(project, count.totalCount(), count.completedCount());
+                            ? new ProjectListItem(project, 0, 0, meetingCount)
+                            : new ProjectListItem(project, count.totalCount(), count.completedCount(), meetingCount);
                 })
                 .toList();
     }
