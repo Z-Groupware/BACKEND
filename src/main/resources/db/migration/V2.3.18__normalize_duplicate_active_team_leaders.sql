@@ -15,8 +15,12 @@
 --   1순위 — 부서의 team.leader_member_id 가 가리키는 사람. 후임 승급 검사가
 --          보는 것이 이 컬럼이므로(MemberIssuer#persist), 그쪽을 정답으로 삼아야
 --          정리 후에도 화면과 검사가 같은 사람을 팀장으로 본다.
---   2순위 — 팀장 참조가 비었거나 이 팀 사람이 아니면 가장 먼저 합류한 사람
---          (최소 id). 임의 선택이지만 결정적이라 재실행해도 결과가 같다.
+--   2순위 — 팀장 참조가 비었거나 이 팀 사람이 아니면 가장 먼저 합류한 사람,
+--          즉 joined_on 이 가장 이른 사람(동률이면 id 로 결정한다). id 순서는
+--          합류 순서를 보장하지 않는다 — 데이터 이관이나 수동 id 지정 이력이
+--          있으면 최소 id가 실제로는 나중에 합류한 사람일 수 있다. joined_on 이
+--          비어 있는(NULL) 행은 합류 시점을 모르는 것이므로 후순위로 민다(다른
+--          모든 후보가 처리된 뒤에야 고려한다).
 --
 --   활성 팀장이 한 명뿐인 부서는 건드리지 않는다 — 제약을 위반하지 않으므로
 --   굳이 강등할 이유가 없다. 자리가 비어 있는데 권한만 LEADER 인 사람도
@@ -35,7 +39,15 @@ JOIN (
     SELECT dup.team_id AS team_id,
            COALESCE(
                MIN(CASE WHEN t.leader_member_id = a.id THEN a.id END),
-               MIN(a.id)
+               /* GROUP_CONCAT + SUBSTRING_INDEX 로 "joined_on 최솟값을 가진 행의 id"를
+                  구한다(MySQL 에 ORDER BY 를 지원하는 arg-min 집계 함수가 없다). NULL을
+                  마지막으로 미루려고 (joined_on IS NULL) 을 1차 정렬 키로 넣는다. */
+               CAST(
+                   SUBSTRING_INDEX(
+                       GROUP_CONCAT(a.id ORDER BY (a.joined_on IS NULL) ASC, a.joined_on ASC, a.id ASC),
+                       ',', 1
+                   ) AS UNSIGNED
+               )
            ) AS keeper_id
     FROM `member` AS a
     JOIN (

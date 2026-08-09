@@ -50,9 +50,17 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
         }
     }
 
+    /**
+     * 팀장 교체(§7-4)에서 기존 팀장 강등이 새 팀장 승급보다 먼저 이 메서드로 들어온다. 여기서
+     * flush 하지 않으면 두 변경이 {@link #updateRoleAndPosition} 의 flush 하나로 함께 나가는데,
+     * Hibernate 가 승급 쪽을 먼저 내보내면 그 순간 같은 부서에 활성 팀장이 둘이라
+     * {@code UK_MEMBER_ACTIVE_TEAM_LEADER} 위반으로 정상 교체가 실패한다. 순서를 명시적으로
+     * 고정한다.
+     */
     @Override
     public void demoteToMember(Long memberId) {
         find(memberId).demoteToMember();
+        memberRepository.flush();
     }
 
     @Override

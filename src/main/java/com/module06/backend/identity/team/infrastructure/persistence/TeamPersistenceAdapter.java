@@ -34,7 +34,12 @@ public class TeamPersistenceAdapter implements TeamRepository {
         return repository.findByIdAndCompanyId(id, companyId).map(this::toDomain);
     }
 
+    /**
+     * PESSIMISTIC_WRITE 락은 트랜잭션이 있어야 한다(SpringDataTeamRepository 참고) — 호출자가
+     * 이미 트랜잭션 안이어도 이 메서드 자체에 명시해 단독 호출에서도 안전하게 한다.
+     */
     @Override
+    @Transactional
     public Optional<Team> findByLeaderMemberId(Long leaderMemberId) {
         return repository.findByLeaderMemberId(leaderMemberId).map(this::toDomain);
     }
