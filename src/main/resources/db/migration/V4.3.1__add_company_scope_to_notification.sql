@@ -16,12 +16,18 @@
 -- 3. UNIQUE(company_id, recipient_member_id, type, meeting_id) 추가 — 실제 중복 알림 방지의
 --    최종 방어선(애플리케이션 코드가 아니라 DB가 막는다).
 --
--- company_id는 기존 행이 없다는 전제로(이 테이블을 쓰는 코드가 지금까지 없었음) NOT NULL로 바로
--- 추가한다 — 나중에 채워야 할 기존 데이터가 없다.
+-- ⚠️ meeting_id를 NOT NULL로 강제한다(CodeRabbit 지적) — MySQL의 복합 UNIQUE 인덱스는 NULL을
+-- "서로 다른 값"으로 취급해서, meeting_id가 NULL이면 같은 (company_id, recipient_member_id,
+-- type, NULL) 조합이 몇 번이고 다시 저장돼 위 3번 중복 방지가 무력화된다. 지금 3종류 전부
+-- meeting_id가 항상 있는 회의 알림이라 NOT NULL로 막아도 손해가 없다.
+--
+-- company_id/meeting_id 둘 다 기존 행이 없다는 전제로(이 테이블을 쓰는 코드가 지금까지 없었음)
+-- NOT NULL로 바로 추가/변경한다 — 나중에 채워야 할 기존 데이터가 없다.
 -- =====================================================================
 
 ALTER TABLE `notification`
     ADD COLUMN `company_id` BIGINT NOT NULL COMMENT '테넌트 스코프용 의도적 반정규화(action 테이블과 동일 패턴)' AFTER `id`,
     MODIFY COLUMN `type` ENUM('MEETING_CREATED', 'MEETING_REMINDER', 'MEETING_CANCELED') NOT NULL,
+    MODIFY COLUMN `meeting_id` BIGINT NOT NULL,
     ADD CONSTRAINT `UK_notification_dedup` UNIQUE (`company_id`, `recipient_member_id`, `type`, `meeting_id`),
     ADD CONSTRAINT `FK_notification_company` FOREIGN KEY (`company_id`) REFERENCES `company` (`id`);

@@ -22,11 +22,10 @@ class NotificationTest {
     }
 
     @Test
-    @DisplayName("meetingId는 없어도(null) 생성된다 — DB 컬럼 자체가 nullable이다")
-    void allowsNullMeetingId() {
-        Notification notification = Notification.create(1L, 7L, "MEETING_REMINDER", null, "알림 메시지");
-
-        assertThat(notification.getMeetingId()).isNull();
+    @DisplayName("meetingId가 없으면 거절한다 — nullable이면 UNIQUE 제약이 NULL 중복을 못 막는다")
+    void rejectsMissingMeetingId() {
+        assertThatThrownBy(() -> Notification.create(1L, 7L, "MEETING_REMINDER", null, "알림 메시지"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

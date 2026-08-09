@@ -44,7 +44,7 @@ public class NotificationJpaEntity {
     @Column(name = "type", nullable = false)
     private String type;
 
-    @Column(name = "meeting_id")
+    @Column(name = "meeting_id", nullable = false)
     private Long meetingId;
 
     @Column(name = "message", nullable = false)

@@ -11,6 +11,9 @@ import java.time.LocalDateTime;
  * meetingId는 지금 존재하는 알림 종류(MEETING_CREATED/MEETING_REMINDER/MEETING_CANCELED)가
  * 전부 회의 알림이라 그 뜻 그대로 쓴다 — 범용 참조로 억지 확장하지 않는다. 나중에 회의 아닌
  * 알림 종류가 생기면 그 담당자가 별도 컬럼(예: actionId)과 도메인 필드를 추가한다.
+ *
+ * meetingId도 필수다(CodeRabbit 지적) — nullable로 두면 MySQL의 복합 UNIQUE 제약이 NULL을
+ * 서로 다른 값으로 취급해서 같은 (companyId, memberId, type, NULL) 알림이 중복 저장될 수 있다.
  */
 public class Notification {
 
@@ -28,6 +31,7 @@ public class Notification {
         requireId(companyId, "companyId");
         requireId(memberId, "memberId");
         requireText(type, "type");
+        requireId(meetingId, "meetingId");
         requireText(message, "message");
         this.id = id;
         this.companyId = companyId;
