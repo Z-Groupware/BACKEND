@@ -66,6 +66,7 @@ public class SearchService implements SearchUseCase {
                         .comparingDouble(SearchResult.Item::score).reversed()
                         .thenComparing(SearchResult.Item::date, Comparator.nullsLast(Comparator.reverseOrder()))
                         .thenComparing(SearchResult.Item::id, Comparator.nullsLast(Comparator.naturalOrder())))
+                .limit(limit)
                 .toList();
 
         return new SearchResult(
