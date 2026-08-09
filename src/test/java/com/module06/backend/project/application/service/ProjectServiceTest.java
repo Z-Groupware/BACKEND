@@ -28,6 +28,7 @@ import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
+import com.module06.backend.project.domain.repository.TeamReferenceRepository;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,11 +68,15 @@ class ProjectServiceTest {
     @Mock
     private com.module06.backend.project.application.port.MeetingQueryPort meetingQueryPort;
 
+    @Mock
+    private TeamReferenceRepository teamReferenceRepository;
+
     private ProjectService projectService;
 
     private ProjectService service() {
         return new ProjectService(projectRepository, projectAttachmentRepository,
-                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort, meetingQueryPort);
+                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort, meetingQueryPort,
+                teamReferenceRepository);
     }
 
     private Project project(Long companyId) {
@@ -122,10 +127,14 @@ class ProjectServiceTest {
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
+        when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of(
+                new TeamReferenceRepository.TeamName(1L, "개발팀"),
+                new TeamReferenceRepository.TeamName(2L, "마케팅팀")));
 
         List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
-        assertThat(result).containsExactly(new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0));
+        assertThat(result).containsExactly(
+                new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0, List.of("개발팀", "마케팅팀")));
     }
 
     @Test
@@ -139,12 +148,13 @@ class ProjectServiceTest {
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
+        when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of());
 
         List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
         assertThat(result).containsExactly(
-                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2, 3),
-                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0, 0));
+                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2, 3, List.of()),
+                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0, 0, List.of()));
     }
 
     // ---------- getDetail ----------

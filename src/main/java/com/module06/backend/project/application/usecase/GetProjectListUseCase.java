@@ -9,11 +9,18 @@ import com.module06.backend.project.domain.model.Project;
     actionCount·completedActionCount·meetingCount는 2026-08-05엔 미구현이라 스텁(0)이었으나,
     action BC·meeting(D) 계약이 다 갖춰진 지금은 배치 집계로 채운다(2026-08-09) —
     ProjectDetailResult와 같은 이유로 Project 단독이 아니라 함께 반환한다.
+    teamNames는 목록 행의 부서 칩 표시용 — team(B) 참조 테이블에서 배치 조회해 채운다(2026-08-09, 윤종호 확인).
 */
 public interface GetProjectListUseCase {
 
     List<ProjectListItem> list(Long companyId);
 
-    record ProjectListItem(Project project, int actionCount, int completedActionCount, int meetingCount) {
+    record ProjectListItem(
+            Project project,
+            int actionCount,
+            int completedActionCount,
+            int meetingCount,
+            List<String> teamNames
+    ) {
     }
 }

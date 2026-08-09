@@ -23,4 +23,14 @@ public class TeamReferenceRepositoryAdapter implements TeamReferenceRepository {
                 .map(TeamReferenceEntity::getId)
                 .toList();
     }
+
+    @Override
+    public List<TeamName> findTeamNames(List<Long> teamIds, Long companyId) {
+        if (teamIds.isEmpty()) {
+            return List.of();
+        }
+        return springDataTeamReferenceRepository.findAllByIdInAndCompanyId(teamIds, companyId).stream()
+                .map(entity -> new TeamName(entity.getId(), entity.getName()))
+                .toList();
+    }
 }
