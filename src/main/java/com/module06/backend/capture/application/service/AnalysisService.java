@@ -114,6 +114,18 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
         meetingAccessGuard.requireAccessible(companyId, meetingId);
 
         LayerName resumeFrom = parseLayer(resumeFromLayer);
+
+        /*
+         * 도는 중이면 막는다 — run 과 같은 검사다(CodeRabbit PR #262).
+         *
+         * 없으면 재개가 새 runSeq 를 발급하고, 진행 중이던 실행은 다음 계층 잠금에서 SUPERSEDED
+         * 로 물러난다(#134). 데이터는 안전하지만 **그 실행이 이미 태운 토큰이 버려진다** —
+         * 재과금을 줄이려고 만든 API 가 정확히 반대로 동작하는 경로다.
+         */
+        if (ProcessingStatus.of(layerProgress(meetingId)).status() == ProcessingStatus.OverallStatus.RUNNING) {
+            throw new BusinessException(CaptureErrorCode.ANALYSIS_ALREADY_RUNNING);
+        }
+
         List<LayerName> reused = AnalysisOrchestrator.reusedLayersOf(resumeFrom);
         requireAllDone(meetingId, reused);
 

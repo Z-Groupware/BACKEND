@@ -44,7 +44,9 @@ CREATE TABLE `analysis_layer_artifact` (
     `layer`      VARCHAR(8) NOT NULL COMMENT '산출물을 남기는 계층. 지금은 L1.5 · L2 뿐이다',
     `payload`    JSON       NOT NULL COMMENT '계층 산출물 JSON. 재개(ANLZ-02)가 문맥을 되살릴 때만 읽는다',
     `created_at` DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- 재실행이 payload 를 갈아끼우므로 갱신 시각이 실제로 움직여야 한다. ON UPDATE 가 없으면
+    -- updated_at 이 created_at 과 영원히 같아, "이 문맥이 언제 것인가"를 되짚을 수 없다.
+    `updated_at` DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     -- 회의당 계층당 1건. analysis_layer 의 UNIQUE(meeting_id, layer)와 같은 규칙이다 —
     -- 두 건이 쌓이면 재개가 어느 쪽을 읽을지 정해야 하고, 그 판단이 조용히 틀리면

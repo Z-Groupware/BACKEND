@@ -770,7 +770,14 @@ public class AnalysisOrchestrator {
                 meetingId, decisions.size(),
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
                 extracted.value(), verified.value(), autoConfirmed, distributed.value());
-        return AnalysisOutcome.done(decisions.size());
+        /*
+         * 주제 수는 topics 로 센다(CodeRabbit PR #262).
+         *
+         * decisions 는 L3 가 이번에 만든 것이라 **재개로 L3 를 건너뛰면 비어 있다.** 그걸 그대로
+         * 내보내면 요약은 meeting_summary 에 멀쩡히 있는데 응답만 "주제 0개"라고 말한다.
+         * topics 는 재개에서도 되살아나 있으므로(V5.20) 어느 경로에서든 값이 맞는다.
+         */
+        return AnalysisOutcome.done(topics.size());
     }
 
     /*

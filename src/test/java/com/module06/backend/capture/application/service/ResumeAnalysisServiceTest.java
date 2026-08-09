@@ -130,14 +130,37 @@ class ResumeAnalysisServiceTest {
     @Test
     @DisplayName("L1 부터 재개하면 확인할 앞 계층이 없다")
     void 처음부터_재개하면_앞_계층_검사가_없다() {
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(List.of());
         when(orchestrator.run(anyLong(), anyLong(), anyLong(), any(), anyBoolean(), eq(LayerName.L1)))
                 .thenReturn(AnalysisOutcome.skipped("테스트"));
 
         ResumeOutcome resumed = service(true).resume(COMPANY, MEETING, "L1");
 
+        // 되살릴 앞 계층이 없으니 DONE 검사가 통과를 막지 않는다.
         assertThat(resumed.reusedLayers()).isEmpty();
-        // 앞이 없으니 계층 상태를 읽을 이유도 없다.
-        verify(analysisLayerRepository, never()).findStates(anyLong());
+        verify(orchestrator).run(COMPANY, COMPANY, MEETING, List.of(), false, LayerName.L1);
+    }
+
+    @Test
+    @DisplayName("도는 중이면 재개하지 않는다 — 진행 중 실행이 태운 토큰이 버려진다")
+    void 실행_중에는_재개하지_않는다() {
+        // L2 가 아직 RUNNING 이다.
+        List<LayerState> running = List.of(
+                new LayerState(LayerName.L1, LayerStatus.DONE, 0, 0, false),
+                new LayerState(LayerName.L2, LayerStatus.RUNNING, 0, 0, false));
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(running);
+
+        /*
+         * 막지 않으면 재개가 새 runSeq 를 발급하고, 진행 중이던 실행은 다음 계층 잠금에서
+         * SUPERSEDED 로 물러난다(#134) — 그 실행이 이미 태운 토큰이 버려진다.
+         * 재과금을 줄이려고 만든 API 가 정확히 반대로 동작하는 경로다.
+         */
+        assertThatThrownBy(() -> service(true).resume(COMPANY, MEETING, "L4"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CaptureErrorCode.ANALYSIS_ALREADY_RUNNING);
+
+        verify(orchestrator, never()).run(anyLong(), anyLong(), anyLong(), any(), anyBoolean(), any());
     }
 
     @Test
