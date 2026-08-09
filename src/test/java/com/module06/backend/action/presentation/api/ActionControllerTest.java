@@ -148,7 +148,7 @@ class ActionControllerTest {
     void bulkUpdateStatusConvertsItemsAndUsesMemberIdFromToken() throws Exception {
         authenticateAs(1L, 5L);
 
-        mockMvc.perform(patch("/api/actions/status/bulk")
+        mockMvc.perform(patch("/api/actions/complete/bulk")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"items": [{"actionId": 10, "status": "DONE"}, {"actionId": 11, "status": "IN_PROGRESS"}]}
@@ -170,7 +170,7 @@ class ActionControllerTest {
     void bulkUpdateStatusRejectsEmptyItems() throws Exception {
         authenticateAs(1L, 5L);
 
-        mockMvc.perform(patch("/api/actions/status/bulk")
+        mockMvc.perform(patch("/api/actions/complete/bulk")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"items": []}

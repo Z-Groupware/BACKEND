@@ -1,5 +1,6 @@
 package com.module06.backend.cap.application.service;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.GetPartUploadStatusUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
@@ -22,13 +23,16 @@ import java.util.Set;
 public class CapturePartStatusService implements GetPartUploadStatusUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingPartRepository recordingPartRepository;
 
     public CapturePartStatusService(MeetingReferenceRepository meetingReferenceRepository,
+                                    CapMeetingAccessGuard accessGuard,
                                     CaptureUploadStateRepository captureUploadStateRepository,
                                     RecordingPartRepository recordingPartRepository) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.recordingPartRepository = recordingPartRepository;
     }
@@ -41,7 +45,7 @@ public class CapturePartStatusService implements GetPartUploadStatusUseCase {
         }
         // presign/complete와 동일한 회의 접근 확인 — 참석자 명단에서 빠진 옛 녹음자가 상태행만으로
         // 조회하는 걸 막는다(recorder_person_id 비교만으론 못 거르는 IDOR 갭 보완).
-        if (!meetingReferenceRepository.isAttendee(meetingId, callerId)) {
+        if (!accessGuard.isAttendee(meetingId, callerId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
         // 상태행이 없다는 건 presign이 한 번도 없었다는 뜻 — 녹음자로 배정된 사람 자체가 없으므로 caller도 녹음자가 아니다.

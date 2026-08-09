@@ -9,11 +9,13 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.GetPartUploadStatusUseCase;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
+import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -29,7 +31,7 @@ class CapturePartStatusServiceTest {
     @DisplayName("회의가 없으면 CAP-002로 거절한다")
     void rejectsWhenMeetingMissing() {
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(false, false), stateRepo(Optional.empty()), recordingParts(List.of()));
+                meetingRef(false, false), accessGuard(meetingRef(false, false)), stateRepo(Optional.empty()), recordingParts(List.of()));
 
         assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-002");
     }
@@ -39,7 +41,7 @@ class CapturePartStatusServiceTest {
     @DisplayName("상태행이 없으면 CAP-004로 거절한다")
     void rejectsWhenNoState() {
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true, true), stateRepo(Optional.empty()), recordingParts(List.of()));
+                meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.empty()), recordingParts(List.of()));
 
         assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-004");
     }
@@ -50,7 +52,7 @@ class CapturePartStatusServiceTest {
     void rejectsWhenNotAttendee() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true, false), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+                meetingRef(true, false), accessGuard(meetingRef(true, false)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
         // 회의도 있고 상태행도 있지만, caller가 참석자 명단에 없으면 녹음자 검증 전에 막혀야 한다.
         assertErrorCode(() -> service.getPartUploadStatus(500L, 7L), "CAP-010");
@@ -62,7 +64,7 @@ class CapturePartStatusServiceTest {
     void rejectsWhenNotRecorder() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+                meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
         // 녹음자는 7번인데 9번이 조회 시도
         assertErrorCode(() -> service.getPartUploadStatus(500L, 9L), "CAP-004");
@@ -75,7 +77,7 @@ class CapturePartStatusServiceTest {
         // 세그먼트 2, lastSeq 5, blocksFormed 3, 녹음자 7. 업로드된 순번은 1·2·4 → 3·5가 빠짐.
         CaptureUploadState state = CaptureUploadState.restore(500L, 2, 7L, 5, 3, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 4)));
+                meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 4)));
 
         GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
 
@@ -93,7 +95,7 @@ class CapturePartStatusServiceTest {
     void noMissingWhenAllPresent() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
+                meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
         GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
 
@@ -107,7 +109,7 @@ class CapturePartStatusServiceTest {
     void resumeFromOneWhenEmpty() {
         CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
-                meetingRef(true, true), stateRepo(Optional.of(state)), recordingParts(List.of()));
+                meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of()));
 
         GetPartUploadStatusUseCase.Result result = service.getPartUploadStatus(500L, 7L);
 
@@ -149,6 +151,12 @@ class CapturePartStatusServiceTest {
                 return Optional.empty();
             }
         };
+    }
+
+    // 주어진 회의 참조 대역으로 가드를 조립한다(프로젝트 멤버 판정은 이 서비스와 무관해 항상 false).
+    private CapMeetingAccessGuard accessGuard(MeetingReferenceRepository meetingRef) {
+        ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
+        return new CapMeetingAccessGuard(meetingRef, projectTeamRef);
     }
 
     // 지정한 캡처 상태를 반환하는 상태 저장소 대역(save는 조회 경로에서 쓰지 않음).
