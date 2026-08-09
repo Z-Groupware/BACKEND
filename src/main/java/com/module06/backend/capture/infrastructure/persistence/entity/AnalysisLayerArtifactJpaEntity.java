@@ -5,7 +5,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import lombok.AccessLevel;
@@ -39,8 +38,14 @@ public class AnalysisLayerArtifactJpaEntity {
     @Column(name = "layer", nullable = false, length = 8)
     private String layer;
 
-    @Lob
-    @Column(name = "payload", nullable = false)
+    /*
+     * JSON 컬럼을 String 으로 들고 columnDefinition 만 맞춘다 — 이 저장소의 JSON 컬럼 규약이다
+     * (review_log · quality_gold_set · meeting_tuple_vector.payload).
+     *
+     * @Lob 를 쓰면 안 된다. Hibernate 가 CLOB 으로 보고 길이 기본값(255)에서 tinytext 를 기대해,
+     * 실제 컬럼과 어긋나 스키마 검증이 부팅에서 죽는다 — 실제로 그렇게 CI 가 깨졌다.
+     */
+    @Column(name = "payload", nullable = false, columnDefinition = "json")
     private String payload;
 
     private AnalysisLayerArtifactJpaEntity(Long meetingId, LayerName layer, String payload) {

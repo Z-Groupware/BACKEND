@@ -27,8 +27,12 @@
 -- meeting_summary 처럼 화면이 읽는 것이었다면 컬럼으로 폈을 것이다.
 --
 -- payload 는 JSON 이다. 계층마다 모양이 달라 공통 컬럼으로 펼 수 없고, 펴 봐야 그 컬럼을
--- 읽는 곳이 재개 경로 하나뿐이다. MySQL JSON 타입 대신 LONGTEXT 를 쓴다 — 우리가 만들고
--- 우리가 읽는 값이라 DB 쪽 검증·인덱싱이 필요 없고, 계층 스키마가 바뀔 때 DDL 을 안 도는 편이 낫다.
+-- 읽는 곳이 재개 경로 하나뿐이다.
+--
+-- 타입은 MySQL JSON 을 쓴다 — 이 저장소의 JSON 컬럼이 전부 그렇다(review_log 셋 ·
+-- quality_gold_set · meeting_tuple_vector.payload · handover_insight.payload). 엔티티는
+-- String 으로 들고 columnDefinition 만 json 으로 맞추는 것이 같이 붙는 규약이다.
+-- TEXT 계열로 두면 Hibernate 의 스키마 검증이 @Lob/CLOB 매핑과 어긋난다.
 --
 -- 회의당 계층당 1건이다. 재실행하면 새 값으로 갱신한다 — 지난 실행의 문맥을 들고 있으면
 -- 이번 실행의 결과와 짝이 맞지 않는다.
@@ -38,7 +42,7 @@ CREATE TABLE `analysis_layer_artifact` (
     `id`         BIGINT     NOT NULL AUTO_INCREMENT,
     `meeting_id` BIGINT     NOT NULL,
     `layer`      VARCHAR(8) NOT NULL COMMENT '산출물을 남기는 계층. 지금은 L1.5 · L2 뿐이다',
-    `payload`    LONGTEXT   NOT NULL COMMENT '계층 산출물 JSON. 재개(ANLZ-02)가 문맥을 되살릴 때만 읽는다',
+    `payload`    JSON       NOT NULL COMMENT '계층 산출물 JSON. 재개(ANLZ-02)가 문맥을 되살릴 때만 읽는다',
     `created_at` DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
