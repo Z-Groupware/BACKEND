@@ -35,6 +35,23 @@ public enum CaptureErrorCode implements ErrorCode {
     MEETING_NOT_ACCESSIBLE(HttpStatus.NOT_FOUND, "MEETING_404_1", "회의를 찾을 수 없습니다."),
 
     /*
+     * ANLZ-05 — 커서를 해석할 수 없다(형식이 깨졌거나 우리가 발행한 것이 아니다).
+     *
+     * 400 이다. 커서는 **우리가 발행해 클라이언트가 그대로 되돌려주는 값**이라, 깨졌다는 것은
+     * 손으로 고쳤거나 다른 API 의 커서를 넣었다는 뜻이다. 조용히 첫 페이지로 되돌리면 훨씬 나빠진다 —
+     * 페이지를 넘기던 화면이 맨 앞으로 돌아가고, 사용자는 발화가 중복돼 보이는 이유를 알 수 없다.
+     */
+    TRANSCRIPT_CURSOR_INVALID(HttpStatus.BAD_REQUEST, "MEETING_400_1", "정본 조회 커서가 올바르지 않습니다."),
+
+    /*
+     * ANLZ-05 — ids 로 한 번에 요청한 발화가 너무 많다.
+     *
+     * 상한이 없으면 ids 가 **커서 페이징을 우회하는 경로**가 된다. 회의 전체 발화 id 를 넣어
+     * 수천 건을 한 응답으로 받아낼 수 있고, 그러면 페이징을 둔 이유가 사라진다.
+     */
+    TRANSCRIPT_IDS_TOO_MANY(HttpStatus.BAD_REQUEST, "MEETING_400_2", "한 번에 조회할 수 있는 발화 수를 넘었습니다."),
+
+    /*
      * 계층 호출이 실패해 분석이 멈췄다.
      *
      * 502 인 이유 — 우리 요청이 잘못된 것이 아니라 뒤에 있는 AI 서버가 응답하지 못한 것이다.
