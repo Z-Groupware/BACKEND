@@ -1,9 +1,12 @@
 package com.module06.backend.capture.infrastructure.persistence.adapter;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.service.SpeakerAttributionResolver.Attribution;
+import com.module06.backend.capture.domain.model.TranscriptCursor;
 import com.module06.backend.capture.domain.model.Utterance;
 import com.module06.backend.capture.infrastructure.persistence.entity.TranscriptChunkJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataTranscriptChunkRepository;
@@ -46,6 +50,100 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
                         chunk.getEndOffsetMs(),
                         chunk.getContent()))
                 .toList();
+    }
+
+    /*
+     * 정본 한 페이지를 뜬다(ANLZ-05).
+     *
+     * <h2>본문 → 꼬리 순으로 이어 붙인다</h2>
+     * 오프셋 있는 발화(본문)를 먼저 다 보내고, 오프셋 없는 발화(꼬리)를 뒤에 붙인다. 정렬
+     * 옵션의 NULLS LAST 에 기대지 않고 조회를 나눠 순서를 고정하는 이유는 리포지터리 주석에 있다.
+     *
+     * <h2>한 페이지가 두 구간에 걸칠 수 있다</h2>
+     * 본문이 limit 을 못 채우면 남은 만큼을 꼬리에서 채운다. 걸치는 페이지를 허용하지 않으면
+     * 구간 경계마다 빈자리가 생겨, 클라이언트가 "덜 왔는데 다음 커서가 있는" 응답을 계속 받는다.
+     *
+     * <h2>같은 오프셋을 두 번 조회한다</h2>
+     * 커서와 오프셋이 같은 발화(남은 것)와 오프셋이 더 뒤인 발화를 따로 뜬 뒤 이어 붙인다.
+     * 하나의 파생 메서드로는 {@code offset > o OR (offset = o AND seq > s)} 를 표현할 수 없고,
+     * JPQL 로 쓰면 QUERY_002(신규 @Query 금지)에 걸린다. 두 번 뜨는 대신 규칙 안에 남는다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<UtteranceView> findPage(long meetingId, TranscriptCursor cursor, int limit) {
+        List<TranscriptChunkJpaEntity> page = new ArrayList<>();
+
+        if (cursor == null || !cursor.isInNullOffsetTail()) {
+            page.addAll(bodySegment(meetingId, cursor, limit));
+        }
+        if (page.size() < limit) {
+            page.addAll(tailSegment(meetingId, cursor, limit - page.size()));
+        }
+        return page.stream().map(TranscriptPersistenceAdapter::toView).toList();
+    }
+
+    /* 오프셋 있는 구간. 커서가 없으면 처음부터, 있으면 그 자리 다음부터. */
+    private List<TranscriptChunkJpaEntity> bodySegment(long meetingId, TranscriptCursor cursor, int limit) {
+        Pageable window = PageRequest.of(0, limit, SpringDataTranscriptChunkRepository.OFFSET_THEN_SEQ);
+        if (cursor == null) {
+            return repository.findByMeetingIdAndOffsetMsIsNotNull(meetingId, window);
+        }
+
+        // 같은 오프셋의 나머지가 먼저다 — 정렬이 (offset, seq) 이므로 그것이 바로 다음 자리다.
+        List<TranscriptChunkJpaEntity> sameOffset = repository.findByMeetingIdAndOffsetMsAndSeqGreaterThan(
+                meetingId, cursor.offsetMs(), cursor.seq(),
+                PageRequest.of(0, limit, SpringDataTranscriptChunkRepository.SEQ_ONLY));
+        if (sameOffset.size() >= limit) {
+            return sameOffset;
+        }
+
+        List<TranscriptChunkJpaEntity> merged = new ArrayList<>(sameOffset);
+        merged.addAll(repository.findByMeetingIdAndOffsetMsGreaterThan(
+                meetingId, cursor.offsetMs(),
+                PageRequest.of(0, limit - sameOffset.size(),
+                        SpringDataTranscriptChunkRepository.OFFSET_THEN_SEQ)));
+        return merged;
+    }
+
+    /* 오프셋 없는 꼬리 구간. 커서가 아직 본문에 있으면 처음부터 채운다. */
+    private List<TranscriptChunkJpaEntity> tailSegment(long meetingId, TranscriptCursor cursor, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Pageable window = PageRequest.of(0, limit, SpringDataTranscriptChunkRepository.SEQ_ONLY);
+        if (cursor != null && cursor.isInNullOffsetTail()) {
+            return repository.findByMeetingIdAndOffsetMsIsNullAndSeqGreaterThan(meetingId, cursor.seq(), window);
+        }
+        return repository.findByMeetingIdAndOffsetMsIsNull(meetingId, window);
+    }
+
+    /*
+     * 지정한 발화만 읽는다(ANLZ-05 의 ?ids=). 회의를 함께 걸어 남의 회의 발화가 섞이지 않게 한다.
+     *
+     * 응답 순서는 요청한 id 순이 아니라 **정본 순서**다. 근거 발화 서넛을 나열할 때도 회의에서
+     * 오간 순서로 보이는 편이 읽힌다 — 요청 배열 순서는 화면이 정한 우연한 순서일 뿐이다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<UtteranceView> findByMeetingAndIds(long meetingId, List<Long> transcriptIds) {
+        if (transcriptIds == null || transcriptIds.isEmpty()) {
+            return List.of();
+        }
+        return repository.findByMeetingIdAndIdIn(
+                        meetingId, transcriptIds, SpringDataTranscriptChunkRepository.ORDER).stream()
+                .map(TranscriptPersistenceAdapter::toView)
+                .toList();
+    }
+
+    private static UtteranceView toView(TranscriptChunkJpaEntity chunk) {
+        return new UtteranceView(
+                chunk.getId(),
+                chunk.getSeq(),
+                chunk.getSpeakerMemberId(),
+                chunk.getSpeakerSource(),
+                chunk.getOffsetMs(),
+                chunk.getEndOffsetMs(),
+                chunk.getContent());
     }
 
     /*

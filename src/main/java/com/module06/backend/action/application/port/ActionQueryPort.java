@@ -15,6 +15,13 @@ public interface ActionQueryPort {
     // FR-PJ-07 프로젝트 타임라인 탭 표시용 — 해당 프로젝트에 속한 TEAM 액션 전체(팀명 포함).
     List<TeamActionSummary> findTeamActionsByProjectId(Long projectId);
 
+    // 프로젝트 목록 진행률(actionCount/completedActionCount) 표시용 배치 조회(2026-08-09).
+    // 목록 화면에서 프로젝트마다 따로 부르면 N+1이라, projectId 목록을 한 번에 받아 집계까지 끝낸다.
+    List<ProjectActionCount> countActionsByProjectIds(List<Long> projectIds);
+
     record TeamActionSummary(Long actionId, String title, Long teamId, String teamName, ActionStatus status, LocalDate dueDate) {
+    }
+
+    record ProjectActionCount(Long projectId, int totalCount, int completedCount) {
     }
 }

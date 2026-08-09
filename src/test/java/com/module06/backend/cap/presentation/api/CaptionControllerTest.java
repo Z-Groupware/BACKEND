@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.module06.backend.cap.application.command.SubmitCaptionsCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.GetCaptionsUseCase;
 import com.module06.backend.cap.application.usecase.SubmitCaptionsUseCase;
 import com.module06.backend.cap.application.usecase.SubscribeToCaptionsUseCase;
@@ -51,7 +52,7 @@ class CaptionControllerTest {
     @Test
     @DisplayName("자막 전체 조회를 200 공통 응답으로 반환한다")
     void listsCaptionsOk() {
-        GetCaptionsUseCase.Requester[] captured = new GetCaptionsUseCase.Requester[1];
+        CapMeetingAccessGuard.ViewerContext[] captured = new CapMeetingAccessGuard.ViewerContext[1];
         GetCaptionsUseCase getCaptionsUseCase = (meetingId, requester) -> {
             captured[0] = requester;
             return new GetCaptionsUseCase.Result(List.of(
