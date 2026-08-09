@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.calendar.application.usecase.GetCalendarUseCase;
 import com.module06.backend.calendar.presentation.api.response.CalendarItemResponse;
@@ -33,10 +35,12 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/calendar")
 @RequiredArgsConstructor
+@Tag(name = "Calendar", description = "캘린더·개인 Todo API")
 public class CalendarController {
 
     private final GetCalendarUseCase getCalendarUseCase;
 
+    @Operation(summary = "캘린더 통합 조회", description = "역할별 분기 — OWNER: 본인 프로젝트 기간 / LEADER·MEMBER: 개인 액션 마감일+Todo.")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<CalendarItemResponse>> getCalendar(
