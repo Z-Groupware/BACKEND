@@ -2,6 +2,7 @@ package com.module06.backend.notification.infrastructure.sse;
 
 import com.module06.backend.notification.application.port.out.NotificationEvent;
 import com.module06.backend.notification.application.port.out.NotificationStreamPort;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -42,6 +43,13 @@ public class NotificationStreamRegistry implements NotificationStreamPort {
     public NotificationStreamRegistry() {
         heartbeatExecutor.scheduleAtFixedRate(this::sendHeartbeats,
                 HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    // 빈 소멸 시(컨텍스트 종료·재생성) heartbeat 스케줄러를 멈춘다 — 안 그러면 daemon 스레드가
+    // 인스턴스마다 계속 쌓인다(특히 테스트에서 new NotificationStreamRegistry()를 여러 번 만들 때 누적).
+    @PreDestroy
+    void shutdown() {
+        heartbeatExecutor.shutdownNow();
     }
 
     // 새 SSE 연결을 등록한다. 타임아웃 0 = 서버 쪽에서 먼저 끊지 않음(네트워크 단절은 onError/onTimeout이 처리).

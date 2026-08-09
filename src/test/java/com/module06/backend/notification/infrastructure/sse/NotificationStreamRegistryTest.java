@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import java.lang.reflect.Field;
 import java.util.Map;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -21,18 +23,32 @@ import com.module06.backend.notification.application.port.out.NotificationEvent;
  * 큐에 쌓기만 하므로, "바이트가 실제로 나갔는지"는 여기서 검증하지 않는다 — 대신 구독/해제가
  * 내부 상태(emittersByMember)를 정확히 바꾸는지, dispatch가 구독자 유무와 무관하게 예외 없이
  * 동작하는지를 검증한다.
+ *
+ * 매 테스트마다 새 레지스트리를 만들면 heartbeat용 daemon 스레드가 인스턴스마다 하나씩 생기는데,
+ * @PreDestroy는 스프링 컨텍스트가 관리할 때만 불리고 여기선 순수 new라 안 불린다 — 그래서
+ * @AfterEach에서 직접 shutdown()을 호출해 정리한다(CodeRabbit 지적).
  */
 @DisplayName("알림 SSE 레지스트리")
 class NotificationStreamRegistryTest {
 
     private static final Long MEMBER_ID = 7L;
 
+    private NotificationStreamRegistry registry;
+
+    @BeforeEach
+    void setUp() {
+        registry = new NotificationStreamRegistry();
+    }
+
+    @AfterEach
+    void tearDown() {
+        registry.shutdown();
+    }
+
     /* 구독하면 내부 맵에 그 회원 앞으로 emitter가 하나 등록되는지 검증한다. */
     @Test
     @DisplayName("구독하면 회원 앞으로 emitter가 등록된다")
     void subscribeRegistersEmitter() throws Exception {
-        NotificationStreamRegistry registry = new NotificationStreamRegistry();
-
         SseEmitter emitter = registry.subscribe(MEMBER_ID);
 
         assertThat(emitter).isNotNull();
@@ -43,8 +59,6 @@ class NotificationStreamRegistryTest {
     @Test
     @DisplayName("같은 회원이 여러 번 구독하면 emitter가 누적된다")
     void multipleSubscriptionsAccumulate() throws Exception {
-        NotificationStreamRegistry registry = new NotificationStreamRegistry();
-
         registry.subscribe(MEMBER_ID);
         registry.subscribe(MEMBER_ID);
 
@@ -59,7 +73,6 @@ class NotificationStreamRegistryTest {
     @Test
     @DisplayName("연결이 끊기면 등록이 해제된다")
     void unregisterRemovesEmitter() throws Exception {
-        NotificationStreamRegistry registry = new NotificationStreamRegistry();
         SseEmitter emitter = registry.subscribe(MEMBER_ID);
 
         invokeUnregister(registry, MEMBER_ID, emitter);
@@ -71,7 +84,6 @@ class NotificationStreamRegistryTest {
     @Test
     @DisplayName("여러 emitter 중 하나만 끊기면 나머지는 그대로 남는다")
     void unregisterOneKeepsOthers() throws Exception {
-        NotificationStreamRegistry registry = new NotificationStreamRegistry();
         SseEmitter first = registry.subscribe(MEMBER_ID);
         SseEmitter second = registry.subscribe(MEMBER_ID);
 
@@ -92,8 +104,6 @@ class NotificationStreamRegistryTest {
     @Test
     @DisplayName("구독자가 없으면 dispatch는 조용히 무시된다")
     void dispatchToNobodyIsNoOp() {
-        NotificationStreamRegistry registry = new NotificationStreamRegistry();
-
         assertThatCode(() -> registry.dispatch(999L, new NotificationEvent("ACTION_ASSIGNED", "payload")))
                 .doesNotThrowAnyException();
     }
@@ -103,7 +113,6 @@ class NotificationStreamRegistryTest {
     @Test
     @DisplayName("구독자가 있으면 dispatch해도 예외가 나지 않는다")
     void dispatchToSubscriberDoesNotThrow() {
-        NotificationStreamRegistry registry = new NotificationStreamRegistry();
         registry.subscribe(MEMBER_ID);
 
         assertThatCode(() -> registry.dispatch(MEMBER_ID, new NotificationEvent("ACTION_ASSIGNED", "payload")))
