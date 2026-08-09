@@ -2,6 +2,8 @@ package com.module06.backend.project.application.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,8 +78,22 @@ public class ProjectService implements
 
     @Override
     @Transactional(readOnly = true)
-    public List<Project> list(Long companyId) {
-        return projectRepository.findAllByCompanyId(companyId);
+    public List<ProjectListItem> list(Long companyId) {
+        List<Project> projects = projectRepository.findAllByCompanyId(companyId);
+        List<Long> projectIds = projects.stream().map(Project::getId).toList();
+
+        Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
+                actionQueryPort.countActionsByProjectIds(projectIds).stream()
+                        .collect(Collectors.toMap(ActionQueryPort.ProjectActionCount::projectId, count -> count));
+
+        return projects.stream()
+                .map(project -> {
+                    ActionQueryPort.ProjectActionCount count = countsByProjectId.get(project.getId());
+                    return count == null
+                            ? new ProjectListItem(project, 0, 0)
+                            : new ProjectListItem(project, count.totalCount(), count.completedCount());
+                })
+                .toList();
     }
 
     @Override

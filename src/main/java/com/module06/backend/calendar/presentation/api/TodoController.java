@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.calendar.application.command.CreateTodoCommand;
 import com.module06.backend.calendar.application.usecase.CreateTodoUseCase;
@@ -25,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 /* comment.
     개인 Todo API 진입점. 조작 범위 = 생성·완료토글뿐(2026-08-06 홍근 확인) — 수정·삭제
     엔드포인트는 화면 근거가 없어 만들지 않는다. 조회는 별도 엔드포인트가 없다 —
-    GET /api/calendar 통합 조회(CalendarController, 착수 예정)에 포함된다.
+    GET /api/calendar 통합 조회(CalendarController)에 포함된다.
 
     담당 엔드포인트
     - POST  /api/todos                생성 (전 구성원, 본인 소유로 생성)
@@ -40,11 +42,13 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/todos")
 @RequiredArgsConstructor
+@Tag(name = "Calendar", description = "캘린더·개인 Todo API")
 public class TodoController {
 
     private final CreateTodoUseCase createTodoUseCase;
     private final ToggleTodoCompleteUseCase toggleTodoCompleteUseCase;
 
+    @Operation(summary = "개인 Todo 생성", description = "본인 소유로 생성, 항상 미완료로 시작.")
     @PostMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<TodoResponse> create(
@@ -61,6 +65,7 @@ public class TodoController {
     }
 
     // 완료 체크박스 토글 — memberId는 토큰에서만 꺼낸다(남의 Todo를 못 건드리게).
+    @Operation(summary = "Todo 완료 토글", description = "누르면 완료, 한 번 더 누르면 취소. 본인 소유분만.")
     @PatchMapping("/{todoId}/complete")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<TodoResponse> toggleComplete(

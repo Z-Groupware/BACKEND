@@ -1,7 +1,9 @@
 package com.module06.backend.project.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
@@ -61,8 +63,17 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
 
     @Override
     public List<Project> findAllByCompanyId(Long companyId) {
-        return springDataProjectRepository.findAllByCompanyIdAndDeletedAtIsNull(companyId).stream()
-                .map(entity -> toDomain(entity, findTeamIds(entity.getId())))
+        List<ProjectJpaEntity> entities = springDataProjectRepository.findAllByCompanyIdAndDeletedAtIsNull(companyId);
+        List<Long> projectIds = entities.stream().map(ProjectJpaEntity::getId).toList();
+
+        // N+1 방지 — 프로젝트별로 따로 조회하지 않고 한 번에 배치 조회해 프로젝트 id로 묶는다(2026-08-09).
+        Map<Long, List<Long>> teamIdsByProjectId = springDataProjectTeamRepository.findAllById_ProjectIdIn(projectIds).stream()
+                .collect(Collectors.groupingBy(
+                        teamEntity -> teamEntity.getId().getProjectId(),
+                        Collectors.mapping(teamEntity -> teamEntity.getId().getTeamId(), Collectors.toList())));
+
+        return entities.stream()
+                .map(entity -> toDomain(entity, teamIdsByProjectId.getOrDefault(entity.getId(), List.of())))
                 .toList();
     }
 
@@ -74,6 +85,13 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     @Override
     public List<Project> findAllByCompanyIdAndIdIn(Long companyId, List<Long> ids) {
         return springDataProjectRepository.findAllByCompanyIdAndIdIn(companyId, ids).stream()
+                .map(entity -> toDomain(entity, findTeamIds(entity.getId())))
+                .toList();
+    }
+
+    @Override
+    public List<Project> findAllByCompanyIdAndCreatedBy(Long companyId, Long createdBy) {
+        return springDataProjectRepository.findAllByCompanyIdAndCreatedByAndDeletedAtIsNull(companyId, createdBy).stream()
                 .map(entity -> toDomain(entity, findTeamIds(entity.getId())))
                 .toList();
     }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -211,6 +212,13 @@ class CaptureSessionQueryServiceTest {
         public List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId) {
             /* 테스트 대역의 미사용 경로는 외부 데이터 없이 닫는다. */
             return List.of();
+        }
+
+        /* 프로젝트별 회의 수 조회는 CAP-10 테스트에서 사용하지 않는다. */
+        @Override
+        public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+            /* 테스트 대역의 미사용 신규 배치 계약은 빈 집계로 닫는다. */
+            return Map.of();
         }
 
         /* CAP-10에서 사용하지 않는 예정 회의 조회는 빈 목록을 반환한다. */
