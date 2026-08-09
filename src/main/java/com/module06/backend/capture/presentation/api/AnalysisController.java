@@ -1,5 +1,7 @@
 package com.module06.backend.capture.presentation.api;
 
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -31,6 +33,7 @@ import com.module06.backend.capture.application.usecase.EditSummaryUseCase;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
+import com.module06.backend.capture.application.usecase.GetTranscriptsUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.presentation.api.request.AddReviewActionRequest;
 import com.module06.backend.capture.presentation.api.request.EditSummaryRequest;
@@ -43,6 +46,7 @@ import com.module06.backend.capture.presentation.api.response.MeetingSummaryResp
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
 import com.module06.backend.capture.presentation.api.response.ReviewDecisionResponse;
 import com.module06.backend.capture.presentation.api.response.SummaryEditResponse;
+import com.module06.backend.capture.presentation.api.response.TranscriptsResponse;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 
@@ -77,6 +81,7 @@ public class AnalysisController {
     private final CancelReviewActionUseCase cancelReviewActionUseCase;
     private final AddReviewActionUseCase addReviewActionUseCase;
     private final EditSummaryUseCase editSummaryUseCase;
+    private final GetTranscriptsUseCase getTranscriptsUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -300,5 +305,34 @@ public class AnalysisController {
                 "수정되었습니다.",
                 SummaryEditResponse.from(editSummaryUseCase.edit(
                         request.toCommand(me.getCompanyId(), meetingId, me.getMemberId()))));
+    }
+
+    /*
+     * ANLZ-05 · 정본 스크립트 조회.
+     *
+     * <h2>커서는 우리가 발행하고 클라이언트는 되돌려주기만 한다</h2>
+     * 2시간 회의면 발화가 수천 건이라 한 번에 못 싣는다. 커서는 불투명한 문자열이고 화면이
+     * 해석하지 않는다 — 안에 무엇이 들었는지는 서버만 안다(TranscriptCursor).
+     *
+     * <h2>ids 는 근거 발화용 지름길이다</h2>
+     * 검토 화면이 액션의 근거 몇 건만 볼 때 쓴다. 페이지를 넘겨 찾아가지 않아도 된다.
+     */
+    @Operation(
+            summary = "정본 스크립트 조회 (ANLZ-05)",
+            description = "회의 발화를 시간순으로 조회한다. cursor 로 이어 받고, ids 로 특정 발화만 받는다. "
+                    + "speakerMemberId 가 null 인 것은 화자 판정 포기로 정상이며 오류가 아니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @GetMapping("/transcripts")
+    public ApiResponse<TranscriptsResponse> getTranscripts(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) List<Long> ids
+    ) {
+        return ApiResponse.success(
+                "정본 스크립트를 조회했습니다.",
+                TranscriptsResponse.from(
+                        getTranscriptsUseCase.getTranscripts(me.getCompanyId(), meetingId, cursor, ids)));
     }
 }

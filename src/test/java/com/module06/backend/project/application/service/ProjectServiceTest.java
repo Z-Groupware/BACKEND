@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.module06.backend.action.application.port.ActionQueryPort;
+import com.module06.backend.action.application.port.ActionQueryPort.ProjectActionCount;
 import com.module06.backend.action.application.port.ActionQueryPort.TeamActionSummary;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.global.exception.BusinessException;
@@ -20,6 +21,7 @@ import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
 import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
 import com.module06.backend.project.application.port.ProjectQueryPort.ProjectSummary;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
+import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
 import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectStatus;
@@ -109,14 +111,33 @@ class ProjectServiceTest {
     // ---------- list ----------
 
     @Test
-    void listReturnsAllProjectsInCompany() {
+    void listReturnsAllProjectsWithZeroCountsWhenNoActions() {
         projectService = service();
         Project project = project(COMPANY);
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
+        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
 
-        List<Project> result = projectService.list(COMPANY);
+        List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
-        assertThat(result).containsExactly(project);
+        assertThat(result).containsExactly(new GetProjectListUseCase.ProjectListItem(project, 0, 0));
+    }
+
+    @Test
+    void listAttachesActionCountsFromBatchQuery() {
+        projectService = service();
+        Project projectA = Project.reconstitute(1L, COMPANY, "TAG-A", "A", "설명", "#000000",
+                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
+        Project projectB = Project.reconstitute(2L, COMPANY, "TAG-B", "B", "설명", "#000000",
+                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
+        when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(projectA, projectB));
+        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
+                new ProjectActionCount(1L, 5, 2)));
+
+        List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
+
+        assertThat(result).containsExactly(
+                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2),
+                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0));
     }
 
     // ---------- getDetail ----------

@@ -1305,6 +1305,19 @@ class AnalysisOrchestratorTest {
             throw new UnsupportedOperationException();
         }
 
+        /* ANLZ-05 조회 경로도 마찬가지다 — 파이프라인은 전체 조회(findByMeetingOrderByOffset)만 쓴다. */
+        @Override
+        public List<UtteranceView> findPage(long meetingId,
+                                            com.module06.backend.capture.domain.model.TranscriptCursor cursor,
+                                            int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<UtteranceView> findByMeetingAndIds(long meetingId, List<Long> transcriptIds) {
+            throw new UnsupportedOperationException();
+        }
+
         /*
          * 실물과 같은 계약이다 — **이번 판정이 그 회의의 화자 상태 전부다.** 목록에 없는 발화는
          * 화자를 NULL 로 되돌린다. 덮어쓰기만 흉내내면 "기권했는데 예전 판정이 남는" 버그가
