@@ -276,6 +276,73 @@ class SearchServiceScopeTest {
                 .containsExactly("ACTION:306");
     }
 
+    @Test
+    @DisplayName("overview returns only member/company scoped dashboard data")
+    void overviewReturnsOnlyScopedRows() {
+        jdbcTemplate.update("INSERT INTO search_recent_query (id, company_id, member_id, query_text, searched_at, created_at, updated_at) VALUES (1, 1, 10, 'mine old', '2026-08-09 09:00:00', '2026-08-09 09:00:00', '2026-08-09 09:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_query (id, company_id, member_id, query_text, searched_at, created_at, updated_at) VALUES (2, 1, 10, 'mine new', '2026-08-09 10:00:00', '2026-08-09 10:00:00', '2026-08-09 10:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_query (id, company_id, member_id, query_text, searched_at, created_at, updated_at) VALUES (3, 1, 11, 'other member', '2026-08-09 11:00:00', '2026-08-09 11:00:00', '2026-08-09 11:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_query (id, company_id, member_id, query_text, searched_at, created_at, updated_at) VALUES (4, 2, 10, 'other company', '2026-08-09 12:00:00', '2026-08-09 12:00:00', '2026-08-09 12:00:00')");
+
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (1, 1, 10, 'MEETING', 200, '2026-08-09 12:00:00', '2026-08-09 12:00:00', '2026-08-09 12:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (2, 1, 10, 'MEETING', 201, '2026-08-09 13:00:00', '2026-08-09 13:00:00', '2026-08-09 13:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (3, 1, 10, 'ACTION', 300, '2026-08-09 14:00:00', '2026-08-09 14:00:00', '2026-08-09 14:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (4, 1, 10, 'ACTION', 301, '2026-08-09 15:00:00', '2026-08-09 15:00:00', '2026-08-09 15:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (5, 1, 10, 'PROJECT', 100, '2026-08-09 16:00:00', '2026-08-09 16:00:00', '2026-08-09 16:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (6, 1, 10, 'PROJECT', 101, '2026-08-09 17:00:00', '2026-08-09 17:00:00', '2026-08-09 17:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (7, 1, 10, 'PERSON', 11, '2026-08-09 18:00:00', '2026-08-09 18:00:00', '2026-08-09 18:00:00')");
+        jdbcTemplate.update("INSERT INTO search_recent_view (id, company_id, member_id, entity_type, entity_id, viewed_at, created_at, updated_at) VALUES (8, 1, 10, 'PERSON', 12, '2026-08-09 19:00:00', '2026-08-09 19:00:00', '2026-08-09 19:00:00')");
+
+        var overview = service.overview(scope());
+
+        assertThat(overview.recentQueries()).containsExactly("mine new", "mine old");
+        assertThat(overview.recentItems())
+                .extracting(item -> item.type() + ":" + item.id())
+                .contains("MEETING:200", "ACTION:300", "PROJECT:100", "PERSON:11")
+                .doesNotContain("MEETING:201", "ACTION:301", "PROJECT:101", "PERSON:12");
+        assertThat(overview.projects())
+                .extracting(project -> project.id())
+                .contains(100L, 103L, 104L)
+                .doesNotContain(101L, 102L, 105L);
+        assertThat(overview.people())
+                .extracting(person -> person.id())
+                .contains(11L, 14L)
+                .doesNotContain(12L, 13L);
+    }
+
+    @Test
+    @DisplayName("recent query save promotes duplicate and keeps ten")
+    void saveRecentQueryPromotesDuplicateAndKeepsTen() throws Exception {
+        for (int i = 1; i <= 11; i++) {
+            service.saveRecentQuery(new com.module06.backend.search.application.query.RecentQueryCommand(1L, 10L, "query-" + i));
+            Thread.sleep(2);
+        }
+        service.saveRecentQuery(new com.module06.backend.search.application.query.RecentQueryCommand(1L, 10L, "query-3"));
+
+        var overview = service.overview(scope());
+
+        assertThat(overview.recentQueries()).hasSize(10);
+        assertThat(overview.recentQueries().get(0)).isEqualTo("query-3");
+        // 11개 중 가장 오래된 query-1만 밀려나고, 최대 10개 유지 규칙상 query-2는 남는다.
+        assertThat(overview.recentQueries()).doesNotContain("query-1");
+        assertThat(overview.recentQueries()).contains("query-2");
+    }
+
+    @Test
+    @DisplayName("recent view overview excludes inaccessible rows")
+    void saveRecentViewExcludesInaccessibleItemOnOverview() throws Exception {
+        service.saveRecentView(new com.module06.backend.search.application.query.RecentViewCommand(1L, 10L, SearchType.MEETING, 201L));
+        Thread.sleep(2);
+        service.saveRecentView(new com.module06.backend.search.application.query.RecentViewCommand(1L, 10L, SearchType.MEETING, 200L));
+
+        var overview = service.overview(scope());
+
+        assertThat(overview.recentItems())
+                .extracting(item -> item.type() + ":" + item.id())
+                .contains("MEETING:200")
+                .doesNotContain("MEETING:201");
+    }
+
     private SearchResult searchFilterWithDates(LocalDate from, LocalDate to) {
         return service.search(new SearchQuery(
                 1L,
@@ -290,6 +357,19 @@ class SearchServiceScopeTest {
                 to,
                 20
         ));
+    }
+
+    private com.module06.backend.search.domain.repository.SearchQueryRepository.SearchScope scope() {
+        return new com.module06.backend.search.domain.repository.SearchQueryRepository.SearchScope(
+                1L,
+                10L,
+                100L,
+                "MEMBER",
+                false,
+                List.of(),
+                null,
+                null
+        );
     }
 
     private void resetSchema() throws Exception {
@@ -372,6 +452,33 @@ class SearchServiceScopeTest {
                         updated_at DATETIME NOT NULL
                     )
                     """);
+            statement.execute("ALTER TABLE action ADD COLUMN source_meeting_id BIGINT");
+            statement.execute("ALTER TABLE action ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'TODO'");
+            statement.execute("""
+                    CREATE TABLE search_recent_query (
+                        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                        company_id BIGINT NOT NULL,
+                        member_id BIGINT NOT NULL,
+                        query_text VARCHAR(255) NOT NULL,
+                        searched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (company_id, member_id, query_text)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE search_recent_view (
+                        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                        company_id BIGINT NOT NULL,
+                        member_id BIGINT NOT NULL,
+                        entity_type VARCHAR(20) NOT NULL,
+                        entity_id BIGINT NOT NULL,
+                        viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (company_id, member_id, entity_type, entity_id)
+                    )
+                    """);
         }
     }
 
@@ -418,14 +525,14 @@ class SearchServiceScopeTest {
         jdbcTemplate.update("INSERT INTO meeting_summary VALUES (6, 1, 205, 'Filter boundary overview')");
         jdbcTemplate.update("INSERT INTO meeting_summary VALUES (7, 1, 206, 'Filter hidden overview')");
 
-        jdbcTemplate.update("INSERT INTO action VALUES (300, 1, 100, NULL, 10, 'PERSONAL', 'Alpha Personal Action', 'visible personal', '2026-08-30', '2026-08-09 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (301, 1, 100, NULL, 11, 'PERSONAL', 'Alpha Other Personal Action', 'wrong assignee', '2026-08-30', '2026-08-09 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (302, 1, 100, 100, NULL, 'TEAM', 'Alpha Team Action', 'visible team', '2026-08-30', '2026-08-09 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (303, 1, 101, 200, NULL, 'TEAM', 'Alpha Other Team Action', 'wrong team', '2026-08-30', '2026-08-09 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (304, 2, 102, 100, NULL, 'TEAM', 'Alpha Other Company Action', 'wrong company', '2026-08-30', '2026-08-09 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (305, 1, 103, NULL, 10, 'PERSONAL', 'Filter Product Personal Action', 'visible personal', '2026-08-01', '2026-08-01 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (306, 1, 104, 100, NULL, 'TEAM', 'Filter Engineering Team Action', 'visible team', '2026-08-15', '2026-08-15 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (307, 1, 103, NULL, 10, 'PERSONAL', 'Filter Product Boundary Action', 'visible boundary', '2026-08-31', '2026-08-31 09:00:00')");
-        jdbcTemplate.update("INSERT INTO action VALUES (308, 1, 104, 100, NULL, 'TEAM', 'Filter Engineering Later Action', 'visible later', '2026-09-01', '2026-09-01 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (300, 1, 100, NULL, 10, 'PERSONAL', 'Alpha Personal Action', 'visible personal', '2026-08-30', '2026-08-09 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (301, 1, 100, NULL, 11, 'PERSONAL', 'Alpha Other Personal Action', 'wrong assignee', '2026-08-30', '2026-08-09 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (302, 1, 100, 100, NULL, 'TEAM', 'Alpha Team Action', 'visible team', '2026-08-30', '2026-08-09 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (303, 1, 101, 200, NULL, 'TEAM', 'Alpha Other Team Action', 'wrong team', '2026-08-30', '2026-08-09 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (304, 2, 102, 100, NULL, 'TEAM', 'Alpha Other Company Action', 'wrong company', '2026-08-30', '2026-08-09 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (305, 1, 103, NULL, 10, 'PERSONAL', 'Filter Product Personal Action', 'visible personal', '2026-08-01', '2026-08-01 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (306, 1, 104, 100, NULL, 'TEAM', 'Filter Engineering Team Action', 'visible team', '2026-08-15', '2026-08-15 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (307, 1, 103, NULL, 10, 'PERSONAL', 'Filter Product Boundary Action', 'visible boundary', '2026-08-31', '2026-08-31 09:00:00')");
+        jdbcTemplate.update("INSERT INTO action (id, company_id, project_id, team_id, assignee_member_id, action_type, title, description, due_date, updated_at) VALUES (308, 1, 104, 100, NULL, 'TEAM', 'Filter Engineering Later Action', 'visible later', '2026-09-01', '2026-09-01 09:00:00')");
     }
 }

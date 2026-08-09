@@ -18,7 +18,10 @@ public enum SearchErrorCode implements ErrorCode {
     BLANK_QUERY(HttpStatus.BAD_REQUEST, "SR-001", "검색어는 1자 이상이어야 합니다."),
 
     /* type 또는 limit 등 검색 Query Parameter가 명세 범위를 벗어난 경우다. */
-    INVALID_SEARCH_PARAMETER(HttpStatus.BAD_REQUEST, "SR-002", "검색 요청 값이 올바르지 않습니다.");
+    INVALID_SEARCH_PARAMETER(HttpStatus.BAD_REQUEST, "SR-002", "검색 요청 값이 올바르지 않습니다."),
+
+    /* 최근 본 항목 type이 검색 대상 타입이 아닌 경우다. */
+    INVALID_RECENT_VIEW_TYPE(HttpStatus.BAD_REQUEST, "SR-003", "최근 본 항목 타입이 올바르지 않습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
