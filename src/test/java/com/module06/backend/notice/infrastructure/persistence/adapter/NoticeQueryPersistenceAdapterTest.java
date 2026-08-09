@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
 
+import jakarta.persistence.EntityManager;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,10 @@ class NoticeQueryPersistenceAdapterTest {
     @Autowired
     private SpringDataNoticeRepository springDataNoticeRepository;
 
+    /* 동일 생성 시각의 보조 정렬을 검증하기 위해 테스트 행의 시각을 직접 고정하는 영속성 컨텍스트다. */
+    @Autowired
+    private EntityManager entityManager;
+
     /* 각 테스트가 독립된 공지 데이터로 실행되도록 notice 테이블을 초기화한다. */
     @BeforeEach
     void clearNoticeData() {
@@ -54,15 +60,29 @@ class NoticeQueryPersistenceAdapterTest {
                 notice(20L, "다른 회사 공지", null)
         );
 
-        /* 회사 10의 더 최근 활성 공지를 마지막으로 저장한다. */
+        /* 회사 10에서 더 큰 식별자를 가질 두 번째 활성 공지를 마지막으로 저장한다. */
         NoticeJpaEntity newer = springDataNoticeRepository.saveAndFlush(
                 notice(10L, "두 번째 공지", null)
         );
 
+        /* 두 활성 공지의 생성 시각을 같게 만들어 id DESC가 없으면 순서를 보장할 수 없게 한다. */
+        LocalDateTime sameCreatedAt = LocalDateTime.of(2026, 8, 9, 10, 0);
+        forceCreatedAt(older.getId(), sameCreatedAt);
+        forceCreatedAt(newer.getId(), sameCreatedAt);
+
+        /* 관리 중인 엔티티를 비워 목록 조회가 고정된 데이터베이스 값을 다시 읽게 한다. */
+        entityManager.flush();
+        entityManager.clear();
+
         /* 인증 회사 10의 활성 공지 목록을 조회한다. */
         var result = noticeQueryRepository.findActiveNoticesByCompanyId(10L);
 
-        /* 삭제·타 회사 행은 제외되고 같은 시각에도 큰 식별자가 먼저 오는 최신순이어야 한다. */
+        /* 두 결과의 생성 시각이 실제로 동일해야 id DESC 보조 정렬 검증이 유효하다. */
+        assertThat(result)
+                .extracting(NoticeQueryRepository.NoticeListSnapshot::createdAt)
+                .containsOnly(sameCreatedAt);
+
+        /* 삭제·타 회사 행은 제외되고 동일 시각에는 큰 식별자가 먼저 와야 한다. */
         assertThat(result)
                 .extracting(NoticeQueryRepository.NoticeListSnapshot::noticeId)
                 .containsExactly(newer.getId(), older.getId());
@@ -98,5 +118,18 @@ class NoticeQueryPersistenceAdapterTest {
 
         /* 도메인 공지를 저장 가능한 JPA 엔티티로 변환해 반환한다. */
         return NoticeJpaEntity.from(notice);
+    }
+
+    /* 생성 시각 보조 정렬 테스트를 위해 특정 공지 행의 created_at을 동일한 값으로 고정한다. */
+    private void forceCreatedAt(Long noticeId, LocalDateTime createdAt) {
+        /* 테스트 전용 JPQL 갱신으로 운영 엔티티에 시각 변경 메서드를 노출하지 않는다. */
+        entityManager.createQuery("""
+                        UPDATE NoticeJpaEntity notice
+                        SET notice.createdAt = :createdAt
+                        WHERE notice.id = :noticeId
+                        """)
+                .setParameter("createdAt", createdAt)
+                .setParameter("noticeId", noticeId)
+                .executeUpdate();
     }
 }
