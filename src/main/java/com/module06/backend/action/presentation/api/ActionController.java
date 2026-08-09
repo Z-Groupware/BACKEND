@@ -60,7 +60,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/actions")
 @RequiredArgsConstructor
-@Tag(name = "Action", description = "개인 액션 API")
+@Tag(name = "Action", description = "액션 API")
 public class ActionController {
 
     private final CreateActionUseCase createActionUseCase;

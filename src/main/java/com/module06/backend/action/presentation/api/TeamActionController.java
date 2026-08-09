@@ -70,7 +70,11 @@ public class TeamActionController {
     }
 
     // 팀 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).
-    @Operation(summary = "팀 액션 상세 조회", description = "전 구성원 공개, 프로젝트 첨부파일 인라인 포함.")
+    // OpenAPI는 동일 path+method에 operation 하나만 허용해 params="tab=timeline" 분기를
+    // 별도로 문서화할 수 없다(코드래빗 지적, 2026-08-09) — 두 응답 형태를 이 operation
+    // 설명 하나에 같이 적는다.
+    @Operation(summary = "팀 액션 상세 조회", description = "전 구성원 공개, 프로젝트 첨부파일 인라인 포함. "
+            + "?tab=timeline을 주면 같은 경로에서 하위 개인 액션 타임라인 목록을 대신 반환한다.")
     @GetMapping("/{teamActionId}")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<TeamActionDetailResponse> detail(
@@ -85,7 +89,6 @@ public class TeamActionController {
     }
 
     // 팀 액션 타임라인 — 하위 개인 액션 목록, 전 구성원 공개. 상세와 같은 경로, tab=timeline일 때만 이쪽으로 라우팅된다.
-    @Operation(summary = "팀 액션 타임라인 조회", description = "이 팀 액션 하위 개인 액션 전체(같은 경로, ?tab=timeline).")
     @GetMapping(value = "/{teamActionId}", params = "tab=timeline")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ActionSummaryResponse>> timeline(
