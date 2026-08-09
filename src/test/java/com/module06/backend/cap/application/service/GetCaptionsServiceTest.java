@@ -11,8 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard.ViewerContext;
 import com.module06.backend.cap.application.usecase.GetCaptionsUseCase;
-import com.module06.backend.cap.application.usecase.GetCaptionsUseCase.Requester;
 import com.module06.backend.cap.domain.model.CaptionChunk;
 import com.module06.backend.cap.domain.repository.CaptionChunkRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
@@ -72,7 +72,7 @@ class GetCaptionsServiceTest {
     void sameCompanyOwnerGetsCaptions() {
         GetCaptionsService service = service(true, false, List.of(), List.of());
 
-        GetCaptionsUseCase.Result result = service.getCaptions(500L, new Requester(7L, 1L, null, "OWNER", false));
+        GetCaptionsUseCase.Result result = service.getCaptions(500L, new ViewerContext(7L, 1L, null, "OWNER", false));
 
         assertThat(result.captions()).isEmpty();
     }
@@ -83,7 +83,7 @@ class GetCaptionsServiceTest {
     void sameCompanyAdminGetsCaptions() {
         GetCaptionsService service = service(true, false, List.of(), List.of());
 
-        GetCaptionsUseCase.Result result = service.getCaptions(500L, new Requester(7L, 1L, null, "MEMBER", true));
+        GetCaptionsUseCase.Result result = service.getCaptions(500L, new ViewerContext(7L, 1L, null, "MEMBER", true));
 
         assertThat(result.captions()).isEmpty();
     }
@@ -94,8 +94,8 @@ class GetCaptionsServiceTest {
     void rejectsOtherCompanyOwner() {
         GetCaptionsService service = service(true, false, List.of(), List.of());
 
-        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 2L, null, "OWNER", false)), "CAP-010");
-        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 2L, null, "MEMBER", true)), "CAP-010");
+        assertErrorCode(() -> service.getCaptions(500L, new ViewerContext(7L, 2L, null, "OWNER", false)), "CAP-010");
+        assertErrorCode(() -> service.getCaptions(500L, new ViewerContext(7L, 2L, null, "MEMBER", true)), "CAP-010");
     }
 
     /* 참석 안 하고 owner/admin도 아니어도, 같은 회사이고 회의 프로젝트에 자기 팀이 배정돼 있으면
@@ -105,7 +105,7 @@ class GetCaptionsServiceTest {
     void projectMemberGetsCaptions() {
         GetCaptionsService service = service(true, false, List.of(), List.of(9L));
 
-        GetCaptionsUseCase.Result result = service.getCaptions(500L, new Requester(7L, 1L, 9L, "MEMBER", false));
+        GetCaptionsUseCase.Result result = service.getCaptions(500L, new ViewerContext(7L, 1L, 9L, "MEMBER", false));
 
         assertThat(result.captions()).isEmpty();
     }
@@ -116,7 +116,7 @@ class GetCaptionsServiceTest {
     void rejectsUnassignedTeam() {
         GetCaptionsService service = service(true, false, List.of(), List.of(9L));
 
-        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 1L, 99L, "MEMBER", false)), "CAP-010");
+        assertErrorCode(() -> service.getCaptions(500L, new ViewerContext(7L, 1L, 99L, "MEMBER", false)), "CAP-010");
     }
 
     /* 팀이 배정돼 있어도 요청자가 다른 회사면 거절하는지 검증한다(프로젝트 멤버 경로의 cross-tenant 차단,
@@ -126,12 +126,12 @@ class GetCaptionsServiceTest {
     void rejectsProjectMemberFromOtherCompany() {
         GetCaptionsService service = service(true, false, List.of(), List.of(9L));
 
-        assertErrorCode(() -> service.getCaptions(500L, new Requester(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
+        assertErrorCode(() -> service.getCaptions(500L, new ViewerContext(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
     }
 
     // 일반 멤버 요청자(회사 지정, 팀 없음).
-    private Requester member(Long memberId, Long companyId) {
-        return new Requester(memberId, companyId, null, "MEMBER", false);
+    private ViewerContext member(Long memberId, Long companyId) {
+        return new ViewerContext(memberId, companyId, null, "MEMBER", false);
     }
 
     // 회의 존재/참석 여부·자막 목록·프로젝트에 배정된 팀 목록을 지정해 서비스를 조립한다. 회의는 회사 1·프로젝트 12 소속.

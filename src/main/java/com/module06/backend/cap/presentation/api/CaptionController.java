@@ -1,5 +1,6 @@
 package com.module06.backend.cap.presentation.api;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.GetCaptionsUseCase;
 import com.module06.backend.cap.application.usecase.SubmitCaptionsUseCase;
 import com.module06.backend.cap.application.usecase.SubscribeToCaptionsUseCase;
@@ -75,8 +76,8 @@ public class CaptionController {
             @AuthenticationPrincipal(expression = "authority") String role,
             @AuthenticationPrincipal(expression = "isAdmin") boolean isAdmin) {
         // 요청자 신원은 JWT principal에서 꺼낸다. 열람 권한(참석자/owner·admin/프로젝트 멤버)은 access-guard가 판정.
-        GetCaptionsUseCase.Requester requester =
-                new GetCaptionsUseCase.Requester(memberId, companyId, teamId, role, isAdmin);
+        CapMeetingAccessGuard.ViewerContext requester =
+                new CapMeetingAccessGuard.ViewerContext(memberId, companyId, teamId, role, isAdmin);
         GetCaptionsUseCase.Result result = getCaptionsUseCase.getCaptions(meetingId, requester);
         return ApiResponse.success("조회 성공", CaptionsResponse.from(result));
     }

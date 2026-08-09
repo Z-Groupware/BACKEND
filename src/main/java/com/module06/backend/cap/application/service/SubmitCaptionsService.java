@@ -1,6 +1,7 @@
 package com.module06.backend.cap.application.service;
 
 import com.module06.backend.cap.application.command.SubmitCaptionsCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CaptionBroadcastPort;
 import com.module06.backend.cap.application.usecase.SubmitCaptionsUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
@@ -22,13 +23,16 @@ import java.util.List;
 public class SubmitCaptionsService implements SubmitCaptionsUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final CaptionChunkRepository captionChunkRepository;
     private final CaptionBroadcastPort captionBroadcastPort;
 
     public SubmitCaptionsService(MeetingReferenceRepository meetingReferenceRepository,
+                                 CapMeetingAccessGuard accessGuard,
                                  CaptionChunkRepository captionChunkRepository,
                                  CaptionBroadcastPort captionBroadcastPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.captionChunkRepository = captionChunkRepository;
         this.captionBroadcastPort = captionBroadcastPort;
     }
@@ -39,7 +43,7 @@ public class SubmitCaptionsService implements SubmitCaptionsUseCase {
         if (!meetingReferenceRepository.existsById(command.meetingId())) {
             throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
         }
-        if (!meetingReferenceRepository.isAttendee(command.meetingId(), command.memberId())) {
+        if (!accessGuard.isAttendee(command.meetingId(), command.memberId())) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
 
