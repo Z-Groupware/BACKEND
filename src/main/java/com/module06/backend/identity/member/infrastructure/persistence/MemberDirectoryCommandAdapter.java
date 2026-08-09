@@ -27,14 +27,27 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
     /** 회사 안 이메일 유일성을 최종 차단하는 데이터베이스 제약 이름이다(V1). */
     private static final String EMAIL_UNIQUE_CONSTRAINT = "UK_MEMBER_COMPANY_EMAIL";
 
+    /** 부서당 활성 팀장 한 명을 최종 차단하는 데이터베이스 제약 이름이다(V2.3.19). */
+    private static final String ACTIVE_TEAM_LEADER_UNIQUE_CONSTRAINT = "UK_MEMBER_ACTIVE_TEAM_LEADER";
+
     private final SpringDataMemberRepository memberRepository;
     private final EntityManager entityManager;
 
+    /**
+     * 팀장 승급이 여기로도 들어온다(§7-4). 호출자가 기존 팀장을 먼저 강등하지만 그 사이에 다른
+     * 승급 요청이 끼어들 수 있어, {@code flush} 로 이 메서드 경계에서 제약 위반을 확인하고
+     * 원시 SQL 예외 대신 {@code MEMBER_TEAM_LEADER_ALREADY_EXISTS} 로 변환한다.
+     */
     @Override
     public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId) {
         MemberJpaEntity member = find(memberId);
         PositionRefEntity position = entityManager.getReference(PositionRefEntity.class, positionId);
         member.changeRoleAndPosition(authority, position);
+        try {
+            memberRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw translateConstraint(exception);
+        }
     }
 
     @Override
@@ -87,13 +100,17 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
         try {
             return memberRepository.saveAndFlush(member).getId();
         } catch (DataIntegrityViolationException exception) {
-            throw translateEmailDuplicate(exception);
+            throw translateConstraint(exception);
         }
     }
 
-    private RuntimeException translateEmailDuplicate(DataIntegrityViolationException exception) {
+    /* 아는 제약 위반만 공개 계약인 에러 코드로 바꾸고, 나머지 무결성 오류는 숨기지 않는다. */
+    private RuntimeException translateConstraint(DataIntegrityViolationException exception) {
         if (containsConstraintName(exception, EMAIL_UNIQUE_CONSTRAINT)) {
             return new BusinessException(AuthErrorCode.MEMBER_EMAIL_DUPLICATED, exception);
+        }
+        if (containsConstraintName(exception, ACTIVE_TEAM_LEADER_UNIQUE_CONSTRAINT)) {
+            return new BusinessException(AuthErrorCode.MEMBER_TEAM_LEADER_ALREADY_EXISTS, exception);
         }
         return exception;
     }
