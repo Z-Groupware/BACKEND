@@ -102,3 +102,4 @@
 {"timestamp":"2026-08-08T17:42:25.242405","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":12,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
 {"timestamp":"2026-08-08T18:08:54.804943100","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":5,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
 {"timestamp":"2026-08-09T05:06:04.101047400","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":17,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-09T10:44:35.170124200","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":2,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
