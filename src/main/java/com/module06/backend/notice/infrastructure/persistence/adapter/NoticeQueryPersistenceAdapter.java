@@ -1,16 +1,18 @@
 package com.module06.backend.notice.infrastructure.persistence.adapter;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.notice.domain.repository.NoticeQueryRepository;
+import com.module06.backend.notice.infrastructure.persistence.entity.NoticeJpaEntity;
 import com.module06.backend.notice.infrastructure.persistence.repository.SpringDataNoticeRepository;
 import com.module06.backend.notice.infrastructure.persistence.repository.SpringDataNoticeRepository.NoticeListProjection;
 
-/* NOTI-01 회사별 활성 공지 목록 계약을 Spring Data JPA로 구현하는 어댑터다. */
+/* NOTI-01·02 회사별 활성 공지 목록과 상세 계약을 Spring Data JPA로 구현하는 어댑터다. */
 @Component
 @RequiredArgsConstructor
 public class NoticeQueryPersistenceAdapter implements NoticeQueryRepository {
@@ -29,9 +31,30 @@ public class NoticeQueryPersistenceAdapter implements NoticeQueryRepository {
                 .toList();
     }
 
+    /* 회사와 식별자가 일치하는 활성 공지 한 건을 상세 읽기 모델로 조회한다. */
+    @Override
+    public Optional<NoticeDetailSnapshot> findActiveNotice(Long companyId, Long noticeId) {
+        /* 삭제·타 회사 공지를 파생 쿼리에서 제외하고 조회된 엔티티만 상세 스냅샷으로 변환한다. */
+        return springDataNoticeRepository
+                .findByIdAndCompanyIdAndDeletedAtIsNull(noticeId, companyId)
+                .map(this::toDetailSnapshot);
+    }
+
     /* 닫힌 JPA 프로젝션 한 건을 목록 조회 전용 읽기 모델로 변환한다. */
     private NoticeListSnapshot toSnapshot(NoticeListProjection notice) {
         /* 목록에서 사용하지 않는 본문과 작성자 정보는 저장소 경계 밖으로 전달하지 않는다. */
         return new NoticeListSnapshot(notice.getId(), notice.getTitle(), notice.getCreatedAt());
+    }
+
+    /* JPA 엔티티 한 건을 공지 상세 조회 전용 읽기 모델로 변환한다. */
+    private NoticeDetailSnapshot toDetailSnapshot(NoticeJpaEntity notice) {
+        /* 상세 화면이 사용하는 제목·본문·생성 및 수정 시각만 저장소 경계 밖으로 전달한다. */
+        return new NoticeDetailSnapshot(
+                notice.getId(),
+                notice.getTitle(),
+                notice.getContent(),
+                notice.getCreatedAt(),
+                notice.getUpdatedAt()
+        );
     }
 }
