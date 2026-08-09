@@ -2,6 +2,7 @@ package com.module06.backend.meeting.domain.repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
@@ -20,6 +21,9 @@ public interface MeetingQueryRepository {
 
     /* 프로젝트에 속한 회의를 시작 시각과 식별자 오름차순으로 조회한다. */
     List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId);
+
+    /* 회사 범위에서 요청 프로젝트별 CANCELED가 아닌 회의 수를 일괄 집계한다. */
+    Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds);
 
     /* 인증 사용자가 참석한 예정·진행 중 회의를 현재 시각 이후 기준으로 제한 조회한다. */
     List<UpcomingMeetingSnapshot> findUpcomingMeetings(

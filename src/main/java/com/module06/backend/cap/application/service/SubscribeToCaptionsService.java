@@ -1,5 +1,6 @@
 package com.module06.backend.cap.application.service;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CaptionStreamPort;
 import com.module06.backend.cap.application.usecase.SubscribeToCaptionsUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
@@ -18,11 +19,14 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class SubscribeToCaptionsService implements SubscribeToCaptionsUseCase {
 
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapMeetingAccessGuard accessGuard;
     private final CaptionStreamPort captionStreamPort;
 
     public SubscribeToCaptionsService(MeetingReferenceRepository meetingReferenceRepository,
+                                      CapMeetingAccessGuard accessGuard,
                                       CaptionStreamPort captionStreamPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.accessGuard = accessGuard;
         this.captionStreamPort = captionStreamPort;
     }
 
@@ -32,7 +36,7 @@ public class SubscribeToCaptionsService implements SubscribeToCaptionsUseCase {
         if (!meetingReferenceRepository.existsById(meetingId)) {
             throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
         }
-        if (!meetingReferenceRepository.isAttendee(meetingId, memberId)) {
+        if (!accessGuard.isAttendee(meetingId, memberId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
         return captionStreamPort.subscribe(meetingId, memberId);

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CaptionStreamPort;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
@@ -49,7 +50,9 @@ class SubscribeToCaptionsServiceTest {
             capturedMember[0] = memberId;
             return expected;
         };
-        SubscribeToCaptionsService service = new SubscribeToCaptionsService(meetingRef(true, true), streamPort);
+        MeetingReferenceRepository meetingRef = meetingRef(true, true);
+        SubscribeToCaptionsService service = new SubscribeToCaptionsService(meetingRef, accessGuard(meetingRef),
+                streamPort);
 
         SseEmitter result = service.subscribeToCaptions(500L, 7L);
 
@@ -96,7 +99,13 @@ class SubscribeToCaptionsServiceTest {
         CaptionStreamPort failingStreamPort = (meetingId, memberId) -> {
             throw new AssertionError("인가를 통과하지 못했는데 스트림 포트가 호출되면 안 됩니다.");
         };
-        return new SubscribeToCaptionsService(meetingRef(meetingExists, attendee), failingStreamPort);
+        MeetingReferenceRepository meetingRef = meetingRef(meetingExists, attendee);
+        return new SubscribeToCaptionsService(meetingRef, accessGuard(meetingRef), failingStreamPort);
+    }
+
+    // 주어진 회의 참조 대역으로 가드를 조립한다(프로젝트 멤버 판정은 이 서비스와 무관해 항상 false).
+    private CapMeetingAccessGuard accessGuard(MeetingReferenceRepository meetingRef) {
+        return new CapMeetingAccessGuard(meetingRef, (projectId, teamId) -> false);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {
