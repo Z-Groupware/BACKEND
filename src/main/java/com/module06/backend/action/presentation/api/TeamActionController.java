@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
@@ -45,6 +47,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/team/actions")
 @RequiredArgsConstructor
+@Tag(name = "Team Action", description = "팀 액션 API")
 public class TeamActionController {
 
     private final GetTeamActionsUseCase getTeamActionsUseCase;
@@ -52,6 +55,7 @@ public class TeamActionController {
     private final GetTeamActionTimelineUseCase getTeamActionTimelineUseCase;
 
     // 팀 액션 목록 — teamId는 토큰에서만 꺼낸다(헤더로 받으면 남의 팀을 조회할 수 있다).
+    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER 전용.")
     @GetMapping
     @PreAuthorize("hasRole('LEADER')")
     public ApiResponse<List<ActionSummaryResponse>> list(
@@ -66,6 +70,11 @@ public class TeamActionController {
     }
 
     // 팀 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).
+    // OpenAPI는 동일 path+method에 operation 하나만 허용해 params="tab=timeline" 분기를
+    // 별도로 문서화할 수 없다(코드래빗 지적, 2026-08-09) — 두 응답 형태를 이 operation
+    // 설명 하나에 같이 적는다.
+    @Operation(summary = "팀 액션 상세 조회", description = "전 구성원 공개, 프로젝트 첨부파일 인라인 포함. "
+            + "?tab=timeline을 주면 같은 경로에서 하위 개인 액션 타임라인 목록을 대신 반환한다.")
     @GetMapping("/{teamActionId}")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<TeamActionDetailResponse> detail(

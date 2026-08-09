@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.action.application.command.BulkUpdateActionStatusCommand;
 import com.module06.backend.action.application.command.CreateActionCommand;
@@ -63,6 +65,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/actions")
 @RequiredArgsConstructor
+@Tag(name = "Action", description = "액션 API")
 public class ActionController {
 
     private final CreateActionUseCase createActionUseCase;
@@ -70,6 +73,7 @@ public class ActionController {
     private final GetActionDetailUseCase getActionDetailUseCase;
     private final BulkUpdateActionStatusUseCase bulkUpdateActionStatusUseCase;
 
+    @Operation(summary = "액션 수동 추가", description = "AI 분배를 놓친 액션을 사람이 직접 추가하는 예외 경로.")
     @PostMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<ActionSummaryResponse> create(
@@ -92,6 +96,7 @@ public class ActionController {
     }
 
     // 내 액션 목록 — 호출자 memberId는 토큰에서만 꺼낸다(헤더로 받으면 남의 목록을 조회할 수 있다).
+    @Operation(summary = "내 액션 목록 조회", description = "호출자 본인 소유 개인 액션만 반환한다.")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<ActionSummaryResponse>> list(
@@ -106,6 +111,7 @@ public class ActionController {
     }
 
     // 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).
+    @Operation(summary = "액션 상세 조회", description = "전 구성원 공개 열람.")
     @GetMapping("/{actionId}")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<ActionDetailResponse> detail(
@@ -120,6 +126,7 @@ public class ActionController {
     }
 
     // 보드 "저장" 버튼 — 담당자 본인 검사는 항목별로 서비스가 한다. requesterId도 토큰에서만 꺼낸다.
+    @Operation(summary = "액션 상태 일괄 변경", description = "보드 \"저장\" 버튼 — 담당자 본인 소유 액션만 대상, all-or-nothing.")
     @PatchMapping("/complete/bulk")
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<Void> bulkUpdateStatus(
