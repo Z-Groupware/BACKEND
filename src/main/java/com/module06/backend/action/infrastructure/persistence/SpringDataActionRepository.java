@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 
 import com.module06.backend.action.domain.model.ActionReviewStatus;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 
 import jakarta.persistence.LockModeType;
@@ -63,8 +64,20 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
     // 이 조회의 목적이다(회의 상세 화면 전용, TeamActionService 쪽 조회들과 다른 이유).
     List<ActionJpaEntity> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
 
+    // 프로젝트 목록 진행률 집계용 배치 조회 — UndispatchedProjection과 같은 이유로 프로젝션이다
+    // (projectId·status 두 컬럼만 필요한데 엔티티 전체를 읽으면 description·gate_signals까지
+    // 딸려온다). COUNT GROUP BY는 Semgrep QUERY_002가 신규 @Query를 막아 못 쓰고, 자바에서 집계한다.
+    List<ProjectActionProjection> findAllByProjectIdIn(List<Long> projectIds);
+
     // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다.
     interface UndispatchedProjection {
         Long getSourceMeetingId();
+    }
+
+    // 닫힌 프로젝션 — projectId·status 두 컬럼만 읽는다.
+    interface ProjectActionProjection {
+        Long getProjectId();
+
+        ActionStatus getStatus();
     }
 }
