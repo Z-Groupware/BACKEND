@@ -194,6 +194,19 @@ class AddReviewActionServiceTest {
                                                 List<SpeakerAttributionResolver.Attribution> attributions) {
                 throw new UnsupportedOperationException();
             }
+
+            /* ANLZ-05 조회 경로다 — 이 서비스는 지나지 않는다. */
+            @Override
+            public List<UtteranceView> findPage(long meetingId,
+                                                com.module06.backend.capture.domain.model.TranscriptCursor cursor,
+                                                int limit) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public List<UtteranceView> findByMeetingAndIds(long meetingId, List<Long> transcriptIds) {
+                throw new UnsupportedOperationException();
+            }
         };
     }
 

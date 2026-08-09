@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -172,6 +173,30 @@ class MeetingQueryServiceTest {
                 .containsExactly(3L, 7L, 11L);
     }
 
+    /* C 프로젝트 목록용 회의 수가 중복 제거와 0건 완성 규칙을 지키는지 검증한다. */
+    @Test
+    @DisplayName("프로젝트별 비취소 회의 수를 배치 조회하고 없는 프로젝트는 0으로 채운다")
+    void countsNonCanceledMeetingsByProjectIds() {
+        /* 12번은 3건, 13번은 1건을 반환하는 저장소 대역과 조회 서비스를 준비한다. */
+        MeetingQueryService service = new MeetingQueryService(
+                repository(Optional.of(meeting(List.of(3L, 7L, 11L)))),
+                memberPort()
+        );
+
+        /* 중복·미집계·잘못된 식별자가 섞인 프로젝트 목록을 회사 10 범위로 조회한다. */
+        Map<Long, Long> counts = service.countMeetingsByProjectIds(
+                10L,
+                java.util.Arrays.asList(12L, 13L, 14L, 12L, null, 0L)
+        );
+
+        /* 요청 순서의 유효 프로젝트만 한 번씩 남고 회의가 없는 14번도 0으로 포함돼야 한다. */
+        assertThat(counts).containsExactly(
+                Map.entry(12L, 3L),
+                Map.entry(13L, 1L),
+                Map.entry(14L, 0L)
+        );
+    }
+
     /* 테스트에서 지정한 단건 회의를 반환하는 조회 저장소 대역을 만든다. */
     private MeetingQueryRepository repository(Optional<MeetingSnapshot> meeting) {
         /* RESULT-01 외의 E 배치 메서드는 이 단위 테스트에서 빈 결과를 반환한다. */
@@ -194,6 +219,13 @@ class MeetingQueryServiceTest {
                         3L,
                         MeetingStatus.SCHEDULED
                 ));
+            }
+
+            /* 프로젝트 목록 집계 테스트에 사용할 실제 회의 수만 반환한다. */
+            @Override
+            public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+                /* 14번은 결과에서 생략해 서비스가 0건 항목을 완성하는지 검증한다. */
+                return Map.of(12L, 3L, 13L, 1L);
             }
 
             /* MEET-03 조회는 RESULT-01 서비스 단위 테스트 대상이 아니므로 빈 목록을 반환한다. */

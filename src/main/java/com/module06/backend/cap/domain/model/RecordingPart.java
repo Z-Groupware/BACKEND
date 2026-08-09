@@ -33,9 +33,9 @@ public class RecordingPart {
     private RecordingPart(Long id, Long meetingId, int segmentSeq, int seq, String s3Key, String contentType,
                           long sizeBytes, Long uploaderMemberId, RecordingPartStatus status,
                           LocalDateTime uploadedAt, LocalDateTime createdAt, LocalDateTime updatedAt) {
-        requireId(meetingId, "meetingId");
-        requireText(s3Key, "s3Key");
-        requireText(contentType, "contentType");
+        requireId(meetingId);
+        requireText(s3Key);
+        requireText(contentType);
         if (sizeBytes < 0) {
             throw new BusinessException(CapErrorCode.CAP_INVALID_PART_SIZE);
         }
@@ -73,13 +73,13 @@ public class RecordingPart {
                 status, uploadedAt, createdAt, updatedAt);
     }
 
-    private static void requireId(Long value, String name) {
+    private static void requireId(Long value) {
         if (value == null) {
             throw new BusinessException(CapErrorCode.CAP_REQUIRED_ID);
         }
     }
 
-    private static void requireText(String value, String name) {
+    private static void requireText(String value) {
         if (value == null || value.isBlank()) {
             throw new BusinessException(CapErrorCode.CAP_REQUIRED_TEXT);
         }
