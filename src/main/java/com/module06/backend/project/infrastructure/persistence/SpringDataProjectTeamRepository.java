@@ -11,5 +11,8 @@ public interface SpringDataProjectTeamRepository extends JpaRepository<ProjectTe
 
     List<ProjectTeamJpaEntity> findAllById_ProjectId(Long projectId);
 
+    // 목록 조회 N+1 방지용 배치 조회(2026-08-09).
+    List<ProjectTeamJpaEntity> findAllById_ProjectIdIn(List<Long> projectIds);
+
     void deleteAllById_ProjectId(Long projectId);
 }

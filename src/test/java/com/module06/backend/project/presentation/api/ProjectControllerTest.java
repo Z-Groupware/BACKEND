@@ -28,6 +28,7 @@ import com.module06.backend.project.application.usecase.CreateProjectUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
+import com.module06.backend.project.application.usecase.GetProjectListUseCase.ProjectListItem;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
@@ -143,7 +144,8 @@ class ProjectControllerTest {
     @DisplayName("목록도 토큰의 회사로만 조회한다")
     void listTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any())).thenReturn(List.of(project(1L)));
+        when(getProjectListUseCase.list(any())).thenReturn(List.of(
+                new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0)));
 
         mockMvc.perform(get("/api/projects"))
                 .andExpect(status().isOk());
@@ -234,6 +236,25 @@ class ProjectControllerTest {
         assertThat(captor.getValue().requesterId()).isEqualTo(3L);
         assertThat(captor.getValue().items()).containsExactly(
                 new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.DONE));
+    }
+
+    @Test
+    @DisplayName("벌크 상태변경 중 소유자가 아닌 항목이 있으면 예외가 전파된다")
+    void bulkUpdateStatusPropagatesNotOwnerException() throws Exception {
+        authenticateAs(1L, 3L);
+        org.mockito.Mockito.doThrow(new BusinessException(ProjectErrorCode.NOT_PROJECT_OWNER))
+                .when(bulkUpdateProjectStatusUseCase).bulkUpdateStatus(any());
+
+        mockMvc.perform(patch("/api/projects/status/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "items": [
+                                    { "projectId": 1, "status": "DONE" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isForbidden());
     }
 
     @Test

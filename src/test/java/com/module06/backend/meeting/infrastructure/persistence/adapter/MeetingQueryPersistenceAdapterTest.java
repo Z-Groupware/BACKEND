@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -30,7 +31,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingTopicRepository;
 
 /*
- * RESULT-01과 E 연동 기반의 회사 격리·정렬·배치 참석자 조회를 실제 JPA로 검증한다.
+ * RESULT-01과 E·C 연동 기반의 회사 격리·정렬·배치 조회를 실제 JPA로 검증한다.
  */
 @SpringBootTest
 @Transactional
@@ -183,6 +184,65 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(result)
                 .extracting(MeetingQueryRepository.ProjectMeetingSnapshot::meetingId)
                 .containsExactly(earlier.getId(), later.getId());
+    }
+
+    /* 프로젝트별 회의 수 집계가 회사 범위와 취소 제외 정책을 지키는지 검증한다. */
+    @Test
+    @DisplayName("프로젝트별 SCHEDULED·IN_PROGRESS·DONE만 세고 CANCELED와 타 회사를 제외한다")
+    void countsNonCanceledMeetingsByProjectInsideCompanyScope() {
+        /* 회사 10의 12번 프로젝트에 예약 회의와 취소 회의를 각각 저장한다. */
+        springDataMeetingRepository.save(meetingWithStatus(
+                10L,
+                12L,
+                "예정 회의",
+                MeetingStatus.SCHEDULED,
+                LocalDateTime.of(2026, 8, 6, 14, 0)
+        ));
+        springDataMeetingRepository.save(meetingWithStatus(
+                10L,
+                12L,
+                "취소 회의",
+                MeetingStatus.CANCELED,
+                LocalDateTime.of(2026, 8, 7, 14, 0)
+        ));
+
+        /* 회사 10의 13번 프로젝트에는 진행·완료 회의를 저장한다. */
+        springDataMeetingRepository.save(meetingWithStatus(
+                10L,
+                13L,
+                "진행 회의",
+                MeetingStatus.IN_PROGRESS,
+                LocalDateTime.of(2026, 8, 8, 14, 0)
+        ));
+        springDataMeetingRepository.save(meetingWithStatus(
+                10L,
+                13L,
+                "완료 회의",
+                MeetingStatus.DONE,
+                LocalDateTime.of(2026, 8, 9, 14, 0)
+        ));
+
+        /* 같은 12번 프로젝트라도 다른 회사의 회의는 집계에서 제외돼야 한다. */
+        springDataMeetingRepository.save(meetingWithStatus(
+                20L,
+                12L,
+                "다른 회사 회의",
+                MeetingStatus.SCHEDULED,
+                LocalDateTime.of(2026, 8, 10, 14, 0)
+        ));
+
+        /* 회사 10 범위에서 12·13·14번 프로젝트 회의 수를 한 번에 조회한다. */
+        Map<Long, Long> counts = meetingQueryRepository.countMeetingsByProjectIds(
+                10L,
+                List.of(12L, 13L, 14L)
+        );
+
+        /* 취소·타 회사 회의는 빠지고 실제 회의가 있는 프로젝트의 집계만 반환돼야 한다. */
+        assertThat(counts).containsExactlyInAnyOrderEntriesOf(Map.of(
+                12L, 1L,
+                13L, 2L
+        ));
+        assertThat(counts).doesNotContainKey(14L);
     }
 
     /* 여러 회의 참석자 조회가 회사 범위를 지키면서 한 번에 수행되는지 검증한다. */
@@ -410,6 +470,41 @@ class MeetingQueryPersistenceAdapterTest {
 
         /* 도메인 회의를 테스트 DB에 저장 가능한 완전한 엔티티로 변환한다. */
         return MeetingJpaEntity.from(meeting);
+    }
+
+    /* 지정 상태와 프로젝트를 가진 프로젝트 회의 수 집계용 영속성 엔티티를 만든다. */
+    private MeetingJpaEntity meetingWithStatus(
+            Long companyId,
+            Long projectId,
+            String title,
+            MeetingStatus status,
+            LocalDateTime startAt
+    ) {
+        /* 모든 상태 전이의 출발점이 되는 정상 예약 회의를 생성한다. */
+        Meeting scheduled = Meeting.create(
+                companyId,
+                projectId,
+                100L,
+                2L,
+                3L,
+                title,
+                startAt,
+                startAt.plusHours(1),
+                false,
+                null,
+                List.of(3L)
+        );
+
+        /* 집계 정책의 네 상태를 실제 도메인 전이로 만들어 잘못된 시각 조합을 피한다. */
+        Meeting target = switch (status) {
+            case SCHEDULED -> scheduled;
+            case IN_PROGRESS -> scheduled.enter(startAt.minusMinutes(2));
+            case DONE -> scheduled.enter(startAt.minusMinutes(2)).complete(startAt.plusHours(1));
+            case CANCELED -> scheduled.cancel(startAt.minusHours(1));
+        };
+
+        /* 상태 전이가 끝난 도메인 회의를 저장 가능한 엔티티로 변환한다. */
+        return MeetingJpaEntity.from(target);
     }
 
     /* 회의와 여러 구성원 식별자로 참석자 행을 일괄 저장한다. */

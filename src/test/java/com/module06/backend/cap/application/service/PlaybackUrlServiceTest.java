@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
-import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase.Requester;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard.ViewerContext;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
@@ -60,7 +60,7 @@ class PlaybackUrlServiceTest {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of());
 
         GetPlaybackUrlUseCase.Result result =
-                service.getPlaybackUrl(500L, new Requester(7L, 1L, null, "OWNER", false));
+                service.getPlaybackUrl(500L, new ViewerContext(7L, 1L, null, "OWNER", false));
 
         assertThat(result.url()).isEqualTo("https://stub/playback/" + KEY);
     }
@@ -72,7 +72,7 @@ class PlaybackUrlServiceTest {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of());
 
         GetPlaybackUrlUseCase.Result result =
-                service.getPlaybackUrl(500L, new Requester(7L, 1L, null, "MEMBER", true));
+                service.getPlaybackUrl(500L, new ViewerContext(7L, 1L, null, "MEMBER", true));
 
         assertThat(result.url()).isEqualTo("https://stub/playback/" + KEY);
     }
@@ -84,9 +84,9 @@ class PlaybackUrlServiceTest {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of());
 
         // 회의는 회사 1인데 요청자는 회사 2의 owner
-        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 2L, null, "OWNER", false)), "CAP-010");
+        assertErrorCode(() -> service.getPlaybackUrl(500L, new ViewerContext(7L, 2L, null, "OWNER", false)), "CAP-010");
         // 회사 2의 admin도 마찬가지
-        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 2L, null, "MEMBER", true)), "CAP-010");
+        assertErrorCode(() -> service.getPlaybackUrl(500L, new ViewerContext(7L, 2L, null, "MEMBER", true)), "CAP-010");
     }
 
     /* 참석 안 하고 owner/admin도 아니어도, 같은 회사이고 회의 프로젝트에 자기 팀이 배정돼 있으면
@@ -97,7 +97,7 @@ class PlaybackUrlServiceTest {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of(9L));
 
         GetPlaybackUrlUseCase.Result result =
-                service.getPlaybackUrl(500L, new Requester(7L, 1L, 9L, "MEMBER", false));
+                service.getPlaybackUrl(500L, new ViewerContext(7L, 1L, 9L, "MEMBER", false));
 
         assertThat(result.url()).isEqualTo("https://stub/playback/" + KEY);
     }
@@ -108,7 +108,7 @@ class PlaybackUrlServiceTest {
     void rejectsUnassignedTeam() {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of(9L));
 
-        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 1L, 99L, "MEMBER", false)), "CAP-010");
+        assertErrorCode(() -> service.getPlaybackUrl(500L, new ViewerContext(7L, 1L, 99L, "MEMBER", false)), "CAP-010");
     }
 
     /* 팀이 배정돼 있어도 요청자가 다른 회사면 거절하는지 검증한다(프로젝트 멤버 경로의 cross-tenant 차단,
@@ -118,7 +118,7 @@ class PlaybackUrlServiceTest {
     void rejectsProjectMemberFromOtherCompany() {
         PlaybackUrlService service = service(false, Optional.of(recording(100)), List.of(9L));
 
-        assertErrorCode(() -> service.getPlaybackUrl(500L, new Requester(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
+        assertErrorCode(() -> service.getPlaybackUrl(500L, new ViewerContext(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
     }
 
     /* 녹음본이 없으면 CAP-016으로 거절되는지 검증한다(권한 통과 후). */
@@ -141,8 +141,8 @@ class PlaybackUrlServiceTest {
     }
 
     // 일반 멤버 요청자(회사 지정, 팀 없음).
-    private Requester member(Long memberId, Long companyId) {
-        return new Requester(memberId, companyId, null, "MEMBER", false);
+    private ViewerContext member(Long memberId, Long companyId) {
+        return new ViewerContext(memberId, companyId, null, "MEMBER", false);
     }
 
     // duration_sec 지정 녹음본.

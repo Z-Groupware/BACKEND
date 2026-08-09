@@ -29,9 +29,9 @@ public class PlaybackUrlService implements GetPlaybackUrlUseCase {
     }
 
     @Override
-    public Result getPlaybackUrl(Long meetingId, Requester requester) {
+    public Result getPlaybackUrl(Long meetingId, CapMeetingAccessGuard.ViewerContext requester) {
         // 열람 권한(403): 참석자 / 같은 회사 owner·admin / 프로젝트 멤버. 아니면 거부.
-        if (!accessGuard.canView(meetingId, toViewerContext(requester))) {
+        if (!accessGuard.canView(meetingId, requester)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
 
@@ -46,10 +46,5 @@ public class PlaybackUrlService implements GetPlaybackUrlUseCase {
         long durationMs = recording.getDurationSec() != null ? recording.getDurationSec() * 1000L : 0L;
 
         return new Result(issued.url(), issued.expiresInSeconds(), durationMs);
-    }
-
-    private CapMeetingAccessGuard.ViewerContext toViewerContext(Requester requester) {
-        return new CapMeetingAccessGuard.ViewerContext(
-                requester.memberId(), requester.companyId(), requester.teamId(), requester.role(), requester.isAdmin());
     }
 }

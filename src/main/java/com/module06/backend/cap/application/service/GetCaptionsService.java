@@ -31,13 +31,13 @@ public class GetCaptionsService implements GetCaptionsUseCase {
     }
 
     @Override
-    public Result getCaptions(Long meetingId, Requester requester) {
+    public Result getCaptions(Long meetingId, CapMeetingAccessGuard.ViewerContext requester) {
         // 회의가 없으면 404 — 존재 여부를 회사 밖으로 노출하지 않도록 열람 권한 판정 전에 먼저 본다.
         if (!meetingReferenceRepository.existsById(meetingId)) {
             throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
         }
         // 열람 권한(403): 참석자 / 같은 회사 owner·admin / 프로젝트 멤버. 아니면 거부.
-        if (!accessGuard.canView(meetingId, toViewerContext(requester))) {
+        if (!accessGuard.canView(meetingId, requester)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
 
@@ -50,10 +50,5 @@ public class GetCaptionsService implements GetCaptionsUseCase {
     private CaptionItem toItem(CaptionChunk chunk) {
         return new CaptionItem(chunk.getSeq(), chunk.getMemberId(), chunk.getStartOffsetMs(), chunk.getEndOffsetMs(),
                 chunk.getText(), chunk.getRms());
-    }
-
-    private CapMeetingAccessGuard.ViewerContext toViewerContext(Requester requester) {
-        return new CapMeetingAccessGuard.ViewerContext(
-                requester.memberId(), requester.companyId(), requester.teamId(), requester.role(), requester.isAdmin());
     }
 }
