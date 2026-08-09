@@ -5,8 +5,8 @@ import java.util.Base64;
 
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import com.module06.backend.capture.domain.model.TranscriptCursor;
 import com.module06.backend.capture.exception.CaptureErrorCode;
@@ -43,7 +43,7 @@ public class TranscriptCursorCodec {
         try {
             byte[] json = OBJECT_MAPPER.writeValueAsBytes(new CursorPayload(cursor.offsetMs(), cursor.seq()));
             return ENCODER.encodeToString(json);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             // 우리가 만든 두 필드를 우리 매퍼로 쓰다 실패한 것이라 입력 문제가 아니다.
             throw new IllegalStateException("정본 조회 커서를 만들 수 없습니다.", e);
         }
@@ -68,7 +68,7 @@ public class TranscriptCursorCodec {
                 throw new BusinessException(CaptureErrorCode.TRANSCRIPT_CURSOR_INVALID);
             }
             return new TranscriptCursor(payload.offsetMs(), payload.seq());
-        } catch (IllegalArgumentException | JsonProcessingException e) {
+        } catch (IllegalArgumentException | JacksonException e) {
             // base64 가 아니거나 JSON 이 아니다 — 어느 쪽이든 우리가 발행한 커서가 아니다.
             throw new BusinessException(CaptureErrorCode.TRANSCRIPT_CURSOR_INVALID);
         }
