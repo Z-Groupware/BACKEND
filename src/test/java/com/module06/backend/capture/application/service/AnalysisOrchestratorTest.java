@@ -1224,6 +1224,17 @@ class AnalysisOrchestratorTest {
             }
         }
 
+        /* ANLZ-04 조회·수정 경로다 — 오케스트레이터는 지나지 않는다. */
+        @Override
+        public List<ItemView> findItemsInMeeting(long meetingId, List<Long> itemIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public java.time.LocalDateTime applyItemEdits(long meetingId, List<ItemEdit> edits, long editorMemberId) {
+            throw new UnsupportedOperationException();
+        }
+
         @Override
         public int applyGateVerdicts(long meetingId, List<GateVerdict> verdicts) {
             int applied = 0;

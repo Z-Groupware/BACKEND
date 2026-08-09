@@ -27,11 +27,13 @@ import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCa
 import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase.ConfirmDistributionCommand;
 import com.module06.backend.capture.application.usecase.CancelReviewActionUseCase;
 import com.module06.backend.capture.application.usecase.CancelReviewActionUseCase.CancelReviewActionCommand;
+import com.module06.backend.capture.application.usecase.EditSummaryUseCase;
 import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.presentation.api.request.AddReviewActionRequest;
+import com.module06.backend.capture.presentation.api.request.EditSummaryRequest;
 import com.module06.backend.capture.presentation.api.request.ReviewDecisionRequest;
 import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
 import com.module06.backend.capture.presentation.api.response.AddReviewActionResponse;
@@ -40,6 +42,7 @@ import com.module06.backend.capture.presentation.api.response.DistributionConfir
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
 import com.module06.backend.capture.presentation.api.response.ProcessingStatusResponse;
 import com.module06.backend.capture.presentation.api.response.ReviewDecisionResponse;
+import com.module06.backend.capture.presentation.api.response.SummaryEditResponse;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 
@@ -73,6 +76,7 @@ public class AnalysisController {
     private final ConfirmDistributionUseCase confirmDistributionUseCase;
     private final CancelReviewActionUseCase cancelReviewActionUseCase;
     private final AddReviewActionUseCase addReviewActionUseCase;
+    private final EditSummaryUseCase editSummaryUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -267,5 +271,34 @@ public class AnalysisController {
         return ApiResponse.success(
                 "회의 요약을 조회했습니다.",
                 MeetingSummaryResponse.from(getSummaryUseCase.getSummary(me.getCompanyId(), meetingId)));
+    }
+
+    /*
+     * ANLZ-04 · 요약 수정.
+     *
+     * <h2>라벨을 만드는 자리다</h2>
+     * 화면에서는 "요약 고치고 저장"이지만 이 저장소가 얻는 것은 {AI 가 낸 문장 → 사람이 인정한
+     * 문장} 한 쌍이다 — <b>액션만 라벨이 아니라 요약도 라벨이다</b>(명세 처리 정책).
+     *
+     * MEMBER 까지 허용한다. RVW-02 와 같은 이유다 — 요약을 다듬는 것은 회의 참석자가 하는 일이고,
+     * 역할로 막으면 사원이 참석한 회의의 요약도 못 고친다. 회사 스코프는 서비스가 본다.
+     */
+    @Operation(
+            summary = "요약 수정 (ANLZ-04)",
+            description = "요약 항목의 문장을 고친다. 수정 내역은 review_log 에 L3 라벨로 남는다. "
+                    + "액션 수정(RVW-02)과 달리 사유 코드를 요구하지 않는다 — 문구만 다듬는 수정에 "
+                    + "대응하는 사유가 없어 강제하면 기록이 아예 남지 못한다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PatchMapping("/summary")
+    public ApiResponse<SummaryEditResponse> editSummary(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Valid @RequestBody EditSummaryRequest request
+    ) {
+        return ApiResponse.success(
+                "수정되었습니다.",
+                SummaryEditResponse.from(editSummaryUseCase.edit(
+                        request.toCommand(me.getCompanyId(), meetingId, me.getMemberId()))));
     }
 }
