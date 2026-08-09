@@ -28,6 +28,7 @@ import com.module06.backend.project.application.usecase.CreateProjectUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
+import com.module06.backend.project.application.usecase.GetProjectListUseCase.ProjectListItem;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
@@ -143,7 +144,8 @@ class ProjectControllerTest {
     @DisplayName("목록도 토큰의 회사로만 조회한다")
     void listTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any())).thenReturn(List.of(project(1L)));
+        when(getProjectListUseCase.list(any())).thenReturn(List.of(
+                new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0)));
 
         mockMvc.perform(get("/api/projects"))
                 .andExpect(status().isOk());

@@ -10,8 +10,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.module06.backend.action.application.port.ActionQueryPort.ProjectActionCount;
 import com.module06.backend.action.application.port.MeetingActionQueryPort.MeetingUndispatchedActions;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
+import com.module06.backend.action.domain.model.ActionStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -139,7 +141,45 @@ class ActionPersistenceAdapterTest {
         assertThat(adapter.existsAction(1L, 42L)).isTrue();
     }
 
+    @Test
+    void countActionsByProjectIdsReturnsEmptyWithoutQueryingWhenProjectIdsIsEmpty() {
+        List<ProjectActionCount> result = adapter.countActionsByProjectIds(List.of());
+
+        assertThat(result).isEmpty();
+        verify(springDataActionRepository, never()).findAllByProjectIdIn(anyList());
+    }
+
+    @Test
+    void countActionsByProjectIdsGroupsAndCountsDoneSeparately() {
+        when(springDataActionRepository.findAllByProjectIdIn(List.of(1L, 2L))).thenReturn(List.of(
+                actionProjection(1L, ActionStatus.DONE),
+                actionProjection(1L, ActionStatus.DONE),
+                actionProjection(1L, ActionStatus.TODO),
+                actionProjection(2L, ActionStatus.IN_PROGRESS)
+        ));
+
+        List<ProjectActionCount> result = adapter.countActionsByProjectIds(List.of(1L, 2L));
+
+        assertThat(result).containsExactlyInAnyOrder(
+                new ProjectActionCount(1L, 3, 2),
+                new ProjectActionCount(2L, 1, 0));
+    }
+
     private SpringDataActionRepository.UndispatchedProjection projection(Long sourceMeetingId) {
         return () -> sourceMeetingId;
+    }
+
+    private SpringDataActionRepository.ProjectActionProjection actionProjection(Long projectId, ActionStatus status) {
+        return new SpringDataActionRepository.ProjectActionProjection() {
+            @Override
+            public Long getProjectId() {
+                return projectId;
+            }
+
+            @Override
+            public ActionStatus getStatus() {
+                return status;
+            }
+        };
     }
 }
