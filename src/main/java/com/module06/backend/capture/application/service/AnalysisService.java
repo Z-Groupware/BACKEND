@@ -16,9 +16,14 @@ import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
+import com.module06.backend.capture.application.usecase.ResumeAnalysisUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
+import com.module06.backend.capture.domain.model.LayerName;
+import com.module06.backend.capture.domain.model.LayerStatus;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+
+import java.util.Set;
 
 /*
  * 분석 유스케이스 셋(ANLZ-01 · CAP-06 · ANLZ-03)의 구현이다.
@@ -34,7 +39,8 @@ import com.module06.backend.global.exception.BusinessException;
  */
 @Service
 @RequiredArgsConstructor
-public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusUseCase, GetSummaryUseCase {
+public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusUseCase, GetSummaryUseCase,
+        ResumeAnalysisUseCase {
 
     private final AnalysisOrchestrator orchestrator;
     private final AnalysisLayerRepository analysisLayerRepository;
@@ -88,6 +94,73 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
         meetingAccessGuard.requireAccessible(companyId, meetingId);
 
         return ProcessingStatus.of(layerProgress(meetingId));
+    }
+
+    /*
+     * ANLZ-02 · 계층 재개.
+     *
+     * <h2>여기서 막는 것이 재개의 전부다</h2>
+     * 오케스트레이터는 "앞 계층을 부르지 않는다"만 한다. **앞 계층이 실제로 끝나 있는가**는
+     * 여기서 본다 — 끝나지 않은 계층의 산출물을 되살리려 하면 빈 문맥으로 모델을 부르게 되고,
+     * 그 빈 결과가 DONE 으로 기록돼 조회는 "분석 완료"라고 말한다.
+     *
+     * <h2>SUPERSEDED 를 DONE 으로 세지 않는다</h2>
+     * 밀린 실행의 계층은 FAILED 로 남지 않는다(AnalysisOrchestrator#runLayer). 그 자리는
+     * 애초에 상태 행이 없거나 이전 상태 그대로이므로, "DONE 인가"만 보는 이 검사가 자동으로
+     * 걸러낸다 — 재개가 오래된 실행을 되살리지 않게 하려던 그 결정과 짝이다.
+     */
+    @Override
+    public ResumeOutcome resume(long companyId, long meetingId, String resumeFromLayer) {
+        meetingAccessGuard.requireAccessible(companyId, meetingId);
+
+        LayerName resumeFrom = parseLayer(resumeFromLayer);
+        List<LayerName> reused = AnalysisOrchestrator.reusedLayersOf(resumeFrom);
+        requireAllDone(meetingId, reused);
+
+        List<AiLayerPort.Participant> participants = participantProvider.participantsOf(meetingId);
+
+        /*
+         * force 를 켜지 않는다. "이미 완료" 판정은 재개 경로에서 아예 지나지 않으므로
+         * (AnalysisOrchestrator#run) 켤 이유가 없고, 켜면 그 뜻이 "재과금을 감수한다"로 읽힌다 —
+         * 재개는 정확히 그 반대다.
+         */
+        AnalysisOutcome outcome = orchestrator.run(
+                companyId, companyId, meetingId, participants, false, resumeFrom);
+
+        return new ResumeOutcome(outcome, resumeFrom, reused);
+    }
+
+    private LayerName parseLayer(String wireValue) {
+        if (wireValue == null || wireValue.isBlank()) {
+            throw new BusinessException(CaptureErrorCode.RESUME_LAYER_UNKNOWN);
+        }
+        LayerName layer;
+        try {
+            layer = LayerName.fromWireValue(wireValue.trim());
+        } catch (IllegalArgumentException e) {
+            // 알 수 없는 계층을 기본값으로 넘기면 사용자가 의도한 곳이 아닌 데서 재개된다.
+            throw new BusinessException(CaptureErrorCode.RESUME_LAYER_UNKNOWN);
+        }
+        if (!AnalysisOrchestrator.isPipelineLayer(layer)) {
+            // 이름은 아는데 이 오케스트레이터가 돌리지 않는 계층이다.
+            throw new BusinessException(CaptureErrorCode.RESUME_LAYER_UNKNOWN);
+        }
+        return layer;
+    }
+
+    private void requireAllDone(long meetingId, List<LayerName> required) {
+        if (required.isEmpty()) {
+            // 처음부터 재개(L1)다. 되살릴 앞 계층이 없으니 확인할 것도 없다.
+            return;
+        }
+        Set<LayerName> done = analysisLayerRepository.findStates(meetingId).stream()
+                .filter(state -> state.status() == LayerStatus.DONE)
+                .map(AnalysisLayerRepository.LayerState::layer)
+                .collect(java.util.stream.Collectors.toSet());
+
+        if (!done.containsAll(required)) {
+            throw new BusinessException(CaptureErrorCode.RESUME_PRECEDING_LAYER_NOT_DONE);
+        }
     }
 
     @Override
