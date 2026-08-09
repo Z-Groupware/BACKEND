@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# AI 코드 리뷰 루프 · pre-push 훅 (로컬 자동 트리거)
+#
+# push 직전에 "이번에 원격으로 나가는 변경 .java"만 골라 로컬 게이트를 돌린다. (순수 게이트 — 코드 안 고침)
+#   - Gate 1 (정적·결정론, 키 불필요): ArchUnit 실패 시 push 차단.
+#   - Gate 2 (LLM 판정, 변경 파일만):  ★ 정책상 리포터 — push를 막지 않는다.
+#        현 카탈로그에 CRITICAL judge 규칙이 0개이고 acceptance 판정이 미배선이라 차단 경로에 도달할 수 없다.
+#        차단은 결정론 게이트(위 Gate 1 · CI semgrep) 몫이다. 러너가 매 실행에 역할을 출력한다.
+#        아래 BLOCKED 분기는 정책이 뒤집힐 때(CRITICAL 규칙 추가) 대비해 남겨 둔다.
+#        정책: review-loop/DRIVER.md · 고정: PrePushGatePolicyTest · 배경: UNIFIED_DESIGN.md §8
+#                                       Minor는 수정 요청서(<git-dir>/review-fix-request.md)만 남긴다.
+#                                       수정은 훅이 하지 않는다 — 드라이버(Claude Code)가 요청서를 읽어 처리(중첩 claude 금지).
+#                                       GEMINI_API_KEY 없으면 러너가 스스로 생략·통과. 절차: review-loop/DRIVER.md
+# 급할 때 우회: git push --no-verify  (서버 CI(Gate 3)는 우회 불가)
+#
+# 활성화(클론 후 1회): ./gradlew installReviewHooks   (= git config core.hooksPath .githooks)
+set -u
+
+# Gradle 런처 JVM을 UTF-8로 — Windows 콘솔 기본(cp949)이면 게이트 메시지 한글이 깨져
+# 차단 사유를 사람이 못 읽는다(자식 JVM은 build.gradle의 jvmArgs가 담당).
+export GRADLE_OPTS="${GRADLE_OPTS:-} -Dfile.encoding=UTF-8"
+
+ZERO="0000000000000000000000000000000000000000"
+# 기본 비교 기준 — develop이 있으면 develop, 없으면 main (신규 레포 방어).
+BASE_DEFAULT="$(git rev-parse --verify -q origin/develop >/dev/null 2>&1 && echo origin/develop || echo origin/main)"
+CHANGED="$(git rev-parse --git-dir)/reviewloop-changed.txt"
+: > "$CHANGED"
+
+# stdin(각 줄): <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue            # 브랜치 삭제 push는 스킵
+  if [ "$remote_sha" = "$ZERO" ]; then              # 신규 브랜치 → develop 기준 신규 커밋만
+    range_base="$(git merge-base "$BASE_DEFAULT" "$local_sha" 2>/dev/null || echo "")"
+  else
+    range_base="$remote_sha"
+  fi
+  if [ -n "$range_base" ]; then
+    git diff --name-only --diff-filter=ACMR "$range_base" "$local_sha"
+  else
+    git show --name-only --diff-filter=ACMR --format= "$local_sha"
+  fi
+done | grep -E '\.java$' | grep -v '/architecture/fixture/' | sort -u > "$CHANGED"
+# architecture/fixture/ 제외: ARCH 규칙이 '실제로 위반을 잡는지' 증명하는 의도적 위반 픽스처다.
+# 영구히 위반 상태여야 하므로 판정에 넣으면 매 push마다 같은 Minor가 요청서에 올라온다 —
+# 고칠 수 없는 지적이 반복되면 사람이 요청서 자체를 무시하기 시작한다(게이트가 죽는 경로).
+
+if [ ! -s "$CHANGED" ]; then
+  echo "[review-loop] 변경된 .java 없음 → 통과"
+  exit 0
+fi
+echo "[review-loop] 변경 .java $(wc -l < "$CHANGED")개 검사..."
+
+# ── Gate 1 (정적·결정론) — 키 불필요. 실패 시 차단. (semgrep 등 풀 세트는 CI에서) ──
+# 아키텍처 규칙 테스트(컨벤션 담당 팀원 작업)가 아직 없으면 스킵 → 추가되면 자동 활성화.
+ARCH_TEST="com.module06.backend.architecture.ArchitectureRulesTest"
+if find src/test -name 'ArchitectureRulesTest.java' 2>/dev/null | grep -q .; then
+  echo "[review-loop] Gate 1 · ArchUnit ..."
+  if ! ./gradlew -q test --tests "$ARCH_TEST" --no-daemon; then
+    echo "[review-loop] ❌ Gate 1 실패 → push 중단 (우회: git push --no-verify)"
+    exit 1
+  fi
+else
+  echo "[review-loop] Gate 1 · ArchUnit 테스트 없음 → 스킵(컨벤션 팀원이 추가하면 자동 활성화)"
+fi
+
+# ── Gate 2 (LLM 판정) — 변경 파일만. Critical/미완성이면 차단, Minor는 findings 파일로 추출. ──
+#
+# 종료코드만 보면 안 된다: gradle이 JavaExec의 종료코드를 1로 뭉개므로
+#   "코드가 나쁨(차단 결정)" 과 "리뷰가 아예 안 돌았음(키 형식·네트워크·컴파일 실패)" 이 구분되지 않는다.
+# 예전 훅이 후자를 "Critical 차단"으로 오보고했고, 그래서 판정이 매번 크래시하는데도 아무도 몰랐다
+# (감사 로그 0건). 더 나쁜 건 사람이 '또 오작동' 학습을 하고 --no-verify를 쓰게 된다는 것.
+# → 러너가 상태 파일에 OK/BLOCKED/ERROR를 한 줄로 남기고, 훅은 그걸로 사유를 갈라 말한다.
+echo "[review-loop] Gate 2 · LLM Judge (변경 파일만) ..."
+MINOR="$(git rev-parse --git-dir)/review-minor-findings.txt"
+STATUS="$(git rev-parse --git-dir)/review-gate-status.txt"
+: > "$MINOR"
+: > "$STATUS"   # 반드시 비운다 — 안 비우면 이전 실행의 상태를 이번 결과로 오독한다
+
+# --max: CI(gate2-review)와 같은 20. 기본 5는 "변경 9개 중 4개가 리뷰 없이 통과"를 만들었고,
+# 로컬이 CI보다 느슨하면 로컬 통과가 아무것도 보장하지 못한다(같은 커밋을 CI가 더 많이 본다).
+# 비용은 파일당 LLM 1회(수초) — REVIEW_MAX_FILES로 조정 가능.
+REVIEW_MAX_FILES="${REVIEW_MAX_FILES:-20}"
+./gradlew -q reviewLoop \
+  --args="--files-from $CHANGED --gate --max $REVIEW_MAX_FILES --findings-out $MINOR --status-out $STATUS" --no-daemon
+GATE_EXIT=$?
+GATE_STATUS="$(tr -d ' \t\r\n' < "$STATUS" 2>/dev/null || true)"
+
+if [ "$GATE_EXIT" -ne 0 ] || [ "$GATE_STATUS" = "BLOCKED" ] || [ "$GATE_STATUS" = "ERROR" ]; then
+  case "$GATE_STATUS" in
+    BLOCKED)
+      echo "[review-loop] ❌ Gate 2 차단 결정(Critical/미완성) → push 중단"
+      echo "               코드 판정 결과다 — 위 findings를 사람이 처리할 것(드라이버 임의 수정 금지)."
+      echo "               우회: git push --no-verify" ;;
+    ERROR)
+      echo "[review-loop] ❌ Gate 2 게이트 오류 → push 중단"
+      echo "               ⚠️ 코드 판정이 아니다 — 이번 변경은 LLM 판정을 '받지 못했다'."
+      echo "               위 [GATE] 메시지·스택이 원인이다(키 형식·네트워크·API 쿼터 등). 고치고 재시도."
+      echo "               우회하면 리뷰 없이 나간다: git push --no-verify" ;;
+    *)
+      echo "[review-loop] ❌ Gate 2 실행 실패 → push 중단"
+      echo "               ⚠️ 코드 판정이 아니다 — 러너가 시작조차 못했다(컴파일 실패·gradle 오류 등)."
+      echo "               위 gradle 출력을 확인할 것. 우회: git push --no-verify" ;;
+  esac
+  exit 1
+fi
+if [ -z "$GATE_STATUS" ]; then
+  # gradle은 성공했는데 상태가 없다 = 상태 기록만 실패. 판정은 돌았으므로 통과시키되 조용히 넘기지 않는다.
+  echo "[review-loop] ⚠️ 판정은 정상 종료했으나 상태 파일이 비었다(기록 실패) — 통과시킨다."
+fi
+
+# ── Minor findings — 차단 아님(러너가 Critical/미완성만 차단). 훅은 코드를 안 고친다. ──
+# 수정 요청서만 만들고 통과시킨다. 수정·커밋·재push는 드라이버(Claude Code)가 대화 안에서 처리.
+if [ -s "$MINOR" ]; then
+  REQUEST="$(git rev-parse --git-dir)/review-fix-request.md"
+  bash "$(git rev-parse --show-toplevel)/scripts/review-fix-apply.sh" "$MINOR" "$REQUEST" || true
+  N_MINOR="$(grep -c . "$MINOR")"
+  echo "[review-loop] ℹ️  Minor ${N_MINOR}건 — push는 통과. 무엇을 지적했는지:"
+  # 건수만 알리면 사람이 파일을 열어봐야 한다 → 내용을 바로 찍는다.
+  # 한 줄 형식이 'path:line [RULE] 설명'이라 그대로 읽힌다. 20건까지만(그 이상은 요청서로).
+  nl -w2 -s'. ' "$MINOR" | head -20 | sed 's/^/               /'
+  [ "$N_MINOR" -gt 20 ] && echo "               … 나머지 $((N_MINOR - 20))건은 요청서 참조"
+  echo "[review-loop] 고치려면 Claude Code에게: \"$REQUEST 처리해\""
+  echo "               (Edit 수정 → review-verify.sh 검증 → diff 승인 → 커밋 → 재push · review-loop/DRIVER.md)"
+fi
+
+echo "[review-loop] ✅ 통과 → push 진행"
+exit 0

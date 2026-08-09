@@ -1,0 +1,17 @@
+.git
+.github
+.gradle
+build
+out
+.idea
+*.iml
+.env
+.env.*
+*.pem
+.DS_Store
+
+# Secrets — 빌드 컨텍스트에 넣지 않는다. 운영은 SSM 환경변수 주입만 사용.
+application-secret.yml
+application-secret.yaml
+application-*-secret.yml
+application-*-secret.yaml

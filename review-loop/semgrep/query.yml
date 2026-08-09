@@ -1,0 +1,15 @@
+# Gate 1 · Semgrep 룰 — QUERY_002 (신규 @Query 금지)
+# ArchUnit이 "의존성 구조"를, Semgrep은 "코드 패턴"을 본다.
+# 기존 @Query(16파일 20곳)는 baseline으로 통과시키고, PR에서 새로 추가되는 @Query만 차단한다.
+# (CI에서 --baseline-commit <PR base>로 신규 diff만 검사)
+
+rules:
+  - id: no-new-jpa-query-annotation
+    languages: [java]
+    severity: WARNING
+    message: >-
+      QUERY_002: 신규 @Query(JPQL/native) 추가 금지. 파생 쿼리 메서드로 대체하거나,
+      불가피하면 리뷰에서 명시적으로 승인받으세요. 기존 사용처는 baseline으로 관리되며,
+      이 규칙은 새로 추가되는 @Query만 차단합니다.
+    patterns:
+      - pattern: "@Query(...)"

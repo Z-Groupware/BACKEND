@@ -1,0 +1,196 @@
+{
+  "$comment": "module06 identity 스키마 — 프론트 공유용. 2026-08-06 네이밍 통일(V2.3.x) 반영본. Flyway 마이그레이션 기준이며 JPA 엔티티와 일치한다.",
+  "generatedAt": "2026-08-06",
+  "migrationLevel": "V2.3.11",
+
+  "namingRule": {
+    "$comment": "화면 라벨과 DB 이름을 1:1로 맞췄다. 이 세 줄만 외우면 된다.",
+    "화면 '역할'": {
+      "table": "role",
+      "memberColumn": "role_id",
+      "apiKey": "roleName / roleId",
+      "예시": "프론트엔드, 백엔드, 인사, 리더, 없음",
+      "인가에 쓰나": false
+    },
+    "화면 '직급'": {
+      "table": "position",
+      "memberColumn": "position_id",
+      "apiKey": "positionName / positionId",
+      "예시": "팀장, 과장, 대리, 사원",
+      "인가에 쓰나": false
+    },
+    "화면 '권한'": {
+      "table": null,
+      "memberColumn": "authority",
+      "apiKey": "authority",
+      "예시": "OWNER, LEADER, MEMBER",
+      "인가에 쓰나": true
+    }
+  },
+
+  "breakingChanges": {
+    "$comment": "프론트가 지금 쓰고 있다면 반드시 고쳐야 하는 것들. 기존 access token은 만료 전까지 구 role 클레임을 그대로 들고 있다 — refresh token은 그대로 살아 있어 재로그인 없이 재발급 시점에 새 authority 클레임으로 자동 교체된다.",
+    "jwtClaim": { "before": "role", "after": "authority" },
+    "responseKeys": [
+      { "before": "role", "after": "authority", "where": "GET /api/auth/me" },
+      { "before": "roleLabel", "after": "roleName", "where": "GET /api/auth/me" },
+      { "before": "jobPositionId", "after": "positionId", "where": "GET /api/auth/me" }
+    ],
+    "renamedColumns": [
+      { "table": "company", "before": "business_number", "after": "registration_no" }
+    ],
+    "removed": [
+      { "field": "annual_leave_granted", "reason": "연차 이번 범위 아님" },
+      { "field": "mustChangePassword", "reason": "비밀번호 변경 기능 없음" }
+    ]
+  },
+
+  "tables": {
+    "company": {
+      "columns": [
+        { "name": "id",                  "type": "BIGINT",       "nullable": false, "pk": true },
+        { "name": "code",                "type": "VARCHAR(20)",  "nullable": false, "unique": true, "note": "로그인 1단계 키. 예 NOVA-7K3D. 혼동문자 O·0·I·1 제외. 수정 불가" },
+        { "name": "name",                "type": "VARCHAR(100)", "nullable": false, "note": "기업명" },
+        { "name": "registration_no",     "type": "VARCHAR(20)",  "nullable": true,  "unique": true, "note": "사업자등록번호 000-00-00000" },
+        { "name": "representative_name", "type": "VARCHAR(50)",  "nullable": true,  "note": "대표자명" },
+        { "name": "manager_email",       "type": "VARCHAR(255)", "nullable": true,  "note": "담당자 이메일 — 오너 계정 ID 가 된다" },
+        { "name": "manager_phone",       "type": "VARCHAR(30)",  "nullable": true },
+        { "name": "address",             "type": "VARCHAR(255)", "nullable": true,  "note": "등록 폼에 없다. 기업 설정에서 나중에 채운다" },
+        { "name": "main_phone",          "type": "VARCHAR(30)",  "nullable": true },
+        { "name": "employee_scale",      "type": "VARCHAR(20)",  "nullable": true,  "note": "예 6-20. 선택 항목" },
+        { "name": "purpose",             "type": "VARCHAR(500)", "nullable": true,  "note": "이용 목적. 선택 항목" },
+        { "name": "terms_agreed_at",     "type": "DATETIME",     "nullable": true,  "note": "이용약관 동의 시각 (필수 동의)" },
+        { "name": "privacy_agreed_at",   "type": "DATETIME",     "nullable": true,  "note": "개인정보 동의 시각 (필수 동의)" },
+        { "name": "marketing_agreed_at", "type": "DATETIME",     "nullable": true,  "note": "마케팅 동의 시각 (선택). NULL 이면 미동의" },
+        { "name": "onboarded_at",        "type": "DATETIME",     "nullable": true,  "note": "NULL 이면 온보딩 미완료. 값이 있으면 재요청 409" },
+        { "name": "created_at",          "type": "DATETIME",     "nullable": false },
+        { "name": "updated_at",          "type": "DATETIME",     "nullable": false }
+      ]
+    },
+
+    "team": {
+      "$comment": "화면의 '부서'. 본부 계층 없음 — parent_team_id 는 만들지 않았다.",
+      "columns": [
+        { "name": "id",               "type": "BIGINT",      "nullable": false, "pk": true },
+        { "name": "company_id",       "type": "BIGINT",      "nullable": false },
+        { "name": "leader_member_id", "type": "BIGINT",      "nullable": true,  "unique": true, "fk": "member.id", "note": "부서장. NULL 이면 팀장 공석" },
+        { "name": "name",             "type": "VARCHAR(50)", "nullable": false, "note": "5자 이하. 같은 기업 내 중복 불가" },
+        { "name": "created_at",       "type": "DATETIME",    "nullable": false },
+        { "name": "updated_at",       "type": "DATETIME",    "nullable": false }
+      ]
+    },
+
+    "role": {
+      "$comment": "화면의 '역할'. 구 sub_team. 조직 계층이 아니라 사원에게 붙는 라벨이라 인가에 관여하지 않는다.",
+      "columns": [
+        { "name": "id",         "type": "BIGINT",      "nullable": false, "pk": true },
+        { "name": "company_id", "type": "BIGINT",      "nullable": true,  "note": "NULL 이면 전 회사 공용 시스템 역할" },
+        { "name": "team_id",    "type": "BIGINT",      "nullable": true,  "note": "NULL 이면 전 회사 공용 시스템 역할" },
+        { "name": "name",       "type": "VARCHAR(50)", "nullable": false },
+        { "name": "created_at", "type": "DATETIME",    "nullable": false },
+        { "name": "updated_at", "type": "DATETIME",    "nullable": false }
+      ],
+      "systemRows": [
+        { "id": 1, "name": "리더", "note": "팀장인 사람의 역할 표시. 고정 — 회사가 만들거나 지울 수 없다" },
+        { "id": 2, "name": "없음", "note": "역할 미부여. member.role_id 의 기본값이며 NULL 대신 이 값을 쓴다" }
+      ],
+      "autoIncrementStartsAt": 3
+    },
+
+    "position": {
+      "$comment": "화면의 '직급'. 구 job_position. 직급명은 회사가 자유롭게 정한다.",
+      "columns": [
+        { "name": "id",         "type": "BIGINT",                    "nullable": false, "pk": true },
+        { "name": "company_id", "type": "BIGINT",                    "nullable": false },
+        { "name": "name",       "type": "VARCHAR(50)",               "nullable": false, "note": "팀장·과장·대리·사원 등 자유 입력" },
+        { "name": "authority",  "type": "ENUM('LEADER','MEMBER')",   "nullable": false, "default": "MEMBER", "note": "이 직급으로 발급되는 계정의 member.authority 가 된다. 기존 구성원에 소급 적용하지 않는다" },
+        { "name": "sort_order", "type": "INT",                       "nullable": false, "default": 0 },
+        { "name": "created_at", "type": "DATETIME",                  "nullable": false },
+        { "name": "updated_at", "type": "DATETIME",                  "nullable": false }
+      ]
+    },
+
+    "member": {
+      "columns": [
+        { "name": "id",            "type": "BIGINT",       "nullable": false, "pk": true },
+        { "name": "company_id",    "type": "BIGINT",       "nullable": false },
+        { "name": "team_id",       "type": "BIGINT",       "nullable": true,  "note": "부서. 온보딩 전 오너는 NULL" },
+        { "name": "role_id",       "type": "BIGINT",       "nullable": false, "default": 2, "note": "역할. 2 = 없음. NULL 을 쓰지 않는다" },
+        { "name": "position_id",   "type": "BIGINT",       "nullable": true,  "note": "직급. 온보딩 전 오너는 NULL" },
+        { "name": "email",         "type": "VARCHAR(255)", "nullable": false, "note": "로그인 아이디. 기업 내 유일" },
+        { "name": "password_hash", "type": "VARCHAR(255)", "nullable": false, "note": "발급 시 1회 설정, 변경 기능 없음. 응답에 절대 담지 않는다" },
+        { "name": "name",          "type": "VARCHAR(50)",  "nullable": false },
+        { "name": "phone",         "type": "VARCHAR(30)",  "nullable": true },
+        { "name": "authority",     "type": "ENUM('OWNER','LEADER','MEMBER')",              "nullable": false, "default": "MEMBER", "note": "화면의 '권한'. 인가 축" },
+        { "name": "is_admin",      "type": "BOOLEAN",      "nullable": false, "default": false, "note": "어드민 겸직. authority 와 독립. 오너는 등록 시점부터 항상 true 이며 끌 수 없다" },
+        { "name": "status",        "type": "ENUM('ACTIVE','VACATION','WAITING','RESIGNED')", "nullable": false, "default": "ACTIVE", "note": "재직 / 휴직 / 대기 / 퇴사" },
+        { "name": "theme",         "type": "ENUM('LIGHT','DARK','SYSTEM')",                "nullable": false, "default": "SYSTEM" },
+        { "name": "joined_on",     "type": "DATE",         "nullable": true,  "note": "입사일" },
+        { "name": "deleted_at",    "type": "DATETIME",     "nullable": true,  "note": "오프보딩 최종 승인 시 소프트 삭제. 찍히면 조회에서 제외되고 로그인이 막힌다" },
+        { "name": "created_at",    "type": "DATETIME",     "nullable": false },
+        { "name": "updated_at",    "type": "DATETIME",     "nullable": false }
+      ]
+    }
+  },
+
+  "sampleRows": {
+    "$comment": "관계가 어떻게 물리는지 보여주는 예시.",
+    "company": [
+      { "id": 1, "code": "NOVA-7K3D", "name": "(주)테크스타트", "onboarded_at": "2026-08-06T10:00:00" }
+    ],
+    "team": [
+      { "id": 1, "company_id": 1, "leader_member_id": 3, "name": "개발팀" },
+      { "id": 2, "company_id": 1, "leader_member_id": null, "name": "마케팅팀" }
+    ],
+    "role": [
+      { "id": 1, "company_id": null, "team_id": null, "name": "리더" },
+      { "id": 2, "company_id": null, "team_id": null, "name": "없음" },
+      { "id": 3, "company_id": 1, "team_id": 1, "name": "프론트엔드" },
+      { "id": 4, "company_id": 1, "team_id": 1, "name": "백엔드" }
+    ],
+    "position": [
+      { "id": 1, "company_id": 1, "name": "팀장", "authority": "LEADER", "sort_order": 0 },
+      { "id": 2, "company_id": 1, "name": "사원", "authority": "MEMBER", "sort_order": 1 }
+    ],
+    "member": [
+      {
+        "id": 1, "company_id": 1,
+        "team_id": null, "role_id": 2, "position_id": null,
+        "email": "contact@company.com", "name": "홍길동",
+        "authority": "OWNER", "is_admin": true, "status": "ACTIVE",
+        "$note": "기업 등록으로 태어난 오너. 온보딩 전이라 부서·직급이 NULL 이고 역할은 2(없음)다"
+      },
+      {
+        "id": 3, "company_id": 1,
+        "team_id": 1, "role_id": 1, "position_id": 1,
+        "email": "lead@company.com", "name": "김서준",
+        "authority": "LEADER", "is_admin": false, "status": "ACTIVE",
+        "$note": "개발팀 팀장. team.leader_member_id 가 이 id 를 가리킨다. 역할은 1(리더)"
+      },
+      {
+        "id": 4, "company_id": 1,
+        "team_id": 1, "role_id": 4, "position_id": 2,
+        "email": "dev1@company.com", "name": "이홍근",
+        "authority": "MEMBER", "is_admin": false, "status": "VACATION",
+        "$note": "개발팀 사원, 역할은 백엔드, 휴직 중"
+      }
+    ]
+  },
+
+  "jwtClaims": {
+    "$comment": "액세스 토큰에 실리는 것 전부. 30분 만료. isOnboarded 는 토큰에 없다 — 매번 DB 에서 읽는다.",
+    "sub": "memberId",
+    "companyId": 1,
+    "authority": "MEMBER",
+    "isAdmin": false,
+    "teamId": 2
+  },
+
+  "gotchas": [
+    "화면 '역할'(roleName)과 화면 '권한'(authority)은 완전히 다른 것이다. 절대 헷갈리면 안 된다.",
+    "온보딩 전 오너는 teamId·positionId 가 null 이다. 가드가 teamId 를 필수로 가정하면 오너가 로그인 직후 터진다.",
+    "오너는 is_admin 이 항상 true 다. 프론트가 '오너에겐 isAdmin 이 안 켜진다'고 가정하고 있다면 고쳐야 한다.",
+    "member.role_id 는 NULL 이 되지 않는다. 역할 없음은 2 다.",
+    "authority 는 인가 판정에 쓰지만 화면 분기는 UX 일 뿐이다 — 서버가 매 요청 독립적으로 다시 검사한다."
+  ]
+}

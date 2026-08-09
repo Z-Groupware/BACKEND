@@ -1,0 +1,117 @@
+{"timestamp":"2026-08-03T11:47:30.135545700","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:47:33.012799300","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:48:28.188879100","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:48:31.191207800","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:48:35.048996400","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:48:37.846602300","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:48:40.195599800","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:52:09.238080500","round":1,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T11:52:13.524442800","round":2,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:02:21.717323600","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:08:46.985621","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:09:51.869215500","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:09:55.660395600","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:09:57.755430500","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:10:00.408528500","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T12:10:05.542265100","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:38.694817100","round":1,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:40.926423300","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:44.405087600","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:48.554882100","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:51.235137","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:57.515330600","round":6,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:46:59.719074600","round":7,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:47:02.037434700","round":8,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T15:47:05.193520500","round":9,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-03T16:16:26.541617","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T10:30:54.370284600","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T10:30:58.126793200","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T10:31:02.055144400","round":3,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T10:31:04.783455400","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T10:31:08.565652100","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T01:37:19.257918600","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-04T09:17:53.475046500","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false}
+{"timestamp":"2026-08-05T09:47:11.878317500","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":11,"terminatedByBudget":false,"skipReason":"제공자를 쓸 수 없다 (HTTP 429 — 키 만료·무효, 쿼터·크레딧 소진, 제공자 장애 중 하나)."}
+{"timestamp":"2026-08-05T09:00:32.747185","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":17,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T09:14:46.276565","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":9,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T14:12:40.332955","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":18,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T14:27:49.093311","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":4,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T15:12:50.157641800","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T16:17:07.613588100","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":11,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T16:37:12.944121800","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":5,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T15:13:10.814241100","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":8,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T15:31:01.235851200","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":2,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-05T16:09:13.561519500","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":1,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T02:16:19.512719400","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T01:39:57.832751","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T01:58:23.896920","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":12,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T02:28:54.171458","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":15,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T04:09:09.914567","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T09:06:45.319340800","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T09:00:49.661785","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-07T07:01:57.316020900","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":16,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-07T08:08:25.917302800","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":5,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T13:41:19.396555200","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":3,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T15:37:43.739904500","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":16,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-06T15:57:00.428917700","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-06T15:57:04.854703500","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T09:28:17.556540","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":19,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-07T11:50:49.590547","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":2,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-08T06:06:17.135904","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-07T16:58:22.136538400","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:26.438094900","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:28.270750200","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:32.990956200","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:37.536811300","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T16:58:40.775297800","round":6,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:28:26.598957","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:28:29.918098300","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:15.361494700","round":3,"model":"gemini","score":85,"hasCritical":false,"decision":"PASS","findingsCount":1,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:19.501472600","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:21.806695500","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:24.512806600","round":6,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:30.674468800","round":7,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:34.140329500","round":8,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:38.393397600","round":9,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:40.703647100","round":10,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:48.724332","round":11,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:52.479322600","round":12,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-07T17:29:54.888167800","round":13,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T05:37:56.518759400","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T05:37:59.408116700","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T05:38:01.550821700","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T05:38:03.797329700","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:01:57.914890700","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:00.712402900","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:06.512844700","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:08.669161100","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:11.623232900","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:13.578185300","round":6,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:15.459354100","round":7,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:18.994217700","round":8,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:21.460004800","round":9,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:24.810802900","round":10,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:26.986303900","round":11,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:29.152035300","round":12,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:30.839638","round":13,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T18:02:34.090753300","round":14,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:57:42.726191700","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:57:44.435595700","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:57:51.652402600","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:57:53.669383700","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:57:55.182842700","round":5,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:58:00.749472800","round":6,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:58:03.182729700","round":7,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:58:06.304326100","round":8,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:58:08.820300800","round":9,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:58:12.862361400","round":10,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T06:58:16.054928600","round":11,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T07:08:09.779974200","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T07:08:12.188877900","round":2,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T07:08:14.612359100","round":3,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T07:08:17.487998200","round":4,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T07:24:09.209219900","round":1,"model":"gemini","score":100,"hasCritical":false,"decision":"PASS","findingsCount":0,"terminatedByBudget":false,"skipReason":null}
+{"timestamp":"2026-08-08T14:20:31.914534","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":15,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-08T13:41:29.135035200","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":20,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-08T15:27:40.043457100","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":4,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
+{"timestamp":"2026-08-08T17:42:25.242405","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":12,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}

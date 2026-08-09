@@ -1,0 +1,22 @@
+// [씨앗 위반 · PERF_001 · N+1]  — Gate 2(Judge) recall 시연용. 컴파일 대상 아님(.txt).
+// 정답 앵커: 실제 QuizQueryService.getMyQuizzes는 findByMemberIdAndQuizIdIn으로 배치 조회한다("N+1 방지" 주석, :177).
+// 아래는 "만약 이렇게 짰다면" 버전 — 퀴즈마다 제출을 개별 조회 → N+1. 정적분석은 못 잡고, Judge가 잡아야 한다.
+
+public MyQuizList getMyQuizzes(Long memberId, Long courseId) {
+    List<Quiz> quizzes = quizRepository.findAllByCourseId(courseId);
+
+    List<MyQuizList.MyQuizItem> items = quizzes.stream()
+            .map(quiz -> {
+                // ❌ N+1: 루프 안에서 퀴즈 1건당 제출 조회 1쿼리
+                QuizSubmission submission =
+                        quizSubmissionRepository.findByMemberIdAndQuizId(memberId, quiz.getId());
+                return new MyQuizList.MyQuizItem(
+                        quiz.getId(),
+                        quiz.getTitle(),
+                        submission != null,
+                        submission == null ? null : submission.getScore());
+            })
+            .toList();
+
+    return new MyQuizList(courseId, items);
+}
