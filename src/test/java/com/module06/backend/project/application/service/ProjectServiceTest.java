@@ -86,6 +86,7 @@ class ProjectServiceTest {
                 LocalDate.of(2026, 12, 31), List.of(1L, 2L)));
 
         verify(projectTeamOwnershipPolicy).check(List.of(1L, 2L), COMPANY);
+        verify(projectRepository).save(any(Project.class));
         assertThat(created.getTag()).isEqualTo("TAG");
         assertThat(created.getCreatedBy()).isEqualTo(OWNER);
     }
