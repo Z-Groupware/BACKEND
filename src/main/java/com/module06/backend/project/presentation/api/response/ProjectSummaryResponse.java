@@ -7,9 +7,9 @@ import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectStatus;
 
 /* comment.
-    프로젝트 목록 행 응답 DTO. actionCount·completedActionCount·progressPct는 action BC가
-    갖춰진 2026-08-09부로 실집계로 채운다. meetingCount는 여전히 0 고정 — meeting(D) 도메인
-    Port가 아직 없다(TBD, 모성진에게 요청함).
+    프로젝트 목록 행 응답 DTO. actionCount·completedActionCount·progressPct·meetingCount 전부
+    2026-08-09부로 실집계 — meeting(D)이 countMeetingsByProjectIds 배치 계약을 제공하면서
+    meetingCount도 채워진다(취소 회의 제외, MeetingQueryPortDelegatingAdapter 경유).
 */
 public record ProjectSummaryResponse(
         Long id,
@@ -58,7 +58,7 @@ public record ProjectSummaryResponse(
                 project.getTeamIds().size(),
                 item.actionCount(),
                 item.completedActionCount(),
-                0,
+                item.meetingCount(),
                 progressPct
         );
     }
