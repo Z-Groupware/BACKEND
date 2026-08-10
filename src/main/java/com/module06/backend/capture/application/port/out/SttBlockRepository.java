@@ -85,6 +85,63 @@ public interface SttBlockRepository {
                                String providerJobName);
 
     /*
+     * 아직 끝나지 않은 블록(QUEUED·RUNNING)을 폴링 워커에게 준다.
+     *
+     * 회의를 가리지 않는다 — 워커는 특정 회의의 요청을 처리하는 것이 아니라 제출해 둔 잡 전부를
+     * 훑는다. 그래서 회사 관문도 지나지 않는다(사람의 요청이 아니다).
+     *
+     * FAILED 는 담지 않는다. **끝난 상태**이고 사람이 STT-04 를 눌러야 다시 QUEUED 가 된다 —
+     * 워커가 실패한 잡을 계속 물어보면 제공자 호출만 늘고 상태는 안 바뀐다.
+     *
+     * @param limit 한 주기에 볼 최대 건수. 상한이 없으면 밀린 잡이 많을 때 한 주기가 끝나지
+     *              않고, fixedDelay 의 겹침 방어가 의미를 잃는다
+     */
+    List<PendingBlock> findUnfinished(int limit);
+
+    /*
+     * 제공자가 돌리기 시작했다 — QUEUED 인 행만 옮긴다.
+     *
+     * 상태를 조건에 넣는 이유는 markQueuedForRetry 와 같다. 폴링과 재처리가 같은 행을 동시에
+     * 만질 수 있고, 사람이 방금 재처리를 눌러 QUEUED 로 되돌린 행을 워커가 옛 잡의 RUNNING 으로
+     * 덮으면 **새 잡의 결과를 기다리는 자리가 사라진다.**
+     *
+     * @return 내가 옮겼으면 true. false 면 그 사이에 상태가 바뀌었다
+     */
+    boolean markRunning(long blockId);
+
+    /*
+     * 인식이 끝났고 정본까지 적재됐다.
+     *
+     * ⚠ **적재 뒤에만 부른다.** 먼저 닫으면 분석 시작 관문이 통과되고 전사가 빈 회의가 분석에
+     * 들어간다(SttBlockJpaEntity#markDone 주석).
+     *
+     * QUEUED·RUNNING 에서만 옮긴다 — 이미 FAILED 로 닫힌 행을 뒤늦게 DONE 으로 되살리면
+     * 사람이 재처리로 만든 새 잡과 결과가 겹친다.
+     */
+    boolean markDone(long blockId);
+
+    /* 실패로 닫는다. STT-04 의 대상이 된다. QUEUED·RUNNING 에서만 옮긴다. */
+    boolean markFailed(long blockId, String errorCode);
+
+    /*
+     * 폴링이 잡 하나를 되짚는 데 필요한 것만 담는다.
+     *
+     * @param startOffsetMs 회의 기준 블록 시작. 제공자가 주는 오프셋은 블록 기준이라 이 값을
+     *                      더해야 회의 좌표가 된다 — 빠뜨리면 두 번째 블록부터 발화가 회의
+     *                      맨 앞으로 겹쳐 쌓인다
+     */
+    record PendingBlock(
+            long id,
+            long meetingId,
+            int blockSeq,
+            SttBlockStatus status,
+            String provider,
+            String providerJobName,
+            int startOffsetMs
+    ) {
+    }
+
+    /*
      * 블록 하나의 상태. 화면(STT-03)이 쓰는 값 그대로다.
      *
      * @param error      실패 사유 코드. **사용자에게 그대로 노출하지 않는다**(V5.4 주석) —

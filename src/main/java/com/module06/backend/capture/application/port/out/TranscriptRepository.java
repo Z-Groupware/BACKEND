@@ -105,4 +105,30 @@ public interface TranscriptRepository {
      * @return 실제로 이식된 건수. 넘긴 수와 다르면 그 회의에 없는 발화 id 가 섞였다는 뜻이다
      */
     int applySpeakerAttributions(long meetingId, List<Attribution> attributions);
+
+    /*
+     * 블록 하나가 만든 정본을 **통째로 갈아 끼운다**(STT 결과 적재).
+     *
+     * <h2>왜 교체인가 — 재처리가 있다</h2>
+     * STT-04 로 블록을 다시 돌리면 같은 구간의 발화가 새로 온다. 덧붙이면 같은 말이 두 번
+     * 쌓이고, 근거 발화 ID 가 어느 쪽을 가리키는지 알 수 없다. 그래서 그 블록이 만든 행만
+     * 지우고 새로 넣는다 — V5.3 이 stt_block_seq 를 둔 이유가 이 교체 범위다.
+     *
+     * <h2>화자는 지워진다. 그게 맞다</h2>
+     * 교체된 발화의 speaker_member_id 는 사라진다. 텍스트가 바뀌었으면 그 위에 붙어 있던 판정도
+     * 다시 해야 한다 — 옛 판정을 새 문장에 물려주면 근거 없는 화자가 확정으로 남는다.
+     * L1 은 분석 때 다시 돈다.
+     *
+     * <h2>stt_block_seq 가 NULL 인 행은 건드리지 않는다</h2>
+     * 이 경로가 붙기 전에 들어온 발화다. 어느 블록이 만든 것인지 모르는 행을 블록 교체가
+     * 지우면 남의 발화가 사라진다.
+     *
+     * @param utterances 시간순 발화. 오프셋은 **회의 기준**이어야 한다
+     * @return 새로 넣은 행 수
+     */
+    int replaceBlockTranscript(long meetingId, int sttBlockSeq, List<NewUtterance> utterances);
+
+    /* 적재할 발화 하나. 화자는 여기 없다 — 적재 시점에는 아무도 모른다(L1 이 나중에 채운다). */
+    record NewUtterance(int startOffsetMs, int endOffsetMs, String text) {
+    }
 }

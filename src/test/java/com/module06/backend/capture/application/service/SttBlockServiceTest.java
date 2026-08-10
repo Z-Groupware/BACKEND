@@ -240,6 +240,27 @@ class SttBlockServiceTest {
             throw new UnsupportedOperationException("STT-03·04 는 미완 블록 수를 읽지 않는다");
         }
 
+        // ── 폴링 워커의 계약. STT-03·04 는 제출까지고 결과 반영은 워커가 한다 ────────────
+        @Override
+        public List<SttBlockRepository.PendingBlock> findUnfinished(int limit) {
+            throw new UnsupportedOperationException("폴링 대상 조회는 워커의 몫이다");
+        }
+
+        @Override
+        public boolean markRunning(long blockId) {
+            throw new UnsupportedOperationException("RUNNING 전이는 제공자 상태를 본 워커가 한다");
+        }
+
+        @Override
+        public boolean markDone(long blockId) {
+            throw new UnsupportedOperationException("DONE 전이는 정본 적재 뒤에 워커가 한다");
+        }
+
+        @Override
+        public boolean markFailed(long blockId, String errorCode) {
+            throw new UnsupportedOperationException("FAILED 전이는 제공자 상태를 본 워커가 한다");
+        }
+
         @Override
         public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
                                           String providerJobName) {

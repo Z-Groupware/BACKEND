@@ -130,4 +130,46 @@ public class SttBlockJpaEntity {
         this.finishedAt = null;
         return this.retryCount;
     }
+
+    /*
+     * 제공자가 실제로 돌리기 시작했다(폴링이 확인).
+     *
+     * startedAt 을 여기서 찍는다 — 제출 시각이 아니라 **제공자가 잡은 시각**이다. 둘을 섞으면
+     * 큐에서 기다린 시간과 인식에 걸린 시간이 한 값에 뭉쳐, 느린 원인이 우리 쪽인지 제공자
+     * 쪽인지 가를 수 없다.
+     *
+     * 이미 찍혀 있으면 덮지 않는다. 폴링은 같은 블록을 여러 주기 동안 RUNNING 으로 보므로,
+     * 매번 덮으면 startedAt 이 계속 밀려 "방금 시작한 잡"으로 보인다.
+     */
+    public void markRunning(LocalDateTime now) {
+        this.status = SttBlockStatus.RUNNING;
+        if (this.startedAt == null) {
+            this.startedAt = now;
+        }
+    }
+
+    /*
+     * 인식이 끝났고 **정본까지 적재됐다.**
+     *
+     * ⚠ 이 전이는 적재 뒤에만 불러야 한다. 먼저 DONE 으로 닫으면 분석 시작 관문
+     * (AnalysisOrchestrator 의 미완 블록 검사)이 통과되고, 전사가 비어 있는 회의가 분석에
+     * 들어간다 — 그 결과가 "분석 완료"로 기록되는 것이 이 파이프라인에서 가장 위험한 실패다.
+     */
+    public void markDone(LocalDateTime now) {
+        this.status = SttBlockStatus.DONE;
+        this.errorCode = null;
+        this.finishedAt = now;
+    }
+
+    /*
+     * 실패로 닫는다. **STT-04 의 유일한 대상이 된다.**
+     *
+     * errorCode 는 화면이 문구를 고르는 값이고 제공자 메시지를 그대로 넣지 않는다(V5.4 주석) —
+     * 제공자 문자열은 언제든 바뀌고, 바뀌는 문자열에 화면이 붙으면 되돌릴 수 없다.
+     */
+    public void markFailed(String errorCode, LocalDateTime now) {
+        this.status = SttBlockStatus.FAILED;
+        this.errorCode = errorCode;
+        this.finishedAt = now;
+    }
 }

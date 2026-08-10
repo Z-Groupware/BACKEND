@@ -36,9 +36,11 @@ import com.module06.backend.capture.application.port.out.MeetingSummaryRepositor
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.application.port.out.SttBlockRepository.PendingBlock;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.SttBlockView;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
+import com.module06.backend.capture.application.port.out.TranscriptRepository.NewUtterance;
 import com.module06.backend.capture.application.port.out.VerifyTupleResult;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.domain.model.AssigneeSource;
@@ -1477,6 +1479,27 @@ class AnalysisOrchestratorTest {
             return unfinished;
         }
 
+        // ── 폴링 워커의 계약. 오케스트레이터는 블록 상태를 읽지도 바꾸지도 않는다 ──────────
+        @Override
+        public List<PendingBlock> findUnfinished(int limit) {
+            throw new UnsupportedOperationException("오케스트레이터는 폴링 대상을 읽지 않는다");
+        }
+
+        @Override
+        public boolean markRunning(long blockId) {
+            throw new UnsupportedOperationException("블록 상태 전이는 폴링 워커의 몫이다");
+        }
+
+        @Override
+        public boolean markDone(long blockId) {
+            throw new UnsupportedOperationException("블록 상태 전이는 폴링 워커의 몫이다");
+        }
+
+        @Override
+        public boolean markFailed(long blockId, String errorCode) {
+            throw new UnsupportedOperationException("블록 상태 전이는 폴링 워커의 몫이다");
+        }
+
         @Override
         public List<SttBlockView> findByMeeting(long meetingId) {
             throw new UnsupportedOperationException("오케스트레이터는 블록 목록을 읽지 않는다");
@@ -1505,6 +1528,12 @@ class AnalysisOrchestratorTest {
 
         private final List<Utterance> utterances;
         private final List<SpeakerAttributionResolver.Attribution> applied = new ArrayList<>();
+
+        /* STT 적재 경로다. 오케스트레이터는 정본을 읽기만 한다(쓰는 것은 화자 두 컬럼뿐). */
+        @Override
+        public int replaceBlockTranscript(long meetingId, int sttBlockSeq, List<NewUtterance> utterances) {
+            throw new UnsupportedOperationException("정본 적재는 폴링 워커의 몫이다");
+        }
 
         private FakeTranscriptRepository(List<Utterance> utterances) {
             this.utterances = new ArrayList<>(utterances);

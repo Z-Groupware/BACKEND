@@ -1,10 +1,13 @@
 package com.module06.backend.capture.infrastructure.persistence.adapter;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +40,15 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
             EnumSet.of(SttBlockStatus.PENDING, SttBlockStatus.QUEUED, SttBlockStatus.RUNNING);
 
     private final SpringDataSttBlockRepository sttBlockRepository;
+
+    /*
+     * 상태 전이 시각(startedAt · finishedAt)을 찍는다.
+     *
+     * ⚠ 프로젝트 전체에 Clock 빈이 하나뿐이라(MeetingTimeConfiguration#meetingClock, KST)
+     * 타입으로 주입된다 — 캡처 전용 Clock 빈을 새로 만들면 타입 주입이 모호해져 meeting
+     * 도메인이 부팅에서 죽는다(AnalysisLayerPersistenceAdapter 가 같은 이유로 같은 주석을 달았다).
+     */
+    private final Clock clock;
 
     @Override
     @Transactional(readOnly = true)
@@ -97,6 +109,64 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
         SttBlockJpaEntity entity = SttBlockJpaEntity.createQueued(meetingId, blockSeq, startOffsetMs, endOffsetMs,
                 SttCutReason.valueOf(cutReason), audioS3Key, provider, providerJobName);
         return sttBlockRepository.save(entity).getId();
+    }
+
+    /*
+     * 분석 관문(countUnfinished)과 **같은 집합을 쓴다.** 폴링이 볼 블록과 분석을 막는 블록이
+     * 갈리면, 워커가 손대지 않는 상태의 블록 때문에 분석이 영구히 막히거나 그 반대가 된다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingBlock> findUnfinished(int limit) {
+        return sttBlockRepository
+                .findByStatusInOrderByIdAsc(UNFINISHED_STATUSES, PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(entity -> new PendingBlock(
+                        entity.getId(), entity.getMeetingId(), entity.getBlockSeq(),
+                        entity.getStatus(), entity.getProvider(), entity.getProviderJobName(),
+                        entity.getStartOffsetMs()))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public boolean markRunning(long blockId) {
+        return transition(blockId, EnumSet.of(SttBlockStatus.QUEUED),
+                entity -> entity.markRunning(LocalDateTime.now(clock)));
+    }
+
+    @Override
+    @Transactional
+    public boolean markDone(long blockId) {
+        return transition(blockId, EnumSet.of(SttBlockStatus.QUEUED, SttBlockStatus.RUNNING),
+                entity -> entity.markDone(LocalDateTime.now(clock)));
+    }
+
+    @Override
+    @Transactional
+    public boolean markFailed(long blockId, String errorCode) {
+        return transition(blockId, EnumSet.of(SttBlockStatus.QUEUED, SttBlockStatus.RUNNING),
+                entity -> entity.markFailed(errorCode, LocalDateTime.now(clock)));
+    }
+
+    /*
+     * 허용된 상태에서만 옮긴다 — 조건을 조회에 넣어 DB 가 판정한다.
+     *
+     * 진 쪽이 false 를 받는다. 예외로 올리지 않는 이유는 이 경합이 **정상 동작**이기 때문이다 —
+     * 사람이 재처리를 누른 직후 워커가 옛 잡의 결과를 들고 오는 순간이 그것이고, 그때 워커가
+     * 물러나는 것이 맞다.
+     */
+    private boolean transition(long blockId, Set<SttBlockStatus> allowed,
+                               java.util.function.Consumer<SttBlockJpaEntity> write) {
+        Optional<SttBlockJpaEntity> claimed =
+                sttBlockRepository.findWithLockByIdAndStatusIn(blockId, allowed);
+        if (claimed.isEmpty()) {
+            return false;
+        }
+        SttBlockJpaEntity entity = claimed.get();
+        write.accept(entity);
+        sttBlockRepository.save(entity);
+        return true;
     }
 
     private static SttBlockView toView(SttBlockJpaEntity entity) {
