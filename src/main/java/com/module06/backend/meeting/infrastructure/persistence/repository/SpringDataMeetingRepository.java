@@ -63,4 +63,11 @@ public interface SpringDataMeetingRepository
             List<MeetingStatus> statuses,
             LocalDateTime endAt
     );
+
+    /* 10분 전 알림 대상인 예약 회의를 반개구간 시간창과 안정적인 순서로 조회한다. */
+    List<MeetingJpaEntity> findAllByStatusAndStartAtGreaterThanEqualAndStartAtLessThanOrderByStartAtAscIdAsc(
+            MeetingStatus status,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive
+    );
 }
