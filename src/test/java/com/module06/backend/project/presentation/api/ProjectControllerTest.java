@@ -28,6 +28,7 @@ import com.module06.backend.project.application.usecase.CreateProjectUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
+import com.module06.backend.project.application.usecase.GetProjectListUseCase.ProjectListItem;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase.TimelineItem;
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
@@ -67,7 +68,8 @@ class ProjectControllerTest {
               "name": "새 프로젝트",
               "tag": "NEWPJ",
               "description": "설명",
-              "color": "#16A34A",
+              "color": "#059669",
+              "startDate": "2026-08-01",
               "dueDate": "2026-12-31",
               "teamIds": [1, 2]
             }
@@ -140,10 +142,52 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("startDate는 dueDate처럼 생성 시 필수다 — 없으면 400 (2026-08-10, 이홍근 요청)")
+    void createRejectsMissingStartDate() throws Exception {
+        authenticateAs(1L, 3L);
+
+        mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "새 프로젝트",
+                                  "tag": "NEWPJ",
+                                  "description": "설명",
+                                  "color": "#059669",
+                                  "dueDate": "2026-12-31",
+                                  "teamIds": [1, 2]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("색상은 고정 팔레트 11색만 허용한다 — 팔레트 밖 HEX는 생성 자체가 400으로 막힌다")
+    void createRejectsColorOutsidePalette() throws Exception {
+        authenticateAs(1L, 3L);
+
+        mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "새 프로젝트",
+                                  "tag": "NEWPJ",
+                                  "description": "설명",
+                                  "color": "#123456",
+                                  "startDate": "2026-08-01",
+                                  "dueDate": "2026-12-31",
+                                  "teamIds": [1, 2]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("목록도 토큰의 회사로만 조회한다")
     void listTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any())).thenReturn(List.of(project(1L)));
+        when(getProjectListUseCase.list(any())).thenReturn(List.of(
+                new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0, 0, List.of())));
 
         mockMvc.perform(get("/api/projects"))
                 .andExpect(status().isOk());
@@ -200,7 +244,8 @@ class ProjectControllerTest {
                                 {
                                   "name": "수정된 이름",
                                   "description": "수정된 설명",
-                                  "color": "#000000",
+                                  "color": "#4F46E5",
+                                  "startDate": "2026-09-01",
                                   "dueDate": "2027-01-01",
                                   "teamIds": [5]
                                 }
@@ -234,6 +279,25 @@ class ProjectControllerTest {
         assertThat(captor.getValue().requesterId()).isEqualTo(3L);
         assertThat(captor.getValue().items()).containsExactly(
                 new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.DONE));
+    }
+
+    @Test
+    @DisplayName("벌크 상태변경 중 소유자가 아닌 항목이 있으면 예외가 전파된다")
+    void bulkUpdateStatusPropagatesNotOwnerException() throws Exception {
+        authenticateAs(1L, 3L);
+        org.mockito.Mockito.doThrow(new BusinessException(ProjectErrorCode.NOT_PROJECT_OWNER))
+                .when(bulkUpdateProjectStatusUseCase).bulkUpdateStatus(any());
+
+        mockMvc.perform(patch("/api/projects/status/bulk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "items": [
+                                    { "projectId": 1, "status": "DONE" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -274,7 +338,7 @@ class ProjectControllerTest {
     }
 
     private Project project(Long companyId) {
-        return Project.create(companyId, "NEWPJ", "새 프로젝트", "설명", "#16A34A",
-                LocalDate.of(2026, 12, 31), 3L, List.of(1L, 2L));
+        return Project.create(companyId, "NEWPJ", "새 프로젝트", "설명", "#059669",
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), 3L, List.of(1L, 2L));
     }
 }

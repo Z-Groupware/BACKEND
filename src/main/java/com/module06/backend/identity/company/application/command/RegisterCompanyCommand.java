@@ -11,6 +11,9 @@ package com.module06.backend.identity.company.application.command;
  *
  * <p>{@code agreedTerms}·{@code agreedPrivacy} 는 필수, {@code agreedMarketing} 은 선택이다.
  * 화면의 "전체 동의"는 체크박스 편의일 뿐 서버로 오지 않는다.
+ *
+ * <p>{@code address} 는 선택이며 없으면 NULL 이다. 온보딩을 마치기 전에도 회사 주소가 필요한
+ * 화면이 있어 신청 시점에 받아 둔다 — 기업 설정(§4-3)은 오너 로그인 뒤에야 열린다.
  */
 public record RegisterCompanyCommand(
         String companyName,
@@ -18,6 +21,7 @@ public record RegisterCompanyCommand(
         String representativeName,
         String managerEmail,
         String managerPhone,
+        String address,
         String employeeScale,
         String purpose,
         boolean agreedTerms,

@@ -119,6 +119,11 @@ class HandoverInsightFinalizeServiceTest {
             this.handoverId = handoverId;
             this.insights = List.copyOf(insights);
         }
+
+        @Override
+        public List<HandoverInsight> findByHandoverId(Long handoverId) {
+            return insights;
+        }
     }
 
     private static class FakeActionReassignPort implements ActionReassignPort {
@@ -144,6 +149,10 @@ class HandoverInsightFinalizeServiceTest {
 
         @Override
         public void reassign(Long actionId, Long fromMemberId, Long toMemberId) {
+        }
+
+        @Override
+        public void rollbackReassignment(Long actionId, Long fromMemberId, Long toMemberId) {
         }
     }
 

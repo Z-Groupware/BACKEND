@@ -18,6 +18,7 @@ import com.module06.backend.action.application.port.ActionDistributionPort.Actio
 import com.module06.backend.action.application.port.ActionDistributionPort.DistributeActionsCommand;
 import com.module06.backend.action.application.port.ActionDistributionPort.DistributedAction;
 import com.module06.backend.action.domain.model.ActionType;
+import com.module06.backend.capture.application.port.out.AnalysisArtifactRepository;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AnalysisRunRepository;
@@ -798,7 +799,7 @@ class AnalysisOrchestratorTest {
          */
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
-                layers, new FakeRunRepository(), summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
                         // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
@@ -828,7 +829,7 @@ class AnalysisOrchestratorTest {
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
-                layers, new FakeRunRepository(), summaries, tuples, meetingId -> Optional.of(MEETING_DATE),
+                layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions,
                         // meeting.project_id 는 NOT NULL 이라, 비었다는 것은 회의 행을 못 읽은
@@ -1006,6 +1007,88 @@ class AnalysisOrchestratorTest {
 
     // ── 조립 ────────────────────────────────────────────────────────────────────
 
+    // ── ANLZ-02 · 계층 재개 ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("재개하면 앞 계층의 모델을 부르지 않는다 — 재과금이 없다는 것이 이 API 의 전부다")
+    void 재개는_앞_계층을_다시_부르지_않는다() {
+        FakeArtifactRepository artifacts = new FakeArtifactRepository();
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingAiLayerPort ai = confirmingAi();
+
+        // 1) 한 번 끝까지 돈다 — 이때 L1.5·L2 산출물이 V5.20 에 남는다.
+        resumableOrchestrator(summaries, tuples, ai, artifacts, new FakeLayerRepository())
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+        assertThat(ai.resolveCalls).isEqualTo(1);
+        assertThat(ai.segmentCalls).isEqualTo(1);
+
+        // 2) L4 부터 재개한다.
+        AnalysisOutcome outcome = resumableOrchestrator(summaries, tuples, ai, artifacts, new FakeLayerRepository())
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false, LayerName.L4);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        /*
+         * 앞 계층(L1.5·L2)의 호출 수가 그대로다. 하나라도 늘면 재개가 아니라 부분 재실행이고,
+         * 사용자는 응답만 보고는 알 수 없다 — 알게 되는 것은 청구서에서다.
+         */
+        assertThat(ai.resolveCalls).isEqualTo(1);
+        assertThat(ai.segmentCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("되살릴 주제 묶음이 없으면 재개를 멈춘다 — 문맥 없이 부르면 빈 결과가 완료로 기록된다")
+    void 주제를_되살리지_못하면_재개하지_않는다() {
+        // V5.20 이전에 분석된 회의다. 산출물이 비어 있다.
+        FakeArtifactRepository empty = new FakeArtifactRepository();
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        RecordingAiLayerPort ai = confirmingAi();
+
+        AnalysisOutcome outcome = resumableOrchestrator(summaries, tuples, ai, empty, new FakeLayerRepository())
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false, LayerName.L4);
+
+        // 계속 돌면 L4 가 발화 없는 주제로 모델을 부르고, 그 빈 결과가 DONE 으로 남는다.
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
+        assertThat(ai.extractRequests).isEmpty();
+    }
+
+    @Test
+    @DisplayName("재사용 계층 목록은 파이프라인 순서를 따른다 — 응답의 reusedLayers 가 이 값이다")
+    void 재사용_계층_목록은_재개_지점_앞이다() {
+        assertThat(AnalysisOrchestrator.reusedLayersOf(LayerName.L4))
+                .containsExactly(LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5);
+
+        // 처음부터 재개하면 되살릴 앞 계층이 없다.
+        assertThat(AnalysisOrchestrator.reusedLayersOf(LayerName.L1)).isEmpty();
+    }
+
+    /* 게이트가 전부 CONFIRMED 라 L4 까지 실제로 흐르는 AI 가짜. */
+    private static RecordingAiLayerPort confirmingAi() {
+        return new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> decisionIds.stream()
+                        .map(id -> new GateVerdict(id, GateStatus.CONFIRMED, "합의됨"))
+                        .toList());
+    }
+
+    /* 산출물 보관소를 공유해야 재개를 볼 수 있다 — 전체 실행이 남긴 것을 재개가 꺼내 쓴다. */
+    private static AnalysisOrchestrator resumableOrchestrator(FakeSummaryRepository summaries,
+                                                              FakeTupleRepository tuples,
+                                                              RecordingAiLayerPort ai,
+                                                              FakeArtifactRepository artifacts,
+                                                              FakeLayerRepository layers) {
+        return new AnalysisOrchestrator(
+                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                layers, layers.runs != null ? layers.runs : new FakeRunRepository(),
+                summaries, tuples, artifacts, meetingId -> Optional.of(MEETING_DATE),
+                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new TupleDistributionService(tuples, new RecordingDistributionPort(),
+                        meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
+                        new ObjectMapper()),
+                ai, command -> {}, meetingId -> Optional.empty());
+    }
+
     private AnalysisOrchestrator orchestrator(FakeSummaryRepository summaries,
                                               FakeTupleRepository tuples,
                                               RecordingAiLayerPort ai) {
@@ -1054,7 +1137,7 @@ class AnalysisOrchestratorTest {
                  * 같은 행을 보고 순서를 판정한다. 따로 주면 번호를 올려도 잠금이 모른다.
                  */
                 layers.runs != null ? layers.runs : new FakeRunRepository(),
-                summaries, tuples, dates,
+                summaries, tuples, new FakeArtifactRepository(), dates,
                 // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
                 // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
@@ -1078,7 +1161,7 @@ class AnalysisOrchestratorTest {
         return new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeRunRepository(), summaries, tuples,
-                meetingId -> Optional.of(MEETING_DATE),
+                new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, new RecordingDistributionPort(),
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
@@ -1116,6 +1199,7 @@ class AnalysisOrchestratorTest {
         private AiLayerException gateFailure;
 
         private int resolveCalls;
+        private int segmentCalls;
         private List<Utterance> resolveUtterances = List.of();
         private List<Utterance> segmentUtterances = List.of();
         private final List<List<GateCandidate>> gateRequests = new ArrayList<>();
@@ -1149,6 +1233,7 @@ class AnalysisOrchestratorTest {
 
         @Override
         public SegmentTopicsResult segmentTopics(long tenantId, long meetingId, List<Utterance> utterances) {
+            segmentCalls++;
             segmentUtterances = List.copyOf(utterances);
             return new SegmentTopicsResult(
                     List.of(new TopicSegment(1, "제품 로드맵", 1L, 2L, List.of(1L, 2L))), RUN);
@@ -1224,6 +1309,17 @@ class AnalysisOrchestratorTest {
             }
         }
 
+        /* ANLZ-04 조회·수정 경로다 — 오케스트레이터는 지나지 않는다. */
+        @Override
+        public List<ItemView> findItemsInMeeting(long meetingId, List<Long> itemIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public java.time.LocalDateTime applyItemEdits(long meetingId, List<ItemEdit> edits, long editorMemberId) {
+            throw new UnsupportedOperationException();
+        }
+
         @Override
         public int applyGateVerdicts(long meetingId, List<GateVerdict> verdicts) {
             int applied = 0;
@@ -1274,6 +1370,38 @@ class AnalysisOrchestratorTest {
      * 정본 저장소. L1 이 이식한 화자를 기록하고, 이식 후 재조회에서 그 값을 반영해 돌려준다 —
      * 오케스트레이터가 "이식 후 다시 읽는다"를 실제로 하는지 이 가짜가 드러낸다.
      */
+    /*
+     * 계층 산출물 보관소(V5.20). 재개(ANLZ-02)가 되살릴 L1.5·L2 결과를 담는다.
+     *
+     * 실물과 같은 성질을 지킨다 — **저장한 적 없으면 빈 목록**이다(예외가 아니다). V5.20 이전에
+     * 분석된 회의가 그 상태이고, 그걸 예외로 만들면 예전 회의는 재개 자체가 불가능해진다.
+     */
+    private static final class FakeArtifactRepository implements AnalysisArtifactRepository {
+
+        private final Map<Long, List<ResolvedReference>> references = new LinkedHashMap<>();
+        private final Map<Long, List<TopicSegment>> topics = new LinkedHashMap<>();
+
+        @Override
+        public void saveReferences(long meetingId, List<ResolvedReference> value) {
+            references.put(meetingId, value == null ? List.of() : List.copyOf(value));
+        }
+
+        @Override
+        public List<ResolvedReference> findReferences(long meetingId) {
+            return references.getOrDefault(meetingId, List.of());
+        }
+
+        @Override
+        public void saveTopics(long meetingId, List<TopicSegment> value) {
+            topics.put(meetingId, value == null ? List.of() : List.copyOf(value));
+        }
+
+        @Override
+        public List<TopicSegment> findTopics(long meetingId) {
+            return topics.getOrDefault(meetingId, List.of());
+        }
+    }
+
     private static final class FakeTranscriptRepository implements TranscriptRepository {
 
         private final List<Utterance> utterances;
@@ -1291,6 +1419,19 @@ class AnalysisOrchestratorTest {
         /* 이 테스트가 보는 것은 파이프라인이라 근거 검증 경로(RVW-03)는 지나지 않는다. */
         @Override
         public boolean existsInMeeting(long meetingId, long transcriptId) {
+            throw new UnsupportedOperationException();
+        }
+
+        /* ANLZ-05 조회 경로도 마찬가지다 — 파이프라인은 전체 조회(findByMeetingOrderByOffset)만 쓴다. */
+        @Override
+        public List<UtteranceView> findPage(long meetingId,
+                                            com.module06.backend.capture.domain.model.TranscriptCursor cursor,
+                                            int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<UtteranceView> findByMeetingAndIds(long meetingId, List<Long> transcriptIds) {
             throw new UnsupportedOperationException();
         }
 

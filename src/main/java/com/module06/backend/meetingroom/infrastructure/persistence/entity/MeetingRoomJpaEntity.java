@@ -44,10 +44,6 @@ public class MeetingRoomJpaEntity {
     @Column(name = "location", length = 150)
     private String location;
 
-    /* 회의실의 최대 수용 인원이다. */
-    @Column(name = "capacity", nullable = false)
-    private int capacity;
-
     /* 회의실을 이용할 수 있는 하루 중 시작 시각이다. */
     @Column(name = "available_from", nullable = false)
     private LocalTime availableFrom;
@@ -68,7 +64,6 @@ public class MeetingRoomJpaEntity {
      * @param companyId 소속 회사 식별자
      * @param name 회의실 이름
      * @param location 회의실 위치
-     * @param capacity 최대 수용 인원
      * @param availableFrom 이용 가능 시작 시각
      * @param availableTo 이용 가능 종료 시각
      * @param deletedAt 비활성화 시각
@@ -78,7 +73,6 @@ public class MeetingRoomJpaEntity {
             Long companyId,
             String name,
             String location,
-            int capacity,
             LocalTime availableFrom,
             LocalTime availableTo,
             LocalDateTime deletedAt
@@ -88,7 +82,6 @@ public class MeetingRoomJpaEntity {
         this.companyId = companyId;
         this.name = name;
         this.location = location;
-        this.capacity = capacity;
         this.availableFrom = availableFrom;
         this.availableTo = availableTo;
         this.deletedAt = deletedAt;
@@ -102,7 +95,6 @@ public class MeetingRoomJpaEntity {
                 meetingRoom.getCompanyId(),
                 meetingRoom.getName(),
                 meetingRoom.getLocation(),
-                meetingRoom.getCapacity(),
                 meetingRoom.getAvailableFrom(),
                 meetingRoom.getAvailableTo(),
                 meetingRoom.getDeletedAt()

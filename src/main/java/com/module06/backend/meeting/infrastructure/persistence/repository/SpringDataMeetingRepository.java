@@ -32,6 +32,20 @@ public interface SpringDataMeetingRepository
             Long projectId
     );
 
+    /* 프로젝트 목록용 집계를 위해 회사·프로젝트 목록에서 특정 상태가 아닌 프로젝트 ID만 조회한다. */
+    List<ProjectIdProjection> findAllByCompanyIdAndProjectIdInAndStatusNot(
+            Long companyId,
+            List<Long> projectIds,
+            MeetingStatus excludedStatus
+    );
+
+    /* meeting의 큰 표시·시간 컬럼을 메모리에 올리지 않고 집계 키 한 컬럼만 읽는 닫힌 프로젝션이다. */
+    interface ProjectIdProjection {
+
+        /* 집계할 회의의 프로젝트 식별자를 반환한다. */
+        Long getProjectId();
+    }
+
     /* MEET-10 후보 조회 — 요청 회사에서 사용자가 host인 특정 상태 회의를 최근 시작 순으로 읽는다. */
     List<MeetingJpaEntity> findAllByCompanyIdAndHostMemberIdAndStatusOrderByStartAtDescIdDesc(
             Long companyId,

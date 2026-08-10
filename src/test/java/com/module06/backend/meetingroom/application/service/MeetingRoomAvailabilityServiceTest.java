@@ -234,7 +234,7 @@ class MeetingRoomAvailabilityServiceTest {
      */
     private MeetingRoom meetingRoom(Long id, String name, LocalTime availableFrom, LocalTime availableTo) {
         /* 슬롯 계산에 필요한 값만 채우고 비활성화 시각은 비워 활성 회의실로 만든다. */
-        return new MeetingRoom(id, COMPANY_ID, name, "박애관 421호", 8, availableFrom, availableTo, null);
+        return new MeetingRoom(id, COMPANY_ID, name, "박애관 421호", availableFrom, availableTo, null);
     }
 
     /*

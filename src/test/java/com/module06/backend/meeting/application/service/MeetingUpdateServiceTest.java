@@ -389,7 +389,6 @@ class MeetingUpdateServiceTest {
                     meetingRoomId,
                     "회의실 " + meetingRoomId,
                     "박애관",
-                    8,
                     LocalTime.of(9, 0),
                     LocalTime.of(18, 0)
             );

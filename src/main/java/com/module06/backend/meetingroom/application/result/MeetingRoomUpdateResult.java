@@ -11,7 +11,6 @@ public record MeetingRoomUpdateResult(
         Long meetingRoomId,
         String name,
         String location,
-        int capacity,
         LocalTime availableFrom,
         LocalTime availableTo
 ) {
@@ -23,7 +22,6 @@ public record MeetingRoomUpdateResult(
                 meetingRoom.getId(),
                 meetingRoom.getName(),
                 meetingRoom.getLocation(),
-                meetingRoom.getCapacity(),
                 meetingRoom.getAvailableFrom(),
                 meetingRoom.getAvailableTo()
         );

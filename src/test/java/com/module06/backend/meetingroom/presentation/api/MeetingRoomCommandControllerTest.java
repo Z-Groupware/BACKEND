@@ -63,7 +63,6 @@ class MeetingRoomCommandControllerTest {
         CreateMeetingRoomRequest request = new CreateMeetingRoomRequest(
                 "대회의실",
                 "박애관 421호",
-                12,
                 "09:00",
                 "18:00"
         );
@@ -74,7 +73,6 @@ class MeetingRoomCommandControllerTest {
                 10L,
                 "대회의실",
                 "박애관 421호",
-                12,
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0)
         ));
@@ -99,15 +97,14 @@ class MeetingRoomCommandControllerTest {
         assertThat(responseStatus.value()).isEqualTo(HttpStatus.CREATED);
     }
 
-    /* 요청 DTO가 이름·수용 인원·30분 시각 형식을 입구에서 거절하는지 검증한다. */
+    /* 요청 DTO가 이름·30분 시각 형식을 입구에서 거절하는지 검증한다. */
     @Test
     @DisplayName("잘못된 등록 본문을 Bean Validation 단계에서 거절한다")
     void rejectsInvalidRequestBody() {
-        /* 빈 이름, 0명, 30분 경계가 아닌 시각을 가진 요청을 준비한다. */
+        /* 빈 이름과 30분 경계가 아닌 시각을 가진 요청을 준비한다. */
         CreateMeetingRoomRequest request = new CreateMeetingRoomRequest(
                 " ",
                 "박애관 421호",
-                0,
                 "09:10",
                 "18:00"
         );
@@ -116,6 +113,6 @@ class MeetingRoomCommandControllerTest {
         assertThat(validator.validate(request))
                 .extracting(violation -> ((ConstraintViolation<CreateMeetingRoomRequest>) violation)
                         .getPropertyPath().toString())
-                .contains("name", "capacity", "availableFrom");
+                .contains("name", "availableFrom");
     }
 }

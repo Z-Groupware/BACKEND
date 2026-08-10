@@ -22,7 +22,6 @@ public interface MeetingRoomQueryPort {
             Long meetingRoomId,
             String name,
             String location,
-            int capacity,
             LocalTime availableFrom,
             LocalTime availableTo
     ) {

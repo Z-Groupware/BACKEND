@@ -8,6 +8,8 @@ import java.util.Objects;
 
 public class HandoverItem {
 
+    private static final String ROLLBACK_STATUS_ROLLED_BACK = "ROLLED_BACK";
+
     private final Long id;
     private final Long actionId;
     private final String actionTitleSnap;
@@ -84,6 +86,21 @@ public class HandoverItem {
 
     public boolean isReassigned() {
         return reassigneeId != null;
+    }
+
+    public void commit(LocalDateTime at) {
+        if (at == null) {
+            throw new BusinessException(HandoverErrorCode.HO_APPROVED_AT_REQUIRED);
+        }
+        this.committedAt = at;
+    }
+
+    public void markRolledBack() {
+        this.rollbackStatus = ROLLBACK_STATUS_ROLLED_BACK;
+    }
+
+    public boolean isCommitted() {
+        return committedAt != null;
     }
 
     public boolean hasActionId(Long actionId) {

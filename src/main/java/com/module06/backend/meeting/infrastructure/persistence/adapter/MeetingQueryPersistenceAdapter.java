@@ -2,6 +2,7 @@ package com.module06.backend.meeting.infrastructure.persistence.adapter;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,7 +36,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingTopicRepository;
 
 /*
- * RESULT-01과 E 인수인계 연동의 회의 읽기 계약을 JPA로 구현하는 어댑터다.
+ * RESULT-01과 E 인수인계·C 프로젝트 연동의 회의 읽기 계약을 JPA로 구현하는 어댑터다.
  *
  * 모든 회의 조회에 companyId 조건을 포함하고, 참석자는 파생 쿼리의 IN 조회로 일괄 로딩해
  * 타 회사 데이터 노출과 회의별 반복 조회를 방지한다.
@@ -48,6 +49,9 @@ public class MeetingQueryPersistenceAdapter
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
+
+    /* 프로젝트 목록 집계에서 한 번의 IN 조건에 허용하는 최대 프로젝트 식별자 개수다. */
+    private static final int PROJECT_ID_BATCH_SIZE = 200;
 
     /* meeting 테이블에서 회사 범위 회의 행을 조회하는 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -213,6 +217,35 @@ public class MeetingQueryPersistenceAdapter
                 .stream()
                 .map(this::toProjectMeetingSnapshot)
                 .toList();
+    }
+
+    /* 회사 범위에서 여러 프로젝트의 취소되지 않은 회의 수를 배치 단위로 집계한다. */
+    @Override
+    public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+        /* 요청 프로젝트가 없으면 파생 쿼리의 빈 IN 조건을 만들지 않고 빈 집계를 반환한다. */
+        if (projectIds.isEmpty()) {
+            return Map.of();
+        }
+
+        /* 신규 @Query 없이 회사·프로젝트·상태 파생 쿼리 결과를 프로젝트 식별자로 집계한다. */
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (int fromIndex = 0; fromIndex < projectIds.size(); fromIndex += PROJECT_ID_BATCH_SIZE) {
+            /* 현재 배치의 끝 위치가 전체 프로젝트 목록을 넘지 않도록 제한한다. */
+            int toIndex = Math.min(fromIndex + PROJECT_ID_BATCH_SIZE, projectIds.size());
+            List<Long> batchProjectIds = projectIds.subList(fromIndex, toIndex);
+
+            /* CANCELED만 제외해 SCHEDULED·IN_PROGRESS·DONE 회의를 프로젝트별로 누적한다. */
+            springDataMeetingRepository
+                    .findAllByCompanyIdAndProjectIdInAndStatusNot(
+                            companyId,
+                            batchProjectIds,
+                            MeetingStatus.CANCELED
+                    )
+                    .forEach(meeting -> counts.merge(meeting.getProjectId(), 1L, Long::sum));
+        }
+
+        /* 서비스가 요청 프로젝트의 0건 항목을 완성할 수 있도록 실제 존재하는 집계만 반환한다. */
+        return Map.copyOf(counts);
     }
 
     /* 인증 사용자가 참석자로 등록된 예정·진행 중 회의를 현재 이후 기준으로 제한 조회한다. */

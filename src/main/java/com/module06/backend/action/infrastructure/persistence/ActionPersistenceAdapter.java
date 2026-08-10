@@ -200,6 +200,27 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    @Override
+    public List<ActionQueryPort.ProjectActionCount> countActionsByProjectIds(List<Long> projectIds) {
+        if (projectIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, List<SpringDataActionRepository.ProjectActionProjection>> byProjectId =
+                springDataActionRepository.findAllByProjectIdIn(projectIds).stream()
+                        .collect(Collectors.groupingBy(SpringDataActionRepository.ProjectActionProjection::getProjectId));
+
+        return byProjectId.entrySet().stream()
+                .map(entry -> new ActionQueryPort.ProjectActionCount(
+                        entry.getKey(),
+                        entry.getValue().size(),
+                        (int) entry.getValue().stream()
+                                .filter(projection -> projection.getStatus() == ActionStatus.DONE)
+                                .count()
+                ))
+                .toList();
+    }
+
     // MEET-01 회의 예약 시 relatedActionId 검증용 — 단순 위임.
     @Override
     public boolean existsAction(Long companyId, Long actionId) {

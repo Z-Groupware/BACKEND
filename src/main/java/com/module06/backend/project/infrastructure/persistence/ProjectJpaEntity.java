@@ -54,6 +54,10 @@ public class ProjectJpaEntity {
     @Column(name = "status", nullable = false)
     private ProjectStatus status;
 
+    // 진행 시작일 — FE 보드 표시용, 기존 행은 NULL(2026-08-10 신설).
+    @Column(name = "start_date")
+    private LocalDate startDate;
+
     @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
 
@@ -80,6 +84,7 @@ public class ProjectJpaEntity {
             String description,
             String color,
             ProjectStatus status,
+            LocalDate startDate,
             LocalDate dueDate,
             Long createdBy,
             LocalDateTime deletedAt
@@ -91,6 +96,7 @@ public class ProjectJpaEntity {
         this.description = description;
         this.color = color;
         this.status = status;
+        this.startDate = startDate;
         this.dueDate = dueDate;
         this.createdBy = createdBy;
         this.deletedAt = deletedAt;

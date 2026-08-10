@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.command.SubmitCaptionsCommand;
+import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CaptionBroadcastPort;
 import com.module06.backend.cap.domain.model.CaptionChunk;
 import com.module06.backend.cap.domain.repository.CaptionChunkRepository;
@@ -145,8 +146,9 @@ class SubmitCaptionsServiceTest {
             }
         };
         CaptionBroadcastPort broadcastPort = (meetingId, newChunks) -> broadcastChunks.addAll(newChunks);
+        CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, (projectId, teamId) -> false);
 
-        return new SubmitCaptionsService(meetingRef, captionChunkRepository, broadcastPort);
+        return new SubmitCaptionsService(meetingRef, accessGuard, captionChunkRepository, broadcastPort);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

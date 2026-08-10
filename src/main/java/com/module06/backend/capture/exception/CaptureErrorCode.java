@@ -35,6 +35,75 @@ public enum CaptureErrorCode implements ErrorCode {
     MEETING_NOT_ACCESSIBLE(HttpStatus.NOT_FOUND, "MEETING_404_1", "회의를 찾을 수 없습니다."),
 
     /*
+     * ANLZ-05 — 커서를 해석할 수 없다(형식이 깨졌거나 우리가 발행한 것이 아니다).
+     *
+     * 400 이다. 커서는 **우리가 발행해 클라이언트가 그대로 되돌려주는 값**이라, 깨졌다는 것은
+     * 손으로 고쳤거나 다른 API 의 커서를 넣었다는 뜻이다. 조용히 첫 페이지로 되돌리면 훨씬 나빠진다 —
+     * 페이지를 넘기던 화면이 맨 앞으로 돌아가고, 사용자는 발화가 중복돼 보이는 이유를 알 수 없다.
+     */
+    TRANSCRIPT_CURSOR_INVALID(HttpStatus.BAD_REQUEST, "MEETING_400_1", "정본 조회 커서가 올바르지 않습니다."),
+
+    /*
+     * ANLZ-05 — ids 로 한 번에 요청한 발화가 너무 많다.
+     *
+     * 상한이 없으면 ids 가 **커서 페이징을 우회하는 경로**가 된다. 회의 전체 발화 id 를 넣어
+     * 수천 건을 한 응답으로 받아낼 수 있고, 그러면 페이징을 둔 이유가 사라진다.
+     */
+    TRANSCRIPT_IDS_TOO_MANY(HttpStatus.BAD_REQUEST, "MEETING_400_2", "한 번에 조회할 수 있는 발화 수를 넘었습니다."),
+
+    /*
+     * ANLZ-02 — 재개 지점으로 준 계층 이름을 알 수 없다.
+     *
+     * MEETING_4xx 대신 ANLZ- 접두사를 쓴다. 400 번대 번호를 여러 갈래가 동시에 늘리고 있어
+     * (STT·QLTY·ANLZ) 브랜치마다 같은 번호를 집는 충돌이 실제로 났다. 계층 이름은 이 도메인
+     * 안에서만 뜻이 있으므로 도메인 접두사가 맞기도 하다.
+     */
+    RESUME_LAYER_UNKNOWN(HttpStatus.BAD_REQUEST, "ANLZ-003", "재개할 계층 이름이 올바르지 않습니다."),
+
+    /*
+     * ANLZ-02 — 재개 지점 앞의 계층이 아직 끝나지 않았다.
+     *
+     * 409 로 막는 이유 — 되살릴 산출물이 없는 채로 재개하면 그 계층은 **문맥 없이** 모델을
+     * 부른다. 빈 문맥으로 부른 결과는 빈 결과이고, 그게 DONE 으로 기록되면 조회는 "분석 완료"라고
+     * 말한다. 토큰은 토큰대로 쓰고 실패는 감춰지는, 이 파이프라인에서 가장 위험한 조합이다.
+     *
+     * 어느 계층이 비어 있는지 메시지에 담지 않는다 — 그건 CAP-06 이 계층별로 보여주는 것이고,
+     * 여기서 문자열로 흘리면 같은 사실이 두 곳에서 갈린다.
+     */
+    RESUME_PRECEDING_LAYER_NOT_DONE(HttpStatus.CONFLICT, "ANLZ-004",
+            "앞 계층이 끝나지 않아 재개할 수 없습니다."),
+
+    /*
+     * ANLZ-04 — 고칠 항목이 이 회의에 없다(없는 id 도 여기로 온다).
+     *
+     * REVIEW_ACTION_NOT_FOUND 와 같은 이유로 404 다. 관문은 회의까지만 보므로 회의는 내 것인데
+     * itemId 만 남의 것을 넣는 경로가 남는데, 그 시도에 다른 응답을 주면 "그 항목은 존재한다"가
+     * 새어 나간다. 조회가 아니라 **쓰기** 경로라 그냥 통과시키면 남의 회의 요약이 고쳐진다.
+     *
+     * 일부만 반영하고 넘어가지 않는 이유 — 사람은 보낸 것이 다 반영됐다고 믿는데 일부가 조용히
+     * 빠지고, 어느 것이 빠졌는지 응답에 없다.
+     */
+    SUMMARY_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "ANLZ-005", "수정할 요약 항목을 찾을 수 없습니다."),
+
+    /*
+     * ANLZ-04 — 고칠 항목이 하나도 없다.
+     *
+     * 빈 요청을 200 으로 돌려주면 "저장했다"는 응답만 받고 아무것도 바뀌지 않는다. 화면은
+     * 성공으로 읽고 사용자는 자기 수정이 반영됐다고 믿는다.
+     */
+    SUMMARY_EDIT_EMPTY(HttpStatus.BAD_REQUEST, "ANLZ-006", "수정할 항목이 없습니다."),
+
+    /*
+     * ANLZ-04 — 라벨을 JSON 으로 만들지 못했다.
+     *
+     * 빈 라벨로 대신 남기지 않는다. 정답 쌍이 아닌 행이 라벨셋에 섞이면 그걸로 잰 수치가 조용히
+     * 틀어지고, 사람 판정은 다시 만들 수 없다 — QLTY-01 이 gold set 직렬화 실패에서 내린 것과
+     * 같은 판단이다.
+     */
+    SUMMARY_LABEL_SERIALIZATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "ANLZ-007",
+            "요약 수정 라벨을 저장할 수 없습니다."),
+
+    /*
      * 계층 호출이 실패해 분석이 멈췄다.
      *
      * 502 인 이유 — 우리 요청이 잘못된 것이 아니라 뒤에 있는 AI 서버가 응답하지 못한 것이다.
@@ -206,7 +275,52 @@ public enum CaptureErrorCode implements ErrorCode {
      * 참석자를 넣고 다시 누르면 같은 요청이 성립한다.
      */
     VOCABULARY_NO_PHRASES(HttpStatus.CONFLICT, "MEETING_409_10",
-            "어휘에 넣을 참석자 정보가 없습니다.");
+            "어휘에 넣을 참석자 정보가 없습니다."),
+
+    /*
+     * QLTY-01 — 같은 버전을 동시에 등록했다(UNIQUE(meeting_id, version) 충돌).
+     *
+     * 재시도해 다음 버전을 만들지 않는다. 먼저 얼린 쪽이 이 회의의 그 버전이고, 이쪽이 또
+     * 만들면 **같은 라벨의 정답지가 두 벌** 생겨 어느 것으로 잰 수치인지 알 수 없게 된다.
+     */
+    GOLD_SET_ALREADY_FROZEN(HttpStatus.CONFLICT, "MEETING_409_6", "이미 동결된 gold set 입니다."),
+
+    /*
+     * QLTY-01 — 검토가 끝나지 않은 회의를 정답지로 얼리려 했다.
+     *
+     * PENDING 인 액션은 **AI 가 낸 값 그대로**다. 함께 얼리면 모델의 출력이 정답지에 들어가
+     * **자기 자신을 채점하게 된다** — precision 이 실제보다 높게 나오고, 그 숫자로 프롬프트
+     * 개선을 판단하게 된다. 측정 장치가 측정 대상을 베끼는 셈이다.
+     */
+    GOLD_SET_NOT_FULLY_REVIEWED(HttpStatus.CONFLICT, "MEETING_409_11",
+            "검토가 끝나지 않은 회의는 정답지로 동결할 수 없습니다."),
+
+    /*
+     * QLTY-01 — 얼릴 액션이 하나도 없다.
+     *
+     * 빈 정답지는 precision 의 분모를 0 으로 만들어 지표를 못 낸다. 그런데도 동결은 되므로,
+     * 막지 않으면 "정답지 8건" 안에 아무 내용 없는 행이 섞인다.
+     */
+    GOLD_SET_NO_ACTIONS(HttpStatus.CONFLICT, "MEETING_409_12", "정답지로 얼릴 액션이 없습니다."),
+
+    /*
+     * QLTY-01 — 정답 라벨을 JSON 으로 만들지 못했다.
+     *
+     * 여기서 빈 값으로 대체하지 않는다. 라벨이 깨진 정답지는 **정답지가 아니고**, 빈 배열로
+     * 얼리면 그걸로 잰 precision 이 조용히 0 이 된다. 동결은 되돌릴 수 없으므로 차라리 실패한다.
+     */
+    GOLD_SET_LABEL_SERIALIZATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "MEETING_500_1",
+            "정답 라벨을 저장할 수 없습니다."),
+
+    /*
+     * QLTY-03 — period 형식이 YYYY-MM 이 아니다.
+     *
+     * **이번 달로 대신 답하지 않는다.** 사람은 지난달 비용을 물었는데 이번 달 숫자를 받으면,
+     * 그게 어느 달인지 모른 채로 비용을 판단하게 된다 — 이 API 는 특화 모델 전환의 손익분기점을
+     * 계산하는 근거라 달이 어긋나면 결론이 통째로 바뀐다.
+     */
+    QUALITY_PERIOD_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_8",
+            "기간 형식이 올바르지 않습니다(YYYY-MM).");
 
     private final HttpStatus httpStatus;
     private final String code;

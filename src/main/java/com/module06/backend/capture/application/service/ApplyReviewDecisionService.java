@@ -30,6 +30,7 @@ import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCa
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.RejectReason;
 import com.module06.backend.capture.domain.model.ReviewDecision;
+import com.module06.backend.capture.domain.model.ReviewTargetType;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -211,6 +212,7 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         return new ReviewLogEntry(
                 command.companyId(),
                 command.meetingId(),
+                ReviewTargetType.ACTION,
                 target.actionId(),
                 layer,
                 command.decision(),

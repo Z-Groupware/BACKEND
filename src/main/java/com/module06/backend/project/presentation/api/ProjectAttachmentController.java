@@ -21,7 +21,9 @@ import com.module06.backend.project.presentation.api.request.ConfirmAttachmentRe
 import com.module06.backend.project.presentation.api.request.IssueUploadUrlRequest;
 import com.module06.backend.project.presentation.api.response.AttachmentResponse;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -33,8 +35,9 @@ import lombok.RequiredArgsConstructor;
     - POST   /api/projects/{projectId}/attachments/upload-url   업로드 URL 발급
     - POST   /api/projects/{projectId}/attachments/confirm      업로드 확정(메타데이터 저장)
     - DELETE /api/projects/{projectId}/attachments/{attachmentId}  삭제
-    첨부파일 목록 조회는 이 컨트롤러에 없음 — 별도 엔드포인트로 뺄지, 프로젝트 상세 응답에 인라인으로
-    유지할지 아직 미정(08/06 TBD, 사용자 확인 필요).
+    첨부파일 목록 조회는 이 컨트롤러에 없음 — GET /api/projects/{projectId}(ProjectController)의
+    응답에 인라인으로 포함된다(ProjectDetailResponse.attachments). Figma 기획 탭이 첨부파일
+    다운로드 링크를 인라인으로 렌더링하는 것과 일치(확정, 08/09).
 
     회사·요청자를 토큰에서 꺼낸다(ProjectController 와 같은 이유). 헤더(X-Company-Id·X-Member-Id)로
     받던 것을 2026-08-08 에 바로잡았다 — 로그인만 한 사람이 남의 회사 번호를 적어 보내면 서비스의
@@ -49,12 +52,14 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/projects/{projectId}/attachments")
 @RequiredArgsConstructor
+@Tag(name = "Project Attachment", description = "프로젝트 첨부파일 API")
 public class ProjectAttachmentController {
 
     private final IssueAttachmentUploadUrlUseCase issueAttachmentUploadUrlUseCase;
     private final ConfirmAttachmentUseCase confirmAttachmentUseCase;
     private final DeleteAttachmentUseCase deleteAttachmentUseCase;
 
+    @Operation(summary = "업로드 URL 발급", description = "presigned URL 발급 3단계 중 1단계. BE는 바이너리를 받지 않는다.")
     @PostMapping("/upload-url")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<IssuedUploadUrl> issueUploadUrl(
@@ -70,6 +75,7 @@ public class ProjectAttachmentController {
         return ApiResponse.success("업로드 URL이 발급되었습니다.", issuedUploadUrl);
     }
 
+    @Operation(summary = "업로드 확정", description = "FE 직접 업로드 완료 후 메타데이터 저장. 동일 fileUrl 재확정 시 기존 레코드 반환(idempotent).")
     @PostMapping("/confirm")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<AttachmentResponse> confirm(
@@ -92,6 +98,7 @@ public class ProjectAttachmentController {
         return ApiResponse.created("첨부파일이 등록되었습니다.", AttachmentResponse.from(attachment));
     }
 
+    @Operation(summary = "첨부파일 삭제", description = "업로더 본인만 가능.")
     @DeleteMapping("/{attachmentId}")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ApiResponse<Void> delete(

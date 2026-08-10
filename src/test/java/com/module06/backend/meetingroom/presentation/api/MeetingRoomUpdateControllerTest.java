@@ -46,8 +46,7 @@ class MeetingRoomUpdateControllerTest {
             return new MeetingRoomUpdateResult(
                     2L,
                     "회의실 B",
-                    "박애관 422호",
-                    10,
+                    "본관 3층",
                     LocalTime.of(9, 0),
                     LocalTime.of(20, 0)
             );
@@ -58,10 +57,10 @@ class MeetingRoomUpdateControllerTest {
                 UNUSED_DEACTIVATE_USE_CASE
         );
 
-        /* 토큰 principal과 수용 인원·종료 시각만 전달한 PATCH 요청을 준비한다. */
+        /* 토큰 principal과 위치·종료 시각만 전달한 PATCH 요청을 준비한다. */
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "OWNER", true, null);
         UpdateMeetingRoomRequest request = new UpdateMeetingRoomRequest();
-        request.setCapacity(10);
+        request.setLocation("본관 3층");
         request.setAvailableTo("20:00");
 
         /* 2번 회의실 수정 Controller 메서드를 직접 호출한다. */
@@ -71,8 +70,8 @@ class MeetingRoomUpdateControllerTest {
         assertThat(capturedCommand[0].companyId()).isEqualTo(10L);
         assertThat(capturedCommand[0].requesterRole()).isEqualTo("OWNER");
         assertThat(capturedCommand[0].meetingRoomId()).isEqualTo(2L);
-        assertThat(capturedCommand[0].capacityProvided()).isTrue();
-        assertThat(capturedCommand[0].capacity()).isEqualTo(10);
+        assertThat(capturedCommand[0].locationProvided()).isTrue();
+        assertThat(capturedCommand[0].location()).isEqualTo("본관 3층");
         assertThat(capturedCommand[0].availableFromProvided()).isFalse();
         assertThat(capturedCommand[0].availableTo()).isEqualTo(LocalTime.of(20, 0));
 
@@ -80,7 +79,7 @@ class MeetingRoomUpdateControllerTest {
         assertThat(response.getHttpStatus()).isEqualTo(200);
         assertThat(response.getMessage()).isEqualTo("회의실 정보를 수정했습니다.");
         assertThat(response.getData().meetingRoomId()).isEqualTo(2L);
-        assertThat(response.getData().capacity()).isEqualTo(10);
+        assertThat(response.getData().location()).isEqualTo("본관 3층");
         assertThat(response.getData().availableFrom()).isEqualTo("09:00");
         assertThat(response.getData().availableTo()).isEqualTo("20:00");
     }

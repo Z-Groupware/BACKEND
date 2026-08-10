@@ -13,11 +13,13 @@ import com.module06.backend.project.application.command.ConfirmAttachmentCommand
 import com.module06.backend.project.application.command.DeleteAttachmentCommand;
 import com.module06.backend.project.application.command.IssueAttachmentUploadUrlCommand;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedUploadUrl;
 import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -51,6 +53,66 @@ class ProjectAttachmentServiceTest {
 
     @InjectMocks
     private ProjectAttachmentService service;
+
+    @Test
+    void 정상_요청이면_업로드_URL을_발급한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentStoragePort.issueUploadUrl("spec.pdf", 1024L))
+                .thenReturn(new IssuedUploadUrl("https://s3/upload", "https://s3/spec.pdf"));
+
+        IssuedUploadUrl result = service.issueUploadUrl(
+                new IssueAttachmentUploadUrlCommand(COMPANY, PROJECT_ID, "spec.pdf", 1024L));
+
+        assertThat(result.uploadUrl()).isEqualTo("https://s3/upload");
+        assertThat(result.fileUrl()).isEqualTo("https://s3/spec.pdf");
+    }
+
+    @Test
+    void 파일명이_비어있으면_발급을_거부한다() {
+        assertThatThrownBy(() -> service.issueUploadUrl(
+                new IssueAttachmentUploadUrlCommand(COMPANY, PROJECT_ID, " ", 1024L)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(projectRepository, never()).existsActiveByCompanyIdAndId(any(), any());
+    }
+
+    @Test
+    void 파일_크기가_0이하면_발급을_거부한다() {
+        assertThatThrownBy(() -> service.issueUploadUrl(
+                new IssueAttachmentUploadUrlCommand(COMPANY, PROJECT_ID, "spec.pdf", 0L)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(projectRepository, never()).existsActiveByCompanyIdAndId(any(), any());
+    }
+
+    @Test
+    void 신규_파일이면_확정_시_새_첨부를_저장한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, "https://s3/spec.pdf"))
+                .thenReturn(Optional.empty());
+        when(projectAttachmentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProjectAttachment result = service.confirm(new ConfirmAttachmentCommand(
+                PROJECT_ID, COMPANY, "spec.pdf", "https://s3/spec.pdf", 1024L, UPLOADER));
+
+        assertThat(result.getFileName()).isEqualTo("spec.pdf");
+        assertThat(result.getUploadedBy()).isEqualTo(UPLOADER);
+        verify(projectAttachmentRepository).save(any());
+    }
+
+    @Test
+    void 이미_확정된_파일이면_기존_첨부를_그대로_반환한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        ProjectAttachment existing = attachmentOf(PROJECT_ID, UPLOADER);
+        when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, "https://s3/spec.pdf"))
+                .thenReturn(Optional.of(existing));
+
+        ProjectAttachment result = service.confirm(new ConfirmAttachmentCommand(
+                PROJECT_ID, COMPANY, "spec.pdf", "https://s3/spec.pdf", 1024L, UPLOADER));
+
+        assertThat(result).isEqualTo(existing);
+        verify(projectAttachmentRepository, never()).save(any());
+    }
 
     @Test
     void 남의_회사_프로젝트로는_업로드_URL을_뽑지_못한다() {

@@ -44,12 +44,11 @@ class MeetingRoomUpdateServiceTest {
         RecordingReservationRepository reservationRepository = new RecordingReservationRepository(List.of());
         MeetingRoomUpdateService service = service(commandRepository, reservationRepository);
 
-        /* 수용 인원과 종료 시각만 바꾸는 OWNER 요청을 실행한다. */
+        /* 위치와 종료 시각만 바꾸는 OWNER 요청을 실행한다. */
         UpdateMeetingRoomCommand command = command(
                 "OWNER",
                 false, null,
-                false, null,
-                true, 10,
+                true, "본관 3층",
                 false, null,
                 true, LocalTime.of(20, 0)
         );
@@ -58,8 +57,7 @@ class MeetingRoomUpdateServiceTest {
         /* 요청한 두 값은 바뀌고 이름·위치·시작 시각은 기존 상태를 유지해야 한다. */
         assertThat(result.meetingRoomId()).isEqualTo(2L);
         assertThat(result.name()).isEqualTo("회의실 B");
-        assertThat(result.location()).isEqualTo("박애관 422호");
-        assertThat(result.capacity()).isEqualTo(10);
+        assertThat(result.location()).isEqualTo("본관 3층");
         assertThat(result.availableFrom()).isEqualTo(LocalTime.of(9, 0));
         assertThat(result.availableTo()).isEqualTo(LocalTime.of(20, 0));
 
@@ -83,7 +81,6 @@ class MeetingRoomUpdateServiceTest {
                 "ADMIN",
                 false, null,
                 true, null,
-                false, null,
                 false, null,
                 false, null
         );
@@ -111,7 +108,6 @@ class MeetingRoomUpdateServiceTest {
                 false, null,
                 false, null,
                 false, null,
-                false, null,
                 false, null
         );
         assertErrorCode(() -> service.updateMeetingRoom(command), "Z-001");
@@ -128,12 +124,11 @@ class MeetingRoomUpdateServiceTest {
                 new RecordingReservationRepository(List.of())
         );
 
-        /* MEMBER가 수용 인원을 변경하려는 요청은 관리 권한 오류여야 한다. */
+        /* MEMBER가 위치를 변경하려는 요청은 관리 권한 오류여야 한다. */
         UpdateMeetingRoomCommand command = command(
                 "MEMBER",
                 false, null,
-                false, null,
-                true, 10,
+                true, "본관 3층",
                 false, null,
                 false, null
         );
@@ -151,7 +146,7 @@ class MeetingRoomUpdateServiceTest {
         );
 
         /* 정상 형식의 수정 요청이어도 회사 범위에서 회의실을 찾지 못하면 404 계약이어야 한다. */
-        assertErrorCode(() -> service.updateMeetingRoom(capacityCommand("OWNER", 10)), "MR-001");
+        assertErrorCode(() -> service.updateMeetingRoom(locationCommand("OWNER", "본관 3층")), "MR-001");
     }
 
     /* 자기 자신을 제외한 활성 이름 중복이 MR-002인지 검증한다. */
@@ -170,7 +165,6 @@ class MeetingRoomUpdateServiceTest {
         UpdateMeetingRoomCommand command = command(
                 "OWNER",
                 true, " 대회의실 ",
-                false, null,
                 false, null,
                 false, null,
                 false, null
@@ -193,7 +187,6 @@ class MeetingRoomUpdateServiceTest {
         /* 종료 시각만 09:00으로 바꾸면 기존 시작과 같아져 잘못된 최종 범위가 된다. */
         UpdateMeetingRoomCommand command = command(
                 "OWNER",
-                false, null,
                 false, null,
                 false, null,
                 false, null,
@@ -223,7 +216,6 @@ class MeetingRoomUpdateServiceTest {
                 false, null,
                 false, null,
                 false, null,
-                false, null,
                 true, LocalTime.of(17, 0)
         );
         assertErrorCode(() -> service.updateMeetingRoom(command), "MR-006");
@@ -244,14 +236,13 @@ class MeetingRoomUpdateServiceTest {
         return new MeetingRoomUpdateService(commandRepository, reservationRepository, FIXED_CLOCK);
     }
 
-    /* 수용 인원 하나만 바꾸는 정상 형식 명령을 만든다. */
-    private UpdateMeetingRoomCommand capacityCommand(String role, Integer capacity) {
-        /* 공통 식별자와 전달된 역할·수용 인원을 PATCH 명령으로 구성한다. */
+    /* 위치 하나만 바꾸는 정상 형식 명령을 만든다. */
+    private UpdateMeetingRoomCommand locationCommand(String role, String location) {
+        /* 공통 식별자와 전달된 역할·위치를 PATCH 명령으로 구성한다. */
         return command(
                 role,
                 false, null,
-                false, null,
-                true, capacity,
+                true, location,
                 false, null,
                 false, null
         );
@@ -264,8 +255,6 @@ class MeetingRoomUpdateServiceTest {
             String name,
             boolean locationProvided,
             String location,
-            boolean capacityProvided,
-            Integer capacity,
             boolean availableFromProvided,
             LocalTime availableFrom,
             boolean availableToProvided,
@@ -280,8 +269,6 @@ class MeetingRoomUpdateServiceTest {
                 name,
                 locationProvided,
                 location,
-                capacityProvided,
-                capacity,
                 availableFromProvided,
                 availableFrom,
                 availableToProvided,
@@ -297,7 +284,6 @@ class MeetingRoomUpdateServiceTest {
                 10L,
                 "회의실 B",
                 "박애관 422호",
-                8,
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0),
                 null
