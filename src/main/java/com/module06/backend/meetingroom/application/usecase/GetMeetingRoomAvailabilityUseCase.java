@@ -12,10 +12,10 @@ import com.module06.backend.meetingroom.application.result.MeetingRoomAvailabili
 public interface GetMeetingRoomAvailabilityUseCase {
 
     /*
-     * 특정 날짜의 회의실별 30분 슬롯 예약 현황을 조회한다.
+     * 단일 회의실의 월요일부터 금요일까지 30분 슬롯 예약 현황을 조회한다.
      *
-     * @param query 회사·구성원 식별자와 조회 날짜, 회의실 필터를 담은 조회 조건
-     * @return 회의실별 슬롯 현황 조회 결과
+     * @param query 회사·구성원 식별자와 선택 기준일, 필수 회의실 식별자를 담은 조회 조건
+     * @return 단일 회의실 주간 슬롯 현황 조회 결과
      */
     MeetingRoomAvailability getMeetingRoomAvailability(MeetingRoomAvailabilityQuery query);
 }

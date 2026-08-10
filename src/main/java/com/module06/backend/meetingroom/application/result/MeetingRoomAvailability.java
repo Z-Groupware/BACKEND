@@ -6,26 +6,30 @@ import java.util.List;
 /*
  * ROOM-02 회의실 예약 현황 조회 결과 전체를 표현하는 애플리케이션 결과 객체다.
  *
- * 화면의 시간표 그리드 전체가 이 결과 하나로 그려지므로
- * 회의실 목록과 예약 상태를 별도 응답으로 나누지 않는다.
+ * 단일 회의실의 월요일부터 금요일까지 시간표를 한 번에 그릴 수 있도록
+ * 주간 범위, 회의실 정보, 날짜별 슬롯 현황을 함께 제공한다.
  *
- * @param date 조회한 날짜
+ * @param weekStart 조회 주의 월요일
+ * @param weekEnd 조회 주의 금요일
  * @param slotMinutes 슬롯 하나의 길이(분)
- * @param meetingRooms 회의실별 슬롯 현황 목록
+ * @param meetingRoom 조회 대상 회의실 정보
+ * @param days 월요일부터 금요일까지 날짜별 슬롯 현황
  */
 public record MeetingRoomAvailability(
-        LocalDate date,
+        LocalDate weekStart,
+        LocalDate weekEnd,
         int slotMinutes,
-        List<MeetingRoomAvailabilitySummary> meetingRooms
+        MeetingRoomAvailabilitySummary meetingRoom,
+        List<MeetingRoomDayAvailability> days
 ) {
 
     /*
-     * 회의실 목록을 불변으로 복사해 결과 생성 이후 변경되지 않도록 보호한다.
+     * 날짜별 현황 목록을 불변으로 복사해 결과 생성 이후 변경되지 않도록 보호한다.
      *
-     * @param meetingRooms 회의실별 슬롯 현황 목록
+     * @param days 월요일부터 금요일까지 날짜별 슬롯 현황
      */
     public MeetingRoomAvailability {
-        /* 조회 결과가 0건이어도 null이 아닌 빈 목록을 유지해 응답이 항상 배열로 직렬화되게 한다. */
-        meetingRooms = List.copyOf(meetingRooms);
+        /* 주간 결과가 외부에서 변경되지 않도록 5일 목록의 불변 복사본을 보관한다. */
+        days = List.copyOf(days);
     }
 }
