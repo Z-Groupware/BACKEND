@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.port.out;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.RejectReason;
 import com.module06.backend.capture.domain.model.ReviewDecision;
+import com.module06.backend.capture.domain.model.ReviewTargetType;
 
 /*
  * 사람 라벨 로그(review_log · V5.9)를 남긴다. **특화 모델의 유일한 연료다.**
@@ -38,7 +39,16 @@ public interface ReviewLogRepository {
     record ReviewLogEntry(
             long companyId,
             long meetingId,
-            long actionId,
+            /*
+             * 무엇에 대한 라벨인가. ACTION=action.id / SUMMARY_ITEM=meeting_decision.id (V5.9).
+             *
+             * 예전에는 필드가 {@code actionId} 하나뿐이어서 액션 라벨만 남길 수 있었다.
+             * ANLZ-04(요약 수정)가 붙으면서 넓혔다 — **요약도 라벨이다**(명세 처리 정책).
+             * 둘을 한 표에 담는 이유는 채점·few-shot 조회가 같은 질의를 쓰기 때문이고,
+             * 섞이지 않는 것은 조회 쪽이 target_type 으로 가른다(QualityMetricsJdbcAdapter).
+             */
+            ReviewTargetType targetType,
+            long targetId,
             LayerName layer,
             ReviewDecision decision,
             RejectReason rejectReason,

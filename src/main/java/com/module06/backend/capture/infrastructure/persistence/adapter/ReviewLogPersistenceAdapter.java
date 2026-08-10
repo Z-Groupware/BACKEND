@@ -29,10 +29,10 @@ public class ReviewLogPersistenceAdapter implements ReviewLogRepository {
         ReviewLogJpaEntity saved = reviewLogRepository.save(ReviewLogJpaEntity.of(
                 entry.companyId(),
                 entry.meetingId(),
-                // 이 어댑터는 액션 라벨만 남긴다. 요약 항목(SUMMARY_ITEM)은 ANLZ-04 가
-                // 자기 경로로 남기고, 그쪽은 사유 코드 규칙이 다르다(V5.9 CHECK 주석).
-                ReviewTargetType.ACTION,
-                entry.actionId(),
+                // 액션(RVW-02)과 요약 항목(ANLZ-04)이 같은 표를 쓴다. 사유 코드 규칙만
+                // 다르고(V5.9 CHECK), 그 판정은 부르는 쪽이 이미 마쳤다.
+                entry.targetType(),
+                entry.targetId(),
                 // enum 이름이 아니라 전송값이다 — "L1_5" 를 저장하면 파이썬 쪽 "L1.5" 와 갈린다.
                 entry.layer().wireValue(),
                 entry.decision(),

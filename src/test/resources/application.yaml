@@ -57,3 +57,8 @@ cap:
   captions:
     sse:
       enabled: false
+
+# ── 알림 SSE Redis pub/sub — 위와 동일한 이유로 테스트에서 끈다.
+notification:
+  sse:
+    enabled: false

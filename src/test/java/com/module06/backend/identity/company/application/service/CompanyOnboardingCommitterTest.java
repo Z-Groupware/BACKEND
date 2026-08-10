@@ -301,6 +301,11 @@ class CompanyOnboardingCommitterTest {
         }
 
         @Override
+        public Optional<Team> findByLeaderMemberId(Long leaderMemberId) {
+            return Optional.empty();
+        }
+
+        @Override
         public Team create(Long companyId, String name) {
             long id = nextId++;
             createdIds.add(id);
