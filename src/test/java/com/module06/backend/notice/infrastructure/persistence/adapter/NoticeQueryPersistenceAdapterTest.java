@@ -102,6 +102,39 @@ class NoticeQueryPersistenceAdapterTest {
         assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L)).isEmpty();
     }
 
+    /* 공지 상세 조회가 회사·활성 조건을 모두 적용하는지 검증한다. */
+    @Test
+    @DisplayName("같은 회사의 활성 공지만 상세 조회한다")
+    void findsNoticeDetailOnlyInsideCompanyScope() {
+        /* 같은 회사의 활성·삭제 공지와 다른 회사의 활성 공지를 각각 저장한다. */
+        NoticeJpaEntity active = springDataNoticeRepository.saveAndFlush(
+                notice(10L, "활성 공지", null)
+        );
+        NoticeJpaEntity deleted = springDataNoticeRepository.saveAndFlush(
+                notice(10L, "삭제 공지", LocalDateTime.of(2026, 8, 9, 12, 0))
+        );
+        NoticeJpaEntity otherCompany = springDataNoticeRepository.saveAndFlush(
+                notice(20L, "다른 회사 공지", null)
+        );
+
+        /* 같은 회사의 활성 공지는 제목·본문을 포함한 상세 스냅샷으로 조회돼야 한다. */
+        assertThat(noticeQueryRepository.findActiveNotice(10L, active.getId()))
+                .isPresent()
+                .get()
+                .satisfies(notice -> {
+                    /* 상세 응답 원본의 식별자·제목·본문이 저장값과 일치해야 한다. */
+                    assertThat(notice.noticeId()).isEqualTo(active.getId());
+                    assertThat(notice.title()).isEqualTo("활성 공지");
+                    assertThat(notice.content()).isEqualTo("활성 공지 본문");
+                    assertThat(notice.updatedAt()).isNull();
+                });
+
+        /* 삭제 공지와 다른 회사 공지는 존재 여부를 구분하지 않고 빈 결과로 숨겨야 한다. */
+        assertThat(noticeQueryRepository.findActiveNotice(10L, deleted.getId())).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNotice(10L, otherCompany.getId())).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNotice(10L, 999_999L)).isEmpty();
+    }
+
     /* 영속성 테스트에 사용할 신규 또는 삭제 공지 엔티티를 만든다. */
     private NoticeJpaEntity notice(Long companyId, String title, LocalDateTime deletedAt) {
         /* 생성 시각은 Hibernate가 채우고 삭제 여부만 테스트 조건에 맞춰 복원한다. */
