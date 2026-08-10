@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -117,7 +118,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     @Override
     public Handover finalize(Long handoverId, Long approverId, String approverName, LocalDateTime finalizedAt) {
         Handover handover = findHandover(handoverId);
-        handover.finalizeApproval(approverId, approverName, finalizedAt);
+        handover.finalizeApproval(approverId, approverName, finalizedAt, isLeaderOffboarding(handover));
         if (handover.getHandoverType() == HandoverType.VACATION) {
             memberStatusPort().toVacation(handover.getWriterMemberId());
         } else {
@@ -128,6 +129,14 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                     new FinalizeHandoverInsightsCommand(handoverId, handover.getWriterMemberId()));
         }
         return handoverRepository.save(handover);
+    }
+
+    private boolean isLeaderOffboarding(Handover handover) {
+        if (handover.getHandoverType() != HandoverType.OFFBOARDING) {
+            return false;
+        }
+        Long teamLeaderId = orgQueryPort().findTeamLeaderId(handover.getTeamId());
+        return Objects.equals(teamLeaderId, handover.getWriterMemberId());
     }
 
     @Override

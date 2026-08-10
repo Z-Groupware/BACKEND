@@ -262,6 +262,41 @@ class HandoverServiceTest {
     }
 
     @Test
+    void finalizeLeaderOffboardingDirectlyFromSubmittedOffboardsWriterAndFinalizesInsights() {
+        Handover handover = submittedOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(WRITER);
+
+        Handover saved = handoverService.finalize(HANDOVER_ID, LEADER, "Owner", NOW);
+
+        assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
+        assertThat(saved.getFinalApproverId()).isEqualTo(LEADER);
+        assertThat(saved.getFinalApproverNameSnap()).isEqualTo("Owner");
+        verify(memberStatusPort).offboard(WRITER);
+        verify(memberStatusPort, never()).toVacation(WRITER);
+        verify(finalizeHandoverInsightsUseCase)
+                .finalizeInsights(new FinalizeHandoverInsightsCommand(HANDOVER_ID, WRITER));
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+    }
+
+    @Test
+    void finalizeRegularMemberOffboardingFromSubmittedStillRequiresReassignedStatus() {
+        Handover handover = submittedOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
+
+        assertThatThrownBy(() -> handoverService.finalize(HANDOVER_ID, LEADER, "Owner", NOW))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_FINALIZE_NOT_ALLOWED));
+
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
+        verifyNoInteractions(memberStatusPort);
+        verifyNoInteractions(finalizeHandoverInsightsUseCase);
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
     void rejectStoresReasonAndRestoresWriterActive() {
         Handover handover = submittedWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
@@ -314,6 +349,13 @@ class HandoverServiceTest {
     private static Handover submittedWithOneItem() {
         return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.SUBMITTED,
                 START, END, null, "Kim", "Manager", null, null, null, null, null,
+                null, null, null,
+                List.of(item(100L)));
+    }
+
+    private static Handover submittedOffboardingWithOneItem() {
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.OFFBOARDING, HandoverStatus.SUBMITTED,
+                null, null, LAST_WORKING_DAY, "Kim", "Manager", null, null, null, null, null,
                 null, null, null,
                 List.of(item(100L)));
     }

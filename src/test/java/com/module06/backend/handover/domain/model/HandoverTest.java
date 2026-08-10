@@ -119,6 +119,27 @@ class HandoverTest {
     }
 
     @Test
+    void finalizeAllowsDirectSubmittedOffboardingOnlyWhenFlagged() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, List.of(item(100L)));
+
+        handover.finalizeApproval(9L, "Owner", NOW, true);
+
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
+        assertThat(handover.getFinalApproverId()).isEqualTo(9L);
+        assertThat(handover.getFinalApproverNameSnap()).isEqualTo("Owner");
+    }
+
+    @Test
+    void finalizeDoesNotAllowDirectSubmittedVacationEvenWhenFlagged() {
+        Handover handover = Handover.createVacation(WRITER, TEAM, "Kim", "Manager", START, END, List.of());
+
+        assertThatThrownBy(() -> handover.finalizeApproval(9L, "Owner", NOW, true))
+                .isInstanceOf(BusinessException.class);
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
+    }
+
+    @Test
     void rejectRequiresReasonAndCannotRejectFinalized() {
         Handover handover = Handover.createVacation(WRITER, TEAM, "Kim", "Manager", START, END, List.of());
 
