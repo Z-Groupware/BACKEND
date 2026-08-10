@@ -1,5 +1,6 @@
 package com.module06.backend.handover.application.service;
 
+import com.module06.backend.handover.application.command.AttributeHandoverToLeaderCommand;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
@@ -297,6 +298,53 @@ class HandoverServiceTest {
     }
 
     @Test
+    void attributeToNewLeaderAssignsAllItemsToNewLeaderAndCommitsActionReassign() {
+        Handover handover = finalizedLeaderOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Leader"));
+
+        Handover saved = handoverService.attributeToNewLeader(
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, NOW));
+
+        assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
+        assertThat(saved.isPendingAttribution()).isFalse();
+        assertThat(saved.getItems()).singleElement().satisfies(item -> {
+            assertThat(item.getReassigneeId()).isEqualTo(TARGET);
+            assertThat(item.getReassigneeNameSnap()).isEqualTo("Lee");
+            assertThat(item.isCommitted()).isTrue();
+        });
+        verify(actionReassignPort).reassign(100L, WRITER, TARGET);
+        verify(handoverRepository).save(handover);
+    }
+
+    @Test
+    void attributeToNewLeaderRejectedWhenNotPendingAttribution() {
+        Handover handover = submittedOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Leader"));
+
+        assertThatThrownBy(() -> handoverService.attributeToNewLeader(
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, NOW)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ATTRIBUTE_NOT_ALLOWED));
+
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void attributeToNewLeaderRejectsMissingNewLeaderId() {
+        assertThatThrownBy(() -> handoverService.attributeToNewLeader(
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, null, NOW)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ATTRIBUTE_COMMAND_INVALID));
+
+        verify(handoverRepository, never()).findById(any());
+    }
+
+    @Test
     void rejectStoresReasonAndRestoresWriterActive() {
         Handover handover = submittedWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
@@ -357,6 +405,13 @@ class HandoverServiceTest {
         return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.OFFBOARDING, HandoverStatus.SUBMITTED,
                 null, null, LAST_WORKING_DAY, "Kim", "Manager", null, null, null, null, null,
                 null, null, null,
+                List.of(item(100L)));
+    }
+
+    private static Handover finalizedLeaderOffboardingWithOneItem() {
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.OFFBOARDING, HandoverStatus.FINALIZED,
+                null, null, LAST_WORKING_DAY, "Kim", "Manager", null, null, null, null, NOW,
+                LEADER, "Owner", null,
                 List.of(item(100L)));
     }
 

@@ -1,5 +1,6 @@
 package com.module06.backend.handover.application.service;
 
+import com.module06.backend.handover.application.command.AttributeHandoverToLeaderCommand;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
@@ -7,6 +8,7 @@ import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
 import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.AttributeHandoverToLeaderUseCase;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
@@ -35,7 +37,8 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class HandoverService implements CreateHandoverUseCase, ReassignHandoverItemUseCase,
-        CompleteHandoverUseCase, FinalizeHandoverUseCase, RejectHandoverUseCase {
+        CompleteHandoverUseCase, FinalizeHandoverUseCase, RejectHandoverUseCase,
+        AttributeHandoverToLeaderUseCase {
 
     private final HandoverRepository handoverRepository;
     private final ActionReassignPort actionReassignPort;
@@ -129,6 +132,27 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             finalizeHandoverInsightsUseCase.finalizeInsights(
                     new FinalizeHandoverInsightsCommand(handoverId, handover.getWriterMemberId()));
         }
+        return handoverRepository.save(handover);
+    }
+
+    @Override
+    public Handover attributeToNewLeader(AttributeHandoverToLeaderCommand command) {
+        if (command == null || command.newLeaderId() == null) {
+            throw new BusinessException(HandoverErrorCode.HO_ATTRIBUTE_COMMAND_INVALID);
+        }
+        Handover handover = findHandover(command.handoverId());
+        OrgQueryPort.MemberSnapshot newLeader = orgQueryPort().findMember(command.newLeaderId());
+        // 상태·불변식 검증을 먼저 통과시킨다 — 귀속 대기가 아니면 여기서 예외로 끝나 액션 커밋 부수효과가 없다.
+        handover.attributeToNewLeader(command.newLeaderId(), newLeader.name(), newLeader.position(),
+                command.attributedAt());
+        // 항목 스냅샷을 채운 뒤, 액션(C) 도메인의 실제 소유권을 퇴사 팀장 → 신규 팀장으로 커밋. complete()와 동일 패턴.
+        handover.getItems().stream()
+                .filter(HandoverItem::isReassignRequired)
+                .forEach(item -> actionReassignPort().reassign(
+                        item.getActionId(),
+                        handover.getWriterMemberId(),
+                        command.newLeaderId()
+                ));
         return handoverRepository.save(handover);
     }
 

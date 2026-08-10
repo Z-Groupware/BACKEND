@@ -4,6 +4,7 @@ import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.AttributeHandoverToLeaderUseCase;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
@@ -11,11 +12,13 @@ import com.module06.backend.handover.application.usecase.GetHandoverInsightsUseC
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverUseCase;
+import com.module06.backend.handover.application.usecase.GetPendingAttributionListUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverStatus;
+import com.module06.backend.handover.presentation.api.dto.request.AttributeToLeaderRequest;
 import com.module06.backend.handover.presentation.api.dto.request.CreateHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRequest;
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
@@ -55,6 +58,8 @@ public class HandoverController {
     private final GetHandoverUseCase getHandoverUseCase;
     private final GetHandoverPackageUseCase getHandoverPackageUseCase;
     private final GetHandoverInsightsUseCase getHandoverInsightsUseCase;
+    private final GetPendingAttributionListUseCase getPendingAttributionListUseCase;
+    private final AttributeHandoverToLeaderUseCase attributeHandoverToLeaderUseCase;
     private final OrgQueryPort orgQueryPort;
 
     public HandoverController(CreateHandoverUseCase createHandoverUseCase,
@@ -66,6 +71,8 @@ public class HandoverController {
                               GetHandoverUseCase getHandoverUseCase,
                               GetHandoverPackageUseCase getHandoverPackageUseCase,
                               GetHandoverInsightsUseCase getHandoverInsightsUseCase,
+                              GetPendingAttributionListUseCase getPendingAttributionListUseCase,
+                              AttributeHandoverToLeaderUseCase attributeHandoverToLeaderUseCase,
                               OrgQueryPort orgQueryPort) {
         this.createHandoverUseCase = createHandoverUseCase;
         this.reassignHandoverItemUseCase = reassignHandoverItemUseCase;
@@ -76,6 +83,8 @@ public class HandoverController {
         this.getHandoverUseCase = getHandoverUseCase;
         this.getHandoverPackageUseCase = getHandoverPackageUseCase;
         this.getHandoverInsightsUseCase = getHandoverInsightsUseCase;
+        this.getPendingAttributionListUseCase = getPendingAttributionListUseCase;
+        this.attributeHandoverToLeaderUseCase = attributeHandoverToLeaderUseCase;
         this.orgQueryPort = orgQueryPort;
     }
 
@@ -104,6 +113,25 @@ public class HandoverController {
             return GetHandoverListUseCase.HandoverListQuery.team(principal.teamId(), status);
         }
         return GetHandoverListUseCase.HandoverListQuery.self(principal.memberId(), status);
+    }
+
+    /*
+     * 귀속 대기 목록 = 팀장 오프보딩이 후임 없이 finalize돼 액션이 아직 새 팀장에게 귀속되지 않은 건들.
+     * 오너·어드민 전용(회사 전체). companyId는 클라이언트가 못 정하고 토큰에서 온다.
+     * 리터럴 경로라 /{id}(Long 변환) 매핑보다 우선한다.
+     */
+    @GetMapping("/pending-attribution")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ApiResponse<List<HandoverSummaryResponse>> pendingAttribution(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal) {
+        if (principal == null || principal.companyId() == null) {
+            throw new BusinessException(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED);
+        }
+        List<HandoverSummaryResponse> data = getPendingAttributionListUseCase
+                .listPendingAttribution(principal.companyId()).stream()
+                .map(HandoverSummaryResponse::from)
+                .toList();
+        return ApiResponse.success("귀속 대기 인수인계 목록을 조회했습니다.", data);
     }
 
     // 상세 = PDF용 전 필드. 스코프 게이트(assertCanRead)로 본인/자기팀/회사 밖 접근을 코드 레벨에서 막는다.
@@ -187,6 +215,19 @@ public class HandoverController {
         OrgQueryPort.MemberSnapshot approver = orgQueryPort.findMember(memberId);
         Handover handover = finalizeHandoverUseCase.finalize(id, memberId, approver.name(), LocalDateTime.now());
         return ApiResponse.success("Handover finalized.", HandoverResponse.from(handover));
+    }
+
+    /*
+     * 귀속 대기 인수인계의 액션 전부를 신규 팀장 1명에게 일괄 이관 — 오너·어드민만.
+     * 건별 reassign(팀장 DnD용)을 항목 수만큼 반복하는 대신 한 번에 확정한다.
+     */
+    @PatchMapping("/{id}/attribute-to-leader")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ApiResponse<HandoverResponse> attributeToLeader(@PathVariable Long id,
+                                                           @Valid @RequestBody AttributeToLeaderRequest request) {
+        Handover handover = attributeHandoverToLeaderUseCase.attributeToNewLeader(
+                request.toCommand(id, LocalDateTime.now()));
+        return ApiResponse.success("신규 팀장에게 인수인계 액션을 일괄 이관했습니다.", HandoverResponse.from(handover));
     }
 
     // 반려는 승인 라인(팀장·오너·어드민)만.
