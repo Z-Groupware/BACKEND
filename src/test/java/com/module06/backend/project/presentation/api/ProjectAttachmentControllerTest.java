@@ -19,10 +19,13 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.project.application.command.ConfirmAttachmentCommand;
 import com.module06.backend.project.application.command.DeleteAttachmentCommand;
+import com.module06.backend.project.application.command.IssueAttachmentDownloadUrlCommand;
 import com.module06.backend.project.application.command.IssueAttachmentUploadUrlCommand;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedUploadUrl;
 import com.module06.backend.project.application.usecase.ConfirmAttachmentUseCase;
 import com.module06.backend.project.application.usecase.DeleteAttachmentUseCase;
+import com.module06.backend.project.application.usecase.IssueAttachmentDownloadUrlUseCase;
 import com.module06.backend.project.application.usecase.IssueAttachmentUploadUrlUseCase;
 import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.exception.ProjectErrorCode;
@@ -33,6 +36,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,6 +56,9 @@ class ProjectAttachmentControllerTest {
 
     @MockitoBean
     private IssueAttachmentUploadUrlUseCase issueAttachmentUploadUrlUseCase;
+
+    @MockitoBean
+    private IssueAttachmentDownloadUrlUseCase issueAttachmentDownloadUrlUseCase;
 
     @MockitoBean
     private ConfirmAttachmentUseCase confirmAttachmentUseCase;
@@ -111,6 +118,37 @@ class ProjectAttachmentControllerTest {
     }
 
     @Test
+    @DisplayName("다운로드 URL 발급은 전 구성원 공개 — 업로더가 아니어도 응답을 받는다")
+    void issueDownloadUrlIsOpenToAllMembers() throws Exception {
+        authenticateAs(1L, 3L, "MEMBER");
+        when(issueAttachmentDownloadUrlUseCase.issueDownloadUrl(any()))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        mockMvc.perform(get("/api/projects/100/attachments/10/download-url"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.downloadUrl").value("https://s3/get"))
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(300));
+
+        ArgumentCaptor<IssueAttachmentDownloadUrlCommand> captor =
+                ArgumentCaptor.forClass(IssueAttachmentDownloadUrlCommand.class);
+        verify(issueAttachmentDownloadUrlUseCase).issueDownloadUrl(captor.capture());
+        assertThat(captor.getValue().companyId()).isEqualTo(1L);
+        assertThat(captor.getValue().projectId()).isEqualTo(100L);
+        assertThat(captor.getValue().attachmentId()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 첨부의 다운로드 URL 요청은 404다")
+    void issueDownloadUrlPropagatesNotFoundException() throws Exception {
+        authenticateAs(1L, 3L);
+        doThrow(new BusinessException(ProjectErrorCode.ATTACHMENT_NOT_FOUND))
+                .when(issueAttachmentDownloadUrlUseCase).issueDownloadUrl(any());
+
+        mockMvc.perform(get("/api/projects/100/attachments/10/download-url"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("삭제는 토큰의 memberId를 requesterId로 쓴다")
     void deleteTakesRequesterFromToken() throws Exception {
         authenticateAs(1L, 3L);
@@ -151,7 +189,11 @@ class ProjectAttachmentControllerTest {
     }
 
     private void authenticateAs(Long companyId, Long memberId) {
-        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, "OWNER", false, null);
+        authenticateAs(companyId, memberId, "OWNER");
+    }
+
+    private void authenticateAs(Long companyId, Long memberId, String role) {
+        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, role, false, null);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }
