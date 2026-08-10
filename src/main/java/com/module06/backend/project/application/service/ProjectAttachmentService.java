@@ -42,6 +42,12 @@ public class ProjectAttachmentService implements
         if (command.fileName() == null || command.fileName().isBlank()) {
             throw new IllegalArgumentException("fileName은 비어있을 수 없습니다.");
         }
+        // 2026-08-10, CodeRabbit(#313) 지적 — 검증 안 된 fileName이 그대로 s3Key에 들어가면
+        // "report..pdf" 같은 이름이 키에 ".."를 심어, 정상 발급된 자기 키인데도 confirm의
+        // requireOwnAttachmentKey가 경로 조작으로 오판해 거부한다(자기 자신을 걸러내는 오탐).
+        if (command.fileName().contains("..")) {
+            throw new IllegalArgumentException("fileName에 '..'를 포함할 수 없습니다.");
+        }
         if (command.fileSize() <= 0) {
             throw new IllegalArgumentException("fileSize는 0보다 커야 합니다.");
         }

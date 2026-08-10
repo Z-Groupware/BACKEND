@@ -96,6 +96,17 @@ class ProjectAttachmentServiceTest {
     }
 
     @Test
+    void 파일명에_경로_조작이_있으면_발급을_거부한다() {
+        // CodeRabbit(#313) 지적 — 검증 안 된 fileName이 s3Key에 그대로 들어가면 "report..pdf"
+        // 같은 이름이 나중에 confirm의 requireOwnAttachmentKey를 자기 자신에 대해 오탐시킨다.
+        assertThatThrownBy(() -> service.issueUploadUrl(
+                new IssueAttachmentUploadUrlCommand(COMPANY, PROJECT_ID, "report..pdf", 1024L)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(projectRepository, never()).existsActiveByCompanyIdAndId(any(), any());
+    }
+
+    @Test
     void 신규_파일이면_확정_시_새_첨부를_저장한다() {
         when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
         when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, KEY))
