@@ -1,7 +1,9 @@
 package com.module06.backend.capture.infrastructure.persistence.adapter;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.domain.model.SttBlockStatus;
+import com.module06.backend.capture.domain.model.SttCutReason;
 import com.module06.backend.capture.infrastructure.persistence.entity.SttBlockJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataSttBlockRepository;
 
@@ -24,6 +27,14 @@ import com.module06.backend.capture.infrastructure.persistence.repository.Spring
 @Repository
 @RequiredArgsConstructor
 public class SttBlockPersistenceAdapter implements SttBlockRepository {
+
+    /*
+     * "아직 결과가 안 나온" 상태들 — 이 목록이 어댑터에 있는 이유는 SttBlockStatus 의 의미를
+     * 아는 쪽이 여기이기 때문이다. 상태를 하나 추가하면 **여기도 같이 봐야 한다** — 빠뜨리면
+     * 새 상태의 블록이 "끝난 것"으로 세어져 분석이 전사 도중에 시작된다.
+     */
+    private static final Set<SttBlockStatus> UNFINISHED_STATUSES =
+            EnumSet.of(SttBlockStatus.PENDING, SttBlockStatus.QUEUED, SttBlockStatus.RUNNING);
 
     private final SpringDataSttBlockRepository sttBlockRepository;
 
@@ -40,6 +51,12 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
     public Optional<SttBlockView> findOne(long meetingId, int blockSeq) {
         return sttBlockRepository.findByMeetingIdAndBlockSeq(meetingId, blockSeq)
                 .map(SttBlockPersistenceAdapter::toView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public int countUnfinished(long meetingId) {
+        return sttBlockRepository.countByMeetingIdAndStatusIn(meetingId, UNFINISHED_STATUSES);
     }
 
     /*
@@ -71,6 +88,15 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
         entity.markQueuedForRetry(provider, providerJobName);
         sttBlockRepository.save(entity);
         return true;
+    }
+
+    @Override
+    @Transactional
+    public long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                             String cutReason, String audioS3Key, String provider, String providerJobName) {
+        SttBlockJpaEntity entity = SttBlockJpaEntity.createQueued(meetingId, blockSeq, startOffsetMs, endOffsetMs,
+                SttCutReason.valueOf(cutReason), audioS3Key, provider, providerJobName);
+        return sttBlockRepository.save(entity).getId();
     }
 
     private static SttBlockView toView(SttBlockJpaEntity entity) {

@@ -16,6 +16,11 @@ public interface SpringDataRecordingPartRepository extends JpaRepository<Recordi
         Integer getSeq();
     }
 
+    // 블록 오디오 조립(ffmpeg)용 — 실제 s3Key·content_type이 필요해 전체 컬럼을 읽는다.
+    // QUERY_002 준수 — 파생 쿼리(Between)로 표현.
+    List<RecordingPartJpaEntity> findByMeetingIdAndSegmentSeqAndSeqBetweenOrderBySeqAsc(
+            Long meetingId, Integer segmentSeq, Integer fromSeq, Integer toSeq);
+
     // 이 회의의 잔여 청크 조각 삭제(하드 삭제) — 파생 삭제 쿼리(QUERY_002 준수). 트랜잭션 안에서 호출.
     void deleteByMeetingId(Long meetingId);
 }

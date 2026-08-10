@@ -108,14 +108,17 @@ class MemberControllerTest {
     }
 
     @Test
-    @DisplayName("목록 응답 키 — totalCount·page·size·content[], 행에 role 과 roleLabel 이 따로 있다")
+    @DisplayName("목록 응답 키 — totalElements·totalPages·hasNext·page·size·content[], 행에 role 과 roleLabel 이 따로 있다")
     void listResponseKeys() throws Exception {
         authenticateAs(1L);
         when(getMembersUseCase.getMembers(anyLong(), any(), any(), anyInt(), anyInt())).thenReturn(page());
 
         mockMvc.perform(get("/api/members"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalCount").value(1))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false))
+                .andExpect(jsonPath("$.data.totalCount").doesNotExist())
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.content[0].memberId").value(3))
@@ -268,7 +271,7 @@ class MemberControllerTest {
     /* ── 픽스처 ────────────────────────────────────────────────────────────── */
 
     private static MemberPage page() {
-        return new MemberPage(1L, 0, 20, List.of(
+        return MemberPage.of(1L, 0, 20, List.of(
                 new MemberListItem(3L, "이하윤", "개발팀", "선임",
                         Authority.MEMBER, false, "프론트엔드",
                         MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10))));

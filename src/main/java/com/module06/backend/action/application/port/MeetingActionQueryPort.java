@@ -35,4 +35,19 @@ public interface MeetingActionQueryPort {
     // undispatchedCount는 항상 1 이상이다(위 계약 참고).
     record MeetingUndispatchedActions(Long sourceMeetingId, long undispatchedCount) {
     }
+
+    // 2026-08-10, 모성진(D) 요청 — 회의 목록 화면 카드의 "N분 · 액션 N건" 표시용. 위와 달리
+    // 분배(dispatched_at)·검토(review_status) 조건 없이 그 회의에서 나온 액션 전체 개수다.
+    // companyId 또는 sourceMeetingIds가 null이거나 비면 조회 없이 List.of().
+    //
+    // 크기 제한 없음 — findMeetingsWithUndispatchedActions와 같은 이유로 청킹은 구현체
+    // 내부 관심사다.
+    //
+    // actionCount >= 1인 회의만 담는다(groupingBy(counting())라 0건 회의는 키 자체가 안
+    // 생긴다) — 화면에 "액션 0건"을 찍으려면 호출자가 없는 회의를 0으로 채워야 한다.
+    List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> sourceMeetingIds);
+
+    // actionCount는 항상 1 이상이다(위 계약 참고).
+    record MeetingActionCount(Long sourceMeetingId, long actionCount) {
+    }
 }

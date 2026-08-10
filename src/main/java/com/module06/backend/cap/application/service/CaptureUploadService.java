@@ -9,11 +9,14 @@ import com.module06.backend.cap.application.usecase.CompletePartUploadUseCase;
 import com.module06.backend.cap.application.usecase.IssuePartUploadUrlsUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
+import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepository;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,23 +31,33 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final CaptureHeartbeatPort captureHeartbeatPort;
+    // 10분/40청크 블록 카운터가 일시정지 구간을 세지 않도록(명세) — 청크 완료 통보 시점에 D의
+    // capture_session이 PAUSED인지 확인한다.
+    private final CapCaptureSessionReferenceRepository captureSessionReferenceRepository;
     // completePartUpload의 실제 DB 쓰기(청크·상태 저장)만 짧은 트랜잭션으로 묶는 별도 협력자
     // (CodeRabbit 지적 — S3 HEAD 호출을 트랜잭션 밖에 두려고 분리). CaptureUploadService 자신을
     // this.xxx()로 불렀다면 @Transactional이 프록시를 못 거쳐 안 걸렸을 것이라, 별도 빈으로 뽑았다.
     private final CompletePartUploadWriter completePartUploadWriter;
+    // 10분/40청크 자동 블록 트리거(비동기, best-effort) — 이 호출은 즉시 반환하고 실제 파이프라인은
+    // 별도 스레드 풀에서 돈다.
+    private final SttBlockCutTrigger sttBlockCutTrigger;
 
     public CaptureUploadService(MeetingReferenceRepository meetingReferenceRepository,
                                 CapMeetingAccessGuard accessGuard,
                                 CaptureUploadStateRepository captureUploadStateRepository,
                                 CapObjectStoragePort capObjectStoragePort,
                                 CaptureHeartbeatPort captureHeartbeatPort,
-                                CompletePartUploadWriter completePartUploadWriter) {
+                                CapCaptureSessionReferenceRepository captureSessionReferenceRepository,
+                                CompletePartUploadWriter completePartUploadWriter,
+                                SttBlockCutTrigger sttBlockCutTrigger) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.capObjectStoragePort = capObjectStoragePort;
         this.captureHeartbeatPort = captureHeartbeatPort;
+        this.captureSessionReferenceRepository = captureSessionReferenceRepository;
         this.completePartUploadWriter = completePartUploadWriter;
+        this.sttBlockCutTrigger = sttBlockCutTrigger;
     }
 
     // 회의 존재 확인 → 참석자 확인 → 녹음자 배정/검증 → 하트비트 갱신 → presigned URL count개 발급
@@ -64,8 +77,25 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         // 이미 녹음자가 있는 상태에서 다른 사람이 호출하면, 하트비트가 끊긴 경우(canTakeover)에만 교체 허용.
         boolean canTakeover = !captureHeartbeatPort.isAlive(command.meetingId());
+
+        // 세그먼트가 실제로 바뀌기 전에(이어받기 성립 시) 이전 세그먼트 값을 미리 붙잡아둔다 —
+        // assignOrVerifyRecorder가 세그먼트를 올리고 나면 이 값은 사라진다.
+        boolean willChangeSegment = state.willChangeSegment(command.callerId(), canTakeover);
+        int oldSegmentSeq = state.getSegmentSeq();
+        int oldLastSeq = state.getLastSeq();
+        int oldBlocksFormed = state.getBlocksFormed();
+        long oldLastBlockEndOffsetMs = state.getLastBlockEndOffsetMs();
+
         state.assignOrVerifyRecorder(command.callerId(), canTakeover);
         CaptureUploadState saved = captureUploadStateRepository.save(state);
+
+        // 커밋 후에만 트리거한다 — 커밋 전에 부르면 (1) TAIL 마무리가 실패해도 세그먼트 전환
+        // 자체는 이미 커밋된 상태와 어긋나고 (2) 아직 커밋 안 된 새 세그먼트 값을 다른 트랜잭션이
+        // 먼저 볼 수 없어야 한다(SubmitCaptionsService.broadcastAfterCommit와 동일 원칙).
+        if (willChangeSegment) {
+            finalizeTailBlockAfterCommit(companyId, command.meetingId(), oldSegmentSeq, oldLastSeq,
+                    oldBlocksFormed, oldLastBlockEndOffsetMs);
+        }
 
         // presign도 녹음자의 살아있음 신호다 — 여기서 하트비트를 세워두지 않으면 첫 배정 직후
         // (아직 complete 전) 두 번째 호출자의 isAlive가 false로 떠서 즉시 takeover가 열린다.
@@ -97,6 +127,13 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
                 .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
 
         requireAttendee(command.meetingId(), command.callerId());
+
+        // 일시정지 중엔 청크를 받지 않는다 — 10분/40청크 블록 카운터가 청크 개수 기준이라
+        // 일시정지 중엔 자연히 안 늘지만, 서버가 그걸 강제하는 코드는 없었다(클라이언트를
+        // 신뢰하는 것뿐). 방어선을 하나 둔다: 일시정지 중 통보는 거부하고 상태를 바꾸지 않는다.
+        if (captureSessionReferenceRepository.isPaused(command.meetingId())) {
+            throw new BusinessException(CapErrorCode.CAP_CAPTURE_PAUSED);
+        }
 
         // capture_upload_state가 없다는 건 presign이 한 번도 호출 안 됐다는 뜻 — 즉 아무도 아직
         // 녹음자로 배정 안 됐으므로, 이 caller도 당연히 "현재 녹음자"가 아니다.
@@ -131,9 +168,26 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         // recording_part.content_type(NOT NULL)을 채운다 — 확장자에서 역산(webm→audio/webm, mp4→audio/mp4).
         completePartUploadWriter.write(state, expectedKey, contentTypeForExtension(extension), command);
 
-        // TODO: 10분(40청크) 누적 시 블록 조립 베스트에포트 트리거.
-        // 이태연 capture/STT 도메인(develop의 V5.x·stt_block)과 연동해야 하나, 조립 트리거 배선은
-        // 이번 PR 범위 밖 — 포트 계약을 이태연과 맞춘 뒤 별도로 배선 예정.
+        // 10분(40청크) 누적 시 블록 자동 트리거(비동기, best-effort) — 이 메서드는 여기서 즉시 반환한다.
+        sttBlockCutTrigger.triggerIfThresholdReached(companyId, command.meetingId());
+    }
+
+    // SubmitCaptionsService.broadcastAfterCommit와 동일 패턴 — 트랜잭션 동기화가 없는 컨텍스트
+    // (순수 단위 테스트)에서는 즉시 호출로 대체한다.
+    private void finalizeTailBlockAfterCommit(Long companyId, Long meetingId, int oldSegmentSeq, int oldLastSeq,
+                                              int oldBlocksFormed, long oldLastBlockEndOffsetMs) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            sttBlockCutTrigger.finalizeTailBlockOnSegmentChange(companyId, meetingId, oldSegmentSeq, oldLastSeq,
+                    oldBlocksFormed, oldLastBlockEndOffsetMs);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                sttBlockCutTrigger.finalizeTailBlockOnSegmentChange(companyId, meetingId, oldSegmentSeq, oldLastSeq,
+                        oldBlocksFormed, oldLastBlockEndOffsetMs);
+            }
+        });
     }
 
     // 회의 참석자 명단에 없으면 CAP_NOT_ATTENDEE(403). presign/complete는 참석자만 호출 가능.

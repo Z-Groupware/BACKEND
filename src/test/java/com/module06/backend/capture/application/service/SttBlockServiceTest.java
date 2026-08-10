@@ -234,6 +234,12 @@ class SttBlockServiceTest {
             return blocks.stream().filter(block -> block.blockSeq() == blockSeq).findFirst();
         }
 
+        /* 분석 시작 관문이 쓰는 값이다 — 이 서비스(STT-03·04)는 부르지 않는다. */
+        @Override
+        public int countUnfinished(long meetingId) {
+            throw new UnsupportedOperationException("STT-03·04 는 미완 블록 수를 읽지 않는다");
+        }
+
         @Override
         public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
                                           String providerJobName) {
@@ -243,6 +249,12 @@ class SttBlockServiceTest {
             }
             savedJobName = providerJobName;
             return true;
+        }
+
+        @Override
+        public long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                                 String cutReason, String audioS3Key, String provider, String providerJobName) {
+            throw new UnsupportedOperationException("이 테스트는 STT-03/04만 다룬다 — 자동 생성은 대상 밖.");
         }
     }
 

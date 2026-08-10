@@ -1,5 +1,7 @@
 package com.module06.backend.capture.application.port.out;
 
+import java.util.List;
+
 /*
  * "이 회의가 그 회사 것인가"를 묻는 포트다.
  *
@@ -25,4 +27,35 @@ public interface MeetingAccessPort {
      * 회의 개수를 셀 수 있다.
      */
     boolean existsInCompany(long companyId, long meetingId);
+
+    /*
+     * 그 회사 것만 남긴다(배치).
+     *
+     * <h2>왜 던지지 않고 걸러내는가</h2>
+     * 단건 경로는 관문이 404 를 던진다 — 사용자가 그 회의 하나를 열려고 한 것이기 때문이다.
+     * 배치는 다르다. 마이페이지가 자기 회의 목록을 보내는데 그중 하나가 남의 회사 것이면
+     * (D 쪽 버그이거나 회의가 옮겨진 경우) 던지면 **카드 전체가 사라진다.** 남의 것을 조용히
+     * 빼고 나머지를 답하는 것이 화면을 살리는 쪽이고, 유출도 막는다.
+     *
+     * <h2>왜 default 인가 — 이 포트는 람다로 쓰인다</h2>
+     * 검증 하나만 있는 포트라 테스트 20여 곳이 {@code (companyId, meetingId) -> true} 로 넘긴다.
+     * 추상 메서드를 하나 더 두면 그 전부가 익명 클래스로 바뀌어야 하고, 이 변경과 관계없는
+     * 파일이 스무 개 흔들린다. 그래서 **뜻이 같은 기본 구현**을 둔다 — 단건 검증을 반복하는
+     * 것과 결과가 다르지 않다.
+     *
+     * ⚠ 기본 구현은 id 수만큼 쿼리를 던진다. 실제 어댑터는 **IN 절 하나로 재정의한다**
+     * (MeetingAccessJdbcAdapter). 새 구현체를 만들 때 재정의를 빠뜨리면 조용히 N 번 나간다.
+     *
+     * @return 입력 순서를 보장하지 않는다. 호출자가 id 로 다시 맞춘다
+     */
+    default List<Long> filterInCompany(long companyId, List<Long> meetingIds) {
+        if (meetingIds == null || meetingIds.isEmpty()) {
+            return List.of();
+        }
+        return meetingIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .filter(meetingId -> existsInCompany(companyId, meetingId))
+                .toList();
+    }
 }

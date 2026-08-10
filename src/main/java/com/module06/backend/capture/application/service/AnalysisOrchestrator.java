@@ -40,6 +40,7 @@ import com.module06.backend.capture.application.port.out.MeetingSummaryRepositor
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository.TopicView;
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
+import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.port.out.VerifyTupleResult;
@@ -177,7 +178,19 @@ public class AnalysisOrchestrator {
         return PIPELINE.contains(layer);
     }
 
+    /*
+     * 파이프라인 순서 그대로의 계층 목록이다.
+     *
+     * 재개 지점을 **자동으로 고를 때** 쓴다(ANLZ-02 에 계층을 안 보낸 경우). 순서가 있어야
+     * "실패한 첫 계층"이 정해지고, LayerName 의 enum 선언 순서에 기대면 계층을 하나 끼워
+     * 넣을 때 조용히 어긋난다 — 순서를 아는 것은 이 목록 하나여야 한다.
+     */
+    public static List<LayerName> pipelineLayers() {
+        return PIPELINE;
+    }
+
     private final TranscriptRepository transcriptRepository;
+    private final SttBlockRepository sttBlockRepository;
     private final CaptionRepository captionRepository;
     private final AnalysisLayerRepository analysisLayerRepository;
     private final AnalysisRunRepository analysisRunRepository;
@@ -247,6 +260,43 @@ public class AnalysisOrchestrator {
         if (resumeFrom == null && !force && isFullyAnalyzed(meetingId)) {
             log.info("분석 생략 — 이미 완료된 회의다. meetingId={}", meetingId);
             return AnalysisOutcome.skipped("이미 분석이 완료된 회의입니다.");
+        }
+
+        /*
+         * 받아쓰기가 끝나기 전에는 돌지 않는다.
+         *
+         * <h2>왜 발화 0건 검사로는 부족한가</h2>
+         * 아래 검사는 **전사가 하나도 없는** 회의만 걸러낸다. 그런데 블록은 회의 중에 10분마다
+         * 하나씩 제출되고 제공자 응답도 하나씩 돌아오므로, 회의가 끝난 직후에는 **일부 블록만
+         * 전사된 상태**가 정상이다. 그때 발화는 0건이 아니라서 이 파이프라인이 그대로 돈다 —
+         * 앞부분만 있는 정본으로 주제를 나누고 요약하고 담당자를 뽑은 뒤, 그 결과가
+         * **"분석 완료"로 기록된다.** 뒷부분에서 나온 할 일은 어디에도 없고 아무도 그 사실을
+         * 모른다. 이 파이프라인에서 가장 위험한 실패 방향(클래스 주석)이 정확히 이 모양이다.
+         *
+         * <h2>MEET-08 이 붙은 뒤에 실제로 일어나는 순서다</h2>
+         * 회의 종료 이벤트는 DONE 커밋 직후에 발행되고 MeetingCompletedAnalysisTrigger 가
+         * 바로 분석을 시작한다. 마지막 블록은 그 시점에 막 제출됐을 뿐이라 QUEUED 다.
+         * 즉 이 관문이 없으면 **자동 경로는 거의 항상 전사가 덜 된 회의를 분석한다.**
+         *
+         * <h2>지금은 아무것도 바뀌지 않는다 — 그래서 지금 넣는다</h2>
+         * SttJobStubAdapter 가 로그만 남기는 동안 transcript_chunk 는 비어 있어, 이 회의들은
+         * 어차피 아래 발화 0건에서 걸린다. 관문이 실제로 일하는 것은 Transcribe 제출·콜백이
+         * 붙는 순간이고, 그때 이걸 같이 넣으려면 "왜 앞부분만 요약됐지"를 아무도 모르는
+         * 상태에서 디버깅하게 된다(SttGapRepository 가 같은 이유로 먼저 들어와 있다).
+         *
+         * force 는 지나간다. 제공자 장애로 블록이 QUEUED 에 갇혔을 때 사람이 있는 것만으로라도
+         * 돌려볼 수 있어야 하고, 그 판단은 재과금을 감수하는 것과 같은 종류다(위 검사와 같은 규칙).
+         * 재개(resumeFrom)도 지나간다 — 이미 한 번 분석이 시작된 회의이고, STT-04 로 블록 하나를
+         * 다시 돌리는 중이면 그 회복 경로 자체가 여기서 막힌다.
+         */
+        if (resumeFrom == null && !force) {
+            int unfinished = sttBlockRepository.countUnfinished(meetingId);
+            if (unfinished > 0) {
+                log.info("분석 생략 — 받아쓰기가 아직 끝나지 않았다. meetingId={} 미완블록={}",
+                        meetingId, unfinished);
+                return AnalysisOutcome.skipped(
+                        "받아쓰기가 끝나지 않아 분석을 시작하지 않았습니다. 남은 블록 " + unfinished + "개.");
+            }
         }
 
         /*

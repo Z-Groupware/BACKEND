@@ -18,6 +18,7 @@ import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverActionStatus;
 import com.module06.backend.handover.domain.model.HandoverItem;
+import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.model.HandoverType;
 import com.module06.backend.handover.domain.repository.HandoverRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -117,7 +119,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     @Override
     public Handover finalize(Long handoverId, Long approverId, String approverName, LocalDateTime finalizedAt) {
         Handover handover = findHandover(handoverId);
-        handover.finalizeApproval(approverId, approverName, finalizedAt);
+        handover.finalizeApproval(approverId, approverName, finalizedAt, isLeaderOffboarding(handover));
         if (handover.getHandoverType() == HandoverType.VACATION) {
             memberStatusPort().toVacation(handover.getWriterMemberId());
         } else {
@@ -128,6 +130,18 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                     new FinalizeHandoverInsightsCommand(handoverId, handover.getWriterMemberId()));
         }
         return handoverRepository.save(handover);
+    }
+
+    private boolean isLeaderOffboarding(Handover handover) {
+        if (handover.getHandoverType() != HandoverType.OFFBOARDING
+                || handover.getStatus() != HandoverStatus.SUBMITTED) {
+            // REASSIGNED 오프보딩(complete 거친 일반 사원 경로)은 직행과 무관하다.
+            // 여기서 org 조회를 타면 기존에 조직 조회 없이 되던 finalize가 OrgQueryPort
+            // 부재·조회 실패에 새로 묶인다 — SUBMITTED에서만 팀장 판정한다.
+            return false;
+        }
+        Long teamLeaderId = orgQueryPort().findTeamLeaderId(handover.getTeamId());
+        return Objects.equals(teamLeaderId, handover.getWriterMemberId());
     }
 
     @Override

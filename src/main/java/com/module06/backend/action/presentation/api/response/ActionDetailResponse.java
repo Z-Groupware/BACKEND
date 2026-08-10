@@ -17,6 +17,9 @@ import com.module06.backend.action.domain.model.ActionStatus;
     2026-08-06 결정 당시엔 "미착수라 나중에 채울 수도 있으니 필드는 남긴다"였지만, 이제 영구
     스코프 아웃이라 그 전제가 사라졌다.
 
+    startDate는 이미 있던 컬럼(V2.6.7)을 노출만 추가한 것(2026-08-10, 이홍근 요청) — 프로젝트
+    쪽 startDate(PR #292)와 같은 성격의 표시용 값이다. TODO 상태면 null이 정상이다.
+
     연결된 클래스
     - ActionController      : 이 DTO를 내보내는 진입점
     - ActionService          : 이 DTO를 만드는 구현체
@@ -27,6 +30,7 @@ public record ActionDetailResponse(
         String title,
         String description,
         ActionStatus status,
+        LocalDate startDate,
         LocalDate dueDate,
         boolean needsReview,
         String assigneeName,
@@ -47,6 +51,7 @@ public record ActionDetailResponse(
                 action.getTitle(),
                 action.getDescription(),
                 action.getStatus(),
+                action.getStartDate(),
                 action.getDueDate(),
                 action.getReviewStatus() == ActionReviewStatus.PENDING,
                 detail.assigneeName(),

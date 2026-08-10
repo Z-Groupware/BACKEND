@@ -5,7 +5,9 @@ import java.util.List;
 import com.module06.backend.identity.member.application.dto.MemberPage;
 
 public record MemberPageResponse(
-        long totalCount,
+        long totalElements,
+        int totalPages,
+        boolean hasNext,
         int page,
         int size,
         List<MemberListItemResponse> content
@@ -15,6 +17,7 @@ public record MemberPageResponse(
         List<MemberListItemResponse> content = page.content().stream()
                 .map(MemberListItemResponse::from)
                 .toList();
-        return new MemberPageResponse(page.totalCount(), page.page(), page.size(), content);
+        return new MemberPageResponse(page.totalElements(), page.totalPages(), page.hasNext(),
+                page.page(), page.size(), content);
     }
 }

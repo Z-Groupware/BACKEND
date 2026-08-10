@@ -21,11 +21,15 @@ import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseC
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
+import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -52,6 +56,9 @@ class TeamActionControllerTest {
     @MockitoBean
     private GetTeamActionTimelineUseCase getTeamActionTimelineUseCase;
 
+    @MockitoBean
+    private IssueTeamActionAttachmentDownloadUrlUseCase issueTeamActionAttachmentDownloadUrlUseCase;
+
     @AfterEach
     void clearAuthentication() {
         SecurityContextHolder.clearContext();
@@ -61,13 +68,14 @@ class TeamActionControllerTest {
     @DisplayName("목록은 LEADER 권한이면 토큰의 teamId로 조회한다")
     void listUsesTeamIdFromTokenWhenLeader() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "LEADER");
-        when(getTeamActionsUseCase.getTeamActions(TEAM))
-                .thenReturn(List.of(new TeamActionListItem(teamAction(), "GOODS", "개발팀")));
+        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
+                        List.of(new TeamActionListItem(teamAction(), "GOODS", "개발팀")), 1L));
 
         mockMvc.perform(get("/api/team/actions"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].projectTag").value("GOODS"))
-                .andExpect(jsonPath("$.data[0].teamName").value("개발팀"));
+                .andExpect(jsonPath("$.data.content[0].projectTag").value("GOODS"))
+                .andExpect(jsonPath("$.data.content[0].teamName").value("개발팀"));
     }
 
     // LEADER 외 접근 차단(@PreAuthorize)은 @WebMvcTest 슬라이스에 SecurityConfig(@EnableMethodSecurity)가
@@ -97,6 +105,19 @@ class TeamActionControllerTest {
         mockMvc.perform(get("/api/team/actions/10").param("tab", "timeline"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].assigneeName").value("이태연"));
+    }
+
+    @Test
+    @DisplayName("첨부파일 다운로드 URL 발급은 전 구성원 접근 가능하고 토큰의 companyId를 쓴다")
+    void issueAttachmentDownloadUrlIsAccessibleByAnyMemberAndUsesCompanyIdFromToken() throws Exception {
+        authenticateAs(1L, COMPANY, TEAM, "MEMBER");
+        when(issueTeamActionAttachmentDownloadUrlUseCase.issueAttachmentDownloadUrl(eq(COMPANY), eq(10L), eq(1L)))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        mockMvc.perform(get("/api/team/actions/10/attachments/1/download-url"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.downloadUrl").value("https://s3/get"))
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(300));
     }
 
     private void authenticateAs(Long memberId, Long companyId, Long teamId, String authority) {

@@ -25,6 +25,8 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository.T
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,8 +48,11 @@ class TeamActionServiceTest {
     @Mock
     private ActionReferenceRepository actionReferenceRepository;
 
+    @Mock
+    private ProjectAttachmentStoragePort projectAttachmentStoragePort;
+
     private TeamActionService teamActionService() {
-        return new TeamActionService(actionRepository, actionReferenceRepository);
+        return new TeamActionService(actionRepository, actionReferenceRepository, projectAttachmentStoragePort);
     }
 
     // ── FR-AC-06 목록 ──────────────────────────────────────────────
@@ -56,16 +61,18 @@ class TeamActionServiceTest {
     void getTeamActionsReturnsEnrichedListScopedByTeamId() {
         TeamActionService service = teamActionService();
         Action action = teamAction(10L, ActionStatus.TODO);
-        when(actionRepository.findAllByTeamId(TEAM)).thenReturn(List.of(action));
+        when(actionRepository.countByTeamId(TEAM, null)).thenReturn(1L);
+        when(actionRepository.findAllByTeamId(TEAM, null, null, "desc", 0, 20)).thenReturn(List.of(action));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
                 .thenReturn(List.of(new TeamReference(TEAM, "개발팀")));
 
-        List<TeamActionListItem> result = service.getTeamActions(TEAM);
+        var result = service.getTeamActions(TEAM, null, null, "desc", 0, 20);
 
-        assertThat(result).hasSize(1);
-        TeamActionListItem item = result.get(0);
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(1L);
+        TeamActionListItem item = result.items().get(0);
         assertThat(item.action()).isEqualTo(action);
         assertThat(item.projectTag()).isEqualTo("GOODS");
         assertThat(item.teamName()).isEqualTo("개발팀");
@@ -74,9 +81,10 @@ class TeamActionServiceTest {
     @Test
     void getTeamActionsReturnsEmptyListWithoutQueryingReferencesWhenTeamHasNoActions() {
         TeamActionService service = teamActionService();
-        when(actionRepository.findAllByTeamId(TEAM)).thenReturn(List.of());
+        when(actionRepository.countByTeamId(TEAM, null)).thenReturn(0L);
+        when(actionRepository.findAllByTeamId(TEAM, null, null, "desc", 0, 20)).thenReturn(List.of());
 
-        assertThat(service.getTeamActions(TEAM)).isEmpty();
+        assertThat(service.getTeamActions(TEAM, null, null, "desc", 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findProjectReferences(anyList());
         verify(actionReferenceRepository, never()).findTeamReferences(anyList());
     }
@@ -198,6 +206,52 @@ class TeamActionServiceTest {
         when(actionRepository.findById(10L)).thenReturn(Optional.of(personal));
 
         assertThatThrownBy(() -> service.getTeamActionTimeline(COMPANY, 10L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_NOT_FOUND);
+    }
+
+    // ── 2026-08-10 첨부파일 다운로드 URL 발급 ──────────────────────
+
+    @Test
+    void issueAttachmentDownloadUrlReturnsUrlWhenAttachmentBelongsToActionsProject() {
+        TeamActionService service = teamActionService();
+        Action action = teamAction(10L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findById(10L)).thenReturn(Optional.of(action));
+        when(actionReferenceRepository.findProjectAttachmentById(1L, PROJECT))
+                .thenReturn(Optional.of(new AttachmentReference(1L, "기획서.pdf", "https://s3/x", 1024L, LocalDateTime.now())));
+        when(projectAttachmentStoragePort.issueDownloadUrl("https://s3/x"))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        IssuedDownloadUrl result = service.issueAttachmentDownloadUrl(COMPANY, 10L, 1L);
+
+        assertThat(result.downloadUrl()).isEqualTo("https://s3/get");
+        assertThat(result.expiresInSeconds()).isEqualTo(300);
+    }
+
+    @Test
+    void issueAttachmentDownloadUrlThrowsNotFoundWhenAttachmentBelongsToAnotherProject() {
+        TeamActionService service = teamActionService();
+        Action action = teamAction(10L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findById(10L)).thenReturn(Optional.of(action));
+        when(actionReferenceRepository.findProjectAttachmentById(1L, PROJECT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.issueAttachmentDownloadUrl(COMPANY, 10L, 1L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ATTACHMENT_NOT_FOUND);
+    }
+
+    @Test
+    void issueAttachmentDownloadUrlThrowsNotFoundWhenTeamActionBelongsToAnotherCompany() {
+        TeamActionService service = teamActionService();
+        Action action = Action.reconstitute(
+                10L, 999L, PROJECT, null, null, TEAM, null,
+                ActionType.TEAM, "팀 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
+                ActionReviewStatus.PENDING, null, null, null, false,
+                null, null, null
+        );
+        when(actionRepository.findById(10L)).thenReturn(Optional.of(action));
+
+        assertThatThrownBy(() -> service.issueAttachmentDownloadUrl(COMPANY, 10L, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_NOT_FOUND);
     }

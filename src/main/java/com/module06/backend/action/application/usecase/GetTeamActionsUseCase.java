@@ -3,11 +3,18 @@ package com.module06.backend.action.application.usecase;
 import java.util.List;
 
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 
 /* comment.
     FR-AC-06 — 팀 액션 목록 조회 기능 계약. JWT의 teamId로 자동 스코프된 LEADER 전용
     (Controller의 @PreAuthorize(hasRole)가 1차 방어, teamId 자체가 JWT에서만 나와 다른 팀
     조회가 애초에 불가능하므로 여기서 별도 소유권 검사를 하지 않는다).
+
+    2026-08-10 페이지네이션 도입(이홍근 요청) — page는 0부터 시작.
+
+    2026-08-10 필터/정렬 추가(이홍근 요청) — status는 null이면 필터 안 함. 팀 액션은 상태 변경이
+    폐기됐지만(보드 대상 아님) 조회용 상태 컬럼은 여전히 있어 필터 가능. overdue는 안 받는다 —
+    팀 액션은 보드/타임라인 "지연" 개념 자체가 없다(2026-08-07 폐기 결정과 동일선상).
 
     연결된 클래스
     - ActionRepository          : 조회
@@ -17,8 +24,11 @@ import com.module06.backend.action.domain.model.Action;
 */
 public interface GetTeamActionsUseCase {
 
-    List<TeamActionListItem> getTeamActions(Long teamId);
+    TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size);
 
     record TeamActionListItem(Action action, String projectTag, String teamName) {
+    }
+
+    record TeamActionListResult(List<TeamActionListItem> items, long totalElements) {
     }
 }

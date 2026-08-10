@@ -28,6 +28,42 @@ public interface SttBlockRepository {
     Optional<SttBlockView> findOne(long meetingId, int blockSeq);
 
     /*
+     * 아직 결과가 확정되지 않은 블록 수 — PENDING · QUEUED · RUNNING 셋을 센다.
+     * 0 이면 이 회의의 받아쓰기가 더 나아갈 데 없이 끝난 것이다.
+     *
+     * <h2>FAILED 를 세지 않는다</h2>
+     * FAILED 는 **끝난 상태**다. 사람이 STT-04 를 눌러야 다시 도는 것이고, 저절로 DONE 이
+     * 되지 않는다. 이걸 "미완"으로 세면 실패한 블록 하나가 회의의 분석을 영구히 막는다 —
+     * 구멍이 있는 회의도 분석은 돌고, 그 구멍은 stt_gap 이 분배 확정 관문에서 막는 것이
+     * 이 저장소가 고른 방향이다(SttGapRepository 주석).
+     *
+     * <h2>블록이 0개면 0 이다</h2>
+     * 자동 트리거가 아직 한 번도 발화하지 않은 회의(또는 STT 경로 자체가 없는 회의)는 0 을
+     * 받아 관문을 그대로 지난다. 그 회의는 발화 0건 검사에서 걸러지므로 여기서 막을 것이 없다 —
+     * 여기서 막으면 "받아쓰기가 안 붙은 회의"와 "받아쓰기가 도는 중인 회의"가 같은 사유로
+     * 생략되어 어느 쪽인지 구분할 수 없게 된다.
+     */
+    int countUnfinished(long meetingId);
+
+    /*
+     * 새 블록을 QUEUED 상태로 만든다(10분/40청크 자동 트리거 전용, cap 소유 오케스트레이션이
+     * 호출한다 — CreateSttBlockPort 경유).
+     *
+     * markQueuedForRetry와 달리 CAS(compare-and-set)가 필요 없다 — 이 블록 자리를 "처음" 만드는
+     * 것이라 경합할 기존 행 자체가 없다(회의당 트리거는 cap의 청크 카운터가 순차적으로만 발화시킨다).
+     *
+     * provider/providerJobName을 생성 시점에 이미 확정해 받는다 — 호출자(SttBlockCreationService)가
+     * 이 값으로 곧바로 SttJobPort.submit()을 부를 것이므로, 여기서 다시 조회해 잡 이름을 짓지 않는다.
+     *
+     * @param cutReason 문자열로 받는다 — cap이 SttCutReason enum(이쪽 도메인 소유)에 의존하지
+     *                  않기 위함이다(CapSttBlockReferenceEntity가 status를 String으로 읽는 것과
+     *                  같은 이유). 알 수 없는 값이면 IllegalArgumentException.
+     * @return 새로 만들어진 블록의 id
+     */
+    long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                      String cutReason, String audioS3Key, String provider, String providerJobName);
+
+    /*
      * 재처리를 접수한다 — 상태를 QUEUED 로 되돌리고 시도 횟수를 올린다.
      *
      * <h2>읽은 값이 그대로일 때만 바꾼다 (compare-and-set)</h2>

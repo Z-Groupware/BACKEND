@@ -11,8 +11,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.command.ConfirmAttachmentCommand;
 import com.module06.backend.project.application.command.DeleteAttachmentCommand;
+import com.module06.backend.project.application.command.IssueAttachmentDownloadUrlCommand;
 import com.module06.backend.project.application.command.IssueAttachmentUploadUrlCommand;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedUploadUrl;
 import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
@@ -23,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,6 +45,7 @@ class ProjectAttachmentServiceTest {
     private static final Long ATTACHMENT_ID = 10L;
     private static final Long UPLOADER = 3L;
     private static final Long STRANGER = 4L;
+    private static final String KEY = "project-attachments/company-%d/project-%d/uuid-spec.pdf".formatted(COMPANY, PROJECT_ID);
 
     @Mock
     private ProjectAttachmentRepository projectAttachmentRepository;
@@ -57,7 +62,7 @@ class ProjectAttachmentServiceTest {
     @Test
     void 정상_요청이면_업로드_URL을_발급한다() {
         when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
-        when(projectAttachmentStoragePort.issueUploadUrl("spec.pdf", 1024L))
+        when(projectAttachmentStoragePort.issueUploadUrl(anyString(), eq(1024L)))
                 .thenReturn(new IssuedUploadUrl("https://s3/upload", "https://s3/spec.pdf"));
 
         IssuedUploadUrl result = service.issueUploadUrl(
@@ -65,6 +70,13 @@ class ProjectAttachmentServiceTest {
 
         assertThat(result.uploadUrl()).isEqualTo("https://s3/upload");
         assertThat(result.fileUrl()).isEqualTo("https://s3/spec.pdf");
+
+        // s3Key가 회사·프로젝트로 네임스페이싱됐는지 — 다른 회사/프로젝트 첨부와 섞이면 안 된다.
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(projectAttachmentStoragePort).issueUploadUrl(keyCaptor.capture(), eq(1024L));
+        assertThat(keyCaptor.getValue())
+                .startsWith("project-attachments/company-%d/project-%d/".formatted(COMPANY, PROJECT_ID))
+                .endsWith("-spec.pdf");
     }
 
     @Test
@@ -86,14 +98,25 @@ class ProjectAttachmentServiceTest {
     }
 
     @Test
+    void 파일명에_경로_조작이_있으면_발급을_거부한다() {
+        // CodeRabbit(#313) 지적 — 검증 안 된 fileName이 s3Key에 그대로 들어가면 "report..pdf"
+        // 같은 이름이 나중에 confirm의 requireOwnAttachmentKey를 자기 자신에 대해 오탐시킨다.
+        assertThatThrownBy(() -> service.issueUploadUrl(
+                new IssueAttachmentUploadUrlCommand(COMPANY, PROJECT_ID, "report..pdf", 1024L)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(projectRepository, never()).existsActiveByCompanyIdAndId(any(), any());
+    }
+
+    @Test
     void 신규_파일이면_확정_시_새_첨부를_저장한다() {
         when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
-        when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, "https://s3/spec.pdf"))
+        when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, KEY))
                 .thenReturn(Optional.empty());
         when(projectAttachmentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         ProjectAttachment result = service.confirm(new ConfirmAttachmentCommand(
-                PROJECT_ID, COMPANY, "spec.pdf", "https://s3/spec.pdf", 1024L, UPLOADER));
+                PROJECT_ID, COMPANY, "spec.pdf", KEY, 1024L, UPLOADER));
 
         assertThat(result.getFileName()).isEqualTo("spec.pdf");
         assertThat(result.getUploadedBy()).isEqualTo(UPLOADER);
@@ -104,11 +127,11 @@ class ProjectAttachmentServiceTest {
     void 이미_확정된_파일이면_기존_첨부를_그대로_반환한다() {
         when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
         ProjectAttachment existing = attachmentOf(PROJECT_ID, UPLOADER);
-        when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, "https://s3/spec.pdf"))
+        when(projectAttachmentRepository.findByProjectIdAndFileUrl(PROJECT_ID, KEY))
                 .thenReturn(Optional.of(existing));
 
         ProjectAttachment result = service.confirm(new ConfirmAttachmentCommand(
-                PROJECT_ID, COMPANY, "spec.pdf", "https://s3/spec.pdf", 1024L, UPLOADER));
+                PROJECT_ID, COMPANY, "spec.pdf", KEY, 1024L, UPLOADER));
 
         assertThat(result).isEqualTo(existing);
         verify(projectAttachmentRepository, never()).save(any());
@@ -131,7 +154,7 @@ class ProjectAttachmentServiceTest {
         when(projectRepository.existsActiveByCompanyIdAndId(OTHER_COMPANY, PROJECT_ID)).thenReturn(false);
 
         assertThatThrownBy(() -> service.confirm(new ConfirmAttachmentCommand(
-                PROJECT_ID, OTHER_COMPANY, "spec.pdf", "https://s3/spec.pdf", 1024L, STRANGER)))
+                PROJECT_ID, OTHER_COMPANY, "spec.pdf", KEY, 1024L, STRANGER)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
 
@@ -188,11 +211,110 @@ class ProjectAttachmentServiceTest {
         service.delete(new DeleteAttachmentCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID, UPLOADER));
 
         verify(projectAttachmentRepository).deleteById(ATTACHMENT_ID);
-        verify(projectAttachmentStoragePort).deleteObject("https://s3/spec.pdf");
+        verify(projectAttachmentStoragePort).deleteObject(KEY);
+    }
+
+    @Test
+    void 삭제는_S3_객체를_지운_뒤에_DB에서_지운다() {
+        // CodeRabbit(#313) 지적 — 순서가 반대(DB 먼저)면 S3 삭제 실패 시 고아 오브젝트가 영원히 남는다.
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(PROJECT_ID, UPLOADER)));
+
+        service.delete(new DeleteAttachmentCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID, UPLOADER));
+
+        var order = inOrder(projectAttachmentStoragePort, projectAttachmentRepository);
+        order.verify(projectAttachmentStoragePort).deleteObject(KEY);
+        order.verify(projectAttachmentRepository).deleteById(ATTACHMENT_ID);
+    }
+
+    @Test
+    void 다른_프로젝트_네임스페이스의_키로는_확정하지_못한다() {
+        // CodeRabbit(#313) 지적 — fileUrl은 클라이언트가 보내는 값이라 검증 없이 저장하면
+        // 다른 프로젝트나 다른 도메인(cap의 recordings/...)의 실제 키를 자기 첨부로 확정한 뒤
+        // 삭제 API로 그 객체를 지울 수 있다.
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        String foreignKey = "project-attachments/company-%d/project-%d/uuid-spec.pdf".formatted(COMPANY, OTHER_PROJECT_ID);
+
+        assertThatThrownBy(() -> service.confirm(new ConfirmAttachmentCommand(
+                PROJECT_ID, COMPANY, "spec.pdf", foreignKey, 1024L, UPLOADER)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.ATTACHMENT_KEY_MISMATCH);
+
+        verify(projectAttachmentRepository, never()).save(any());
+    }
+
+    @Test
+    void 경로_조작이_포함된_키로는_확정하지_못한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        String traversalKey = KEY + "/../../../etc/passwd";
+
+        assertThatThrownBy(() -> service.confirm(new ConfirmAttachmentCommand(
+                PROJECT_ID, COMPANY, "spec.pdf", traversalKey, 1024L, UPLOADER)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.ATTACHMENT_KEY_MISMATCH);
+
+        verify(projectAttachmentRepository, never()).save(any());
+    }
+
+    @Test
+    void 정상_요청이면_다운로드_URL을_발급한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(PROJECT_ID, UPLOADER)));
+        when(projectAttachmentStoragePort.issueDownloadUrl(KEY))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        IssuedDownloadUrl result = service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID));
+
+        assertThat(result.downloadUrl()).isEqualTo("https://s3/get");
+        assertThat(result.expiresInSeconds()).isEqualTo(300);
+    }
+
+    @Test
+    void 업로더가_아니어도_다운로드_URL을_발급받는다() {
+        // 삭제와 달리 다운로드는 전 구성원 공개다 — 업로더 검증이 없어야 한다.
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(PROJECT_ID, UPLOADER)));
+        when(projectAttachmentStoragePort.issueDownloadUrl(anyString()))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        IssuedDownloadUrl result = service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID));
+
+        assertThat(result.downloadUrl()).isEqualTo("https://s3/get");
+    }
+
+    @Test
+    void 남의_회사_프로젝트로는_다운로드_URL을_뽑지_못한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(OTHER_COMPANY, PROJECT_ID)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(OTHER_COMPANY, PROJECT_ID, ATTACHMENT_ID)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+
+        verify(projectAttachmentStoragePort, never()).issueDownloadUrl(anyString());
+    }
+
+    @Test
+    void 경로의_프로젝트에_속하지_않은_첨부는_다운로드_URL도_없는_것으로_답한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(OTHER_PROJECT_ID, UPLOADER)));
+
+        assertThatThrownBy(() -> service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.ATTACHMENT_NOT_FOUND);
+
+        verify(projectAttachmentStoragePort, never()).issueDownloadUrl(anyString());
     }
 
     private ProjectAttachment attachmentOf(Long projectId, Long uploadedBy) {
         return ProjectAttachment.reconstitute(
-                ATTACHMENT_ID, projectId, "spec.pdf", "https://s3/spec.pdf", 1024L, uploadedBy, null, null);
+                ATTACHMENT_ID, projectId, "spec.pdf", KEY, 1024L, uploadedBy, null, null);
     }
 }

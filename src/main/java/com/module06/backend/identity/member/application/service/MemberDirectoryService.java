@@ -84,7 +84,7 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
                 .map(this::toListItem)
                 .toList();
 
-        return new MemberPage(rows.size(), page, size, content);
+        return MemberPage.of(rows.size(), page, size, content);
     }
 
     /**

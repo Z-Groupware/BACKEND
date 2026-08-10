@@ -27,7 +27,13 @@ public enum ProjectErrorCode implements ErrorCode {
     PROJECT_TAG_DUPLICATE(HttpStatus.CONFLICT, "PJ-003", "이미 사용 중인 프로젝트 태그입니다."),
     ATTACHMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PJ-004", "존재하지 않는 첨부파일입니다."),
     NOT_ATTACHMENT_UPLOADER(HttpStatus.FORBIDDEN, "PJ-005", "첨부파일 업로더 본인만 삭제할 수 있습니다."),
-    INVALID_TEAM_ASSIGNMENT(HttpStatus.FORBIDDEN, "PJ-006", "소속되지 않은 부서는 지정할 수 없습니다.");
+    INVALID_TEAM_ASSIGNMENT(HttpStatus.FORBIDDEN, "PJ-006", "소속되지 않은 부서는 지정할 수 없습니다."),
+
+    // 2026-08-10, CodeRabbit(#313) 지적 — confirm이 클라이언트가 보낸 fileUrl(S3 키)을 검증 없이
+    // 저장하면, 다른 프로젝트·다른 도메인(cap의 recordings/...)의 키를 자기 첨부로 "확정"한 뒤
+    // 삭제 API로 그 실제 S3 객체를 지울 수 있다. ManualRecordingService의 s3Key 접두 검증과
+    // 동일 취지.
+    ATTACHMENT_KEY_MISMATCH(HttpStatus.BAD_REQUEST, "PJ-007", "첨부파일 업로드 경로가 올바르지 않습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

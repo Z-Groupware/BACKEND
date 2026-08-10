@@ -12,15 +12,20 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.AttachmentReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 
 import lombok.RequiredArgsConstructor;
 
@@ -44,18 +49,22 @@ import lombok.RequiredArgsConstructor;
 public class TeamActionService implements
         GetTeamActionsUseCase,
         GetTeamActionDetailUseCase,
-        GetTeamActionTimelineUseCase {
+        GetTeamActionTimelineUseCase,
+        IssueTeamActionAttachmentDownloadUrlUseCase {
 
     private final ActionRepository actionRepository;
     private final ActionReferenceRepository actionReferenceRepository;
+    private final ProjectAttachmentStoragePort projectAttachmentStoragePort;
 
     // FR-AC-06 목록 — teamId는 JWT에서만 나오므로 다른 팀 조회가 애초에 불가능하다.
+    // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
     @Transactional(readOnly = true)
-    public List<TeamActionListItem> getTeamActions(Long teamId) {
-        List<Action> actions = actionRepository.findAllByTeamId(teamId);
+    public TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size) {
+        long totalElements = actionRepository.countByTeamId(teamId, status);
+        List<Action> actions = actionRepository.findAllByTeamId(teamId, status, sort, order, page, size);
         if (actions.isEmpty()) {
-            return List.of();
+            return new TeamActionListResult(List.of(), totalElements);
         }
 
         Map<Long, String> projectTagById = toDisplayMap(
@@ -64,9 +73,11 @@ public class TeamActionService implements
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
-        return actions.stream()
+        List<TeamActionListItem> items = actions.stream()
                 .map(action -> new TeamActionListItem(action, projectTagById.get(action.getProjectId()), teamName))
                 .toList();
+
+        return new TeamActionListResult(items, totalElements);
     }
 
     // FR-AC-06 상세 — 전 구성원 공개, 회사 스코프와 TEAM 종류만 다시 확인한다(IDOR 방지).
@@ -107,6 +118,21 @@ public class TeamActionService implements
                 .map(action -> new TimelineItem(
                         action, action.getAssigneeMemberId() == null ? null : assigneeNameById.get(action.getAssigneeMemberId())))
                 .toList();
+    }
+
+    // 2026-08-10, 이홍근 요청 — 팀 액션 상세에 인라인으로 뜨는 첨부파일 다운로드 URL 발급.
+    // requireOwnCompanyTeamAction으로 팀 액션 소유부터 확인한 뒤, 그 액션의 projectId로
+    // attachmentId가 정말 같은 프로젝트 소속인지 한 번 더 좁힌다(IDOR 방지, project 쪽
+    // ProjectAttachmentService.requireAttachmentInProject와 같은 이유).
+    @Override
+    public IssuedDownloadUrl issueAttachmentDownloadUrl(Long companyId, Long teamActionId, Long attachmentId) {
+        Action action = requireOwnCompanyTeamAction(companyId, teamActionId);
+
+        AttachmentReference attachment = actionReferenceRepository
+                .findProjectAttachmentById(attachmentId, action.getProjectId())
+                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_ATTACHMENT_NOT_FOUND));
+
+        return projectAttachmentStoragePort.issueDownloadUrl(attachment.fileUrl());
     }
 
     // 상세·타임라인 공용 — 다른 회사 팀 액션 id나 PERSONAL 액션 id를 넣으면 존재하지 않는 것과 같은 404로 덮는다(#100과 동일 판단).

@@ -3,6 +3,7 @@ package com.module06.backend.action.domain.repository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /* comment.
     액션이 참조하는 다른 애그리거트(회의 D, 프로젝트 C)의 값을 읽기 전용으로 가져오는 계약.
@@ -47,6 +48,10 @@ public interface ActionReferenceRepository {
 
     // FR-AC-06 — 팀 액션 상세에 인라인으로 싣는 소속 프로젝트 첨부파일 목록. 단건 조회라 배치가 아니다.
     List<AttachmentReference> findProjectAttachments(Long projectId);
+
+    // 2026-08-10 — 팀 액션 첨부파일 다운로드 URL 발급용 단건 조회. projectId를 함께 받아
+    // 다른 프로젝트 소속 첨부파일 id를 넣어도 "없는 것"으로 답한다(존재 유출 방지).
+    Optional<AttachmentReference> findProjectAttachmentById(Long attachmentId, Long projectId);
 
     // teamId는 OWNER 개설 회의면 null, relatedActionId는 팀 액션을 낳는 프로젝트 회의면 null이다.
     // title은 FR-AC-02 상세·목록의 "출처 회의" 표시용(2026-08-07 추가).

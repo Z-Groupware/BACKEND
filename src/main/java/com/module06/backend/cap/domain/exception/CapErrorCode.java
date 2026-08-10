@@ -18,6 +18,7 @@ public enum CapErrorCode implements ErrorCode {
     CAP_INVALID_SEQ(HttpStatus.BAD_REQUEST, "CAP-011", "청크 순번이 올바르지 않습니다."),
     CAP_RECORDING_KEY_MISMATCH(HttpStatus.BAD_REQUEST, "CAP-015", "녹음 파일 경로가 올바르지 않습니다."),
     CAP_PART_NOT_UPLOADED(HttpStatus.BAD_REQUEST, "CAP-019", "청크가 실제로 업로드되지 않았거나 크기가 일치하지 않습니다."),
+    CAP_BLOCK_OFFSET_INVALID(HttpStatus.BAD_REQUEST, "CAP-021", "STT 블록 끝 지점이 이전 블록보다 앞서 있습니다."),
 
     CAP_MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "CAP-002", "회의를 찾을 수 없습니다."),
     CAP_RECORDING_NOT_FOUND(HttpStatus.NOT_FOUND, "CAP-016", "녹음 파일이 존재하지 않습니다."),
@@ -31,6 +32,7 @@ public enum CapErrorCode implements ErrorCode {
     CAP_ASSEMBLY_INCOMPLETE(HttpStatus.CONFLICT, "CAP-012", "녹음 파일 조립에 실패했습니다. 일부 구간이 누락되었습니다."),
     CAP_RECORDING_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "CAP-014", "이미 제출된 녹음이 있습니다."),
     CAP_STT_NOT_CONFIRMED(HttpStatus.CONFLICT, "CAP-017", "미확인 STT 구간이 있습니다."),
+    CAP_CAPTURE_PAUSED(HttpStatus.CONFLICT, "CAP-020", "회의가 일시정지 상태입니다."),
 
     CAP_RMS_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "CAP-018", "rms 값이 필요합니다.");
 

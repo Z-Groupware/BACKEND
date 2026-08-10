@@ -55,7 +55,9 @@ class MemberDirectoryServiceTest {
 
         MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, null, 0, 20);
 
-        assertThat(page.totalCount()).isEqualTo(2);
+        assertThat(page.totalElements()).isEqualTo(2);
+        assertThat(page.totalPages()).isEqualTo(1);
+        assertThat(page.hasNext()).isFalse();
         assertThat(page.content()).extracting(m -> m.name()).containsExactly("김서준", "박민재");
     }
 
@@ -72,7 +74,7 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
-    @DisplayName("size 만큼만 잘라 돌려주고 totalCount 는 필터된 전체 수다")
+    @DisplayName("size 만큼만 잘라 돌려주고 totalElements 는 필터된 전체 수다")
     void paginates() {
         FakeDirectory directory = new FakeDirectory();
         for (int i = 0; i < 5; i++) {
@@ -81,8 +83,49 @@ class MemberDirectoryServiceTest {
 
         MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, null, 1, 2);
 
-        assertThat(page.totalCount()).isEqualTo(5);
+        assertThat(page.totalElements()).isEqualTo(5);
+        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(page.hasNext()).isTrue();
         assertThat(page.content()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("마지막 페이지는 hasNext 가 false 다 — 나눠떨어지지 않아도 마찬가지다")
+    void lastPageHasNoNext() {
+        FakeDirectory directory = new FakeDirectory();
+        for (int i = 0; i < 5; i++) {
+            directory.addActive(COMPANY_ID, "구성원" + i, null, null);
+        }
+
+        MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, null, 2, 2);
+
+        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(page.hasNext()).isFalse();
+        assertThat(page.content()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("page 가 Integer.MAX_VALUE 여도 hasNext 는 false 다 — page + 1 이 음수로 돌지 않는다")
+    void outOfRangePageHasNoNext() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActive(COMPANY_ID, "김서준", null, null);
+
+        MemberPage page = service(directory).getMembers(
+                COMPANY_ID, MemberListFilter.ALL, null, Integer.MAX_VALUE, 20);
+
+        assertThat(page.hasNext()).isFalse();
+        assertThat(page.content()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("결과가 없으면 totalPages 0 · hasNext false 다")
+    void emptyResultHasNoPages() {
+        MemberPage page = service(new FakeDirectory()).getMembers(COMPANY_ID, MemberListFilter.ALL, null, 0, 20);
+
+        assertThat(page.totalElements()).isZero();
+        assertThat(page.totalPages()).isZero();
+        assertThat(page.hasNext()).isFalse();
+        assertThat(page.content()).isEmpty();
     }
 
     @Test

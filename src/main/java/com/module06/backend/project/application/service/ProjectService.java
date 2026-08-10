@@ -26,6 +26,7 @@ import com.module06.backend.project.application.usecase.GetProjectTimelineUseCas
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
 import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectAttachment;
+import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
 import com.module06.backend.project.domain.repository.TeamReferenceRepository;
@@ -83,8 +84,9 @@ public class ProjectService implements
 
     @Override
     @Transactional(readOnly = true)
-    public List<ProjectListItem> list(Long companyId) {
-        List<Project> projects = projectRepository.findAllByCompanyId(companyId);
+    public ProjectListResult list(Long companyId, ProjectStatus status, String sort, String order, int page, int size) {
+        List<Project> projects = projectRepository.findAllByCompanyId(companyId, status, sort, order, page, size);
+        long totalElements = projectRepository.countByCompanyId(companyId, status);
         List<Long> projectIds = projects.stream().map(Project::getId).toList();
 
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
@@ -92,7 +94,7 @@ public class ProjectService implements
                         .collect(Collectors.toMap(ActionQueryPort.ProjectActionCount::projectId, count -> count));
         Map<Long, Long> meetingCountByProjectId = meetingQueryPort.countMeetingsByProjectIds(companyId, projectIds);
 
-        // 부서 칩 표시용 이름 — 전체 프로젝트의 teamIds를 한 번에 모아 배치 조회한다(N+1 방지).
+        // 부서 칩 표시용 이름 — 이 페이지 프로젝트의 teamIds를 한 번에 모아 배치 조회한다(N+1 방지).
         List<Long> allTeamIds = projects.stream()
                 .flatMap(project -> project.getTeamIds().stream())
                 .distinct()
@@ -100,7 +102,7 @@ public class ProjectService implements
         Map<Long, String> teamNameById = teamReferenceRepository.findTeamNames(allTeamIds, companyId).stream()
                 .collect(Collectors.toMap(TeamReferenceRepository.TeamName::id, TeamReferenceRepository.TeamName::name));
 
-        return projects.stream()
+        List<ProjectListItem> items = projects.stream()
                 .map(project -> {
                     ActionQueryPort.ProjectActionCount count = countsByProjectId.get(project.getId());
                     int meetingCount = Math.toIntExact(meetingCountByProjectId.getOrDefault(project.getId(), 0L));
@@ -110,6 +112,8 @@ public class ProjectService implements
                             : new ProjectListItem(project, count.totalCount(), count.completedCount(), meetingCount, teamNames);
                 })
                 .toList();
+
+        return new ProjectListResult(items, totalElements);
     }
 
     @Override

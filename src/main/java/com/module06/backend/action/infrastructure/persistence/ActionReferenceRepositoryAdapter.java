@@ -1,6 +1,7 @@
 package com.module06.backend.action.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
@@ -105,5 +106,18 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
                         attachment.getCreatedAt()
                 ))
                 .toList();
+    }
+
+    // 2026-08-10 — 다운로드 URL 발급용 단건 조회.
+    @Override
+    public Optional<AttachmentReference> findProjectAttachmentById(Long attachmentId, Long projectId) {
+        return springDataProjectAttachmentReferenceRepository.findByIdAndProjectId(attachmentId, projectId)
+                .map(attachment -> new AttachmentReference(
+                        attachment.getId(),
+                        attachment.getFileName(),
+                        attachment.getFileUrl(),
+                        attachment.getFileSize(),
+                        attachment.getCreatedAt()
+                ));
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,9 +17,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.presentation.api.response.ActionSummaryResponse;
 import com.module06.backend.action.presentation.api.response.TeamActionDetailResponse;
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.response.PageResponse;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,6 +33,7 @@ import lombok.RequiredArgsConstructor;
     - GET    /api/team/actions                          팀 액션 목록 (JWT teamId로 스코프된 LEADER 전용)
     - GET    /api/team/actions/{teamActionId}            상세 (전 구성원, 프로젝트 첨부파일 포함)
     - GET    /api/team/actions/{teamActionId}?tab=timeline  하위 개인 액션 타임라인 (전 구성원)
+    - GET    /api/team/actions/{teamActionId}/attachments/{attachmentId}/download-url  첨부파일 다운로드 URL 발급 (전 구성원, 2026-08-10)
     응답은 ApiResponse, 예외는 BusinessException으로만 낸다 — 개별 try-catch 금지(0절 4항).
 
     상세·타임라인이 같은 경로를 쓰는 이유(2026-08-07 이홍근 확정) — 별도 경로가 아니라
@@ -53,20 +59,30 @@ public class TeamActionController {
     private final GetTeamActionsUseCase getTeamActionsUseCase;
     private final GetTeamActionDetailUseCase getTeamActionDetailUseCase;
     private final GetTeamActionTimelineUseCase getTeamActionTimelineUseCase;
+    private final IssueTeamActionAttachmentDownloadUrlUseCase issueTeamActionAttachmentDownloadUrlUseCase;
 
     // 팀 액션 목록 — teamId는 토큰에서만 꺼낸다(헤더로 받으면 남의 팀을 조회할 수 있다).
-    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER 전용.")
+    // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
+    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER 전용. "
+            + "페이지네이션(page/size), status 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("hasRole('LEADER')")
-    public ApiResponse<List<ActionSummaryResponse>> list(
+    public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
-            @AuthenticationPrincipal(expression = "teamId") Long teamId
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            @RequestParam(required = false) ActionStatus status,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "desc") String order,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
-        List<ActionSummaryResponse> response = getTeamActionsUseCase.getTeamActions(teamId).stream()
+        var result = getTeamActionsUseCase.getTeamActions(teamId, status, sort, order, page, size);
+        List<ActionSummaryResponse> items = result.items().stream()
                 .map(ActionSummaryResponse::from)
                 .toList();
 
-        return ApiResponse.success("팀 액션 목록을 조회했습니다.", response);
+        return ApiResponse.success("팀 액션 목록을 조회했습니다.",
+                PageResponse.of(items, page, size, result.totalElements()));
     }
 
     // 팀 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).
@@ -102,5 +118,21 @@ public class TeamActionController {
                 .toList();
 
         return ApiResponse.success("팀 액션 타임라인을 조회했습니다.", response);
+    }
+
+    // 2026-08-10, 이홍근 요청 — 상세 응답에 인라인으로 뜨는 첨부파일의 다운로드 URL 발급. 전 구성원 공개.
+    @Operation(summary = "팀 액션 첨부파일 다운로드 URL 발급", description = "전 구성원 공개. presigned GET URL 하나 발급, 5분 만료.")
+    @GetMapping("/{teamActionId}/attachments/{attachmentId}/download-url")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<IssuedDownloadUrl> issueAttachmentDownloadUrl(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long teamActionId,
+            @PathVariable Long attachmentId
+    ) {
+        IssuedDownloadUrl issuedDownloadUrl =
+                issueTeamActionAttachmentDownloadUrlUseCase.issueAttachmentDownloadUrl(companyId, teamActionId, attachmentId);
+
+        return ApiResponse.success("다운로드 URL이 발급되었습니다.", issuedDownloadUrl);
     }
 }
