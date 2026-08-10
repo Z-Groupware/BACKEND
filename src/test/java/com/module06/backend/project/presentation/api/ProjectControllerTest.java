@@ -68,7 +68,7 @@ class ProjectControllerTest {
               "name": "새 프로젝트",
               "tag": "NEWPJ",
               "description": "설명",
-              "color": "#16A34A",
+              "color": "#059669",
               "startDate": "2026-08-01",
               "dueDate": "2026-12-31",
               "teamIds": [1, 2]
@@ -153,7 +153,28 @@ class ProjectControllerTest {
                                   "name": "새 프로젝트",
                                   "tag": "NEWPJ",
                                   "description": "설명",
-                                  "color": "#16A34A",
+                                  "color": "#059669",
+                                  "dueDate": "2026-12-31",
+                                  "teamIds": [1, 2]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("색상은 고정 팔레트 11색만 허용한다 — 팔레트 밖 HEX는 생성 자체가 400으로 막힌다")
+    void createRejectsColorOutsidePalette() throws Exception {
+        authenticateAs(1L, 3L);
+
+        mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "새 프로젝트",
+                                  "tag": "NEWPJ",
+                                  "description": "설명",
+                                  "color": "#123456",
+                                  "startDate": "2026-08-01",
                                   "dueDate": "2026-12-31",
                                   "teamIds": [1, 2]
                                 }
@@ -223,7 +244,7 @@ class ProjectControllerTest {
                                 {
                                   "name": "수정된 이름",
                                   "description": "수정된 설명",
-                                  "color": "#000000",
+                                  "color": "#4F46E5",
                                   "startDate": "2026-09-01",
                                   "dueDate": "2027-01-01",
                                   "teamIds": [5]
@@ -317,7 +338,7 @@ class ProjectControllerTest {
     }
 
     private Project project(Long companyId) {
-        return Project.create(companyId, "NEWPJ", "새 프로젝트", "설명", "#16A34A",
+        return Project.create(companyId, "NEWPJ", "새 프로젝트", "설명", "#059669",
                 LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), 3L, List.of(1L, 2L));
     }
 }
