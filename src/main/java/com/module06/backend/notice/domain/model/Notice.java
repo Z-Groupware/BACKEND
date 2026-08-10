@@ -8,7 +8,7 @@ import lombok.Getter;
  * 회사 공지의 원본 데이터를 보유하는 도메인 모델이다.
  *
  * 공지는 회사에 귀속되며 deletedAt을 채워 삭제 이력을 보존한다. 조회 API는 화면에 필요한
- * 필드만 공개하고 작성 API는 인증 회사와 작성자를 원본으로 저장한다.
+ * 필드만 공개하고 쓰기 API는 인증 회사와 작성자를 원본으로 저장한다.
  */
 @Getter
 public class Notice {
@@ -63,6 +63,18 @@ public class Notice {
     public static Notice create(Long companyId, Long createdBy, String title, String content) {
         /* 생성·수정·삭제 시각과 식별자는 애플리케이션이 아니라 영속성 계층이 채운다. */
         return new Notice(null, companyId, title, content, createdBy, null, null, null);
+    }
+
+    /* 활성 공지의 제목과 본문을 전체 치환하고 마지막 수정 시각을 기록한다. */
+    public Notice update(String title, String content, LocalDateTime updatedAt) {
+        /* 식별자·회사·작성·삭제 이력은 유지하고 수정 가능한 값과 수정 시각만 교체한다. */
+        return new Notice(id, companyId, title, content, createdBy, deletedAt, createdAt, updatedAt);
+    }
+
+    /* 공지 원본과 수정 이력을 보존하면서 삭제 시각만 기록해 소프트 삭제한다. */
+    public Notice softDelete(LocalDateTime deletedAt) {
+        /* 식별자·회사·내용·작성·수정 이력은 유지하고 활성 여부를 결정하는 삭제 시각만 채운다. */
+        return new Notice(id, companyId, title, content, createdBy, deletedAt, createdAt, updatedAt);
     }
 
     /* 데이터베이스에서 읽은 공지의 전체 상태를 복원한다. */
