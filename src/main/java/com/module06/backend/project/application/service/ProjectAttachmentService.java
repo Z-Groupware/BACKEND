@@ -1,5 +1,7 @@
 package com.module06.backend.project.application.service;
 
+import java.util.UUID;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +47,17 @@ public class ProjectAttachmentService implements
         }
         requireProjectInCompany(command.companyId(), command.projectId());
 
-        return projectAttachmentStoragePort.issueUploadUrl(command.fileName(), command.fileSize());
+        String s3Key = buildS3Key(command.companyId(), command.projectId(), command.fileName());
+        return projectAttachmentStoragePort.issueUploadUrl(s3Key, command.fileSize());
+    }
+
+    /* project-attachments/company-{companyId}/project-{projectId}/{uuid}-{fileName} — CapObjectStoragePort의
+       buildS3Key(CaptureUploadService)와 같은 이유로 회사·프로젝트 접두를 둔다: 운영 버킷이 company/CAP과
+       공유라 접두가 없으면 서로 다른 도메인 오브젝트가 한 네임스페이스에 섞인다. UUID는 동일 파일명
+       재업로드 시 키 충돌(덮어쓰기)을 막는다. */
+    private String buildS3Key(Long companyId, Long projectId, String fileName) {
+        return "project-attachments/company-%d/project-%d/%s-%s"
+                .formatted(companyId, projectId, UUID.randomUUID(), fileName);
     }
 
     @Override

@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,7 +58,7 @@ class ProjectAttachmentServiceTest {
     @Test
     void 정상_요청이면_업로드_URL을_발급한다() {
         when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
-        when(projectAttachmentStoragePort.issueUploadUrl("spec.pdf", 1024L))
+        when(projectAttachmentStoragePort.issueUploadUrl(anyString(), eq(1024L)))
                 .thenReturn(new IssuedUploadUrl("https://s3/upload", "https://s3/spec.pdf"));
 
         IssuedUploadUrl result = service.issueUploadUrl(
@@ -65,6 +66,13 @@ class ProjectAttachmentServiceTest {
 
         assertThat(result.uploadUrl()).isEqualTo("https://s3/upload");
         assertThat(result.fileUrl()).isEqualTo("https://s3/spec.pdf");
+
+        // s3Key가 회사·프로젝트로 네임스페이싱됐는지 — 다른 회사/프로젝트 첨부와 섞이면 안 된다.
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(projectAttachmentStoragePort).issueUploadUrl(keyCaptor.capture(), eq(1024L));
+        assertThat(keyCaptor.getValue())
+                .startsWith("project-attachments/company-%d/project-%d/".formatted(COMPANY, PROJECT_ID))
+                .endsWith("-spec.pdf");
     }
 
     @Test

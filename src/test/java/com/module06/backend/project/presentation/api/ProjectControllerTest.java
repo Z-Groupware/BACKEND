@@ -54,10 +54,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 헤더로 받으면 로그인만 하면 남의 회사 번호를 적어 보낼 수 있다 — 인증을 걸어도 막히지 않는
  * 구멍이라, 토큰에서만 꺼내야 한다. 아래 테스트들은 "헤더가 있어도 무시되는지"까지 확인한다.
  *
- * 생성이 201 이 아니라 200 을 기대하는 것은 의도다. ApiResponse.created() 가 본문의 httpStatus 를
- * 201 로 채우지만 메서드에 @ResponseStatus 가 없어서 실제 HTTP 상태는 200 이다(HandoverController 는
- * 붙여 뒀다). 이 변경의 범위는 스코프 출처를 바꾸는 것이라, 프론트 계약이 바뀌는 그 정정은
- * project 담당자에게 남긴다 — 여기서는 현재 동작을 그대로 고정한다.
+ * 생성 응답은 201 이다(2026-08-10). 본문 httpStatus 는 ApiResponse.created() 가 이미 201 로
+ * 채우고 있었는데 @ResponseStatus 가 빠져서 실제 HTTP 상태만 200 이던 불일치를 여기서 맞췄다
+ * (HandoverController 등 다른 생성 엔드포인트와 동일하게). 프론트에는 사전 공지 후 반영.
  */
 @DisplayName("ProjectController")
 @WebMvcTest(ProjectController.class)
@@ -111,7 +110,7 @@ class ProjectControllerTest {
         mockMvc.perform(post("/api/projects")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         ArgumentCaptor<CreateProjectCommand> captor = ArgumentCaptor.forClass(CreateProjectCommand.class);
         verify(createProjectUseCase).create(captor.capture());
@@ -131,7 +130,7 @@ class ProjectControllerTest {
                         .header("X-Member-Id", "999")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         ArgumentCaptor<CreateProjectCommand> captor = ArgumentCaptor.forClass(CreateProjectCommand.class);
         verify(createProjectUseCase).create(captor.capture());
