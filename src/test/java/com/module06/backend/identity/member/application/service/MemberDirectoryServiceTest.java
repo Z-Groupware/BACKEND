@@ -521,6 +521,11 @@ class MemberDirectoryServiceTest {
         }
 
         @Override
+        public Optional<Team> findByLeaderMemberId(Long leaderMemberId) {
+            return teams.stream().filter(t -> leaderMemberId.equals(t.leaderMemberId())).findFirst();
+        }
+
+        @Override
         public Team create(Long companyId, String name) {
             Team team = new Team(nextId++, companyId, name, null);
             teams.add(team);
