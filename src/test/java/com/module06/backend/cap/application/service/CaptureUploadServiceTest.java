@@ -385,7 +385,8 @@ class CaptureUploadServiceTest {
                 throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
             }
         };
-        SttBlockCutDetectionPort cutDetectionPort = (windowAudioS3Key, windowStartOffsetMs, targetOffsetMs) -> {
+        SttBlockCutDetectionPort cutDetectionPort = (meetingId, windowAudioS3Key, windowStartOffsetMs,
+                                                     targetOffsetMs) -> {
             throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
         };
         CreateSttBlockPort createSttBlockPort = command -> {

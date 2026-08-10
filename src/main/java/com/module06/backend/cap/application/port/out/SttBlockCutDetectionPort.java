@@ -16,12 +16,20 @@ package com.module06.backend.cap.application.port.out;
 public interface SttBlockCutDetectionPort {
 
     /**
+     * @param meetingId AI-01 요청 스키마의 필수 필드(meetingId) — 회의별로 로그·모델 설정을
+     *                  분리하는 데 쓰인다(실제 절단 판정 자체는 오디오만 본다)
      * @param windowAudioS3Key ±20초 윈도우 wav의 S3 키
      * @param windowStartOffsetMs 그 wav 첫 샘플의 회의 기준 경과 ms
      * @param targetOffsetMs 자르고 싶은 지점(10분 경계). 무음을 못 찾으면 여기서 자른다
      */
-    CutDetectionResult detectCutPoint(String windowAudioS3Key, long windowStartOffsetMs, long targetOffsetMs);
+    CutDetectionResult detectCutPoint(long meetingId, String windowAudioS3Key, long windowStartOffsetMs,
+                                      long targetOffsetMs);
 
-    record CutDetectionResult(long cutOffsetMs, String cutReason, long silenceMs) {
+    /**
+     * @param silenceMs VAD_SILENCE일 때만 값이 있다(무음 길이). FALLBACK_OVERLAP이면 null이다 —
+     *                  0을 채우면 "0ms 무음을 찾았다"로 읽혀 못 찾은 것과 구분이 안 된다
+     *                  (AI-01 응답 스키마 주석과 같은 이유).
+     */
+    record CutDetectionResult(long cutOffsetMs, String cutReason, Long silenceMs) {
     }
 }

@@ -267,7 +267,7 @@ class SttBlockCutTriggerTest {
 
     private static final class RefusingCutDetectionPort implements SttBlockCutDetectionPort {
         @Override
-        public CutDetectionResult detectCutPoint(String windowAudioS3Key, long windowStartOffsetMs,
+        public CutDetectionResult detectCutPoint(long meetingId, String windowAudioS3Key, long windowStartOffsetMs,
                                                  long targetOffsetMs) {
             throw new AssertionError("임계값 미달이거나 앞 단계가 실패했으므로 호출되면 안 됩니다.");
         }
@@ -298,7 +298,7 @@ class SttBlockCutTriggerTest {
         private final List<Long> detectCalls = new ArrayList<>();
 
         @Override
-        public CutDetectionResult detectCutPoint(String windowAudioS3Key, long windowStartOffsetMs,
+        public CutDetectionResult detectCutPoint(long meetingId, String windowAudioS3Key, long windowStartOffsetMs,
                                                  long targetOffsetMs) {
             detectCalls.add(targetOffsetMs);
             return new CutDetectionResult(targetOffsetMs, "VAD_SILENCE", 700L);

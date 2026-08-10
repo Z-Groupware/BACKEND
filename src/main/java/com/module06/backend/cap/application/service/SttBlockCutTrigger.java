@@ -105,7 +105,7 @@ public class SttBlockCutTrigger {
                             availableUpToMs);
 
             SttBlockCutDetectionPort.CutDetectionResult cut = cutDetectionPort.detectCutPoint(
-                    window.s3Key(), window.windowStartOffsetMs(), targetOffsetMs);
+                    meetingId, window.s3Key(), window.windowStartOffsetMs(), targetOffsetMs);
 
             String blockAudioS3Key = audioAssemblyPort.assembleBlockAudio(companyId, meetingId,
                     segmentSeq, blockSeq, lastBlockEndOffsetMs, cut.cutOffsetMs());
