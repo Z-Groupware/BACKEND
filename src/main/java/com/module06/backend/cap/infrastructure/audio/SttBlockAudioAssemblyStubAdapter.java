@@ -2,17 +2,18 @@ package com.module06.backend.cap.infrastructure.audio;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
 
 /* comment.
-    SttBlockAudioAssemblyPort의 스텁 구현 — 실제 ffmpeg 실행(청크 다운로드·opus→wav 변환·이어붙이기)
-    인프라가 배선되기 전까지 트리거를 로그로만 남긴다(RecordingAssemblyStubAdapter와 동일 패턴).
-    운영 배포 이미지에 ffmpeg가 아직 설치되지 않았다 — 실 어댑터로 교체하기 전 Dockerfile에도
-    설치가 필요하다(별도 확인 필요, 이 스텁과 무관하게 진행 가능).
+    SttBlockAudioAssemblyPort의 스텁 구현 — 로컬/테스트 전용(@Profile("!prod")). 운영은
+    SttBlockAudioAssemblyS3FfmpegAdapter(실제 ffmpeg 실행)가 대체한다 — CapObjectStorageStubAdapter/
+    CapS3ObjectStorageAdapter와 동일한 stub↔실 어댑터 분리 패턴.
 */
 @Component
+@Profile("!prod")
 public class SttBlockAudioAssemblyStubAdapter implements SttBlockAudioAssemblyPort {
 
     private static final Logger log = LoggerFactory.getLogger(SttBlockAudioAssemblyStubAdapter.class);
