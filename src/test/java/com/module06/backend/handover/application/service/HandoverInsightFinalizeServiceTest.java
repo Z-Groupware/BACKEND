@@ -150,6 +150,10 @@ class HandoverInsightFinalizeServiceTest {
         @Override
         public void reassign(Long actionId, Long fromMemberId, Long toMemberId) {
         }
+
+        @Override
+        public void rollbackReassignment(Long actionId, Long fromMemberId, Long toMemberId) {
+        }
     }
 
     private static class FakeMeetingQueryPort implements MeetingQueryPort {

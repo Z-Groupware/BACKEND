@@ -15,6 +15,12 @@ public interface ActionReassignPort {
 
     void reassign(Long actionId, Long fromMemberId, Long toMemberId);
 
+    /**
+     * reassign의 역방향 — 반려(reject) 시 이미 커밋된 재분배를 원담당자로 되돌린다.
+     * 대칭 연산이라 담당자 일치 검증도 동일(fromMemberId=현재 담당자, toMemberId=되돌릴 대상).
+     */
+    void rollbackReassignment(Long actionId, Long fromMemberId, Long toMemberId);
+
     // --- 인사이트 레이어 증분 계약 ---
 
     /** 인사이트 조립용: 퇴사자 개인 담당 인계 대상 액션(타입 무관). */

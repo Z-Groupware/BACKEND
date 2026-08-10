@@ -34,6 +34,8 @@ import lombok.RequiredArgsConstructor;
     findByIdForUpdate(SELECT ... FOR UPDATE)로 읽어 같은 트랜잭션(@Transactional) 안에서 바로
     쓴다 — 동시에 두 인수인계 요청이 같은 액션을 재배정하면, 잠금 없이는 나중에 커밋한 쪽이
     먼저 커밋한 쪽을 조용히 덮어쓴다(2026-08-08, CodeRabbit PR #126 지적 정리).
+    rollbackReassignment: reassign의 역방향(인수인계 반려 시 원담당자 복원). 검증·저장 로직은
+    reassign에 그대로 위임 — 대칭 연산이라 중복 구현 안 함(2026-08-10, 종준 PO 요청).
 
     연결된 클래스
     - ActionRepository                       : 실제 조회·저장 위임 대상
@@ -66,6 +68,12 @@ public class ActionReassignAdapter implements ActionReassignPort {
 
         action.reassignTo(toMemberId);
         actionRepository.save(action);
+    }
+
+    @Override
+    @Transactional
+    public void rollbackReassignment(Long actionId, Long fromMemberId, Long toMemberId) {
+        reassign(actionId, fromMemberId, toMemberId);
     }
 
     @Override
