@@ -59,6 +59,14 @@ public class Recording {
         return new Recording(null, meetingId, fileName, fileUrl, sizeBytes, null, sttTriggered, null, null);
     }
 
+    // 신규 등록 — 조립 파이프라인이 duration을 이미 계산해둔 경우(CAP-05 자동/수동 조립).
+    // ManualRecordingService의 register(...)와 달리, 조립은 업로드 직후가 아니라 ffmpeg/ffprobe로
+    // 파일 자체를 다 만든 뒤에 등록하므로 durationSec을 처음부터 채워 넣을 수 있다.
+    public static Recording registerWithDuration(Long meetingId, String fileName, String fileUrl, long sizeBytes,
+                                                 Integer durationSec, boolean sttTriggered) {
+        return new Recording(null, meetingId, fileName, fileUrl, sizeBytes, durationSec, sttTriggered, null, null);
+    }
+
     // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델). sttTriggered 없이 호출하는 기존 테스트 호환용.
     public static Recording restore(Long id, Long meetingId, String fileName, String fileUrl, long sizeBytes,
                                     Integer durationSec, LocalDateTime createdAt, LocalDateTime updatedAt) {
