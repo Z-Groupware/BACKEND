@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -22,6 +23,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
+import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
@@ -80,16 +82,19 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private final RecordingPartRepository recordingPartRepository;
     private final RecordingRepository recordingRepository;
     private final MeetingReferenceRepository meetingReferenceRepository;
+    private final CapObjectStoragePort capObjectStoragePort;
     private final String bucket;
 
     public RecordingAssemblyS3FfmpegAdapter(S3Client s3Client, RecordingPartRepository recordingPartRepository,
                                             RecordingRepository recordingRepository,
                                             MeetingReferenceRepository meetingReferenceRepository,
+                                            CapObjectStoragePort capObjectStoragePort,
                                             CapS3Properties properties) {
         this.s3Client = s3Client;
         this.recordingPartRepository = recordingPartRepository;
         this.recordingRepository = recordingRepository;
         this.meetingReferenceRepository = meetingReferenceRepository;
+        this.capObjectStoragePort = capObjectStoragePort;
         this.bucket = properties.bucket();
     }
 
@@ -118,6 +123,9 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
 
                 // 성공 후에만 parts 삭제(되돌릴 수 없음) — 위 등록이 실패하면 여기 도달하지 않아
                 // 원본 청크가 그대로 남고, 사람이 CAP-05로 재시도할 수 있다.
+                // S3 객체를 먼저 지운다 — DB 행(recording_part)을 먼저 지우면 s3Key 참조가 사라져서,
+                // 그 뒤 S3 삭제가 실패한 조각은 다시는 찾을 수 없는 고아 객체로 영영 남는다(CodeRabbit 지적).
+                deletePartObjectsBestEffort(parts);
                 recordingPartRepository.deleteByMeetingId(meetingId);
 
                 log.info("회의 녹음 조립 완료 — meetingId={} durationSec={} sizeBytes={}",
@@ -149,6 +157,20 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         return all;
     }
 
+    // 청크 S3 객체를 하나씩 지운다 — 한둘이 실패해도 나머지는 계속 지운다(부분 실패로 전체 조립을
+    // 실패 처리하면 이미 완료된 recording 등록까지 되돌릴 수 없으면서 청크만 영영 안 지워진다).
+    // 실패한 키는 로그로 남긴다 — 재시도 경로는 없다(recording이 이미 등록돼 자동 재트리거가 없기
+    // 때문, CodeRabbit 지적). 운영에서 반복되면 별도 정리 작업이 필요하다.
+    private void deletePartObjectsBestEffort(List<RecordingPart> parts) {
+        for (RecordingPart part : parts) {
+            try {
+                capObjectStoragePort.deleteRecording(part.getS3Key());
+            } catch (RuntimeException e) {
+                log.warn("청크 S3 객체 삭제 실패 — s3Key={}", part.getS3Key(), e);
+            }
+        }
+    }
+
     private Path buildOgg(Path workDir, List<RecordingPart> parts) {
         // 1) 청크마다 개별적으로 정규화(코덱이 뭐든 각자 안전하게 디코드) —
         // SttBlockAudioAssemblyS3FfmpegAdapter와 동일한 이유(방식 D).
@@ -174,14 +196,20 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
 
     // ffprobe로 최종 산출물의 실제 길이를 읽는다 — recording.durationSec은 클라이언트가 주장한 값이
     // 아니라 여기서 실측한 값이어야 재생바 탐색이 정확하다.
+    //
+    // stdout·stderr를 합치지 않는다(CodeRabbit 지적) — exit=0이어도 stderr에 경고가 섞여 나오면
+    // duration 숫자와 같은 파일에 합쳐져 파싱이 깨진다. stdout은 출력이 한 줄짜리 숫자뿐이라
+    // 파이프로 직접 읽어도 버퍼가 찰 위험이 없고, stderr만 실패 시 진단용 로그 파일로 남긴다.
     private int probeDurationSeconds(Path workDir, Path file) {
-        Path logFile = workDir.resolve("ffprobe-" + UUID.randomUUID() + ".log");
+        Path errorLog = workDir.resolve("ffprobe-" + UUID.randomUUID() + ".err.log");
         try {
             Process process = new ProcessBuilder(List.of("ffprobe", "-v", "error", "-show_entries",
                     "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file.toString()))
-                    .redirectErrorStream(true)
-                    .redirectOutput(logFile.toFile())
+                    .redirectErrorStream(false)
+                    .redirectError(errorLog.toFile())
                     .start();
+
+            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 
             boolean finished = process.waitFor(FFPROBE_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
             if (!finished) {
@@ -191,14 +219,33 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
             }
             if (process.exitValue() != 0) {
                 throw new IllegalStateException("ffprobe 실패(exit=%d) — %s"
-                        .formatted(process.exitValue(), readLogQuietly(logFile)));
+                        .formatted(process.exitValue(), readLogQuietly(errorLog)));
             }
-            return (int) Math.round(Double.parseDouble(readLogQuietly(logFile).trim()));
+            return parseDurationSeconds(stdout, file);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("ffprobe 실행이 인터럽트됐습니다 — " + file, e);
+        }
+    }
+
+    // 컨테이너에 duration 메타데이터가 없으면 ffprobe는 exit=0인데 "N/A"를 찍는다(CodeRabbit 지적) —
+    // 숫자로 파싱되지 않으면 무음 길이로 등록하지 않고 명확히 실패시킨다.
+    private int parseDurationSeconds(String stdout, Path file) {
+        String lastLine = null;
+        for (String line : stdout.split("\\R")) {
+            if (!line.isBlank()) {
+                lastLine = line.trim();
+            }
+        }
+        if (lastLine == null) {
+            throw new IllegalStateException("ffprobe가 duration을 출력하지 않았습니다 — " + file);
+        }
+        try {
+            return (int) Math.round(Double.parseDouble(lastLine));
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("ffprobe duration 파싱 실패(값=" + lastLine + ") — " + file, e);
         }
     }
 
@@ -224,9 +271,13 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         return target;
     }
 
+    // 파일명 부분(마지막 '/' 뒤)에서만 확장자를 찾는다(CodeRabbit 지적) — 키 전체에서 찾으면 상위
+    // 경로 세그먼트에 점이 있을 때(예: v1.0/) 그 점을 확장자로 오인해 존재하지 않는 하위 디렉터리
+    // 경로가 만들어지고 다운로드가 실패한다.
     private String extensionOf(String s3Key) {
+        int lastSlash = s3Key.lastIndexOf('/');
         int dot = s3Key.lastIndexOf('.');
-        return dot >= 0 ? s3Key.substring(dot) : "";
+        return dot > lastSlash ? s3Key.substring(dot) : "";
     }
 
     private void writeConcatFileList(Path fileList, List<Path> wavs) {
