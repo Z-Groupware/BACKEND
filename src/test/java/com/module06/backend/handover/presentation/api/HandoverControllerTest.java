@@ -343,6 +343,7 @@ class HandoverControllerTest {
         verify(attributeHandoverToLeaderUseCase).attributeToNewLeader(captor.capture());
         assertThat(captor.getValue().handoverId()).isEqualTo(HANDOVER_ID);
         assertThat(captor.getValue().newLeaderId()).isEqualTo(TARGET);
+        assertThat(captor.getValue().requesterCompanyId()).isEqualTo(COMPANY);
         assertThat(captor.getValue().attributedAt()).isNotNull();
     }
 

@@ -224,9 +224,15 @@ public class HandoverController {
     @PatchMapping("/{id}/attribute-to-leader")
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> attributeToLeader(@PathVariable Long id,
+                                                           @Parameter(hidden = true)
+                                                           @AuthenticationPrincipal AuthPrincipal principal,
                                                            @Valid @RequestBody AttributeToLeaderRequest request) {
+        if (principal == null || principal.companyId() == null) {
+            throw new BusinessException(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED);
+        }
+        // 회사 스코프는 토큰에서 — 서비스가 작성자·신규 팀장이 이 회사 소속인지 검증(크로스컴퍼니 차단).
         Handover handover = attributeHandoverToLeaderUseCase.attributeToNewLeader(
-                request.toCommand(id, LocalDateTime.now()));
+                request.toCommand(id, principal.companyId(), LocalDateTime.now()));
         return ApiResponse.success("신규 팀장에게 인수인계 액션을 일괄 이관했습니다.", HandoverResponse.from(handover));
     }
 

@@ -140,19 +140,37 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
         if (command == null || command.newLeaderId() == null) {
             throw new BusinessException(HandoverErrorCode.HO_ATTRIBUTE_COMMAND_INVALID);
         }
+        if (command.requesterCompanyId() == null) {
+            throw new BusinessException(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED);
+        }
         Handover handover = findHandover(command.handoverId());
+        // 퇴사자 본인을 신규 팀장으로 지정하면 액션 소유권이 퇴사자에게 남는다(귀속만 풀려 유령 상태) — 거부.
+        if (Objects.equals(command.newLeaderId(), handover.getWriterMemberId())) {
+            throw new BusinessException(HandoverErrorCode.HO_ATTRIBUTE_TO_WRITER_NOT_ALLOWED);
+        }
+        // 크로스컴퍼니 차단: 요청자 회사에 속한 작성자·신규 팀장만 이관 대상. read 게이트(assertCanRead)와 같은 근거.
+        List<Long> companyMemberIds = orgQueryPort().findMemberIdsByCompany(command.requesterCompanyId());
+        if (!companyMemberIds.contains(handover.getWriterMemberId())
+                || !companyMemberIds.contains(command.newLeaderId())) {
+            throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+        }
         OrgQueryPort.MemberSnapshot newLeader = orgQueryPort().findMember(command.newLeaderId());
+        // 도메인 변경 전에 "미귀속" 액션 id만 수집한다 — 이미 남에게 귀속된 항목의 실제 소유권을 덮어쓰지 않는다
+        // (도메인도 미귀속 항목만 스냅샷을 채우므로 스냅샷↔액션 소유권을 일치시킨다).
+        List<Long> unassignedActionIds = handover.getItems().stream()
+                .filter(HandoverItem::isReassignRequired)
+                .filter(item -> !item.isReassigned())
+                .map(HandoverItem::getActionId)
+                .toList();
         // 상태·불변식 검증을 먼저 통과시킨다 — 귀속 대기가 아니면 여기서 예외로 끝나 액션 커밋 부수효과가 없다.
         handover.attributeToNewLeader(command.newLeaderId(), newLeader.name(), newLeader.position(),
                 command.attributedAt());
         // 항목 스냅샷을 채운 뒤, 액션(C) 도메인의 실제 소유권을 퇴사 팀장 → 신규 팀장으로 커밋. complete()와 동일 패턴.
-        handover.getItems().stream()
-                .filter(HandoverItem::isReassignRequired)
-                .forEach(item -> actionReassignPort().reassign(
-                        item.getActionId(),
-                        handover.getWriterMemberId(),
-                        command.newLeaderId()
-                ));
+        unassignedActionIds.forEach(actionId -> actionReassignPort().reassign(
+                actionId,
+                handover.getWriterMemberId(),
+                command.newLeaderId()
+        ));
         return handoverRepository.save(handover);
     }
 

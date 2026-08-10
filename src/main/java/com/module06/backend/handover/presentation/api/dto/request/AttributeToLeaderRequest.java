@@ -9,7 +9,8 @@ public record AttributeToLeaderRequest(
         @NotNull Long newLeaderId
 ) {
 
-    public AttributeHandoverToLeaderCommand toCommand(Long handoverId, LocalDateTime attributedAt) {
-        return new AttributeHandoverToLeaderCommand(handoverId, newLeaderId, attributedAt);
+    public AttributeHandoverToLeaderCommand toCommand(Long handoverId, Long requesterCompanyId,
+                                                      LocalDateTime attributedAt) {
+        return new AttributeHandoverToLeaderCommand(handoverId, newLeaderId, requesterCompanyId, attributedAt);
     }
 }

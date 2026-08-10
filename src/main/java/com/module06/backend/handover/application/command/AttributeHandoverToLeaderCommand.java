@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public record AttributeHandoverToLeaderCommand(
         Long handoverId,
         Long newLeaderId,
+        Long requesterCompanyId,
         LocalDateTime attributedAt
 ) {
 }

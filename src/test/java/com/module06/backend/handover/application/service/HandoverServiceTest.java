@@ -30,6 +30,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,6 +46,7 @@ class HandoverServiceTest {
     private static final Long TEAM = 10L;
     private static final Long TARGET = 2L;
     private static final Long LEADER = 9L;
+    private static final Long COMPANY = 100L;
     private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
     private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
     private static final LocalDate LAST_WORKING_DAY = LocalDate.of(2026, 8, 31);
@@ -301,10 +303,11 @@ class HandoverServiceTest {
     void attributeToNewLeaderAssignsAllItemsToNewLeaderAndCommitsActionReassign() {
         Handover handover = finalizedLeaderOffboardingWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER, TARGET));
         when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Leader"));
 
         Handover saved = handoverService.attributeToNewLeader(
-                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, NOW));
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, COMPANY, NOW));
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         assertThat(saved.isPendingAttribution()).isFalse();
@@ -318,13 +321,77 @@ class HandoverServiceTest {
     }
 
     @Test
+    void attributeToNewLeaderReassignsOnlyUnassignedActionsOnMixedHandover() {
+        // FINALIZED 오프보딩에 이미 다른 사용자(5L)에게 귀속된 항목이 섞여 있으면, 그 항목의 실제 액션 소유권은
+        // 덮어쓰지 않고 미귀속(100L)만 새 팀장에게 커밋한다.
+        Handover handover = finalizedLeaderOffboardingWithMixedItems();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER, TARGET));
+        when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Leader"));
+
+        handoverService.attributeToNewLeader(new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, COMPANY, NOW));
+
+        verify(actionReassignPort).reassign(100L, WRITER, TARGET);
+        verify(actionReassignPort, never()).reassign(eq(101L), any(), any());
+        assertThat(handover.getItems()).filteredOn(item -> item.getActionId().equals(101L))
+                .singleElement().satisfies(item -> assertThat(item.getReassigneeId()).isEqualTo(5L));
+    }
+
+    @Test
+    void attributeToNewLeaderRejectsNewLeaderEqualToWriter() {
+        Handover handover = finalizedLeaderOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+
+        assertThatThrownBy(() -> handoverService.attributeToNewLeader(
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, WRITER, COMPANY, NOW)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ATTRIBUTE_TO_WRITER_NOT_ALLOWED));
+
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void attributeToNewLeaderRejectsHandoverWriterOutsideRequesterCompany() {
+        Handover handover = finalizedLeaderOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(TARGET)); // writer 미포함
+
+        assertThatThrownBy(() -> handoverService.attributeToNewLeader(
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, COMPANY, NOW)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void attributeToNewLeaderRejectsNewLeaderOutsideRequesterCompany() {
+        Handover handover = finalizedLeaderOffboardingWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER)); // newLeader 미포함
+
+        assertThatThrownBy(() -> handoverService.attributeToNewLeader(
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, COMPANY, NOW)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+    }
+
+    @Test
     void attributeToNewLeaderRejectedWhenNotPendingAttribution() {
         Handover handover = submittedOffboardingWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER, TARGET));
         when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Leader"));
 
         assertThatThrownBy(() -> handoverService.attributeToNewLeader(
-                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, NOW)))
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, TARGET, COMPANY, NOW)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(HandoverErrorCode.HO_ATTRIBUTE_NOT_ALLOWED));
@@ -336,7 +403,7 @@ class HandoverServiceTest {
     @Test
     void attributeToNewLeaderRejectsMissingNewLeaderId() {
         assertThatThrownBy(() -> handoverService.attributeToNewLeader(
-                new AttributeHandoverToLeaderCommand(HANDOVER_ID, null, NOW)))
+                new AttributeHandoverToLeaderCommand(HANDOVER_ID, null, COMPANY, NOW)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(HandoverErrorCode.HO_ATTRIBUTE_COMMAND_INVALID));
@@ -413,6 +480,15 @@ class HandoverServiceTest {
                 null, null, LAST_WORKING_DAY, "Kim", "Manager", null, null, null, null, NOW,
                 LEADER, "Owner", null,
                 List.of(item(100L)));
+    }
+
+    private static Handover finalizedLeaderOffboardingWithMixedItems() {
+        HandoverItem alreadyAssigned = item(101L);
+        alreadyAssigned.reassignTo(5L, "Old", "Staff", NOW);
+        return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.OFFBOARDING, HandoverStatus.FINALIZED,
+                null, null, LAST_WORKING_DAY, "Kim", "Manager", null, null, null, null, NOW,
+                LEADER, "Owner", null,
+                List.of(item(100L), alreadyAssigned));
     }
 
     private static Handover reassigned(HandoverType type) {
