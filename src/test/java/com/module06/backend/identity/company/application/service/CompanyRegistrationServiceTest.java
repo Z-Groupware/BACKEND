@@ -27,6 +27,7 @@ import com.module06.backend.identity.company.domain.repository.CompanyRegistrati
 class CompanyRegistrationServiceTest {
 
     private static final String EMAIL = "contact@company.com";
+    private static final String ADDRESS = "서울시 강남구 테헤란로 123";
 
     @Test
     @DisplayName("회사와 오너가 만들어지고 계정 정보가 메일로 나간다")
@@ -92,9 +93,31 @@ class CompanyRegistrationServiceTest {
     void rejectsMalformedRegistrationNo() {
         assertThatThrownBy(() -> service(new RecordingRepository()).register(
                 new RegisterCompanyCommand("(주)테크스타트", "1234567890", "홍길동",
-                        EMAIL, "010-0000-0000", null, null, true, true, false)))
+                        EMAIL, "010-0000-0000", null, null, null, true, true, false)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.REGISTRATION_NO_INVALID);
+    }
+
+    @Test
+    @DisplayName("신청서의 회사 주소가 회사에 저장된다 — 온보딩 전에도 주소가 있다")
+    void storesAddressFromRegistration() {
+        RecordingRepository repository = new RecordingRepository();
+
+        service(repository).register(command());
+
+        assertThat(repository.saved).singleElement()
+                .extracting(Saved::address).isEqualTo(ADDRESS);
+    }
+
+    @Test
+    @DisplayName("주소는 선택이다 — 지도를 못 쓰는 환경이라도 회사는 만들어진다")
+    void addressIsOptional() {
+        RecordingRepository repository = new RecordingRepository();
+
+        service(repository).register(command(null, true, true));
+
+        assertThat(repository.saved).singleElement()
+                .extracting(Saved::address).isNull();
     }
 
     @Test
@@ -196,12 +219,16 @@ class CompanyRegistrationServiceTest {
     }
 
     private RegisterCompanyCommand command(boolean agreedTerms, boolean agreedPrivacy) {
+        return command(ADDRESS, agreedTerms, agreedPrivacy);
+    }
+
+    private RegisterCompanyCommand command(String address, boolean agreedTerms, boolean agreedPrivacy) {
         return new RegisterCompanyCommand("(주)테크스타트", "123-45-67890", "홍길동",
-                EMAIL, "010-0000-0000", "6-20", "회의록 자동화 도입 검토",
+                EMAIL, "010-0000-0000", address, "6-20", "회의록 자동화 도입 검토",
                 agreedTerms, agreedPrivacy, false);
     }
 
-    private record Saved(String code, boolean agreedMarketing) {
+    private record Saved(String code, String address, boolean agreedMarketing) {
     }
 
     private static final class RecordingRepository implements CompanyRegistrationRepository {
@@ -214,13 +241,13 @@ class CompanyRegistrationServiceTest {
         @Override
         public Long register(String code, String name, String registrationNo,
                              String representativeName, String managerEmail, String managerPhone,
-                             String employeeScale, String purpose, boolean agreedMarketing,
-                             LocalDateTime now) {
+                             String address, String employeeScale, String purpose,
+                             boolean agreedMarketing, LocalDateTime now) {
             attempts++;
             if (attempts <= failFirst) {
                 throw new DataIntegrityViolationException("UK violation");
             }
-            saved.add(new Saved(code, agreedMarketing));
+            saved.add(new Saved(code, address, agreedMarketing));
             return (long) saved.size();
         }
 

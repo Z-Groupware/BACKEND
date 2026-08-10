@@ -44,7 +44,7 @@ class CompanyRegistrar {
 
         Long companyId = companyRepository.register(
                 code, command.companyName(), command.registrationNo(), command.representativeName(),
-                command.managerEmail(), command.managerPhone(),
+                command.managerEmail(), command.managerPhone(), command.address(),
                 command.employeeScale(), command.purpose(), command.agreedMarketing(), now);
 
         ownerAccountPort.createOwner(companyId, command.representativeName(),

@@ -57,11 +57,12 @@ public class CompanyPersistenceAdapter
 
     @Override
     public Long register(String code, String name, String registrationNo, String representativeName,
-                         String managerEmail, String managerPhone, String employeeScale, String purpose,
+                         String managerEmail, String managerPhone, String address,
+                         String employeeScale, String purpose,
                          boolean agreedMarketing, LocalDateTime now) {
         CompanyJpaEntity company = CompanyJpaEntity.register(
                 code, name, registrationNo, representativeName,
-                managerEmail, managerPhone, employeeScale, purpose, agreedMarketing, now);
+                managerEmail, managerPhone, address, employeeScale, purpose, agreedMarketing, now);
 
         /*
          * saveAndFlush 다. 코드·사업자번호 UNIQUE 위반을 이 자리에서 터뜨려야 호출자가 잡아 코드를
