@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.notice.domain.model.Notice;
+import com.module06.backend.notice.domain.repository.NoticeCommandRepository;
 import com.module06.backend.notice.domain.repository.NoticeQueryRepository;
 import com.module06.backend.notice.infrastructure.persistence.entity.NoticeJpaEntity;
 import com.module06.backend.notice.infrastructure.persistence.repository.SpringDataNoticeRepository;
@@ -27,6 +28,10 @@ class NoticeQueryPersistenceAdapterTest {
     /* 애플리케이션이 사용하는 공지 목록 도메인 저장소 계약이다. */
     @Autowired
     private NoticeQueryRepository noticeQueryRepository;
+
+    /* 애플리케이션 명령 서비스가 사용하는 공지 저장 도메인 계약이다. */
+    @Autowired
+    private NoticeCommandRepository noticeCommandRepository;
 
     /* 테스트 공지 행을 저장하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -133,6 +138,30 @@ class NoticeQueryPersistenceAdapterTest {
         assertThat(noticeQueryRepository.findActiveNotice(10L, deleted.getId())).isEmpty();
         assertThat(noticeQueryRepository.findActiveNotice(10L, otherCompany.getId())).isEmpty();
         assertThat(noticeQueryRepository.findActiveNotice(10L, 999_999L)).isEmpty();
+    }
+
+    /* 신규 공지 저장 시 인증 회사·작성자와 생성 식별자·시각이 반영되는지 검증한다. */
+    @Test
+    @DisplayName("신규 공지를 저장하고 데이터베이스 생성 값을 반환한다")
+    void savesNewNoticeWithGeneratedValues() {
+        /* 인증 회사 10의 OWNER 3이 작성할 신규 공지 도메인 모델을 만든다. */
+        Notice notice = Notice.create(
+                10L,
+                3L,
+                "회의실 예약과 참석 안내",
+                "회의는 회의실 예약 화면에서만 개설할 수 있습니다."
+        );
+
+        /* NOTI-03 명령 저장소로 신규 공지를 저장한다. */
+        Notice savedNotice = noticeCommandRepository.save(notice);
+
+        /* 데이터베이스 식별자·생성 시각이 생기고 인증 원본과 수정 전 상태가 유지돼야 한다. */
+        assertThat(savedNotice.getId()).isPositive();
+        assertThat(savedNotice.getCompanyId()).isEqualTo(10L);
+        assertThat(savedNotice.getCreatedBy()).isEqualTo(3L);
+        assertThat(savedNotice.getCreatedAt()).isNotNull();
+        assertThat(savedNotice.getUpdatedAt()).isNull();
+        assertThat(savedNotice.getDeletedAt()).isNull();
     }
 
     /* 영속성 테스트에 사용할 신규 또는 삭제 공지 엔티티를 만든다. */

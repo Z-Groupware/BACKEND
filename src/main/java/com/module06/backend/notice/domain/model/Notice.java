@@ -7,8 +7,8 @@ import lombok.Getter;
 /*
  * 회사 공지의 원본 데이터를 보유하는 도메인 모델이다.
  *
- * 공지는 회사에 귀속되며 deletedAt을 채워 삭제 이력을 보존한다. NOTI-01은 이 모델 중
- * 식별자·제목·생성 시각만 외부에 공개한다.
+ * 공지는 회사에 귀속되며 deletedAt을 채워 삭제 이력을 보존한다. 조회 API는 화면에 필요한
+ * 필드만 공개하고 작성 API는 인증 회사와 작성자를 원본으로 저장한다.
  */
 @Getter
 public class Notice {
@@ -57,6 +57,12 @@ public class Notice {
         this.deletedAt = deletedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    /* 검증된 인증 정보와 본문으로 아직 저장되지 않은 신규 공지를 만든다. */
+    public static Notice create(Long companyId, Long createdBy, String title, String content) {
+        /* 생성·수정·삭제 시각과 식별자는 애플리케이션이 아니라 영속성 계층이 채운다. */
+        return new Notice(null, companyId, title, content, createdBy, null, null, null);
     }
 
     /* 데이터베이스에서 읽은 공지의 전체 상태를 복원한다. */
