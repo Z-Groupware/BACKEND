@@ -120,7 +120,7 @@ class ProjectAttachmentControllerTest {
     @Test
     @DisplayName("다운로드 URL 발급은 전 구성원 공개 — 업로더가 아니어도 응답을 받는다")
     void issueDownloadUrlIsOpenToAllMembers() throws Exception {
-        authenticateAs(1L, 3L);
+        authenticateAs(1L, 3L, "MEMBER");
         when(issueAttachmentDownloadUrlUseCase.issueDownloadUrl(any()))
                 .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
 
@@ -189,7 +189,11 @@ class ProjectAttachmentControllerTest {
     }
 
     private void authenticateAs(Long companyId, Long memberId) {
-        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, "OWNER", false, null);
+        authenticateAs(companyId, memberId, "OWNER");
+    }
+
+    private void authenticateAs(Long companyId, Long memberId, String role) {
+        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, role, false, null);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }
