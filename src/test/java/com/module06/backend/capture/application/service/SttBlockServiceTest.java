@@ -244,6 +244,12 @@ class SttBlockServiceTest {
             savedJobName = providerJobName;
             return true;
         }
+
+        @Override
+        public long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                                 String cutReason, String audioS3Key, String provider, String providerJobName) {
+            throw new UnsupportedOperationException("이 테스트는 STT-03/04만 다룬다 — 자동 생성은 대상 밖.");
+        }
     }
 
     private static final class RecordingJobPort implements SttJobPort {

@@ -214,6 +214,12 @@ class DeleteRecordingServiceTest {
             public void deleteByMeetingId(Long meetingId) {
                 partsDeleted[0] = true;
             }
+
+            @Override
+            public List<RecordingPart> findInSegmentBetweenSeqs(Long meetingId, int segmentSeq, int fromSeq,
+                                                                 int toSeq) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
         ProcessingCompletionRepository completion = completionOverride != null
                 ? completionOverride

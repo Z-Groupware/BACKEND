@@ -50,7 +50,7 @@ class CapturePartStatusServiceTest {
     @Test
     @DisplayName("참석자가 아니면 CAP-010으로 거절한다")
     void rejectsWhenNotAttendee() {
-        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, 0L, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
                 meetingRef(true, false), accessGuard(meetingRef(true, false)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
@@ -62,7 +62,7 @@ class CapturePartStatusServiceTest {
     @Test
     @DisplayName("현재 녹음자가 아니면 CAP-004로 거절한다")
     void rejectsWhenNotRecorder() {
-        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, 0L, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
                 meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
@@ -75,7 +75,7 @@ class CapturePartStatusServiceTest {
     @DisplayName("빠진 순번·resumeFromSeq·gapMs를 규칙대로 계산한다")
     void computesMissingResumeAndGap() {
         // 세그먼트 2, lastSeq 5, blocksFormed 3, 녹음자 7. 업로드된 순번은 1·2·4 → 3·5가 빠짐.
-        CaptureUploadState state = CaptureUploadState.restore(500L, 2, 7L, 5, 3, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(500L, 2, 7L, 5, 3, 0L, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
                 meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 4)));
 
@@ -93,7 +93,7 @@ class CapturePartStatusServiceTest {
     @Test
     @DisplayName("빠진 순번이 없으면 missingSeqs는 비어있다")
     void noMissingWhenAllPresent() {
-        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 3, 0, 0L, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
                 meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of(1, 2, 3)));
 
@@ -107,7 +107,7 @@ class CapturePartStatusServiceTest {
     @Test
     @DisplayName("아무것도 안 올라왔으면 resumeFromSeq는 1이다")
     void resumeFromOneWhenEmpty() {
-        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, 0L, null, null);
         CapturePartStatusService service = new CapturePartStatusService(
                 meetingRef(true, true), accessGuard(meetingRef(true, true)), stateRepo(Optional.of(state)), recordingParts(List.of()));
 
@@ -171,6 +171,11 @@ class CapturePartStatusServiceTest {
             public CaptureUploadState save(CaptureUploadState value) {
                 return value;
             }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
     }
 
@@ -189,6 +194,12 @@ class CapturePartStatusServiceTest {
 
             @Override
             public void deleteByMeetingId(Long meetingId) {
+            }
+
+            @Override
+            public List<RecordingPart> findInSegmentBetweenSeqs(Long meetingId, int segmentSeq, int fromSeq,
+                                                                 int toSeq) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
     }

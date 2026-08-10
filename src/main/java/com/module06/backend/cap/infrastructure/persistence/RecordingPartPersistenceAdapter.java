@@ -47,4 +47,14 @@ public class RecordingPartPersistenceAdapter implements RecordingPartRepository 
     public void deleteByMeetingId(Long meetingId) {
         springDataRecordingPartRepository.deleteByMeetingId(meetingId);
     }
+
+    // [fromSeq, toSeq] 범위의 청크 행 전체(seq 순서) — 블록 오디오 조립(ffmpeg)이 실제 s3Key를 읽는다.
+    @Override
+    public List<RecordingPart> findInSegmentBetweenSeqs(Long meetingId, int segmentSeq, int fromSeq, int toSeq) {
+        return springDataRecordingPartRepository
+                .findByMeetingIdAndSegmentSeqAndSeqBetweenOrderBySeqAsc(meetingId, segmentSeq, fromSeq, toSeq)
+                .stream()
+                .map(RecordingPartJpaEntity::toDomain)
+                .toList();
+    }
 }
