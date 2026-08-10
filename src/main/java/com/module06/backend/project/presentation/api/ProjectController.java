@@ -75,6 +75,7 @@ public class ProjectController {
                 request.name(),
                 request.description(),
                 request.color(),
+                request.startDate(),
                 request.dueDate(),
                 request.teamIds()
         ));
@@ -132,6 +133,7 @@ public class ProjectController {
                 request.name(),
                 request.description(),
                 request.color(),
+                request.startDate(),
                 request.dueDate(),
                 request.teamIds()
         ));

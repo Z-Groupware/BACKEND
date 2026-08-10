@@ -27,6 +27,7 @@ public record UpdateProjectRequest(
                 flags = Pattern.Flag.CASE_INSENSITIVE,
                 message = "색상은 지정된 팔레트 11색 중 하나여야 합니다."
         ) String color,
+        @NotNull LocalDate startDate,
         @NotNull LocalDate dueDate,
         @NotNull List<Long> teamIds
 ) {

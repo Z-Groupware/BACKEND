@@ -81,7 +81,7 @@ class ProjectServiceTest {
 
     private Project project(Long companyId) {
         return Project.create(companyId, "TAG", "이름", "설명", "#16A34A",
-                LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L));
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L));
     }
 
     // ---------- create ----------
@@ -94,7 +94,7 @@ class ProjectServiceTest {
 
         Project created = projectService.create(new CreateProjectCommand(
                 COMPANY, OWNER, "TAG", "새 프로젝트", "설명", "#16A34A",
-                LocalDate.of(2026, 12, 31), List.of(1L, 2L)));
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), List.of(1L, 2L)));
 
         verify(projectTeamOwnershipPolicy).check(List.of(1L, 2L), COMPANY);
         verify(projectRepository).save(any(Project.class));
@@ -109,7 +109,7 @@ class ProjectServiceTest {
 
         assertThatThrownBy(() -> projectService.create(new CreateProjectCommand(
                 COMPANY, OWNER, "TAG", "새 프로젝트", "설명", "#16A34A",
-                LocalDate.of(2026, 12, 31), List.of(1L))))
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), List.of(1L))))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_TAG_DUPLICATE);
 
@@ -123,7 +123,7 @@ class ProjectServiceTest {
     void listReturnsAllProjectsWithZeroCountsWhenNoActionsOrMeetings() {
         projectService = service();
         Project project = Project.reconstitute(1L, COMPANY, "TAG", "이름", "설명", "#16A34A",
-                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
+                ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
@@ -141,9 +141,9 @@ class ProjectServiceTest {
     void listAttachesActionAndMeetingCountsFromBatchQueries() {
         projectService = service();
         Project projectA = Project.reconstitute(1L, COMPANY, "TAG-A", "A", "설명", "#000000",
-                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
+                ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
         Project projectB = Project.reconstitute(2L, COMPANY, "TAG-B", "B", "설명", "#000000",
-                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
+                ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(projectA, projectB));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
@@ -202,7 +202,7 @@ class ProjectServiceTest {
         lenient().when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Project updated = projectService.update(new UpdateProjectCommand(
-                PROJECT_ID, OWNER, "새 이름", "새 설명", "#000000", LocalDate.of(2027, 1, 1), List.of(5L)
+                PROJECT_ID, OWNER, "새 이름", "새 설명", "#000000", LocalDate.of(2026, 9, 1), LocalDate.of(2027, 1, 1), List.of(5L)
         ));
 
         verify(projectOwnerOnlyPolicy).check(project, OWNER);
@@ -217,7 +217,7 @@ class ProjectServiceTest {
         when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> projectService.update(
-                new UpdateProjectCommand(PROJECT_ID, OWNER, "이름", "설명", "#000000", LocalDate.now(), List.of())
+                new UpdateProjectCommand(PROJECT_ID, OWNER, "이름", "설명", "#000000", LocalDate.now(), LocalDate.now(), List.of())
         )).isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
     }
@@ -231,7 +231,7 @@ class ProjectServiceTest {
                 .when(projectOwnerOnlyPolicy).check(project, STRANGER);
 
         assertThatThrownBy(() -> projectService.update(
-                new UpdateProjectCommand(PROJECT_ID, STRANGER, "이름", "설명", "#000000", LocalDate.now(), List.of())
+                new UpdateProjectCommand(PROJECT_ID, STRANGER, "이름", "설명", "#000000", LocalDate.now(), LocalDate.now(), List.of())
         )).isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.NOT_PROJECT_OWNER);
     }

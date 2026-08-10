@@ -72,6 +72,7 @@ public class ProjectService implements
                 command.name(),
                 command.description(),
                 command.color(),
+                command.startDate(),
                 command.dueDate(),
                 command.createdBy(),
                 command.teamIds()
@@ -132,7 +133,7 @@ public class ProjectService implements
         projectOwnerOnlyPolicy.check(project, command.requesterId());
         projectTeamOwnershipPolicy.check(command.teamIds(), project.getCompanyId());
 
-        project.update(command.name(), command.description(), command.color(), command.dueDate(), command.teamIds());
+        project.update(command.name(), command.description(), command.color(), command.startDate(), command.dueDate(), command.teamIds());
 
         return projectRepository.save(project);
     }

@@ -22,6 +22,7 @@ public class Project {
     private String description;
     private String color;
     private ProjectStatus status;
+    private LocalDate startDate;
     private LocalDate dueDate;
     private final Long createdBy;
     private final List<Long> teamIds;
@@ -37,6 +38,7 @@ public class Project {
             String description,
             String color,
             ProjectStatus status,
+            LocalDate startDate,
             LocalDate dueDate,
             Long createdBy,
             List<Long> teamIds,
@@ -51,6 +53,7 @@ public class Project {
         this.description = description;
         this.color = color;
         this.status = status;
+        this.startDate = startDate;
         this.dueDate = dueDate;
         this.createdBy = createdBy;
         this.teamIds = new ArrayList<>(teamIds);
@@ -66,13 +69,14 @@ public class Project {
             String name,
             String description,
             String color,
+            LocalDate startDate,
             LocalDate dueDate,
             Long createdBy,
             List<Long> teamIds
     ) {
         return new Project(
                 null, companyId, tag, name, description, color,
-                ProjectStatus.TODO, dueDate, createdBy, teamIds,
+                ProjectStatus.TODO, startDate, dueDate, createdBy, teamIds,
                 null, null, null
         );
     }
@@ -86,6 +90,7 @@ public class Project {
             String description,
             String color,
             ProjectStatus status,
+            LocalDate startDate,
             LocalDate dueDate,
             Long createdBy,
             List<Long> teamIds,
@@ -95,16 +100,18 @@ public class Project {
     ) {
         return new Project(
                 id, companyId, tag, name, description, color,
-                status, dueDate, createdBy, teamIds,
+                status, startDate, dueDate, createdBy, teamIds,
                 deletedAt, createdAt, updatedAt
         );
     }
 
-    // tag는 파라미터로 받지 않는다 — FR-PJ-04 강제.
-    public void update(String name, String description, String color, LocalDate dueDate, List<Long> teamIds) {
+    // tag는 파라미터로 받지 않는다 — FR-PJ-04 강제. startDate는 FE 보드 화면의 할일/진행중
+    // 칸 구분용 표시값일 뿐 status(raw enum, bulk API가 직접 씀)엔 영향 없다(2026-08-10, 이홍근 요청).
+    public void update(String name, String description, String color, LocalDate startDate, LocalDate dueDate, List<Long> teamIds) {
         this.name = name;
         this.description = description;
         this.color = color;
+        this.startDate = startDate;
         this.dueDate = dueDate;
         this.teamIds.clear();
         this.teamIds.addAll(teamIds);

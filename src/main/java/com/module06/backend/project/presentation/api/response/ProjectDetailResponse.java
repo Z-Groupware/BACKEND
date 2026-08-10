@@ -22,6 +22,7 @@ public record ProjectDetailResponse(
         String name,
         String description,
         ProjectStatus status,
+        LocalDate startDate,
         LocalDate dueDate,
         List<Long> teamIds,
         List<AttachmentResponse> attachments
@@ -36,6 +37,7 @@ public record ProjectDetailResponse(
                 project.getName(),
                 project.getDescription(),
                 project.getStatus(),
+                project.getStartDate(),
                 project.getDueDate(),
                 project.getTeamIds(),
                 result.attachments().stream()
