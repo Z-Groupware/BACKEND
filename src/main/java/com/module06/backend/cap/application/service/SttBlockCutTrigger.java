@@ -115,7 +115,10 @@ public class SttBlockCutTrigger {
                     Math.toIntExact(cut.cutOffsetMs()), cut.cutReason(), blockAudioS3Key));
 
             // blocksFormed는 이미 예약 시점에 전진했다 — 여기서는 끝 지점만 확정한다.
-            sttBlockFormedWriter.finalizeBlockOffset(meetingId, cut.cutOffsetMs());
+            // segmentSeq를 같이 넘긴다 — 이 파이프라인이 도는 사이 세그먼트가 바뀌었으면
+            // (녹음자 이어받기) 새 세그먼트의 리셋된 값을 이 옛 세그먼트 오프셋으로 덮어쓰면
+            // 안 되기 때문이다(CodeRabbit 지적).
+            sttBlockFormedWriter.finalizeBlockOffset(meetingId, segmentSeq, cut.cutOffsetMs());
         } catch (RuntimeException e) {
             // 클래스 주석대로 던지지 않는다 — 다음 청크가 같은 지점에서 다시 트리거한다.
             log.error("10분 블록 자동 트리거 실패 — meetingId={}", meetingId, e);

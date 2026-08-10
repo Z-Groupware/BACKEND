@@ -82,29 +82,49 @@ class CaptureUploadStateTest {
 
     /* 예약된 블록이 완성되면 끝 지점만 갱신되고(blocksFormed는 안 건드림) 검증한다. */
     @Test
-    @DisplayName("finalizeBlockOffset은 끝 지점만 갱신한다")
+    @DisplayName("finalizeBlockOffsetIfSegmentMatches는 세그먼트가 같으면 끝 지점만 갱신한다")
     void finalizeBlockOffsetUpdatesOffsetOnly() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
         state.reserveNextBlockSeq();
 
-        state.finalizeBlockOffset(600_000L);
+        boolean applied = state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L);
 
+        assertThat(applied).isTrue();
         assertThat(state.getBlocksFormed()).isEqualTo(1);
         assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
     }
 
     /* 이전 블록 끝 지점보다 앞서거나 같은 값은 CAP-021로 거절해 블록이 시간을 거스르지 않게 막는지 검증한다. */
     @Test
-    @DisplayName("finalizeBlockOffset은 이전 끝 지점 이하 값을 CAP-021로 거절한다")
+    @DisplayName("finalizeBlockOffsetIfSegmentMatches는 이전 끝 지점 이하 값을 CAP-021로 거절한다")
     void finalizeBlockOffsetRejectsNonAdvancingOffset() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
-        state.finalizeBlockOffset(600_000L);
+        state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L);
 
-        assertErrorCode(() -> state.finalizeBlockOffset(600_000L), "CAP-021");
-        assertErrorCode(() -> state.finalizeBlockOffset(500_000L), "CAP-021");
+        assertErrorCode(() -> state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L), "CAP-021");
+        assertErrorCode(() -> state.finalizeBlockOffsetIfSegmentMatches(0, 500_000L), "CAP-021");
 
         // 거절됐으므로 상태가 그대로여야 한다.
         assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
+    }
+
+    /*
+     * 세그먼트가 이미 바뀌었으면(예약 당시 세그먼트와 다르면) 적용하지 않고 false를 반환하는지
+     * 검증한다(CodeRabbit 지적) — 그 사이 이어받기가 일어나 새 세그먼트가 0으로 리셋된 뒤에
+     * 옛 세그먼트의 끝 지점이 도착한 상황을 재현한다.
+     */
+    @Test
+    @DisplayName("finalizeBlockOffsetIfSegmentMatches는 세그먼트가 바뀌었으면 적용하지 않는다")
+    void finalizeBlockOffsetSkipsWhenSegmentChanged() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
+        state.assignOrVerifyRecorder(9L, true); // 세그먼트 0 → 1로 전환, 끝 지점 0으로 리셋됨
+
+        // 옛 세그먼트(0)에서 예약된 파이프라인이 뒤늦게 도착한 상황.
+        boolean applied = state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L);
+
+        assertThat(applied).isFalse();
+        // 새 세그먼트(1)의 리셋된 값이 오염되지 않아야 한다.
+        assertThat(state.getLastBlockEndOffsetMs()).isZero();
     }
 
     /* willChangeSegment가 실제 이어받기 성립 조건(assignOrVerifyRecorder와 동일)만 true를 내는지 검증한다. */
@@ -128,7 +148,7 @@ class CaptureUploadStateTest {
     void takeoverResetsSeqAndBlockOffsetForNewSegment() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
         state.recordUpload(7L, 25);
-        state.finalizeBlockOffset(150_000L);
+        state.finalizeBlockOffsetIfSegmentMatches(0, 150_000L);
 
         state.assignOrVerifyRecorder(9L, true);
 

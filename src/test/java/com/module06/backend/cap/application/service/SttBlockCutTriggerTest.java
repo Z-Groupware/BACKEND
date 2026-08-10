@@ -130,9 +130,9 @@ class SttBlockCutTriggerTest {
         // 재현한다 — assignOrVerifyRecorder가 lastSeq·lastBlockEndOffsetMs를 0으로 리셋한다.
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
         state.reserveNextBlockSeq();
-        state.finalizeBlockOffset(600_000L);
+        state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L);
         state.reserveNextBlockSeq();
-        state.finalizeBlockOffset(1_200_000L);
+        state.finalizeBlockOffsetIfSegmentMatches(0, 1_200_000L);
         state.assignOrVerifyRecorder(9L, true);
         assertThat(state.getBlocksFormed()).isEqualTo(2);
         assertThat(state.getLastBlockEndOffsetMs()).isZero();

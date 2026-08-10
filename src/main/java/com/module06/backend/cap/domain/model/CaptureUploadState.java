@@ -136,15 +136,30 @@ public class CaptureUploadState {
     /*
      * 예약된 블록이 실제로 완성됐을 때(조립·생성·제출까지 성공) 끝 지점을 갱신한다.
      *
+     * <h2>expectedSegmentSeq가 지금 세그먼트와 같을 때만 적용한다(CodeRabbit 지적)</h2>
+     * blockSeq(reserveNextBlockSeq)는 회의 전체를 관통하는 번호라 세그먼트 무관하게 유효하지만,
+     * lastBlockEndOffsetMs는 **그 세그먼트 안에서만** 의미가 있다. 이 파이프라인이 도는 몇 초
+     * 사이(ffmpeg·AI-01 호출) 녹음자 이어받기로 세그먼트가 바뀌면 assignOrVerifyRecorder가
+     * lastBlockEndOffsetMs를 이미 0으로 리셋해뒀는데, 그 뒤에 이전 세그먼트의 cutOffsetMs가
+     * 도착해서 그대로 적용되면 **새 세그먼트가 이미 그만큼 오디오를 소비한 것처럼** 오염된다.
+     * 세그먼트가 다르면 적용을 건너뛴다 — 어차피 그 블록은 이미 만들어져 STT에 제출까지
+     * 끝났으니, 카운터에 흔적을 남기지 않는 것 말고는 할 일이 없다.
+     *
      * blockEndOffsetMs는 지금까지 기록된 끝 지점보다 커야 한다 — 블록은 항상 앞으로만
      * 진행해야 하고(시간을 거스르는 블록은 없음), 작거나 같은 값이 들어오면 호출자가 순서를
      * 잘못 불렀거나 같은 블록을 중복 처리하려는 것이다.
+     *
+     * @return 실제로 적용됐으면 true, 세그먼트가 이미 바뀌어 건너뛰었으면 false
      */
-    public void finalizeBlockOffset(long blockEndOffsetMs) {
+    public boolean finalizeBlockOffsetIfSegmentMatches(int expectedSegmentSeq, long blockEndOffsetMs) {
+        if (segmentSeq != expectedSegmentSeq) {
+            return false;
+        }
         if (blockEndOffsetMs <= lastBlockEndOffsetMs) {
             throw new BusinessException(CapErrorCode.CAP_BLOCK_OFFSET_INVALID);
         }
         lastBlockEndOffsetMs = blockEndOffsetMs;
+        return true;
     }
 
     public Long getMeetingId() { return meetingId; }
