@@ -222,6 +222,11 @@ class MyProfileServiceTest {
         }
 
         @Override
+        public Optional<Team> findByLeaderMemberId(Long leaderMemberId) {
+            return Optional.empty();
+        }
+
+        @Override
         public Team create(Long companyId, String name) {
             throw new UnsupportedOperationException();
         }

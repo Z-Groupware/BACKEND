@@ -213,11 +213,18 @@ public class MemberJpaEntity {
     /**
      * 오프보딩 최종 승인. 물리 삭제하지 않는다 — 감사 흔적을 남기려면 행이 있어야 한다.
      * {@code deleted_at} 이 찍히면 조회에서 걸러지고, 로그인은 403 이 된다.
+     *
+     * <p>권한도 함께 회수한다({@code MemberStatusPort#offboard} 계약의 "권한 회수"). 팀장으로
+     * 남겨두면 조직 화면이 퇴사자를 팀장으로 계속 그리고, 후임 승급 경로가 팀장 자리를 이미
+     * 찬 것으로 본다. OWNER 는 건드리지 않는다 — 소유자 이관은 별도 절차다.
      */
     public void offboard(LocalDateTime at) {
         requireStatus(MemberStatus.WAITING);
         this.status = MemberStatus.RESIGNED;
         this.deletedAt = at;
+        if (this.authority == Authority.LEADER) {
+            this.authority = Authority.MEMBER;
+        }
     }
 
     /**

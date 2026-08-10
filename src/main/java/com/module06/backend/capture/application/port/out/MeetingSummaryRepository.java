@@ -49,6 +49,32 @@ public interface MeetingSummaryRepository {
      */
     Optional<MeetingSummaryView> findByMeeting(long companyId, long meetingId);
 
+    /*
+     * ANLZ-04 · 고칠 항목을 **회의 안에서** 찾는다.
+     *
+     * ⚠ id 만으로 찾지 않는다. itemId 는 meeting_decision.id 이고, 회의를 함께 걸지 않으면
+     * 다른 회의 — 나아가 다른 회사 — 의 요약 문장을 고칠 수 있다. RVW-03 의 근거 발화 검증과
+     * 같은 성질인데(#100) 이쪽은 쓰기 경로라 피해가 더 크다.
+     *
+     * 찾지 못한 id 는 결과에서 빠진다. 몇 개가 빠졌는지는 호출자가 요청 수와 비교해 판정한다 —
+     * 여기서 예외로 만들면 "없는 id 하나 때문에 나머지 수정까지 막는가"를 저장소가 정하게 된다.
+     */
+    List<ItemView> findItemsInMeeting(long meetingId, List<Long> itemIds);
+
+    /*
+     * ANLZ-04 · 항목 내용을 고치고 편집 표시를 남긴다.
+     *
+     * 한 트랜잭션이다 — 항목만 바뀌고 편집 표시가 안 남으면 화면이 AI 원본으로 보이고,
+     * 표시만 남고 항목이 안 바뀌면 그 반대가 된다.
+     *
+     * @return 편집 시각. 응답의 editedAt 이다
+     */
+    java.time.LocalDateTime applyItemEdits(long meetingId, List<ItemEdit> edits, long editorMemberId);
+
+    /* 고칠 내용 하나. reason 은 선택이다 — null 이면 기존 값을 그대로 둔다. */
+    record ItemEdit(long itemId, String content, String reason) {
+    }
+
     /* 한 주제와 그 안의 항목들. topicSeq 는 L2 가 매긴 순번을 그대로 쓴다. */
     record TopicDecisions(int topicSeq, String topic, List<TopicItem> items) {
     }
