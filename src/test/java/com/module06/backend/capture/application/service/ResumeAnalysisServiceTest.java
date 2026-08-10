@@ -69,7 +69,7 @@ class ResumeAnalysisServiceTest {
         return new AnalysisService(
                 orchestrator, analysisLayerRepository, meetingSummaryRepository,
                 meetingId -> List.of(),
-                sttGapRepository, sttBlockRepository,
+                sttGapRepository, sttBlockRepository, java.time.Clock.systemUTC(),
                 new MeetingAccessGuard((companyId, meetingId) -> accessible));
     }
 

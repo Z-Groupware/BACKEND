@@ -1,5 +1,6 @@
 package com.module06.backend.capture.application.port.out;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -163,7 +164,14 @@ public interface SttBlockRepository {
             SttCutReason cutReason,
             int retryCount,
             String error,
-            String audioS3Key
+            String audioS3Key,
+            LocalDateTime startedAt,
+            LocalDateTime finishedAt
     ) {
+
+        /* 이 블록이 담은 오디오 길이. 남은 시간 추정이 쓴다(회의 시계가 아니라 처리할 양이다). */
+        public int audioMs() {
+            return Math.max(0, endOffsetMs - startOffsetMs);
+        }
     }
 }

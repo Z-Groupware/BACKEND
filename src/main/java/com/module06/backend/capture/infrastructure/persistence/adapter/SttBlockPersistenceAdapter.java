@@ -180,6 +180,8 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
                 entity.getCutReason(),
                 entity.getRetryCount(),
                 entity.getErrorCode(),
-                entity.getAudioS3Key());
+                entity.getAudioS3Key(),
+                entity.getStartedAt(),
+                entity.getFinishedAt());
     }
 }

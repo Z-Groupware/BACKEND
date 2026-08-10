@@ -1,5 +1,7 @@
 package com.module06.backend.capture.application.service;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -11,6 +13,7 @@ import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.application.port.out.SttBlockRepository.SttBlockView;
 import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository.MeetingSummaryView;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
@@ -22,6 +25,8 @@ import com.module06.backend.capture.application.usecase.ResumeAnalysisUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.SttBlockStatus;
+import com.module06.backend.capture.domain.model.SttProgress;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -55,6 +60,9 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
      */
     private final SttGapRepository sttGapRepository;
     private final SttBlockRepository sttBlockRepository;
+
+    /* 남은 시간 추정의 기준 시각. 프로젝트 전체에 Clock 빈이 하나뿐이라 타입으로 주입된다. */
+    private final Clock clock;
 
     /*
      * 회사 스코프 관문. 세 유스케이스가 **전부** 이걸 먼저 지난다.
@@ -107,7 +115,20 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
                         gap.reason(), gap.mentionedNames(), gap.keywords()))
                 .toList();
 
-        return ProcessingStatus.of(layerProgress(meetingId), gaps, gapsChecked(meetingId));
+        /*
+         * 블록을 **한 번만** 읽는다. 진행도(blocks)·남은 시간·gapsChecked 가 전부 같은 목록에서
+         * 나온다 — 각자 조회하면 세 값이 서로 다른 순간의 스냅샷을 보고, 화면에 "전부 DONE 인데
+         * 남은 시간이 90초"처럼 서로 모순되는 조합이 나간다.
+         */
+        List<SttBlockView> blocks = sttBlockRepository.findByMeeting(meetingId);
+        SttProgress progress = SttProgress.of(
+                blocks.stream()
+                        .map(block -> new SttProgress.BlockTiming(block.status(), block.audioMs(),
+                                block.startedAt(), block.finishedAt()))
+                        .toList(),
+                LocalDateTime.now(clock));
+
+        return ProcessingStatus.of(layerProgress(meetingId), gaps, gapsChecked(blocks), progress);
     }
 
     /*
@@ -116,8 +137,8 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
      * <h2>받아쓰기가 끝나야 확인된 것이다</h2>
      * 블록이 아직 QUEUED·RUNNING 이면 그 구간은 실패할 수도 있다 — 지금 구멍이 없다고 답하면
      * 사람이 그걸 "구멍 없음"으로 읽고 분배를 확정한다. 그래서 미완 블록이 하나라도 있으면
-     * false 다. 분석 시작 관문과 **같은 집합**을 본다(countUnfinished) — 갈리면 분석은 시작됐는데
-     * 구멍은 확인 안 됐다고 답하는 상태가 생긴다.
+     * false 다. 분석 시작 관문(countUnfinished)과 **같은 뜻의 집합**을 봐야 한다 — 갈리면
+     * 분석은 시작됐는데 구멍은 확인 안 됐다고 답하는 상태가 생긴다.
      *
      * <h2>블록이 아예 없으면 false 다</h2>
      * 받아쓰기를 한 적이 없는 회의다. 0 == 0 이라고 true 를 주면 "확인했고 구멍이 없다"가 되는데,
@@ -129,17 +150,20 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
      * 자동 블록 트리거가 청크 구멍을 검증하지 않는다는 것이 PR #302 의 리뷰 지적이었고,
      * 그 답이 이 포트다.
      */
-    private boolean gapsChecked(long meetingId) {
-        /*
-         * 블록 존재 여부는 목록으로 본다. 회의 하나에 블록은 10분당 하나라 2시간이어도 열몇 건이고,
-         * STT-03 이 이미 같은 읽기를 한다 — "총 몇 건인가"를 세는 메서드를 따로 두면 미완 판정과
-         * 존재 판정이 서로 다른 쿼리를 보게 되고, 그 둘이 어긋날 자리가 생긴다.
-         */
-        if (sttBlockRepository.findByMeeting(meetingId).isEmpty()) {
+    private boolean gapsChecked(List<SttBlockView> blocks) {
+        if (blocks.isEmpty()) {
             return false;
         }
-        // 미완 판정은 countUnfinished 하나만 쓴다(분석 시작 관문과 같은 집합).
-        return sttBlockRepository.countUnfinished(meetingId) == 0;
+        /*
+         * 미완 판정을 **이미 읽은 목록에서** 한다. countUnfinished 를 따로 부르면 조회 두 번
+         * 사이에 블록이 끝나 "blocks 는 미완인데 gapsChecked 는 true" 같은 조합이 나간다.
+         *
+         * 상태 집합은 SttBlockStatus 의 뜻을 그대로 따른다 — DONE·FAILED 만 끝난 상태이고
+         * 나머지는 미완이다. 이 판정이 countUnfinished 와 갈리면 분석 시작 관문과 다른 답을
+         * 내므로, 상태를 추가할 때 둘을 함께 봐야 한다.
+         */
+        return blocks.stream().allMatch(block ->
+                block.status() == SttBlockStatus.DONE || block.status() == SttBlockStatus.FAILED);
     }
 
     /*

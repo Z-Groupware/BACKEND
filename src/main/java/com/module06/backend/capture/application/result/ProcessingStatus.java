@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.SttProgress;
 
 /*
  * CAP-06 응답의 재료다.
@@ -22,7 +23,8 @@ public record ProcessingStatus(
         OverallStatus status,
         List<LayerProgress> layers,
         List<Gap> gaps,
-        boolean gapsChecked
+        boolean gapsChecked,
+        SttProgress blocks
 ) {
 
     public enum OverallStatus {
@@ -60,27 +62,30 @@ public record ProcessingStatus(
      * 아니다. 멈춘 것은 실패로 접어야 재개(ANLZ-02)와 재실행이 둘 다 열린다.
      */
     public static ProcessingStatus of(List<LayerProgress> layers) {
-        return of(layers, List.of(), false);
+        return of(layers, List.of(), false, SttProgress.of(List.of(), null));
     }
 
     /*
-     * 구멍까지 함께 담는다(CAP-06).
+     * 구멍과 블록 진행도까지 함께 담는다(CAP-06).
      *
      * @param gaps        받아쓰기 구멍. 비어 있다는 것이 곧 "구멍 없음"은 아니다 — 그 판단은
      *                    gapsChecked 가 한다
      * @param gapsChecked 그 빈 배열이 **확인 결과인가.** false 면 아직 확인하지 않은 것이다
+     * @param blocks      받아쓰기 진행도와 남은 시간. 남은 시간은 못 재면 null 이다 —
+     *                    지어내지 않는다(SttProgress 주석)
      */
-    public static ProcessingStatus of(List<LayerProgress> layers, List<Gap> gaps, boolean gapsChecked) {
+    public static ProcessingStatus of(List<LayerProgress> layers, List<Gap> gaps, boolean gapsChecked,
+                                      SttProgress blocks) {
         if (layers.isEmpty()) {
-            return new ProcessingStatus(OverallStatus.NOT_STARTED, layers, gaps, gapsChecked);
+            return new ProcessingStatus(OverallStatus.NOT_STARTED, layers, gaps, gapsChecked, blocks);
         }
         if (layers.stream().anyMatch(l -> l.status() == LayerStatus.FAILED || l.stalled())) {
-            return new ProcessingStatus(OverallStatus.FAILED, layers, gaps, gapsChecked);
+            return new ProcessingStatus(OverallStatus.FAILED, layers, gaps, gapsChecked, blocks);
         }
         if (layers.stream().anyMatch(LayerProgress::live)) {
-            return new ProcessingStatus(OverallStatus.RUNNING, layers, gaps, gapsChecked);
+            return new ProcessingStatus(OverallStatus.RUNNING, layers, gaps, gapsChecked, blocks);
         }
-        return new ProcessingStatus(OverallStatus.DONE, layers, gaps, gapsChecked);
+        return new ProcessingStatus(OverallStatus.DONE, layers, gaps, gapsChecked, blocks);
     }
 
     /*

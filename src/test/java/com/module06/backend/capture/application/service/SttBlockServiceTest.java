@@ -105,7 +105,7 @@ class SttBlockServiceTest {
         FakeBlockRepository blocks = new FakeBlockRepository(
                 new SttBlockRepository.SttBlockView(1L, 3, 0, 600_000, SttBlockStatus.FAILED,
                         "whisper", SttCutReason.VAD_SILENCE, 1, "JOB_FAILED",
-                        "meeting-500/blocks/3.wav"));
+                        "meeting-500/blocks/3.wav", null, null));
         RecordingJobPort jobs = new RecordingJobPort();
 
         service(blocks, jobs).retry(new RetrySttBlockCommand(COMPANY, MEETING, 3, null));
@@ -206,7 +206,7 @@ class SttBlockServiceTest {
                 1L, blockSeq, 0, 600_000, status, "aws-transcribe",
                 SttCutReason.VAD_SILENCE, retryCount,
                 status == SttBlockStatus.FAILED ? "JOB_FAILED" : null,
-                audioS3Key);
+                audioS3Key, null, null);
     }
 
     private static final class FakeBlockRepository implements SttBlockRepository {
