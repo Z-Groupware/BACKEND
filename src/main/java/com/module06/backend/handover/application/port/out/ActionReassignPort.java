@@ -15,6 +15,17 @@ public interface ActionReassignPort {
 
     void reassign(Long actionId, Long fromMemberId, Long toMemberId);
 
+    /**
+     * Roll back a committed reassignment by moving the action back to its original assignee.
+     * Implementations are responsible for validating that the current assignment matches from/to.
+     *
+     * <p>This default intentionally fails loud until the action module provides the real override.
+     */
+    default void rollbackReassignment(Long actionId, Long fromMemberId, Long toMemberId) {
+        throw new UnsupportedOperationException(
+                "ActionReassignPort#rollbackReassignment requires an action module implementation.");
+    }
+
     // --- 인사이트 레이어 증분 계약 ---
 
     /** 인사이트 조립용: 퇴사자 개인 담당 인계 대상 액션(타입 무관). */

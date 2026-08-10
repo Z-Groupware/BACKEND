@@ -103,11 +103,14 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
         handover.complete(leaderId, approver.name(), approvedAt);
         handover.getItems().stream()
                 .filter(HandoverItem::isReassignRequired)
-                .forEach(item -> actionReassignPort().reassign(
-                        item.getActionId(),
-                        handover.getWriterMemberId(),
-                        item.getReassigneeId()
-                ));
+                .forEach(item -> {
+                    actionReassignPort().reassign(
+                            item.getActionId(),
+                            handover.getWriterMemberId(),
+                            item.getReassigneeId()
+                    );
+                    item.commit(approvedAt);
+                });
         return handoverRepository.save(handover);
     }
 
@@ -133,9 +136,23 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             throw new BusinessException(HandoverErrorCode.HO_REJECT_COMMAND_INVALID);
         }
         Handover handover = findHandover(command.handoverId());
+        rollbackCommittedReassignments(handover);
         handover.reject(command.reason());
         memberStatusPort().restoreActive(handover.getWriterMemberId());
         return handoverRepository.save(handover);
+    }
+
+    private void rollbackCommittedReassignments(Handover handover) {
+        for (HandoverItem item : handover.getItems()) {
+            if (item.isCommitted() && item.isReassigned()) {
+                actionReassignPort().rollbackReassignment(
+                        item.getActionId(),
+                        item.getReassigneeId(),
+                        handover.getWriterMemberId()
+                );
+                item.markRolledBack();
+            }
+        }
     }
 
     private List<HandoverItem> snapshotItems(CreateHandoverCommand command) {
