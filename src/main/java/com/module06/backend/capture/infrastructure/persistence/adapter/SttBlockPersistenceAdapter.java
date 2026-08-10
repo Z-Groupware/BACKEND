@@ -150,6 +150,28 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
     }
 
     /*
+     * duration 복구는 **아직 끝나지 않은 블록에만** 한다.
+     *
+     * 이미 DONE·FAILED 로 닫힌 블록의 구간을 뒤늦게 고치면, 그 블록이 만든 정본의 오프셋과
+     * 블록 구간이 서로 다른 말을 하게 된다 — 정본은 이미 옛 구간 기준으로 쌓여 있다.
+     */
+    @Override
+    @Transactional
+    public boolean recoverAudioSpan(long blockId, int endOffsetMs) {
+        Optional<SttBlockJpaEntity> claimed = sttBlockRepository.findWithLockByIdAndStatusIn(
+                blockId, EnumSet.of(SttBlockStatus.QUEUED, SttBlockStatus.RUNNING));
+        if (claimed.isEmpty()) {
+            return false;
+        }
+        SttBlockJpaEntity entity = claimed.get();
+        if (!entity.recoverAudioSpan(endOffsetMs)) {
+            return false;
+        }
+        sttBlockRepository.save(entity);
+        return true;
+    }
+
+    /*
      * 허용된 상태에서만 옮긴다 — 조건을 조회에 넣어 DB 가 판정한다.
      *
      * 진 쪽이 false 를 받는다. 예외로 올리지 않는 이유는 이 경합이 **정상 동작**이기 때문이다 —

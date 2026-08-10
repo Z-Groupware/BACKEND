@@ -82,6 +82,44 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
+    @DisplayName("미디어 포맷을 확장자에서 정한다 — wav 로 못 박으면 수동 업로드가 전부 거절된다")
+    void 포맷을_확장자에서_정한다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+
+        // 수동 업로드(CAP-10)는 사용자가 올린 파일이다. m4a 는 같은 컨테이너인 MP4 로 보낸다.
+        adapter().submit(new SttJob(500L, 0, "aws-transcribe", "meeting-500-block-0-r0",
+                "recordings/org-1/meeting-500/회의녹음.m4a", 0, 0));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().mediaFormat()).isEqualTo(MediaFormat.MP4);
+    }
+
+    @Test
+    @DisplayName("대소문자를 가리지 않는다 — .WAV 를 모르는 확장자로 보면 정상 파일이 판정 없이 나간다")
+    void 확장자_대소문자를_가리지_않는다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+
+        adapter().submit(new SttJob(500L, 0, "aws-transcribe", "meeting-500-block-0-r0",
+                "recordings/org-1/meeting-500/REC.WAV", 0, 0));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().mediaFormat()).isEqualTo(MediaFormat.WAV);
+    }
+
+    @Test
+    @DisplayName("모르는 확장자면 포맷을 빼고 보낸다 — 틀린 값을 보내 거절당하는 것보다 낫다")
+    void 모르는_확장자는_제공자_판정에_맡긴다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+
+        adapter().submit(new SttJob(500L, 0, "aws-transcribe", "meeting-500-block-0-r0",
+                "recordings/org-1/meeting-500/녹음파일", 0, 0));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        // 필드가 없으면 Transcribe 가 스스로 판정한다.
+        assertThat(requestCaptor.getValue().mediaFormat()).isNull();
+    }
+
+    @Test
     @DisplayName("결과 키는 오디오 키에서 파생된다 — 접두사를 바꾸고 확장자를 json 으로")
     void 결과_키를_오디오_키에서_만든다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());

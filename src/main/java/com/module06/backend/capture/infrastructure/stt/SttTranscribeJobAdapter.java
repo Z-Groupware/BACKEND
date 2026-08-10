@@ -1,5 +1,6 @@
 package com.module06.backend.capture.infrastructure.stt;
 
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.context.annotation.Profile;
@@ -47,10 +48,14 @@ import com.module06.backend.global.exception.BusinessException;
  * 진짜로 다국어를 하게 되면 이 상수가 아니라 계층 전체가 바뀐다(LayerLiveness 가 유예 시간을
  * 상수로 둔 것과 같은 판단 — 바꿀 수 있게 두는 것 자체가 거짓말이 되는 자리다).
  *
- * <h2>MediaFormat 을 명시한다</h2>
- * 생략하면 Transcribe 가 확장자로 추측한다. 블록 오디오는 ffmpeg 이 16kHz/mono/16bit wav 로
- * 만든다(SttBlockAudioAssemblyS3FfmpegAdapter) — 우리가 아는 값을 추측에 맡기면, 나중에 조립
- * 포맷이 바뀔 때 그 사실이 여기 드러나지 않고 인식 결과만 조용히 나빠진다.
+ * <h2>MediaFormat 은 키 확장자에서 정한다 — 하드코딩하지 않는다</h2>
+ * 자동 블록은 ffmpeg 이 만든 wav 지만(SttBlockAudioAssemblyS3FfmpegAdapter), **수동 업로드
+ * (CAP-10)는 사용자가 올린 파일**이라 mp3·m4a·webm 이 그대로 들어온다. wav 로 못 박으면 그
+ * 경로가 전부 제출에서 거절된다 — 처음에 wav 로 박아 뒀던 것이 이 자리의 버그였다.
+ *
+ * 그래도 **아는 것은 명시한다.** 확장자를 알아보면 그 값을 보내고, 모르는 확장자면 필드를 빼
+ * Transcribe 가 스스로 판정하게 둔다. 전부 추측에 맡기지 않는 이유 — 조립 포맷이 바뀌었을 때
+ * 그 사실이 여기 드러나지 않고 인식 결과만 조용히 나빠진다.
  */
 @Slf4j
 @Component
@@ -61,7 +66,22 @@ public class SttTranscribeJobAdapter implements SttJobPort {
     static final String PROVIDER = "aws-transcribe";
 
     private static final LanguageCode LANGUAGE = LanguageCode.KO_KR;
-    private static final MediaFormat MEDIA_FORMAT = MediaFormat.WAV;
+
+    /*
+     * 확장자 → Transcribe 포맷. 이 목록에 없는 확장자는 필드를 아예 빼서 제공자가 판정한다.
+     *
+     * m4a 를 MP4 로 보내는 이유 — 같은 컨테이너다(Transcribe 에 M4A 값이 없다). 확장자만 다르고
+     * 내용이 같아서, 여기서 안 매핑하면 아이폰 녹음 파일이 전부 판정 없이 나간다.
+     */
+    private static final Map<String, MediaFormat> FORMAT_BY_EXTENSION = Map.of(
+            "wav", MediaFormat.WAV,
+            "mp3", MediaFormat.MP3,
+            "mp4", MediaFormat.MP4,
+            "m4a", MediaFormat.MP4,
+            "flac", MediaFormat.FLAC,
+            "ogg", MediaFormat.OGG,
+            "webm", MediaFormat.WEBM,
+            "amr", MediaFormat.AMR);
 
     private final TranscribeClient transcribeClient;
     private final MeetingVocabularyRepository vocabularyRepository;
@@ -97,10 +117,19 @@ public class SttTranscribeJobAdapter implements SttJobPort {
         StartTranscriptionJobRequest.Builder request = StartTranscriptionJobRequest.builder()
                 .transcriptionJobName(job.providerJobName())
                 .languageCode(LANGUAGE)
-                .mediaFormat(MEDIA_FORMAT)
                 .media(Media.builder().mediaFileUri("s3://" + bucket + "/" + job.audioS3Key()).build())
                 .outputBucketName(bucket)
                 .outputKey(outputKey);
+
+        MediaFormat mediaFormat = mediaFormatOf(job.audioS3Key());
+        if (mediaFormat != null) {
+            request.mediaFormat(mediaFormat);
+        } else {
+            // 모르는 확장자다. 필드를 빼면 Transcribe 가 스스로 판정한다 — 틀린 값을 보내
+            // 거절당하는 것보다 낫다. 어떤 확장자가 들어오는지는 로그로 쌓아 매핑을 늘린다.
+            log.info("확장자로 미디어 포맷을 정하지 못했다 — 제공자 판정에 맡긴다. s3Key={}",
+                    job.audioS3Key());
+        }
 
         // 어휘가 READY 가 아니면 Settings 를 아예 붙이지 않는다 — 빈 Settings 를 보내는 것과
         // 뜻이 같지만, 붙이지 않는 편이 "이 잡은 어휘 없이 돌았다"를 요청에서 바로 읽게 한다.
@@ -193,4 +222,21 @@ public class SttTranscribeJobAdapter implements SttJobPort {
 
     /* 블록 오디오가 쌓이는 접두사(cap 의 조립 어댑터가 정한 경로다). */
     private static final String AUDIO_PREFIX = "stt-temp/";
+
+    /*
+     * 확장자로 포맷을 정한다. 모르면 null — 호출자가 필드를 빼 제공자 판정에 맡긴다.
+     *
+     * 대소문자를 가리지 않는다. 사용자가 올리는 파일은 ".WAV" 로 오기도 하고, 그걸 모르는
+     * 확장자로 취급하면 정상 파일이 매번 판정 없이 나간다.
+     */
+    private static MediaFormat mediaFormatOf(String s3Key) {
+        if (s3Key == null) {
+            return null;
+        }
+        int dot = s3Key.lastIndexOf('.');
+        if (dot < 0 || dot == s3Key.length() - 1) {
+            return null;
+        }
+        return FORMAT_BY_EXTENSION.get(s3Key.substring(dot + 1).toLowerCase(java.util.Locale.ROOT));
+    }
 }

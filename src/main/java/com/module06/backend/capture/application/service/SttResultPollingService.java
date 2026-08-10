@@ -118,6 +118,14 @@ public class SttResultPollingService {
                 yield false;
             }
             case COMPLETED -> {
+                /*
+                 * duration 복구 — **적재보다 먼저.** 수동 업로드(CAP-10)는 길이를 모른 채
+                 * 블록이 만들어지고(WHOLE_FILE · endOffsetMs=0), 그 0 이 남아 있으면 CAP-06 의
+                 * 남은 시간 추정이 이 블록을 "오디오 0초"로 세어 비율이 망가진다.
+                 *
+                 * 이미 구간이 있는 블록(자동 트리거)은 저장소가 덮지 않는다.
+                 */
+                recoverSpanIfUnknown(block, outcome.words());
                 loadTranscript(block, outcome.words());
                 boolean closed = sttBlockRepository.markDone(block.id());
                 /*
@@ -151,6 +159,31 @@ public class SttResultPollingService {
     }
 
     /*
+     * 길이를 모르는 블록의 끝을 인식 결과로 채운다.
+     *
+     * 마지막 단어의 끝 시각이 곧 그 오디오의 길이다. 제공자가 duration 을 따로 주지 않으므로
+     * 이것이 우리가 얻을 수 있는 유일한 실측이다.
+     *
+     * ⚠ 오프셋은 **블록 기준**이다. 회의 기준으로 옮기려면 블록 시작을 더해야 하고, 수동 업로드는
+     * 그 값이 0 이라 결과가 같다 — 그래도 더한다. 나중에 시작이 0 이 아닌 블록에 이 경로가
+     * 쓰이면 빠진 덧셈이 조용히 틀린 길이를 만든다.
+     */
+    private void recoverSpanIfUnknown(PendingBlock block, List<Word> blockWords) {
+        if (block.endOffsetMs() > block.startOffsetMs()) {
+            // 구간을 이미 아는 블록이다(자동 트리거). 인식 결과로 덮으면 경계가 움직인다.
+            return;
+        }
+        if (blockWords.isEmpty()) {
+            return;
+        }
+        int lastEndMs = blockWords.get(blockWords.size() - 1).endMs();
+        if (sttBlockRepository.recoverAudioSpan(block.id(), block.startOffsetMs() + lastEndMs)) {
+            log.info("블록 길이 복구 — meetingId={} blockSeq={} 끝={}ms",
+                    block.meetingId(), block.blockSeq(), block.startOffsetMs() + lastEndMs);
+        }
+    }
+
+    /*
      * 실패로 닫고 **그 구간을 구멍으로 남긴다.**
      *
      * <h2>구멍을 남기는 것이 실패 처리의 절반이다</h2>
@@ -175,6 +208,19 @@ public class SttResultPollingService {
         try {
             sttGapRepository.replaceSttFailureGap(block.meetingId(), block.blockSeq(),
                     block.startOffsetMs(), block.endOffsetMs());
+            /*
+             * 수동 업로드(WHOLE_FILE)가 인식 전에 실패하면 구간이 0~0 이다 — 길이를 인식
+             * 결과에서만 알 수 있어서 실패한 파일의 길이는 끝내 모른다.
+             *
+             * 그래도 **기록한다.** 구멍 레코드의 두 가지 일 중 하나(분배 확정을 막는 것)는
+             * 구간을 몰라도 성립하고, 그게 더 중요한 쪽이다 — 못 들은 구간이 있는데 확정이
+             * 열려 있으면 그 할 일은 영구히 사라진다. 다른 하나("어디를 다시 들어야 하나")는
+             * 이 경우 답하지 못하고, 화면은 파일 전체를 다시 들으라고 안내해야 한다.
+             */
+            if (block.endOffsetMs() <= block.startOffsetMs()) {
+                log.warn("구멍 구간을 모른다 — 인식 전에 실패한 파일이다. meetingId={} blockSeq={}",
+                        block.meetingId(), block.blockSeq());
+            }
             log.warn("받아쓰기 구멍 기록 — meetingId={} blockSeq={} 구간={}~{}ms 사유={}",
                     block.meetingId(), block.blockSeq(),
                     block.startOffsetMs(), block.endOffsetMs(), errorCode);

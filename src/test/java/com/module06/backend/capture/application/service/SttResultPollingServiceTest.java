@@ -107,6 +107,43 @@ class SttResultPollingServiceTest {
     }
 
     @Test
+    @DisplayName("길이를 모르는 블록은 인식 결과로 끝을 채운다 — 수동 업로드(WHOLE_FILE) 경로")
+    void 길이를_모르면_복구한다() {
+        /*
+         * 수동 업로드(CAP-10)는 업로드 시점에 길이를 모른다 — 파일 하나가 통째로 블록 하나이고
+         * endOffsetMs 가 0 이다. 그 0 이 남으면 CAP-06 의 남은 시간 추정이 이 블록을
+         * "오디오 0초"로 세어 비율이 망가진다.
+         */
+        given(new PendingBlock(BLOCK_ID, MEETING, 0, SttBlockStatus.QUEUED,
+                "aws-transcribe", "meeting-500-block-0-r0", 0, 0));
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+        when(sttBlockRepository.markDone(BLOCK_ID)).thenReturn(true);
+
+        service().pollOnce();
+
+        // 마지막 단어의 끝(900ms)이 곧 그 오디오의 길이다.
+        verify(sttBlockRepository).recoverAudioSpan(BLOCK_ID, 900);
+    }
+
+    @Test
+    @DisplayName("구간을 아는 블록은 복구하지 않는다 — 인식 결과로 덮으면 블록 경계가 움직인다")
+    void 구간을_알면_복구하지_않는다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+        when(sttBlockRepository.markDone(BLOCK_ID)).thenReturn(true);
+
+        service().pollOnce();
+
+        /*
+         * 자동 블록의 구간은 VAD 절단점이 정한 사실이다. 덮으면 뒤 블록의 시작과 맞지 않게 되고,
+         * 그 어긋남이 정본 오프셋에 그대로 실린다.
+         */
+        verify(sttBlockRepository, never()).recoverAudioSpan(anyLong(), anyInt());
+    }
+
+    @Test
     @DisplayName("도는 중이면 RUNNING 으로 옮기고 끝맺지 않는다")
     void 도는_중이면_RUNNING으로_옮긴다() {
         given(queued());

@@ -125,6 +125,26 @@ public interface SttBlockRepository {
     boolean markFailed(long blockId, String errorCode);
 
     /*
+     * 길이를 모른 채 만들어진 블록의 끝 오프셋을 채운다(**duration 복구**).
+     *
+     * <h2>수동 업로드(CAP-10)가 이 자리를 만든다</h2>
+     * 자동 블록은 트리거가 절단점을 알고 만들므로 구간이 처음부터 정확하다. 그런데 수동 업로드는
+     * 사용자가 올린 파일 하나가 통째로 블록 하나이고(WHOLE_FILE), **업로드 시점에는 길이를 모른다** —
+     * CAP-10 응답의 durationMs 가 0 인 이유이고, 그쪽 주석이 "파이프라인이 async 로 채운다"고
+     * 적어 둔 자리다.
+     *
+     * 인식이 끝나면 마지막 단어의 끝 시각이 곧 그 오디오의 길이다. 그걸로 채운다.
+     *
+     * <h2>이미 값이 있으면 덮지 않는다</h2>
+     * 자동 블록의 구간은 VAD 절단점이 정한 사실이고, 인식 결과로 그걸 덮으면 **블록 경계가
+     * 조용히 움직인다** — 뒤 블록의 시작과 맞지 않게 되고, 그 어긋남이 정본 오프셋에 그대로
+     * 실린다. 그래서 "0 이거나 시작보다 작은" 블록만 채운다.
+     *
+     * @return 채웠으면 true. 이미 값이 있었거나 그 블록이 없으면 false
+     */
+    boolean recoverAudioSpan(long blockId, int endOffsetMs);
+
+    /*
      * 폴링이 잡 하나를 되짚는 데 필요한 것만 담는다.
      *
      * @param startOffsetMs 회의 기준 블록 시작. 제공자가 주는 오프셋은 블록 기준이라 이 값을

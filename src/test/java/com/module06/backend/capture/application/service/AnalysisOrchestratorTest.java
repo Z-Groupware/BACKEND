@@ -1501,6 +1501,11 @@ class AnalysisOrchestratorTest {
         }
 
         @Override
+        public boolean recoverAudioSpan(long blockId, int endOffsetMs) {
+            throw new UnsupportedOperationException("duration 복구는 폴링 워커의 몫이다");
+        }
+
+        @Override
         public List<SttBlockView> findByMeeting(long meetingId) {
             throw new UnsupportedOperationException("오케스트레이터는 블록 목록을 읽지 않는다");
         }

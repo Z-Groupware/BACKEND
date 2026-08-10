@@ -262,6 +262,11 @@ class SttBlockServiceTest {
         }
 
         @Override
+        public boolean recoverAudioSpan(long blockId, int endOffsetMs) {
+            throw new UnsupportedOperationException("duration 복구는 폴링 워커의 몫이다");
+        }
+
+        @Override
         public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
                                           String providerJobName) {
             this.expectedRetryCount = expectedRetryCount;

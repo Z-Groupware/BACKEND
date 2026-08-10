@@ -172,4 +172,24 @@ public class SttBlockJpaEntity {
         this.errorCode = errorCode;
         this.finishedAt = now;
     }
+
+    /*
+     * 길이를 모른 채 만들어진 블록의 끝을 채운다(duration 복구 · 수동 업로드).
+     *
+     * **이미 값이 있으면 덮지 않는다.** 자동 블록의 구간은 VAD 절단점이 정한 사실이고, 인식
+     * 결과로 덮으면 블록 경계가 조용히 움직여 뒤 블록의 시작과 맞지 않게 된다.
+     *
+     * @return 채웠으면 true
+     */
+    public boolean recoverAudioSpan(int endOffsetMs) {
+        if (this.endOffsetMs > this.startOffsetMs) {
+            return false;
+        }
+        if (endOffsetMs <= this.startOffsetMs) {
+            // 인식 결과가 0 이거나 시작보다 앞이다. 채워도 길이가 없어 의미가 없다.
+            return false;
+        }
+        this.endOffsetMs = endOffsetMs;
+        return true;
+    }
 }
