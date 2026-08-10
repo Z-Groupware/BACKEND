@@ -123,6 +123,52 @@ class MemberStatusAdapterTest {
         assertThat(refreshTokenStore.exists(210L, "jti-alive")).isTrue();
     }
 
+    /*
+     * 팀장이 퇴사하면 두 곳을 같이 비워야 한다. member.authority 만 내리면 후임 팀장 지정이
+     * 계속 막힌다 — 그 검사(MemberIssuer#persist)가 보는 것은 권한이 아니라 team.leader_member_id 다.
+     */
+    @Test
+    @DisplayName("팀장 오프보딩은 권한을 MEMBER 로 내린다 — 포트 계약의 '권한 회수'다")
+    void offboardDemotesLeader() {
+        insertLeader(211L);
+
+        port.offboard(211L);
+
+        assertThat(authorityOf(211L)).isEqualTo("MEMBER");
+    }
+
+    @Test
+    @DisplayName("팀장 오프보딩은 부서의 팀장 자리를 비운다 — 안 비우면 후임 승급이 막힌다")
+    void offboardVacatesTeamLeaderSeat() {
+        insertLeader(212L);
+
+        port.offboard(212L);
+
+        assertThat(leaderMemberIdOf(212L)).as("팀장 공석이어야 한다").isNull();
+    }
+
+    @Test
+    @DisplayName("오너는 강등하지 않는다 — 소유자 이관은 별도 절차다")
+    void offboardKeepsOwnerAuthority() {
+        insertMember(213L, "WAITING", null, "OWNER", null);
+
+        port.offboard(213L);
+
+        assertThat(authorityOf(213L)).isEqualTo("OWNER");
+    }
+
+    @Test
+    @DisplayName("전이가 거절되면 팀장 자리를 건드리지 않는다 — 멀쩡한 부서의 팀장이 지워지면 안 된다")
+    void rejectedOffboardKeepsTeamLeaderSeat() {
+        insertMember(214L, "ACTIVE", null, "LEADER", 214L);
+        insertTeamLedBy(214L);
+
+        assertTransitionRejected(() -> port.offboard(214L));
+
+        assertThat(leaderMemberIdOf(214L)).isEqualTo(214L);
+        assertThat(authorityOf(214L)).isEqualTo("LEADER");
+    }
+
     @Test
     @DisplayName("재직자를 바로 휴직으로 보낼 수 없다 — 신청·승인 절차를 건너뛴 것이다")
     void cannotSkipWaitingOnVacation() {
@@ -195,18 +241,58 @@ class MemberStatusAdapterTest {
         return count.intValue() == 1;
     }
 
+    private String authorityOf(Long memberId) {
+        em.flush();
+        em.clear();
+        return (String) em.createNativeQuery("SELECT authority FROM member WHERE id = ?")
+                .setParameter(1, memberId).getSingleResult();
+    }
+
+    /* 부서 id 는 구성원 id 와 같게 잡는다 — 테스트마다 id 를 하나만 기억하면 된다. */
+    private Object leaderMemberIdOf(Long teamId) {
+        em.flush();
+        em.clear();
+        return em.createNativeQuery("SELECT leader_member_id FROM team WHERE id = ?")
+                .setParameter(1, teamId).getSingleResult();
+    }
+
+    /** 대기 상태의 팀장 — 부서에 앉아 있고 그 부서의 팀장 참조가 자신을 가리킨다. */
+    private void insertLeader(Long id) {
+        insertMember(id, "WAITING", null, "LEADER", id);
+        insertTeamLedBy(id);
+    }
+
+    /* 팀장 참조는 member 를 향한 FK 라(V2.2.6) 구성원 INSERT 뒤에 걸어야 한다. */
+    private void insertTeamLedBy(Long id) {
+        em.createNativeQuery("UPDATE team SET leader_member_id = ? WHERE id = ?")
+                .setParameter(1, id).setParameter(2, id).executeUpdate();
+        em.flush();
+        em.clear();
+    }
+
     private void insertMember(Long id, String status, String deletedAt) {
+        insertMember(id, status, deletedAt, "MEMBER", null);
+    }
+
+    private void insertMember(Long id, String status, String deletedAt, String authority, Long teamId) {
         em.createNativeQuery("INSERT INTO company (id, code, name) VALUES (?, ?, '(주)테스트')")
                 .setParameter(1, id).setParameter(2, "C" + id).executeUpdate();
         /* role_id 는 NOT NULL 이다(V2.3.10) — 시드 행 "없음"(id 2)을 그대로 흉내 낸다. */
         em.createNativeQuery("MERGE INTO role (id, name) KEY(id) VALUES (2, '없음')").executeUpdate();
+        if (teamId != null) {
+            /* member.team_id 가 향하는 FK 라 구성원보다 먼저 있어야 한다. */
+            em.createNativeQuery("INSERT INTO team (id, company_id, name) VALUES (?, ?, '개발팀')")
+                    .setParameter(1, teamId).setParameter(2, id).executeUpdate();
+        }
         em.createNativeQuery("""
                         INSERT INTO member
-                          (id, company_id, role_id, email, password_hash, name, authority, is_admin, status, deleted_at)
-                        VALUES (?, ?, 2, ?, 'hash', '테스트', 'MEMBER', FALSE, ?, ?)
+                          (id, company_id, team_id, role_id, email, password_hash, name,
+                           authority, is_admin, status, deleted_at)
+                        VALUES (?, ?, ?, 2, ?, 'hash', '테스트', ?, FALSE, ?, ?)
                         """)
-                .setParameter(1, id).setParameter(2, id).setParameter(3, "m" + id + "@x.co.kr")
-                .setParameter(4, status).setParameter(5, deletedAt)
+                .setParameter(1, id).setParameter(2, id).setParameter(3, teamId)
+                .setParameter(4, "m" + id + "@x.co.kr").setParameter(5, authority)
+                .setParameter(6, status).setParameter(7, deletedAt)
                 .executeUpdate();
         em.flush();
         em.clear();
