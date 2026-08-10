@@ -36,6 +36,9 @@ import com.module06.backend.capture.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository {
 
+    /* 배치 조회의 IN 절 크기. MeetingAccessJdbcAdapter 와 같은 값을 쓴다. */
+    private static final int CHUNK_SIZE = 200;
+
     private final SpringDataAnalysisLayerRepository repository;
 
     /*
@@ -158,11 +161,33 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
         if (meetingIds == null || meetingIds.isEmpty()) {
             return Map.of();
         }
+        /*
+         * 시각은 청크마다 다시 읽지 않는다 — 위 주석의 이유가 청킹 뒤에 더 중요해진다.
+         * 청크 사이에 기준선이 밀리면 앞 청크의 회의는 살아 있고 뒤 청크의 회의는 멈춘 것으로
+         * 판정될 수 있고, 그건 목록 안에서 회의 순서에 따라 답이 갈리는 것이다.
+         */
         LocalDateTime now = LocalDateTime.now(clock);
+
+        /*
+         * IN 절을 쪼갠다(MeetingAccessJdbcAdapter 와 같은 200). 계약이 "크기 제한 없음"이라
+         * 호출자가 몇 건이든 보낼 수 있고, 그대로 넘기면 플레이스홀더가 그만큼 늘어난다 —
+         * MySQL 파서와 프리페어드 스테이트먼트 캐시가 같이 부담을 받고, 회의당 계층이 10 행이라
+         * 결과 집합도 함께 커진다(CodeRabbit PR #318 지적).
+         *
+         * 중복 id 는 접는다. 남겨두면 IN 절만 길어지고 결과는 같다.
+         */
+        List<Long> distinct = meetingIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return Map.of();
+        }
+
         Map<Long, List<LayerState>> byMeeting = new LinkedHashMap<>();
-        for (AnalysisLayerJpaEntity entity : repository.findByMeetingIdInOrderByMeetingIdAscIdAsc(meetingIds)) {
-            byMeeting.computeIfAbsent(entity.getMeetingId(), id -> new ArrayList<>())
-                    .add(toState(entity, now));
+        for (int from = 0; from < distinct.size(); from += CHUNK_SIZE) {
+            List<Long> chunk = distinct.subList(from, Math.min(from + CHUNK_SIZE, distinct.size()));
+            for (AnalysisLayerJpaEntity entity : repository.findByMeetingIdInOrderByMeetingIdAscIdAsc(chunk)) {
+                byMeeting.computeIfAbsent(entity.getMeetingId(), id -> new ArrayList<>())
+                        .add(toState(entity, now));
+            }
         }
         return byMeeting;
     }

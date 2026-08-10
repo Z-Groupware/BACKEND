@@ -85,8 +85,13 @@ public enum CaptureErrorCode implements ErrorCode {
      *
      * 계층을 **명시해서** 보낸 요청은 여기로 오지 않는다. 그건 실패하지 않은 계층부터
      * 다시 돌리려는 의도적인 요청일 수 있고, 앞 계층 검사(ANLZ-004)가 판단한다.
+     *
+     * ⚠ 번호가 008 인 이유 — 005 는 이미 SUMMARY_ITEM_NOT_FOUND(404)가 쓰고 있고,
+     * 006·007 도 요약 수정 쪽이 쓴다. 처음에 005 로 넣었다가 중복이 잡혔다
+     * (CodeRabbit PR #318). **기존 코드를 옮기지 않고 새 코드가 빈 번호를 잡는다** —
+     * 저쪽은 이미 프론트가 404 문구로 분기하고 있을 수 있고, 이쪽은 아직 클라이언트가 없다.
      */
-    RESUME_NOTHING_TO_RESUME(HttpStatus.CONFLICT, "ANLZ-005",
+    RESUME_NOTHING_TO_RESUME(HttpStatus.CONFLICT, "ANLZ-008",
             "재개할 계층이 없습니다. 처음부터 다시 분석해야 합니다."),
 
     /*
