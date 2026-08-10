@@ -16,6 +16,7 @@ import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.policy.ProjectOwnerOnlyPolicy;
 import com.module06.backend.project.application.policy.ProjectTeamOwnershipPolicy;
+import com.module06.backend.project.application.port.MeetingQueryPort;
 import com.module06.backend.project.application.port.ProjectQueryPort;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
@@ -27,6 +28,7 @@ import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
+import com.module06.backend.project.domain.repository.TeamReferenceRepository;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
 import lombok.RequiredArgsConstructor;
@@ -52,6 +54,8 @@ public class ProjectService implements
     private final ProjectOwnerOnlyPolicy projectOwnerOnlyPolicy;
     private final ProjectTeamOwnershipPolicy projectTeamOwnershipPolicy;
     private final ActionQueryPort actionQueryPort;
+    private final MeetingQueryPort meetingQueryPort;
+    private final TeamReferenceRepository teamReferenceRepository;
 
     @Override
     @Transactional
@@ -85,13 +89,24 @@ public class ProjectService implements
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
                 actionQueryPort.countActionsByProjectIds(projectIds).stream()
                         .collect(Collectors.toMap(ActionQueryPort.ProjectActionCount::projectId, count -> count));
+        Map<Long, Long> meetingCountByProjectId = meetingQueryPort.countMeetingsByProjectIds(companyId, projectIds);
+
+        // 부서 칩 표시용 이름 — 전체 프로젝트의 teamIds를 한 번에 모아 배치 조회한다(N+1 방지).
+        List<Long> allTeamIds = projects.stream()
+                .flatMap(project -> project.getTeamIds().stream())
+                .distinct()
+                .toList();
+        Map<Long, String> teamNameById = teamReferenceRepository.findTeamNames(allTeamIds, companyId).stream()
+                .collect(Collectors.toMap(TeamReferenceRepository.TeamName::id, TeamReferenceRepository.TeamName::name));
 
         return projects.stream()
                 .map(project -> {
                     ActionQueryPort.ProjectActionCount count = countsByProjectId.get(project.getId());
+                    int meetingCount = Math.toIntExact(meetingCountByProjectId.getOrDefault(project.getId(), 0L));
+                    List<String> teamNames = project.getTeamIds().stream().map(teamNameById::get).toList();
                     return count == null
-                            ? new ProjectListItem(project, 0, 0)
-                            : new ProjectListItem(project, count.totalCount(), count.completedCount());
+                            ? new ProjectListItem(project, 0, 0, meetingCount, teamNames)
+                            : new ProjectListItem(project, count.totalCount(), count.completedCount(), meetingCount, teamNames);
                 })
                 .toList();
     }

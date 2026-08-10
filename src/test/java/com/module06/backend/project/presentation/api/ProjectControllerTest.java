@@ -145,7 +145,7 @@ class ProjectControllerTest {
     void listTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
         when(getProjectListUseCase.list(any())).thenReturn(List.of(
-                new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0)));
+                new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0, 0, List.of())));
 
         mockMvc.perform(get("/api/projects"))
                 .andExpect(status().isOk());
