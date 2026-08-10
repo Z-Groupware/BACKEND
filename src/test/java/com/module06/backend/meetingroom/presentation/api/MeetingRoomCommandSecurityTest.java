@@ -56,7 +56,6 @@ class MeetingRoomCommandSecurityTest {
                                 {
                                   "name": "대회의실",
                                   "location": "박애관 421호",
-                                  "capacity": 12,
                                   "availableFrom": "09:00",
                                   "availableTo": "18:00"
                                 }
@@ -77,7 +76,7 @@ class MeetingRoomCommandSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "capacity": 10
+                                  "location": "본관 3층"
                                 }
                                 """))
                 .andExpect(status().isUnauthorized())
@@ -97,7 +96,7 @@ class MeetingRoomCommandSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "capacity": 10
+                                  "location": "본관 3층"
                                 }
                                 """))
                 .andExpect(status().isForbidden())

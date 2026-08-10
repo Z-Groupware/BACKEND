@@ -166,7 +166,6 @@ public class MeetingRoomPersistenceAdapter implements MeetingRoomRepository, Mee
                 entity.getCompanyId(),
                 entity.getName(),
                 entity.getLocation(),
-                entity.getCapacity(),
                 entity.getAvailableFrom(),
                 entity.getAvailableTo(),
                 entity.getDeletedAt()

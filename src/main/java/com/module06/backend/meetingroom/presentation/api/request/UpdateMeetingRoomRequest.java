@@ -5,7 +5,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import com.fasterxml.jackson.annotation.JsonSetter;
@@ -32,13 +31,6 @@ public class UpdateMeetingRoomRequest {
 
     /* JSON에 location 키가 실제로 포함됐는지 기록한다. */
     private boolean locationProvided;
-
-    /* 부분 수정할 최대 수용 인원이며 1 이상이어야 한다. */
-    @Positive
-    private Integer capacity;
-
-    /* JSON에 capacity 키가 실제로 포함됐는지 기록한다. */
-    private boolean capacityProvided;
 
     /* 부분 수정할 이용 가능 시작 시각 문자열이다. */
     @Pattern(regexp = "^(?:[01]\\d|2[0-3]):(?:00|30)$")
@@ -73,14 +65,6 @@ public class UpdateMeetingRoomRequest {
         this.locationProvided = true;
     }
 
-    /* JSON capacity 필드의 값과 존재 여부를 함께 기록한다. */
-    @JsonSetter("capacity")
-    public void setCapacity(Integer capacity) {
-        /* 명시적 null은 서비스 입력 검증에서 거절할 수 있도록 그대로 보존한다. */
-        this.capacity = capacity;
-        this.capacityProvided = true;
-    }
-
     /* JSON availableFrom 필드의 값과 존재 여부를 함께 기록한다. */
     @JsonSetter("availableFrom")
     public void setAvailableFrom(String availableFrom) {
@@ -108,8 +92,6 @@ public class UpdateMeetingRoomRequest {
                 name,
                 locationProvided,
                 location,
-                capacityProvided,
-                capacity,
                 availableFromProvided,
                 parseTime(availableFrom, availableFromProvided),
                 availableToProvided,

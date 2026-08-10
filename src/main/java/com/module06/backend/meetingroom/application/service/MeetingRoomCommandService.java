@@ -49,7 +49,6 @@ public class MeetingRoomCommandService implements CreateMeetingRoomUseCase {
                 command.companyId(),
                 normalizedName,
                 command.location(),
-                command.capacity(),
                 command.availableFrom(),
                 command.availableTo()
         );
@@ -61,16 +60,14 @@ public class MeetingRoomCommandService implements CreateMeetingRoomUseCase {
         return new MeetingRoomCreationResult(savedMeetingRoom.getId());
     }
 
-    /* 회사·이름·수용 인원·시간과 문자열 길이가 애플리케이션 계약에 맞는지 확인한다. */
+    /* 회사·이름·시간과 문자열 길이가 애플리케이션 계약에 맞는지 확인한다. */
     private void validateRequiredValues(CreateMeetingRoomCommand command) {
-        /* 필수값 누락과 양수가 아닌 회사·수용 인원은 공통 입력 오류로 거절한다. */
+        /* 필수값 누락과 양수가 아닌 회사 식별자는 공통 입력 오류로 거절한다. */
         if (command == null
                 || command.companyId() == null
                 || command.companyId() <= 0L
                 || command.name() == null
                 || command.name().isBlank()
-                || command.capacity() == null
-                || command.capacity() <= 0
                 || command.availableFrom() == null
                 || command.availableTo() == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);

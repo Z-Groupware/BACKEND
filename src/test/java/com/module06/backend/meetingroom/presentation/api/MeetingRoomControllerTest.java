@@ -51,7 +51,6 @@ class MeetingRoomControllerTest {
                         1L,
                         "대회의실",
                         "박애관 421호",
-                        12,
                         LocalTime.of(9, 0),
                         LocalTime.of(18, 0)
                 )

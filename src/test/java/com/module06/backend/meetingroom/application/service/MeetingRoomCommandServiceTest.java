@@ -33,7 +33,6 @@ class MeetingRoomCommandServiceTest {
                 10L,
                 "  대회의실  ",
                 "   ",
-                12,
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0)
         ));
@@ -81,7 +80,6 @@ class MeetingRoomCommandServiceTest {
                 10L,
                 "대회의실",
                 "박애관 421호",
-                12,
                 LocalTime.of(9, 0),
                 LocalTime.of(9, 0)
         );
@@ -108,7 +106,6 @@ class MeetingRoomCommandServiceTest {
                 10L,
                 "대회의실",
                 "박애관 421호",
-                12,
                 LocalTime.of(9, 10),
                 LocalTime.of(18, 0)
         );
@@ -118,20 +115,19 @@ class MeetingRoomCommandServiceTest {
                 .isEqualTo("Z-001");
     }
 
-    /* 필수값과 양수 조건을 서비스 경계에서도 방어하는지 검증한다. */
+    /* 필수값 조건을 서비스 경계에서도 방어하는지 검증한다. */
     @Test
-    @DisplayName("회사·이름·수용 인원 필수 조건을 위반하면 Z-001로 거절한다")
+    @DisplayName("회사·이름 필수 조건을 위반하면 Z-001로 거절한다")
     void rejectsInvalidRequiredValues() {
         /* 웹 계층을 우회하는 호출을 검증할 등록 서비스를 준비한다. */
         RecordingMeetingRoomCommandRepository repository = new RecordingMeetingRoomCommandRepository(false);
         MeetingRoomCommandService service = new MeetingRoomCommandService(repository);
 
-        /* 유효하지 않은 회사 식별자와 빈 이름, 0명을 가진 명령을 실행한다. */
+        /* 유효하지 않은 회사 식별자와 빈 이름을 가진 명령을 실행한다. */
         CreateMeetingRoomCommand command = new CreateMeetingRoomCommand(
                 0L,
                 " ",
                 null,
-                0,
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0)
         );
@@ -148,7 +144,6 @@ class MeetingRoomCommandServiceTest {
                 10L,
                 name,
                 "박애관 421호",
-                12,
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0)
         );
@@ -212,7 +207,6 @@ class MeetingRoomCommandServiceTest {
                     meetingRoom.getCompanyId(),
                     meetingRoom.getName(),
                     meetingRoom.getLocation(),
-                    meetingRoom.getCapacity(),
                     meetingRoom.getAvailableFrom(),
                     meetingRoom.getAvailableTo(),
                     meetingRoom.getDeletedAt()

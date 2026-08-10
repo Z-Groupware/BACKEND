@@ -35,9 +35,6 @@ public class MeetingRoom {
     /* 건물과 호수 등 회의실의 물리적 위치다. */
     private final String location;
 
-    /* 회의실이 수용할 수 있는 최대 인원이다. */
-    private final int capacity;
-
     /* 하루 중 회의실 이용을 시작할 수 있는 시각이다. */
     private final LocalTime availableFrom;
 
@@ -54,7 +51,6 @@ public class MeetingRoom {
      * @param companyId 소속 회사 식별자
      * @param name 회의실 이름
      * @param location 회의실 위치
-     * @param capacity 최대 수용 인원
      * @param availableFrom 이용 가능 시작 시각
      * @param availableTo 이용 가능 종료 시각
      * @param deletedAt 비활성화 시각
@@ -64,7 +60,6 @@ public class MeetingRoom {
             Long companyId,
             String name,
             String location,
-            int capacity,
             LocalTime availableFrom,
             LocalTime availableTo,
             LocalDateTime deletedAt
@@ -74,7 +69,6 @@ public class MeetingRoom {
         this.companyId = companyId;
         this.name = name;
         this.location = location;
-        this.capacity = capacity;
         this.availableFrom = availableFrom;
         this.availableTo = availableTo;
         this.deletedAt = deletedAt;
@@ -85,7 +79,6 @@ public class MeetingRoom {
             Long companyId,
             String name,
             String location,
-            int capacity,
             LocalTime availableFrom,
             LocalTime availableTo
     ) {
@@ -100,7 +93,6 @@ public class MeetingRoom {
                 companyId,
                 name.trim(),
                 normalizedLocation,
-                capacity,
                 availableFrom,
                 availableTo,
                 null
@@ -111,7 +103,6 @@ public class MeetingRoom {
     public MeetingRoom update(
             String name,
             String location,
-            int capacity,
             LocalTime availableFrom,
             LocalTime availableTo
     ) {
@@ -126,7 +117,6 @@ public class MeetingRoom {
                 companyId,
                 name.trim(),
                 normalizedLocation,
-                capacity,
                 availableFrom,
                 availableTo,
                 deletedAt
@@ -151,7 +141,6 @@ public class MeetingRoom {
                 companyId,
                 name,
                 location,
-                capacity,
                 availableFrom,
                 availableTo,
                 deactivatedAt

@@ -349,7 +349,6 @@ class MeetingServiceTest {
                 2L,
                 "회의실 B",
                 "박애관 422호",
-                8,
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0)
         ));

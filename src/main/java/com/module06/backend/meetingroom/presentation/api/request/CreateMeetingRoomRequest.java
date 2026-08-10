@@ -5,9 +5,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import com.module06.backend.global.exception.BusinessException;
@@ -20,7 +18,6 @@ import com.module06.backend.meetingroom.application.command.CreateMeetingRoomCom
 public record CreateMeetingRoomRequest(
         @NotBlank @Size(max = 100) String name,
         @Size(max = 150) String location,
-        @NotNull @Positive Integer capacity,
         @NotBlank @Pattern(regexp = "^(?:[01]\\d|2[0-3]):(?:00|30)$") String availableFrom,
         @NotBlank @Pattern(regexp = "^(?:[01]\\d|2[0-3]):(?:00|30)$") String availableTo
 ) {
@@ -35,7 +32,6 @@ public record CreateMeetingRoomRequest(
                 companyId,
                 name,
                 location,
-                capacity,
                 parseTime(availableFrom),
                 parseTime(availableTo)
         );

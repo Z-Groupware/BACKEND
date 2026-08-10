@@ -9,7 +9,6 @@ public record UpdateMeetingRoomResponse(
         Long meetingRoomId,
         String name,
         String location,
-        int capacity,
         String availableFrom,
         String availableTo
 ) {
@@ -21,7 +20,6 @@ public record UpdateMeetingRoomResponse(
                 result.meetingRoomId(),
                 result.name(),
                 result.location(),
-                result.capacity(),
                 ApiTimeFormat.formatTime(result.availableFrom()),
                 ApiTimeFormat.formatTime(result.availableTo())
         );
