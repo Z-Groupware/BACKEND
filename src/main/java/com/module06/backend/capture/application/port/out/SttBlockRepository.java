@@ -28,6 +28,24 @@ public interface SttBlockRepository {
     Optional<SttBlockView> findOne(long meetingId, int blockSeq);
 
     /*
+     * 아직 결과가 확정되지 않은 블록 수 — PENDING · QUEUED · RUNNING 셋을 센다.
+     * 0 이면 이 회의의 받아쓰기가 더 나아갈 데 없이 끝난 것이다.
+     *
+     * <h2>FAILED 를 세지 않는다</h2>
+     * FAILED 는 **끝난 상태**다. 사람이 STT-04 를 눌러야 다시 도는 것이고, 저절로 DONE 이
+     * 되지 않는다. 이걸 "미완"으로 세면 실패한 블록 하나가 회의의 분석을 영구히 막는다 —
+     * 구멍이 있는 회의도 분석은 돌고, 그 구멍은 stt_gap 이 분배 확정 관문에서 막는 것이
+     * 이 저장소가 고른 방향이다(SttGapRepository 주석).
+     *
+     * <h2>블록이 0개면 0 이다</h2>
+     * 자동 트리거가 아직 한 번도 발화하지 않은 회의(또는 STT 경로 자체가 없는 회의)는 0 을
+     * 받아 관문을 그대로 지난다. 그 회의는 발화 0건 검사에서 걸러지므로 여기서 막을 것이 없다 —
+     * 여기서 막으면 "받아쓰기가 안 붙은 회의"와 "받아쓰기가 도는 중인 회의"가 같은 사유로
+     * 생략되어 어느 쪽인지 구분할 수 없게 된다.
+     */
+    int countUnfinished(long meetingId);
+
+    /*
      * 새 블록을 QUEUED 상태로 만든다(10분/40청크 자동 트리거 전용, cap 소유 오케스트레이션이
      * 호출한다 — CreateSttBlockPort 경유).
      *

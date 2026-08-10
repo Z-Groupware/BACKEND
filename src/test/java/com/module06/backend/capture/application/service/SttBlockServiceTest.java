@@ -234,6 +234,12 @@ class SttBlockServiceTest {
             return blocks.stream().filter(block -> block.blockSeq() == blockSeq).findFirst();
         }
 
+        /* 분석 시작 관문이 쓰는 값이다 — 이 서비스(STT-03·04)는 부르지 않는다. */
+        @Override
+        public int countUnfinished(long meetingId) {
+            throw new UnsupportedOperationException("STT-03·04 는 미완 블록 수를 읽지 않는다");
+        }
+
         @Override
         public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
                                           String providerJobName) {

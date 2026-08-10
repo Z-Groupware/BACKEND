@@ -35,6 +35,8 @@ import com.module06.backend.capture.application.port.out.LayerRun;
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository;
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
+import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.application.port.out.SttBlockRepository.SttBlockView;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.port.out.VerifyTupleResult;
@@ -310,7 +312,7 @@ class AnalysisOrchestratorTest {
                 new CaptionChunk(42L, 5_000, 8_000, new java.math.BigDecimal("-18.00")));
 
         AnalysisOutcome outcome = orchestratorOf(
-                transcripts, captions, new FakeLayerRepository(), summaries,
+                transcripts, new FakeSttBlockRepository(), captions, new FakeLayerRepository(), summaries,
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
@@ -336,7 +338,7 @@ class AnalysisOrchestratorTest {
         FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
 
         AnalysisOutcome outcome = orchestratorOf(
-                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                transcripts, new FakeSttBlockRepository(), new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
@@ -358,7 +360,7 @@ class AnalysisOrchestratorTest {
         FakeTranscriptRepository transcripts = new FakeTranscriptRepository(utterances());
 
         AnalysisOutcome outcome = orchestratorOf(
-                transcripts, new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
+                transcripts, new FakeSttBlockRepository(), new FakeCaptionRepository(), new FakeLayerRepository(), summaries,
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
@@ -411,13 +413,52 @@ class AnalysisOrchestratorTest {
         RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
 
         AnalysisOutcome outcome = orchestratorOf(
-                new FakeTranscriptRepository(List.of()), new FakeCaptionRepository(),
+                new FakeTranscriptRepository(List.of()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeSummaryRepository(), new FakeTupleRepository(),
                 meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
         assertThat(ai.resolveCalls).isZero();
+    }
+
+    /*
+     * 발화 0건과 **다른 상황**이다. 전사가 일부만 들어온 회의(=발화는 있다)에서 분석이 돌면
+     * 앞부분만으로 요약·배정이 만들어지고 그게 "완료"로 닫힌다 — 뒷부분의 할 일은 사라진다.
+     */
+    @Test
+    @DisplayName("받아쓰기가 안 끝났으면 발화가 있어도 계층을 부르지 않는다")
+    void 미완_블록이_있으면_생략한다() {
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+
+        AnalysisOutcome outcome = orchestratorOf(
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(2),
+                new FakeCaptionRepository(), new FakeLayerRepository(), new FakeSummaryRepository(),
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
+        assertThat(outcome.message()).contains("받아쓰기");
+        assertThat(ai.resolveCalls).isZero();
+    }
+
+    /*
+     * 제공자 장애로 블록이 QUEUED 에 갇히면 사람이 있는 것만으로라도 돌려볼 수 있어야 한다 —
+     * "이미 완료" 판정을 force 가 지나가는 것과 같은 규칙이다.
+     */
+    @Test
+    @DisplayName("force 면 받아쓰기가 안 끝났어도 분석을 시작한다")
+    void force면_미완_블록을_무시한다() {
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+
+        AnalysisOutcome outcome = orchestratorOf(
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(2),
+                new FakeCaptionRepository(), new FakeLayerRepository(), new FakeSummaryRepository(),
+                new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, true);
+
+        assertThat(outcome.status()).isNotEqualTo(AnalysisOutcome.Status.SKIPPED);
+        assertThat(ai.resolveCalls).isEqualTo(1);
     }
 
     @Test
@@ -429,7 +470,7 @@ class AnalysisOrchestratorTest {
                 decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
 
         AnalysisOutcome outcome = orchestratorOf(
-                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 new FakeLayerRepository(), summaries, new FakeTupleRepository(),
                 meetingId -> Optional.empty(), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
@@ -798,7 +839,7 @@ class AnalysisOrchestratorTest {
          * "아직 분배 안 됨"으로 보이는데, action 쪽에는 이전 벌이 그대로 있는 상태다.
          */
         AnalysisOutcome outcome = new AnalysisOrchestrator(
-                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
@@ -828,7 +869,7 @@ class AnalysisOrchestratorTest {
         FakeLayerRepository layers = new FakeLayerRepository();
 
         AnalysisOutcome outcome = new AnalysisOrchestrator(
-                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions,
@@ -1079,7 +1120,7 @@ class AnalysisOrchestratorTest {
                                                               FakeArtifactRepository artifacts,
                                                               FakeLayerRepository layers) {
         return new AnalysisOrchestrator(
-                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, layers.runs != null ? layers.runs : new FakeRunRepository(),
                 summaries, tuples, artifacts, meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
@@ -1107,22 +1148,24 @@ class AnalysisOrchestratorTest {
                                               RecordingAiLayerPort ai,
                                               FakeLayerRepository layers,
                                               RecordingDistributionPort actions) {
-        return orchestratorOf(new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+        return orchestratorOf(new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, summaries, tuples, meetingId -> Optional.of(MEETING_DATE), ai, actions);
     }
 
     private static AnalysisOrchestrator orchestratorOf(FakeTranscriptRepository transcripts,
+                                                       FakeSttBlockRepository blocks,
                                                        FakeCaptionRepository captions,
                                                        FakeLayerRepository layers,
                                                        FakeSummaryRepository summaries,
                                                        FakeTupleRepository tuples,
                                                        MeetingDateProvider dates,
                                                        RecordingAiLayerPort ai) {
-        return orchestratorOf(transcripts, captions, layers, summaries, tuples, dates, ai,
+        return orchestratorOf(transcripts, blocks, captions, layers, summaries, tuples, dates, ai,
                 new RecordingDistributionPort());
     }
 
     private static AnalysisOrchestrator orchestratorOf(FakeTranscriptRepository transcripts,
+                                                       FakeSttBlockRepository blocks,
                                                        FakeCaptionRepository captions,
                                                        FakeLayerRepository layers,
                                                        FakeSummaryRepository summaries,
@@ -1131,7 +1174,7 @@ class AnalysisOrchestratorTest {
                                                        RecordingAiLayerPort ai,
                                                        RecordingDistributionPort actions) {
         return new AnalysisOrchestrator(
-                transcripts, captions, layers,
+                transcripts, blocks, captions, layers,
                 /*
                  * 실행 번호 저장소는 잠금 가짜와 **같은 것을 공유해야** 한다 — 실물에서도 잠금이
                  * 같은 행을 보고 순서를 판정한다. 따로 주면 번호를 올려도 잠금이 모른다.
@@ -1159,7 +1202,7 @@ class AnalysisOrchestratorTest {
                                                              RecordTokenUsagePort metering,
                                                              MeetingTeamProvider teams) {
         return new AnalysisOrchestrator(
-                new FakeTranscriptRepository(utterances()), new FakeCaptionRepository(),
+                new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeRunRepository(), summaries, tuples,
                 new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
                 new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
@@ -1399,6 +1442,52 @@ class AnalysisOrchestratorTest {
         @Override
         public List<TopicSegment> findTopics(long meetingId) {
             return topics.getOrDefault(meetingId, List.of());
+        }
+    }
+
+    /*
+     * 받아쓰기 진행 상태만 답하는 가짜다. 기본은 0 — 대부분의 시나리오는 "전사가 끝난 회의"를
+     * 전제로 하므로 관문을 그대로 지나야 하고, 값을 넣는 테스트만 그 관문을 검증한다.
+     * 나머지 메서드는 부르면 터뜨린다 — 조용히 기본값을 주면 이 관문이 무엇을 읽는지가 흐려진다.
+     */
+    private static final class FakeSttBlockRepository implements SttBlockRepository {
+
+        private final int unfinished;
+
+        private FakeSttBlockRepository() {
+            this(0);
+        }
+
+        private FakeSttBlockRepository(int unfinished) {
+            this.unfinished = unfinished;
+        }
+
+        @Override
+        public int countUnfinished(long meetingId) {
+            return unfinished;
+        }
+
+        @Override
+        public List<SttBlockView> findByMeeting(long meetingId) {
+            throw new UnsupportedOperationException("오케스트레이터는 블록 목록을 읽지 않는다");
+        }
+
+        @Override
+        public Optional<SttBlockView> findOne(long meetingId, int blockSeq) {
+            throw new UnsupportedOperationException("오케스트레이터는 블록 하나를 읽지 않는다");
+        }
+
+        @Override
+        public boolean markQueuedForRetry(long blockId, int expectedRetryCount, String provider,
+                                          String providerJobName) {
+            throw new UnsupportedOperationException("오케스트레이터는 블록 상태를 바꾸지 않는다");
+        }
+
+        @Override
+        public long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                                 String cutReason, String audioS3Key, String provider,
+                                 String providerJobName) {
+            throw new UnsupportedOperationException("블록 생성은 cap 의 트리거가 요청한다");
         }
     }
 
