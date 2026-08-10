@@ -28,10 +28,13 @@ public class SttBlockCutAsyncConfig {
         executor.setMaxPoolSize(POOL_SIZE);
         executor.setQueueCapacity(QUEUE_CAPACITY);
         executor.setThreadNamePrefix("stt-block-cut-");
-        // 포화되면 버린다 — 넘칠 때 청크 완료 통보 요청 스레드가 대신 돌게 하면(CallerRunsPolicy)
-        // "즉시 반환한다"는 CAP-07의 계약이 깨진다. 놓친 트리거는 다음 청크가 다시 40개를 채울
-        // 때까지 기다리지 않는다 — lastSeq 기준 판정이라 다음 completePartUpload 호출이 다시 감지한다.
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        // 포화되면 조용히 버린다(DiscardPolicy) — AbortPolicy는 안 된다(CodeRabbit 지적).
+        // @Async 제출 자체가 호출자 스레드(completePartUpload)에서 동기적으로 일어나므로,
+        // AbortPolicy가 던지는 RejectedExecutionException은 트리거의 try/catch를 거치지 않고
+        // 그대로 요청 스레드로 새어나가 "청크는 저장 성공했는데 응답은 500" 상황을 만든다.
+        // DiscardPolicy는 예외 없이 조용히 버리고, 놓친 트리거는 다음 청크가 같은 지점에서
+        // 다시 감지한다(lastSeq 기준 판정이라 자연히 재시도된다).
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
         executor.initialize();
         return executor;
     }

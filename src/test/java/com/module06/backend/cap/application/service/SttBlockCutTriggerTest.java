@@ -17,9 +17,10 @@ import com.module06.backend.capture.application.port.in.CreateSttBlockPort;
 import com.module06.backend.capture.application.port.in.CreateSttBlockPort.CreateSttBlockCommand;
 
 /*
- * 10분/40청크 자동 블록 트리거(SttBlockCutTrigger)의 임계값 판정·파이프라인 순서·실패 시
- * best-effort(상태 미갱신) 규칙을 검증하는 단위 테스트다. @Async 어노테이션은 순수 호출(new)로
- * 조립한 이 테스트에선 적용되지 않으므로, 메서드가 동기적으로 바로 실행된다.
+ * 10분/40청크(+20초 여유분) 자동 블록 트리거(SttBlockCutTrigger)의 임계값 판정·예약(CAS) 순서·
+ * 파이프라인 순서·실패 시 best-effort(카운터 미갱신) 규칙을 검증하는 단위 테스트다. @Async
+ * 어노테이션은 순수 호출(new)로 조립한 이 테스트에선 적용되지 않으므로, 메서드가 동기적으로
+ * 바로 실행된다.
  */
 @DisplayName("10분/40청크 자동 블록 트리거")
 class SttBlockCutTriggerTest {
@@ -28,10 +29,10 @@ class SttBlockCutTriggerTest {
     private static final Long MEETING_ID = 500L;
 
     @Test
-    @DisplayName("40개 미만이면 아무 포트도 부르지 않는다")
+    @DisplayName("42개(=10분+20초 여유) 미만이면 아무 포트도 부르지 않는다")
     void doesNothingBelowThreshold() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 39);
+        state.recordUpload(7L, 41);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RefusingAudioAssemblyPort audioPort = new RefusingAudioAssemblyPort();
         RefusingCutDetectionPort cutPort = new RefusingCutDetectionPort();
@@ -44,10 +45,10 @@ class SttBlockCutTriggerTest {
     }
 
     @Test
-    @DisplayName("40개 누적이면 윈도우 추출→절단 탐지→블록 조립→블록 생성 순서로 파이프라인 전체를 돈다")
+    @DisplayName("42개 누적이면 예약→윈도우 추출→절단 탐지→블록 조립→블록 생성 순서로 파이프라인 전체를 돈다")
     void runsFullPipelineAtThreshold() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 40);
+        state.recordUpload(7L, 42);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
@@ -55,7 +56,8 @@ class SttBlockCutTriggerTest {
 
         trigger(stateRepo, audioPort, cutPort, createPort).triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
 
-        // 목표 지점(targetOffsetMs)은 15초×40청크 = 600,000ms 근사치다.
+        // 목표 지점(targetOffsetMs)은 15초×40청크 = 600,000ms — 여유분 2개는 트리거 시점만 늦출 뿐,
+        // 블록 자체는 여전히 40개(10분) 지점을 목표로 자른다.
         assertThat(audioPort.extractCalls).containsExactly(600_000L);
         assertThat(cutPort.detectCalls).containsExactly(600_000L);
         assertThat(audioPort.assembleCalls).hasSize(1);
@@ -74,10 +76,26 @@ class SttBlockCutTriggerTest {
     }
 
     @Test
-    @DisplayName("파이프라인 도중 실패하면 예외를 던지지 않고, 블록 카운터도 갱신하지 않는다")
-    void swallowsFailureAndLeavesCounterUnchanged() {
+    @DisplayName("예약에서 경합에 지면(blocksFormed가 기대와 다르면) 아무 포트도 안 부르고 조용히 넘어간다")
+    void skipsWhenReservationLosesRace() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 40);
+        state.recordUpload(7L, 42);
+        // 이미 누가 먼저 예약해간 상황을 흉내낸다 — FakeStateRepo가 기대값 불일치로 항상 empty를 준다.
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        stateRepo.forceReservationConflict = true;
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(), createPort)
+                .triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        assertThat(createPort.received).isEmpty();
+    }
+
+    @Test
+    @DisplayName("파이프라인 도중 실패하면 예외를 던지지 않는다(카운터는 예약 시점에 이미 전진해 있다)")
+    void swallowsFailureAfterReservation() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        state.recordUpload(7L, 42);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         SttBlockAudioAssemblyPort failingAudioPort = new SttBlockAudioAssemblyPort() {
             @Override
@@ -100,23 +118,28 @@ class SttBlockCutTriggerTest {
         trigger.triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
 
         assertThat(createPort.received).isEmpty();
-        assertThat(state.getBlocksFormed()).isZero();
+        // 예약은 무거운 작업 전에 이미 성공했으므로 blocksFormed는 전진해 있다(block_seq 하나가
+        // 빈 채로 남을 뿐 — 해롭지 않다는 게 클래스 설계 의도).
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("TAIL로 blocksFormed가 이미 늘어난 새 세그먼트에서도 40개만 쌓이면 트리거된다")
-    void triggersAtFortyChunksEvenAfterBlocksFormedAdvancedByTailInPriorSegment() {
-        // 이전 세그먼트에서 TAIL 블록까지 포함해 blocksFormed=3이 된 뒤, 새 세그먼트가 시작된 상황을
-        // 재현한다(startNewSegmentBlockCounting 직후와 동일 — lastBlockEndOffsetMs는 0으로 리셋).
+    @DisplayName("이어받기로 세그먼트가 바뀐 뒤에도(blocksFormed는 유지, lastSeq는 리셋) 42개면 트리거된다")
+    void triggersInNewSegmentRegardlessOfPriorBlocksFormed() {
+        // 이전 세그먼트에서 블록 2개를 이미 만든 뒤(blocksFormed=2) 이어받기가 일어난 상황을
+        // 재현한다 — assignOrVerifyRecorder가 lastSeq·lastBlockEndOffsetMs를 0으로 리셋한다.
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordBlockFormed(600_000L);
-        state.recordBlockFormed(1_200_000L);
-        state.startNewSegmentBlockCounting();
-        assertThat(state.getBlocksFormed()).isEqualTo(3);
+        state.reserveNextBlockSeq();
+        state.finalizeBlockOffset(600_000L);
+        state.reserveNextBlockSeq();
+        state.finalizeBlockOffset(1_200_000L);
+        state.assignOrVerifyRecorder(9L, true);
+        assertThat(state.getBlocksFormed()).isEqualTo(2);
         assertThat(state.getLastBlockEndOffsetMs()).isZero();
+        assertThat(state.getLastSeq()).isZero();
 
-        // 새 세그먼트에서 정확히 40개(=10분)만 올라왔다 — blocksFormed(3)와 무관하게 트리거돼야 한다.
-        state.recordUpload(7L, 40);
+        // 새 세그먼트에서 정확히 42개만 올라왔다 — blocksFormed(2)와 무관하게 트리거돼야 한다.
+        state.recordUpload(9L, 42);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
@@ -126,7 +149,7 @@ class SttBlockCutTriggerTest {
 
         assertThat(audioPort.extractCalls).containsExactly(600_000L);
         assertThat(createPort.received).hasSize(1);
-        assertThat(createPort.received.get(0).blockSeq()).isEqualTo(3);
+        assertThat(createPort.received.get(0).blockSeq()).isEqualTo(2);
     }
 
     @Test
@@ -144,7 +167,7 @@ class SttBlockCutTriggerTest {
     }
 
     @Test
-    @DisplayName("세그먼트 전환 시 자투리가 있으면 AI-01 없이 바로 블록을 조립·생성하고 카운터를 갱신한다")
+    @DisplayName("세그먼트 전환 시 자투리가 있으면 AI-01 없이 바로 예약하고 블록을 조립·생성한다")
     void finalizesTailBlockWhenChunksAccumulated() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
@@ -165,9 +188,9 @@ class SttBlockCutTriggerTest {
         assertThat(created.endOffsetMs()).isEqualTo(375_000);
         assertThat(created.cutReason()).isEqualTo("TAIL");
 
-        // 세그먼트 전환용 카운터 갱신 — blocksFormed는 오르고 끝 지점은 새 세그먼트를 위해 0으로 리셋.
+        // 예약을 통해 blocksFormed만 전진한다 — 새 세그먼트의 끝 지점 리셋은 이 메서드의 몫이 아니다
+        // (assignOrVerifyRecorder가 세그먼트 전환과 같은 순간에 이미 처리했다는 전제).
         assertThat(state.getBlocksFormed()).isEqualTo(1);
-        assertThat(state.getLastBlockEndOffsetMs()).isZero();
     }
 
     private SttBlockCutTrigger trigger(CaptureUploadStateRepository stateRepo, SttBlockAudioAssemblyPort audioPort,
@@ -175,8 +198,12 @@ class SttBlockCutTriggerTest {
         return new SttBlockCutTrigger(audioPort, cutPort, createPort, stateRepo, new SttBlockFormedWriter(stateRepo));
     }
 
+    // 실제 CAS 동작을 흉내낸다 — expectedBlocksFormed가 현재 state.blocksFormed와 같을 때만
+    // 예약(도메인의 reserveNextBlockSeq)이 성립한다. forceReservationConflict=true면 항상 실패한다
+    // (다른 트리거가 먼저 예약해간 경합 상황 재현용).
     private static final class FakeStateRepo implements CaptureUploadStateRepository {
         private CaptureUploadState state;
+        private boolean forceReservationConflict = false;
 
         private FakeStateRepo(CaptureUploadState state) {
             this.state = state;
@@ -191,6 +218,14 @@ class SttBlockCutTriggerTest {
         public CaptureUploadState save(CaptureUploadState toSave) {
             this.state = toSave;
             return toSave;
+        }
+
+        @Override
+        public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+            if (forceReservationConflict || state.getBlocksFormed() != expectedBlocksFormed) {
+                return Optional.empty();
+            }
+            return Optional.of(state.reserveNextBlockSeq());
         }
     }
 

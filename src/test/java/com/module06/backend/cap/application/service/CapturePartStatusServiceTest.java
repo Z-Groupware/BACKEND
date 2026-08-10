@@ -171,6 +171,11 @@ class CapturePartStatusServiceTest {
             public CaptureUploadState save(CaptureUploadState value) {
                 return value;
             }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
     }
 

@@ -66,13 +66,28 @@ class CaptureUploadStateTest {
         assertThatCode(() -> state.recordUpload(7L, CaptureUploadState.MAX_SEQ)).doesNotThrowAnyException();
     }
 
-    /* 블록 형성 시 개수가 오르고 끝 지점이 갱신되는지 검증한다. */
+    /* 블록 순번 예약 시 blocksFormed가 오르고, 예약 전 값을 반환하는지 검증한다. */
     @Test
-    @DisplayName("recordBlockFormed는 blocksFormed를 올리고 끝 지점을 갱신한다")
-    void recordBlockFormedAdvancesCountAndOffset() {
+    @DisplayName("reserveNextBlockSeq는 예약 전 순번을 반환하고 blocksFormed를 올린다")
+    void reserveNextBlockSeqReturnsPreviousValueAndAdvancesCount() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
 
-        state.recordBlockFormed(600_000L);
+        int firstReserved = state.reserveNextBlockSeq();
+        int secondReserved = state.reserveNextBlockSeq();
+
+        assertThat(firstReserved).isZero();
+        assertThat(secondReserved).isEqualTo(1);
+        assertThat(state.getBlocksFormed()).isEqualTo(2);
+    }
+
+    /* 예약된 블록이 완성되면 끝 지점만 갱신되고(blocksFormed는 안 건드림) 검증한다. */
+    @Test
+    @DisplayName("finalizeBlockOffset은 끝 지점만 갱신한다")
+    void finalizeBlockOffsetUpdatesOffsetOnly() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
+        state.reserveNextBlockSeq();
+
+        state.finalizeBlockOffset(600_000L);
 
         assertThat(state.getBlocksFormed()).isEqualTo(1);
         assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
@@ -80,16 +95,15 @@ class CaptureUploadStateTest {
 
     /* 이전 블록 끝 지점보다 앞서거나 같은 값은 CAP-021로 거절해 블록이 시간을 거스르지 않게 막는지 검증한다. */
     @Test
-    @DisplayName("recordBlockFormed는 이전 끝 지점 이하 값을 CAP-021로 거절한다")
-    void recordBlockFormedRejectsNonAdvancingOffset() {
+    @DisplayName("finalizeBlockOffset은 이전 끝 지점 이하 값을 CAP-021로 거절한다")
+    void finalizeBlockOffsetRejectsNonAdvancingOffset() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
-        state.recordBlockFormed(600_000L);
+        state.finalizeBlockOffset(600_000L);
 
-        assertErrorCode(() -> state.recordBlockFormed(600_000L), "CAP-021");
-        assertErrorCode(() -> state.recordBlockFormed(500_000L), "CAP-021");
+        assertErrorCode(() -> state.finalizeBlockOffset(600_000L), "CAP-021");
+        assertErrorCode(() -> state.finalizeBlockOffset(500_000L), "CAP-021");
 
         // 거절됐으므로 상태가 그대로여야 한다.
-        assertThat(state.getBlocksFormed()).isEqualTo(1);
         assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
     }
 
@@ -104,16 +118,22 @@ class CaptureUploadStateTest {
         assertThat(state.willChangeSegment(9L, true)).isTrue();    // 이어받기 성립
     }
 
-    /* 세그먼트 전환 시 blocksFormed는 오르고 lastBlockEndOffsetMs는 0으로 초기화되는지 검증한다. */
+    /*
+     * 세그먼트 전환(이어받기 성립)이 lastSeq·lastBlockEndOffsetMs를 0으로 리셋하는지 검증한다
+     * (CodeRabbit 지적 — 예전엔 이 리셋이 없어서 RecordingAssemblyService.hasSeqGap의 "매
+     * 세그먼트는 seq=1부터" 가정과 실제 상태가 어긋나 있었다).
+     */
     @Test
-    @DisplayName("startNewSegmentBlockCounting은 blocksFormed를 올리고 끝 지점을 0으로 되돌린다")
-    void startNewSegmentBlockCountingResetsOffset() {
+    @DisplayName("이어받기로 세그먼트가 바뀌면 lastSeq와 블록 끝 지점이 0으로 리셋된다")
+    void takeoverResetsSeqAndBlockOffsetForNewSegment() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
-        state.recordBlockFormed(600_000L);
+        state.recordUpload(7L, 25);
+        state.finalizeBlockOffset(150_000L);
 
-        state.startNewSegmentBlockCounting();
+        state.assignOrVerifyRecorder(9L, true);
 
-        assertThat(state.getBlocksFormed()).isEqualTo(2);
+        assertThat(state.getSegmentSeq()).isEqualTo(1);
+        assertThat(state.getLastSeq()).isZero();
         assertThat(state.getLastBlockEndOffsetMs()).isZero();
     }
 

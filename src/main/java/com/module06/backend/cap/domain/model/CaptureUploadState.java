@@ -73,8 +73,16 @@ public class CaptureUploadState {
             throw new BusinessException(CapErrorCode.CAP_NOT_CURRENT_RECORDER);
         }
         // 이어받기 — 녹음자 교체 + 새 MediaRecorder 세션이므로 세그먼트 번호를 올린다.
+        //
+        // ⚠️ lastSeq·lastBlockEndOffsetMs도 여기서 같이 0으로 리셋한다(CodeRabbit 지적) — 새
+        // 세그먼트는 MediaRecorder가 새로 시작하는 독립된 스트림이라 청크 순번도 1부터 다시
+        // 온다. 예전엔 이 리셋이 없어서, 이미 있던 RecordingAssemblyService.hasSeqGap(매
+        // 세그먼트가 seq=1부터 시작한다고 가정)과 실제 상태가 서로 어긋나 있었다 — 그 모순이
+        // 이번 자동 트리거를 만들면서 겉으로 드러났을 뿐, 원래 있던 결함이다.
         recorderPersonId = callerId;
         segmentSeq++;
+        lastSeq = 0;
+        lastBlockEndOffsetMs = 0L;
     }
 
     /*
@@ -85,17 +93,6 @@ public class CaptureUploadState {
      */
     public boolean willChangeSegment(Long callerId, boolean canTakeover) {
         return recorderPersonId != null && !recorderPersonId.equals(callerId) && canTakeover;
-    }
-
-    /*
-     * 세그먼트 전환 직전 자투리를 TAIL 블록으로 마무리한 뒤 호출한다. 블록 순번(blocksFormed)은
-     * 회의 전체를 관통하는 번호라 계속 증가시키지만, 끝 지점(lastBlockEndOffsetMs)은 0으로
-     * 되돌린다 — 새 세그먼트는 자신만의 독립된 오디오 스트림이라 0부터 자기 시간을 다시 센다
-     * (이어받기 사이의 실제 공백 시간은 반영하지 않는다 — 세그먼트를 넘는 연속성은 범위 밖).
-     */
-    public void startNewSegmentBlockCounting() {
-        blocksFormed++;
-        lastBlockEndOffsetMs = 0L;
     }
 
     /** 현재 녹음자인지 검증만 한다(상태 변경 없음). 아니면 CAP_NOT_CURRENT_RECORDER — 상태 조회(#4)처럼 읽기 권한 확인용. */
@@ -118,17 +115,35 @@ public class CaptureUploadState {
     }
 
     /*
-     * STT 블록 하나가 형성됐을 때 카운트를 올리고 끝 지점을 갱신한다.
+     * 다음 블록 순번을 확정한다 — ffmpeg·AI-01 같은 무거운 작업을 시작하기 **전에** 호출해야
+     * 한다(CodeRabbit 지적: 무거운 작업 이후에 올리면, 그 사이 들어온 다른 트리거가 같은 순번을
+     * 계산해서 블록이 두 번 만들어지고 Transcribe에도 두 번 제출될 수 있다).
+     *
+     * 이 메서드 자체는 동시성을 막지 못한다 — 실제 CAS(compare-and-set)는
+     * CaptureUploadStateRepository.tryReserveNextBlockSeq가 DB 쓰기 잠금으로 보장한다(그 저장소가
+     * "지금 DB의 blocksFormed가 호출자가 기대한 값과 같을 때만" 이 메서드가 적용된 상태를
+     * 저장하도록 조율한다). 그래서 파이프라인이 실패해도 blocksFormed는 이미 전진해 있다 —
+     * block_seq에 빈 번호 하나가 남을 뿐(해롭지 않다), 다음 시도가 다시 경합하는 것보다 안전하다.
+     *
+     * @return 이번에 확정된 블록 순번(증가 전 값)
+     */
+    public int reserveNextBlockSeq() {
+        int reservedSeq = blocksFormed;
+        blocksFormed++;
+        return reservedSeq;
+    }
+
+    /*
+     * 예약된 블록이 실제로 완성됐을 때(조립·생성·제출까지 성공) 끝 지점을 갱신한다.
      *
      * blockEndOffsetMs는 지금까지 기록된 끝 지점보다 커야 한다 — 블록은 항상 앞으로만
      * 진행해야 하고(시간을 거스르는 블록은 없음), 작거나 같은 값이 들어오면 호출자가 순서를
      * 잘못 불렀거나 같은 블록을 중복 처리하려는 것이다.
      */
-    public void recordBlockFormed(long blockEndOffsetMs) {
+    public void finalizeBlockOffset(long blockEndOffsetMs) {
         if (blockEndOffsetMs <= lastBlockEndOffsetMs) {
             throw new BusinessException(CapErrorCode.CAP_BLOCK_OFFSET_INVALID);
         }
-        blocksFormed++;
         lastBlockEndOffsetMs = blockEndOffsetMs;
     }
 

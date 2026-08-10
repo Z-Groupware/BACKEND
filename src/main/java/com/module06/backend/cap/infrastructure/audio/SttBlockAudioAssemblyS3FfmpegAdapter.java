@@ -116,11 +116,7 @@ public class SttBlockAudioAssemblyS3FfmpegAdapter implements SttBlockAudioAssemb
         int lastSeq = lastChunkSeq(rangeEndMs);
         List<RecordingPart> chunks =
                 recordingPartRepository.findInSegmentBetweenSeqs(meetingId, segmentSeq, firstSeq, lastSeq);
-        if (chunks.isEmpty()) {
-            throw new IllegalStateException(
-                    "조립할 청크가 없습니다 — meetingId=%d segmentSeq=%d seq %d~%d"
-                            .formatted(meetingId, segmentSeq, firstSeq, lastSeq));
-        }
+        requireNoGaps(chunks, meetingId, segmentSeq, firstSeq, lastSeq);
 
         // 1) 청크마다 개별적으로 16kHz/mono/16bit wav로 정규화(코덱이 웹/사파리 뭐든 각자 안전하게 디코드).
         List<Path> normalizedWavs = new ArrayList<>();
@@ -148,6 +144,23 @@ public class SttBlockAudioAssemblyS3FfmpegAdapter implements SttBlockAudioAssemb
                 "-ar", String.valueOf(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", output.toString()));
 
         return output;
+    }
+
+    // 요청한 [firstSeq, lastSeq] 구간에 실제로 빈틈이 없는지 확인한다(CodeRabbit 지적) — 없으면
+    // ffmpeg는 있는 것만 조용히 이어붙이고, 그 결과를 "요청한 시간 구간 전체"로 착각해 트림해서
+    // 시간축이 밀린 오디오를 만든다. findInSegmentBetweenSeqs가 seq 오름차순으로 준다는 전제로,
+    // 개수와 처음·끝 seq만 확인하면 중간 구멍까지 전부 잡힌다.
+    private void requireNoGaps(List<RecordingPart> chunks, Long meetingId, int segmentSeq, int firstSeq,
+                               int lastSeq) {
+        int expectedCount = lastSeq - firstSeq + 1;
+        boolean gapExists = chunks.size() != expectedCount
+                || chunks.get(0).getSeq() != firstSeq
+                || chunks.get(chunks.size() - 1).getSeq() != lastSeq;
+        if (gapExists) {
+            throw new IllegalStateException(
+                    "조립할 청크에 빈틈이 있습니다 — meetingId=%d segmentSeq=%d seq %d~%d 기대 %d개, 실제 %d개"
+                            .formatted(meetingId, segmentSeq, firstSeq, lastSeq, expectedCount, chunks.size()));
+        }
     }
 
     private int firstChunkSeq(long rangeStartMs) {

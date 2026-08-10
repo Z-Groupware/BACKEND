@@ -20,20 +20,13 @@ class SttBlockFormedWriter {
         this.captureUploadStateRepository = captureUploadStateRepository;
     }
 
+    // 예약된 블록(reserveNextBlockSeq로 blocksFormed는 이미 전진해 있음)이 실제로 완성됐을 때
+    // 끝 지점만 갱신한다. TAIL 블록은 이걸 부르지 않는다 — 새 세그먼트의 lastBlockEndOffsetMs는
+    // assignOrVerifyRecorder가 세그먼트 전환 시점에 이미 0으로 리셋해뒀다.
     @Transactional
-    void recordBlockFormed(Long meetingId, long cutOffsetMs) {
+    void finalizeBlockOffset(Long meetingId, long cutOffsetMs) {
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(meetingId).orElseThrow();
-        state.recordBlockFormed(cutOffsetMs);
-        captureUploadStateRepository.save(state);
-    }
-
-    // 세그먼트 전환 직전 자투리(TAIL) 블록을 마무리한 뒤 카운터를 갱신한다. issuePartUploadUrls가
-    // 이미 새 세그먼트로 저장을 마쳤을 수도 있는 시점에 비동기로 도착하므로, segmentSeq·
-    // recorderPersonId는 건드리지 않고 blocksFormed·lastBlockEndOffsetMs만 갱신한다.
-    @Transactional
-    void recordSegmentTailBlockFormed(Long meetingId) {
-        CaptureUploadState state = captureUploadStateRepository.findByMeetingId(meetingId).orElseThrow();
-        state.startNewSegmentBlockCounting();
+        state.finalizeBlockOffset(cutOffsetMs);
         captureUploadStateRepository.save(state);
     }
 }
