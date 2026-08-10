@@ -18,6 +18,8 @@ public record CreateProjectRequest(
         @NotBlank @Size(max = 8) @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "태그는 영문·숫자·-_ 만 허용합니다.") String tag,
         String description,
         @NotBlank @Pattern(regexp = "^#[0-9A-Fa-f]{6}$", message = "색상은 #RRGGBB 형식이어야 합니다.") String color,
+        // FE 보드 화면 할일/진행중 칸 구분용 표시값 — dueDate와 같은 레벨, 생성 시 필수(2026-08-10, 이홍근 요청).
+        @NotNull LocalDate startDate,
         @NotNull LocalDate dueDate,
         // Figma 생성폼엔 필수(*)로 표시되는데 @NotNull만으로는 빈 배열([])이 통과했다
         // — 이태연(review) 제보로 2026-08-07 확인 후 추가.

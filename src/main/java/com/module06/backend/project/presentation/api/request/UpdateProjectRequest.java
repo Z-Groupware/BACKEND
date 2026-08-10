@@ -21,6 +21,7 @@ public record UpdateProjectRequest(
         @NotBlank @Size(max = 150) String name,
         String description,
         @NotBlank @Pattern(regexp = "^#[0-9A-Fa-f]{6}$", message = "색상은 #RRGGBB 형식이어야 합니다.") String color,
+        @NotNull LocalDate startDate,
         @NotNull LocalDate dueDate,
         @NotNull List<Long> teamIds
 ) {

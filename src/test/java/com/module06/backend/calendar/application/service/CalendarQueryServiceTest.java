@@ -124,7 +124,7 @@ class CalendarQueryServiceTest {
     private Project project(Long id, String name, LocalDateTime createdAt, LocalDate dueDate) {
         return Project.reconstitute(
                 id, COMPANY, "TAG-" + id, name, "설명", "#FFFFFF",
-                ProjectStatus.TODO, dueDate, MEMBER, List.of(),
+                ProjectStatus.TODO, null, dueDate, MEMBER, List.of(),
                 null, createdAt, createdAt);
     }
 

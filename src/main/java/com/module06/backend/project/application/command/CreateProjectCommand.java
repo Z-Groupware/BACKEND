@@ -18,6 +18,7 @@ public record CreateProjectCommand(
         String name,
         String description,
         String color,
+        LocalDate startDate,
         LocalDate dueDate,
         List<Long> teamIds
 ) {

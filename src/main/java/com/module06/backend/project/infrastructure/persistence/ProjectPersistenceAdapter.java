@@ -33,6 +33,7 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
                 .description(project.getDescription())
                 .color(project.getColor())
                 .status(project.getStatus())
+                .startDate(project.getStartDate())
                 .dueDate(project.getDueDate())
                 .createdBy(project.getCreatedBy())
                 .deletedAt(project.getDeletedAt())
@@ -111,6 +112,7 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
                 entity.getDescription(),
                 entity.getColor(),
                 entity.getStatus(),
+                entity.getStartDate(),
                 entity.getDueDate(),
                 entity.getCreatedBy(),
                 teamIds,
