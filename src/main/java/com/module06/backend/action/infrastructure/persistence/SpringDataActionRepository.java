@@ -59,6 +59,10 @@ public interface SpringDataActionRepository
     List<UndispatchedProjection> findAllByCompanyIdAndSourceMeetingIdInAndDispatchedAtIsNullAndReviewStatusNot(
             Long companyId, List<Long> sourceMeetingIds, ActionReviewStatus excludedReviewStatus);
 
+    // 2026-08-10, 모성진(D) 요청 — 회의별 전체 액션 건수(분배 상태 무관). 위와 같은 이유로
+    // 조건 없는 COUNT GROUP BY도 Semgrep QUERY_002가 막아 같은 프로젝션을 재사용해 자바에서 집계한다.
+    List<UndispatchedProjection> findAllByCompanyIdAndSourceMeetingIdIn(Long companyId, List<Long> sourceMeetingIds);
+
     boolean existsByCompanyIdAndId(Long companyId, Long id);
 
     // ActionReassignAdapter.reassign()의 read-modify-write 전용 — SELECT ... FOR UPDATE로
@@ -76,7 +80,8 @@ public interface SpringDataActionRepository
     // 딸려온다). COUNT GROUP BY는 Semgrep QUERY_002가 신규 @Query를 막아 못 쓰고, 자바에서 집계한다.
     List<ProjectActionProjection> findAllByProjectIdIn(List<Long> projectIds);
 
-    // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다.
+    // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다. 이름은 미분배 조회에서 왔지만 컬럼
+    // shape이 같아 조건 없는 전체 건수 집계(findAllByCompanyIdAndSourceMeetingIdIn)도 재사용한다.
     interface UndispatchedProjection {
         Long getSourceMeetingId();
     }

@@ -327,6 +327,25 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // 2026-08-10, 모성진(D) 요청 — 회의별 전체 액션 건수(분배·검토 상태 무관). 위
+    // findMeetingsWithUndispatchedActions와 같은 청킹+groupingBy 패턴, 조건만 뺐다.
+    @Override
+    public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> sourceMeetingIds) {
+        if (companyId == null || sourceMeetingIds == null || sourceMeetingIds.isEmpty()) {
+            return List.of();
+        }
+
+        return chunk(sourceMeetingIds.stream().distinct().toList(), MEETING_ID_BATCH_SIZE).stream()
+                .flatMap(chunk -> springDataActionRepository
+                        .findAllByCompanyIdAndSourceMeetingIdIn(companyId, chunk)
+                        .stream())
+                .collect(Collectors.groupingBy(
+                        SpringDataActionRepository.UndispatchedProjection::getSourceMeetingId, Collectors.counting()))
+                .entrySet().stream()
+                .map(entry -> new MeetingActionCount(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
     private static List<List<Long>> chunk(List<Long> ids, int size) {
         return IntStream.range(0, (ids.size() + size - 1) / size)
                 .mapToObj(i -> ids.subList(i * size, Math.min(ids.size(), (i + 1) * size)))
