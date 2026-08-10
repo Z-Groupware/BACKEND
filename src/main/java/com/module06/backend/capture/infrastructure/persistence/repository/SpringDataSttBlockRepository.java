@@ -1,5 +1,6 @@
 package com.module06.backend.capture.infrastructure.persistence.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,12 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
      * 수 있다 — 관문(MeetingAccessGuard)은 회의까지만 본다.
      */
     Optional<SttBlockJpaEntity> findByMeetingIdAndBlockSeq(long meetingId, int blockSeq);
+
+    /*
+     * 미완 블록 수(분석 시작 관문). 상태 목록을 인자로 받아 파생 쿼리로 둔다 — 어느 상태가
+     * "미완"인지는 도메인의 판단이라 어댑터가 정하고, 여기는 세는 일만 한다(Gate1 QUERY_002).
+     */
+    int countByMeetingIdAndStatusIn(long meetingId, Collection<SttBlockStatus> statuses);
 
     /*
      * 재처리 전이 전용 — **조건을 DB 가 판정하게 하고** 쓰기 잠금을 건다.
