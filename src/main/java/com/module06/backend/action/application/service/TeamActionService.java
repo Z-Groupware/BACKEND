@@ -13,6 +13,7 @@ import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCas
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
@@ -53,9 +54,9 @@ public class TeamActionService implements
     // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
     @Transactional(readOnly = true)
-    public TeamActionListResult getTeamActions(Long teamId, int page, int size) {
-        long totalElements = actionRepository.countByTeamId(teamId);
-        List<Action> actions = actionRepository.findAllByTeamId(teamId, page, size);
+    public TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size) {
+        long totalElements = actionRepository.countByTeamId(teamId, status);
+        List<Action> actions = actionRepository.findAllByTeamId(teamId, status, sort, order, page, size);
         if (actions.isEmpty()) {
             return new TeamActionListResult(List.of(), totalElements);
         }

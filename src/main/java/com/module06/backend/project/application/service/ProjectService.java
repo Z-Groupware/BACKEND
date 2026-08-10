@@ -26,6 +26,7 @@ import com.module06.backend.project.application.usecase.GetProjectTimelineUseCas
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
 import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectAttachment;
+import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
 import com.module06.backend.project.domain.repository.TeamReferenceRepository;
@@ -83,9 +84,9 @@ public class ProjectService implements
 
     @Override
     @Transactional(readOnly = true)
-    public ProjectListResult list(Long companyId, int page, int size) {
-        List<Project> projects = projectRepository.findAllByCompanyId(companyId, page, size);
-        long totalElements = projectRepository.countByCompanyId(companyId);
+    public ProjectListResult list(Long companyId, ProjectStatus status, String sort, String order, int page, int size) {
+        List<Project> projects = projectRepository.findAllByCompanyId(companyId, status, sort, order, page, size);
+        long totalElements = projectRepository.countByCompanyId(companyId, status);
         List<Long> projectIds = projects.stream().map(Project::getId).toList();
 
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =

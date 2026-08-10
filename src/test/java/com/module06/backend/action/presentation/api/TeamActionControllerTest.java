@@ -26,6 +26,7 @@ import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.global.security.AuthPrincipal;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -62,7 +63,7 @@ class TeamActionControllerTest {
     @DisplayName("목록은 LEADER 권한이면 토큰의 teamId로 조회한다")
     void listUsesTeamIdFromTokenWhenLeader() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "LEADER");
-        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), anyInt(), anyInt()))
+        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
                         List.of(new TeamActionListItem(teamAction(), "GOODS", "개발팀")), 1L));
 

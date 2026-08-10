@@ -3,6 +3,7 @@ package com.module06.backend.action.application.usecase;
 import java.util.List;
 
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 
 /* comment.
     FR-AC-02 — 개인 액션 목록 조회 기능 계약. 호출자 본인 소유분만 내려준다.
@@ -13,6 +14,9 @@ import com.module06.backend.action.domain.model.Action;
     2026-08-10 페이지네이션 도입(이홍근 요청) — page는 0부터 시작. 캘린더(CalendarQueryService)는
     이 UseCase가 아니라 ActionRepository의 전건 조회 메서드를 직접 쓰므로 영향 없다.
 
+    2026-08-10 필터/정렬 추가(이홍근 요청) — status·overdue는 null이면 필터 안 함. "담당자" 필터는
+    안 받는다 — 이 목록 자체가 이미 호출자 본인으로 스코프돼 있어서 담당자 필터가 의미가 없다.
+
     연결된 클래스
     - ActionRepository          : 조회
     - ActionReferenceRepository : 담당자·소속팀·출처회의 이름 조인
@@ -21,7 +25,8 @@ import com.module06.backend.action.domain.model.Action;
 */
 public interface GetMyActionsUseCase {
 
-    ActionListResult getMyActions(Long assigneeMemberId, int page, int size);
+    ActionListResult getMyActions(
+            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size);
 
     // parentActionTitle은 상위 팀 액션이 없으면(예외 없이 만들어진 경우는 없지만 방어적으로) null.
     record ActionListItem(

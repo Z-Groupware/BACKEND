@@ -24,6 +24,7 @@ import com.module06.backend.action.application.usecase.CreateActionUseCase;
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.presentation.api.request.BulkUpdateActionStatusRequest;
 import com.module06.backend.action.presentation.api.request.CreateActionRequest;
 import com.module06.backend.action.presentation.api.response.ActionDetailResponse;
@@ -98,17 +99,23 @@ public class ActionController {
     }
 
     // 내 액션 목록 — 호출자 memberId는 토큰에서만 꺼낸다(헤더로 받으면 남의 목록을 조회할 수 있다).
-    // 2026-08-10 페이지네이션 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
-    @Operation(summary = "내 액션 목록 조회", description = "호출자 본인 소유 개인 액션만 반환한다. 페이지네이션(page/size).")
+    // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
+    // "담당자" 필터는 없다 — 이 목록 자체가 이미 호출자 본인으로 스코프돼 있다.
+    @Operation(summary = "내 액션 목록 조회", description = "호출자 본인 소유 개인 액션만 반환한다. "
+            + "페이지네이션(page/size), status 필터, overdue(지연) 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @RequestParam(required = false) ActionStatus status,
+            @RequestParam(required = false) Boolean overdue,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "desc") String order,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        var result = getMyActionsUseCase.getMyActions(memberId, page, size);
+        var result = getMyActionsUseCase.getMyActions(memberId, status, overdue, sort, order, page, size);
         List<ActionSummaryResponse> items = result.items().stream()
                 .map(ActionSummaryResponse::from)
                 .toList();

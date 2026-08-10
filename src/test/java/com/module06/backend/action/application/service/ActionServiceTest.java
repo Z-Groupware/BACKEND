@@ -176,8 +176,8 @@ class ActionServiceTest {
     void getMyActionsReturnsEnrichedListForCaller() {
         ActionService service = actionService();
         Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 300L, ActionStatus.TODO);
-        when(actionRepository.countByAssigneeMemberId(5L)).thenReturn(1L);
-        when(actionRepository.findAllByAssigneeMemberId(5L, 0, 20)).thenReturn(List.of(action));
+        when(actionRepository.countByAssigneeMemberId(5L, null, null)).thenReturn(1L);
+        when(actionRepository.findAllByAssigneeMemberId(5L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
                 .thenReturn(List.of(new MemberReference(5L, "이하윤")));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
@@ -189,7 +189,7 @@ class ActionServiceTest {
         when(actionRepository.findAllByIds(List.of(300L)))
                 .thenReturn(List.of(personalAction(300L, COMPANY, PROJECT, 7L, null, null, ActionStatus.TODO)));
 
-        var result = service.getMyActions(5L, 0, 20);
+        var result = service.getMyActions(5L, null, null, null, "desc", 0, 20);
 
         assertThat(result.items()).hasSize(1);
         assertThat(result.totalElements()).isEqualTo(1L);
@@ -204,10 +204,10 @@ class ActionServiceTest {
     @Test
     void getMyActionsReturnsEmptyListWithoutQueryingReferencesWhenCallerHasNoActions() {
         ActionService service = actionService();
-        when(actionRepository.countByAssigneeMemberId(5L)).thenReturn(0L);
-        when(actionRepository.findAllByAssigneeMemberId(5L, 0, 20)).thenReturn(List.of());
+        when(actionRepository.countByAssigneeMemberId(5L, null, null)).thenReturn(0L);
+        when(actionRepository.findAllByAssigneeMemberId(5L, null, null, null, "desc", 0, 20)).thenReturn(List.of());
 
-        assertThat(service.getMyActions(5L, 0, 20).items()).isEmpty();
+        assertThat(service.getMyActions(5L, null, null, null, "desc", 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findMemberReferences(anyList());
     }
 

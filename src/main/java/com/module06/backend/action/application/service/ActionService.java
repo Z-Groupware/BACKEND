@@ -118,9 +118,11 @@ public class ActionService implements
     // 전체 건수라 비어있는 페이지에서도 먼저 구해둔다.
     @Override
     @Transactional(readOnly = true)
-    public GetMyActionsUseCase.ActionListResult getMyActions(Long assigneeMemberId, int page, int size) {
-        long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId);
-        List<Action> actions = actionRepository.findAllByAssigneeMemberId(assigneeMemberId, page, size);
+    public GetMyActionsUseCase.ActionListResult getMyActions(
+            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+        long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
+        List<Action> actions = actionRepository.findAllByAssigneeMemberId(
+                assigneeMemberId, status, overdue, sort, order, page, size);
         if (actions.isEmpty()) {
             return new GetMyActionsUseCase.ActionListResult(List.of(), totalElements);
         }

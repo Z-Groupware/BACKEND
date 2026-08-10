@@ -29,6 +29,7 @@ import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
 import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.presentation.api.request.BulkUpdateProjectStatusRequest;
 import com.module06.backend.project.presentation.api.request.CreateProjectRequest;
 import com.module06.backend.project.presentation.api.request.UpdateProjectRequest;
@@ -94,16 +95,21 @@ public class ProjectController {
         그때 이 줄은 "이 엔드포인트는 로그인 전원용"이라는 의도 표시 + 2차 방어로 남는다.
     */
     // 2026-08-10 페이지네이션 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
-    @Operation(summary = "프로젝트 목록 조회", description = "전 구성원 공개, 회사 전체 프로젝트. 페이지네이션(page/size).")
+    // 2026-08-10 필터/정렬 추가(이홍근 요청) — status 필터(선택), sort/order 화이트리스트(dueDate·createdAt).
+    @Operation(summary = "프로젝트 목록 조회", description = "전 구성원 공개, 회사 전체 프로젝트. "
+            + "페이지네이션(page/size), status 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<PageResponse<ProjectSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @RequestParam(required = false) ProjectStatus status,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "desc") String order,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        var result = getProjectListUseCase.list(companyId, page, size);
+        var result = getProjectListUseCase.list(companyId, status, sort, order, page, size);
         List<ProjectSummaryResponse> items = result.items().stream()
                 .map(ProjectSummaryResponse::from)
                 .toList();

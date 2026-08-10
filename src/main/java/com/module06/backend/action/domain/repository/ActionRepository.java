@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 
 /* comment.
     action 저장소 계약. 착수한 슬라이스에 필요한 메서드만 채워 나간다 —
@@ -39,9 +40,12 @@ public interface ActionRepository {
     // (2026-08-10, 이홍근 요청).
     List<Action> findAllByAssigneeMemberId(Long assigneeMemberId);
 
-    List<Action> findAllByAssigneeMemberId(Long assigneeMemberId, int page, int size);
+    // 2026-08-10 필터/정렬 추가(이홍근 요청) — status·overdue는 null이면 필터 안 함.
+    // overdue=true면 지연(진행중+마감일<오늘)만, false면 지연 아닌 것만.
+    List<Action> findAllByAssigneeMemberId(
+            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size);
 
-    long countByAssigneeMemberId(Long assigneeMemberId);
+    long countByAssigneeMemberId(Long assigneeMemberId, ActionStatus status, Boolean overdue);
 
     // FR-AC-02/03 — 상위 액션 표시값·벌크 상태변경 대상 배치 조회.
     List<Action> findAllByIds(List<Long> ids);
@@ -57,9 +61,9 @@ public interface ActionRepository {
     // FR-AC-06 — 팀 액션 목록. JWT의 teamId로 이미 스코프된 값을 그대로 받아 그 팀의 TEAM 액션만 찾는다.
     // 2026-08-10 페이지네이션 도입(이홍근 요청) — 기존 전건 조회는 다른 호출자가 없어 페이지네이션
     // 버전으로 교체했다(Project.findAllByCompanyId와 동일 판단).
-    List<Action> findAllByTeamId(Long teamId, int page, int size);
+    List<Action> findAllByTeamId(Long teamId, ActionStatus status, String sort, String order, int page, int size);
 
-    long countByTeamId(Long teamId);
+    long countByTeamId(Long teamId, ActionStatus status);
 
     // FR-AC-08 — 팀 액션 타임라인. 이 팀 액션(parentActionId) 아래 걸린, 같은 회사 소속 PERSONAL 액션 전체.
     List<Action> findAllByParentActionId(Long companyId, Long parentActionId);

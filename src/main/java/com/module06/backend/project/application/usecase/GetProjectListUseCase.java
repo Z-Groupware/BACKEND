@@ -3,6 +3,7 @@ package com.module06.backend.project.application.usecase;
 import java.util.List;
 
 import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.domain.model.ProjectStatus;
 
 /* comment.
     FR-PJ-02 — 프로젝트 목록 조회 기능 계약. 전 구성원(MEMBER 이상) 공개다.
@@ -13,10 +14,13 @@ import com.module06.backend.project.domain.model.Project;
 
     2026-08-10 페이지네이션 도입(이홍근 요청) — page는 0부터 시작. totalElements는 페이지와
     무관하게 전체 건수라 ProjectListResult로 함께 반환한다.
+
+    2026-08-10 필터/정렬 추가(이홍근 요청) — status는 null이면 필터 안 함. sort/order는
+    presentation 계층이 화이트리스트로 정제해서 넘긴다(dueDate·createdAt만 허용).
 */
 public interface GetProjectListUseCase {
 
-    ProjectListResult list(Long companyId, int page, int size);
+    ProjectListResult list(Long companyId, ProjectStatus status, String sort, String order, int page, int size);
 
     record ProjectListItem(
             Project project,

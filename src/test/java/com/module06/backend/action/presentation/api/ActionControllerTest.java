@@ -120,7 +120,7 @@ class ActionControllerTest {
     @DisplayName("내 액션 목록은 토큰의 memberId로 조회한다")
     void listUsesMemberIdFromToken() throws Exception {
         authenticateAs(1L, 5L);
-        when(getMyActionsUseCase.getMyActions(eq(5L), anyInt(), anyInt()))
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
 
@@ -129,7 +129,7 @@ class ActionControllerTest {
                 .andExpect(jsonPath("$.data.content[0].assigneeName").value("이하윤"))
                 .andExpect(jsonPath("$.data.totalElements").value(1));
 
-        verify(getMyActionsUseCase).getMyActions(5L, 0, 20);
+        verify(getMyActionsUseCase).getMyActions(5L, null, null, null, "desc", 0, 20);
     }
 
     @Test
@@ -156,7 +156,7 @@ class ActionControllerTest {
                 com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
                 null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
 
-        when(getMyActionsUseCase.getMyActions(eq(5L), anyInt(), anyInt()))
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
