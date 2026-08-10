@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedUploadUrl;
 
 /*
@@ -42,6 +43,17 @@ class ProjectAttachmentS3StorageAdapterTest {
 
         assertThat(issued.uploadUrl()).contains(BUCKET).contains(KEY).contains("X-Amz-Expires=900");
         assertThat(issued.fileUrl()).isEqualTo(KEY);
+    }
+
+    @Test
+    @DisplayName("presign GET: 버킷·키 서명이 담긴 URL과 300초 만료를 반환한다")
+    void issueDownloadUrl_returnsSignedGetUrl() {
+        ProjectAttachmentS3StorageAdapter adapter = adapter();
+
+        IssuedDownloadUrl issued = adapter.issueDownloadUrl(KEY);
+
+        assertThat(issued.downloadUrl()).contains(BUCKET).contains(KEY).contains("X-Amz-Expires=300");
+        assertThat(issued.expiresInSeconds()).isEqualTo(300);
     }
 
     @Test

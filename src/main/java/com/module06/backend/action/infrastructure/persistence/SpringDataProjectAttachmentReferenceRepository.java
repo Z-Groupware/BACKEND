@@ -1,6 +1,7 @@
 package com.module06.backend.action.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -15,4 +16,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SpringDataProjectAttachmentReferenceRepository extends JpaRepository<ProjectAttachmentReferenceEntity, Long> {
 
     List<ProjectAttachmentReferenceEntity> findAllByProjectId(Long projectId);
+
+    // 다운로드 URL 발급(2026-08-10)용 단건 조회 — projectId까지 조건에 넣어 다른 프로젝트
+    // 소속 첨부파일 id를 넣어도 DB 레벨에서부터 안 걸리게 한다.
+    Optional<ProjectAttachmentReferenceEntity> findByIdAndProjectId(Long id, Long projectId);
 }

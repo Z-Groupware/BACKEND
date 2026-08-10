@@ -11,8 +11,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.command.ConfirmAttachmentCommand;
 import com.module06.backend.project.application.command.DeleteAttachmentCommand;
+import com.module06.backend.project.application.command.IssueAttachmentDownloadUrlCommand;
 import com.module06.backend.project.application.command.IssueAttachmentUploadUrlCommand;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedUploadUrl;
 import com.module06.backend.project.domain.model.ProjectAttachment;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
@@ -242,6 +244,62 @@ class ProjectAttachmentServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.ATTACHMENT_KEY_MISMATCH);
 
         verify(projectAttachmentRepository, never()).save(any());
+    }
+
+    @Test
+    void 정상_요청이면_다운로드_URL을_발급한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(PROJECT_ID, UPLOADER)));
+        when(projectAttachmentStoragePort.issueDownloadUrl(KEY))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        IssuedDownloadUrl result = service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID));
+
+        assertThat(result.downloadUrl()).isEqualTo("https://s3/get");
+        assertThat(result.expiresInSeconds()).isEqualTo(300);
+    }
+
+    @Test
+    void 업로더가_아니어도_다운로드_URL을_발급받는다() {
+        // 삭제와 달리 다운로드는 전 구성원 공개다 — 업로더 검증이 없어야 한다.
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(PROJECT_ID, UPLOADER)));
+        when(projectAttachmentStoragePort.issueDownloadUrl(anyString()))
+                .thenReturn(new IssuedDownloadUrl("https://s3/get", 300));
+
+        IssuedDownloadUrl result = service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID));
+
+        assertThat(result.downloadUrl()).isEqualTo("https://s3/get");
+    }
+
+    @Test
+    void 남의_회사_프로젝트로는_다운로드_URL을_뽑지_못한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(OTHER_COMPANY, PROJECT_ID)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(OTHER_COMPANY, PROJECT_ID, ATTACHMENT_ID)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.PROJECT_NOT_FOUND);
+
+        verify(projectAttachmentStoragePort, never()).issueDownloadUrl(anyString());
+    }
+
+    @Test
+    void 경로의_프로젝트에_속하지_않은_첨부는_다운로드_URL도_없는_것으로_답한다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentRepository.findById(ATTACHMENT_ID))
+                .thenReturn(Optional.of(attachmentOf(OTHER_PROJECT_ID, UPLOADER)));
+
+        assertThatThrownBy(() -> service.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.ATTACHMENT_NOT_FOUND);
+
+        verify(projectAttachmentStoragePort, never()).issueDownloadUrl(anyString());
     }
 
     private ProjectAttachment attachmentOf(Long projectId, Long uploadedBy) {
