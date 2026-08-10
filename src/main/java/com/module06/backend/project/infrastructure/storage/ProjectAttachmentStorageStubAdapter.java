@@ -26,6 +26,11 @@ public class ProjectAttachmentStorageStubAdapter implements ProjectAttachmentSto
     }
 
     @Override
+    public IssuedDownloadUrl issueDownloadUrl(String s3Key) {
+        return new IssuedDownloadUrl("https://stub-storage.local/download/" + s3Key, 300);
+    }
+
+    @Override
     public void deleteObject(String fileUrl) {
         // 스텁이라 아무것도 안 함 — 실제 F 어댑터가 붙으면 여기서 진짜 삭제 호출
     }

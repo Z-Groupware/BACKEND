@@ -44,7 +44,11 @@ public enum ActionErrorCode implements ErrorCode {
     // FR-AC-09 — 회의별 조회는 companyId로 액션 행만 스코프하는 것만으로는 다른 회사·존재하지
     // 않는 meetingId를 "액션 없음"과 구분 못 한다. meeting(D)의 공개 조회 포트로 먼저 소유를
     // 확인한다(코드래빗 지적, PR #229 — handover(E)의 MeetingQueryPortDelegatingAdapter와 같은 이유).
-    ACTION_MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-011", "존재하지 않거나 접근할 수 없는 회의입니다.");
+    ACTION_MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-011", "존재하지 않거나 접근할 수 없는 회의입니다."),
+
+    // 2026-08-10 — 팀 액션 첨부파일 다운로드 URL 발급에서, 그 팀 액션의 프로젝트 소속이 아닌
+    // attachmentId를 넣으면 던진다(project 쪽 PJ-004와 같은 성격이지만 진입 경로가 달라 별도 코드).
+    ACTION_ATTACHMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-012", "존재하지 않는 첨부파일입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

@@ -3,6 +3,7 @@ package com.module06.backend.project.presentation.api;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -12,10 +13,13 @@ import org.springframework.web.bind.annotation.RestController;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.project.application.command.ConfirmAttachmentCommand;
 import com.module06.backend.project.application.command.DeleteAttachmentCommand;
+import com.module06.backend.project.application.command.IssueAttachmentDownloadUrlCommand;
 import com.module06.backend.project.application.command.IssueAttachmentUploadUrlCommand;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedUploadUrl;
 import com.module06.backend.project.application.usecase.ConfirmAttachmentUseCase;
 import com.module06.backend.project.application.usecase.DeleteAttachmentUseCase;
+import com.module06.backend.project.application.usecase.IssueAttachmentDownloadUrlUseCase;
 import com.module06.backend.project.application.usecase.IssueAttachmentUploadUrlUseCase;
 import com.module06.backend.project.presentation.api.request.ConfirmAttachmentRequest;
 import com.module06.backend.project.presentation.api.request.IssueUploadUrlRequest;
@@ -34,7 +38,12 @@ import lombok.RequiredArgsConstructor;
     달랐던 것을 바로잡음, 08/06)
     - POST   /api/projects/{projectId}/attachments/upload-url   업로드 URL 발급
     - POST   /api/projects/{projectId}/attachments/confirm      업로드 확정(메타데이터 저장)
+    - GET    /api/projects/{projectId}/attachments/{attachmentId}/download-url  다운로드 URL 발급
     - DELETE /api/projects/{projectId}/attachments/{attachmentId}  삭제
+
+    download-url(2026-08-10, 이홍근 요청)은 업로드·확정·삭제와 달리 OWNER/ADMIN 전용이 아니라
+    전 구성원 공개다 — 조회 성격 API라 GET /api/projects/{id} 상세 조회와 같은 권한 레벨로
+    맞췄다. 삭제(업로더 본인만)와는 별개 기준이니 혼동하지 말 것.
     첨부파일 목록 조회는 이 컨트롤러에 없음 — GET /api/projects/{projectId}(ProjectController)의
     응답에 인라인으로 포함된다(ProjectDetailResponse.attachments). Figma 기획 탭이 첨부파일
     다운로드 링크를 인라인으로 렌더링하는 것과 일치(확정, 08/09).
@@ -56,6 +65,7 @@ import lombok.RequiredArgsConstructor;
 public class ProjectAttachmentController {
 
     private final IssueAttachmentUploadUrlUseCase issueAttachmentUploadUrlUseCase;
+    private final IssueAttachmentDownloadUrlUseCase issueAttachmentDownloadUrlUseCase;
     private final ConfirmAttachmentUseCase confirmAttachmentUseCase;
     private final DeleteAttachmentUseCase deleteAttachmentUseCase;
 
@@ -96,6 +106,21 @@ public class ProjectAttachmentController {
         ));
 
         return ApiResponse.created("첨부파일이 등록되었습니다.", AttachmentResponse.from(attachment));
+    }
+
+    @Operation(summary = "다운로드 URL 발급", description = "전 구성원 공개. presigned GET URL 하나 발급, 5분 만료.")
+    @GetMapping("/{attachmentId}/download-url")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<IssuedDownloadUrl> issueDownloadUrl(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable Long projectId,
+            @PathVariable Long attachmentId
+    ) {
+        IssuedDownloadUrl issuedDownloadUrl = issueAttachmentDownloadUrlUseCase.issueDownloadUrl(
+                new IssueAttachmentDownloadUrlCommand(companyId, projectId, attachmentId));
+
+        return ApiResponse.success("다운로드 URL이 발급되었습니다.", issuedDownloadUrl);
     }
 
     @Operation(summary = "첨부파일 삭제", description = "업로더 본인만 가능.")
