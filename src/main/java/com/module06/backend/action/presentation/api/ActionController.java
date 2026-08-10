@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,11 +24,13 @@ import com.module06.backend.action.application.usecase.CreateActionUseCase;
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.presentation.api.request.BulkUpdateActionStatusRequest;
 import com.module06.backend.action.presentation.api.request.CreateActionRequest;
 import com.module06.backend.action.presentation.api.response.ActionDetailResponse;
 import com.module06.backend.action.presentation.api.response.ActionSummaryResponse;
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.response.PageResponse;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -96,18 +99,29 @@ public class ActionController {
     }
 
     // 내 액션 목록 — 호출자 memberId는 토큰에서만 꺼낸다(헤더로 받으면 남의 목록을 조회할 수 있다).
-    @Operation(summary = "내 액션 목록 조회", description = "호출자 본인 소유 개인 액션만 반환한다.")
+    // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
+    // "담당자" 필터는 없다 — 이 목록 자체가 이미 호출자 본인으로 스코프돼 있다.
+    @Operation(summary = "내 액션 목록 조회", description = "호출자 본인 소유 개인 액션만 반환한다. "
+            + "페이지네이션(page/size), status 필터, overdue(지연) 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    public ApiResponse<List<ActionSummaryResponse>> list(
+    public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
-            @AuthenticationPrincipal(expression = "memberId") Long memberId
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @RequestParam(required = false) ActionStatus status,
+            @RequestParam(required = false) Boolean overdue,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "desc") String order,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
-        List<ActionSummaryResponse> response = getMyActionsUseCase.getMyActions(memberId).stream()
+        var result = getMyActionsUseCase.getMyActions(memberId, status, overdue, sort, order, page, size);
+        List<ActionSummaryResponse> items = result.items().stream()
                 .map(ActionSummaryResponse::from)
                 .toList();
 
-        return ApiResponse.success("내 액션 목록을 조회했습니다.", response);
+        return ApiResponse.success("내 액션 목록을 조회했습니다.",
+                PageResponse.of(items, page, size, result.totalElements()));
     }
 
     // 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).

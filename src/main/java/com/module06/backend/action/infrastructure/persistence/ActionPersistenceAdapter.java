@@ -1,11 +1,15 @@
 package com.module06.backend.action.infrastructure.persistence;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.action.application.port.ActionQueryPort;
@@ -17,6 +21,7 @@ import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.project.domain.model.ProjectStatus;
 
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 
 /* comment.
@@ -85,13 +90,74 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         return springDataActionRepository.findWithLockById(id).map(this::toDomain);
     }
 
-    // 내 액션 목록 — PERSONAL만 담당자 개념이 있다.
+    // 내 액션 목록 — PERSONAL만 담당자 개념이 있다. 캘린더가 월간 집계에 전건을 쓰므로 그대로 둔다.
     @Override
     public List<Action> findAllByAssigneeMemberId(Long assigneeMemberId) {
         return springDataActionRepository.findAllByActionTypeAndAssigneeMemberId(ActionType.PERSONAL, assigneeMemberId)
                 .stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — 목록 화면 전용.
+    @Override
+    public List<Action> findAllByAssigneeMemberId(
+            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+        Specification<ActionJpaEntity> specification =
+                buildActionSpecification(ActionType.PERSONAL, assigneeMemberId, null, status, overdue);
+        PageRequest pageRequest = PageRequest.of(page, size, buildActionSort(sort, order));
+
+        return springDataActionRepository.findAll(specification, pageRequest).getContent().stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public long countByAssigneeMemberId(Long assigneeMemberId, ActionStatus status, Boolean overdue) {
+        return springDataActionRepository.count(
+                buildActionSpecification(ActionType.PERSONAL, assigneeMemberId, null, status, overdue));
+    }
+
+    // content 쿼리와 count 쿼리가 항상 같은 조건을 쓰도록 이 메서드 하나로 통일한다(개인 목록은
+    // teamId=null, 팀 목록은 assigneeMemberId=null로 호출) — totalElements가 필터링 전 기준이면
+    // 화면이 거짓말을 하게 된다. overdue는 저장값이 아니라 status=IN_PROGRESS AND dueDate<오늘로
+    // 매번 계산하는 파생 조건이다(status처럼 컬럼이 따로 없음, 2026-08-07 재설계와 동일 정의).
+    private Specification<ActionJpaEntity> buildActionSpecification(
+            ActionType actionType, Long assigneeMemberId, Long teamId, ActionStatus status, Boolean overdue) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("actionType"), actionType));
+            if (assigneeMemberId != null) {
+                predicates.add(cb.equal(root.get("assigneeMemberId"), assigneeMemberId));
+            }
+            if (teamId != null) {
+                predicates.add(cb.equal(root.get("teamId"), teamId));
+            }
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (overdue != null) {
+                Predicate isOverdue = cb.and(
+                        cb.equal(root.get("status"), ActionStatus.IN_PROGRESS),
+                        cb.lessThan(root.get("dueDate"), java.time.LocalDate.now()));
+                predicates.add(overdue ? isOverdue : cb.not(isOverdue));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+
+    // 정렬 화이트리스트 — dueDate·createdAt만 허용, 그 외는 기본 정렬로 대체(400 대신).
+    private Sort buildActionSort(String sort, String order) {
+        String field = switch (sort == null ? "" : sort) {
+            case "dueDate" -> "dueDate";
+            case "createdAt" -> "createdAt";
+            default -> "createdAt";
+        };
+        Sort.Direction direction = "asc".equalsIgnoreCase(order) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        // id를 보조 정렬키로 덧붙인다 — dueDate·createdAt만으로는 같은 값을 가진 행이 여러 개일 때
+        // DB가 순서를 보장 안 해서, 페이지 경계에서 같은 행이 두 번 나오거나 아예 빠질 수 있다
+        // (CodeRabbit 지적, PR #305).
+        return Sort.by(direction, field).and(Sort.by(Sort.Direction.ASC, "id"));
     }
 
     // 배치 조회 — 빈 id 목록이면 IN 절 쿼리 자체를 건너뛴다.
@@ -149,11 +215,22 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
     }
 
     // FR-AC-06 — 팀 액션 목록. 기존 findAllByActionTypeAndTeamIdIn을 단일 teamId로 재사용한다.
+    // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
-    public List<Action> findAllByTeamId(Long teamId) {
-        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, List.of(teamId)).stream()
+    public List<Action> findAllByTeamId(Long teamId, ActionStatus status, String sort, String order, int page, int size) {
+        Specification<ActionJpaEntity> specification =
+                buildActionSpecification(ActionType.TEAM, null, teamId, status, null);
+        PageRequest pageRequest = PageRequest.of(page, size, buildActionSort(sort, order));
+
+        return springDataActionRepository.findAll(specification, pageRequest).getContent().stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    @Override
+    public long countByTeamId(Long teamId, ActionStatus status) {
+        return springDataActionRepository.count(
+                buildActionSpecification(ActionType.TEAM, null, teamId, status, null));
     }
 
     // FR-AC-08 — 팀 액션 타임라인. companyId·PERSONAL 조건을 조회 자체에 넣어 다른 회사 행이나

@@ -7,6 +7,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,9 +17,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.presentation.api.response.ActionSummaryResponse;
 import com.module06.backend.action.presentation.api.response.TeamActionDetailResponse;
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.response.PageResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -55,18 +58,27 @@ public class TeamActionController {
     private final GetTeamActionTimelineUseCase getTeamActionTimelineUseCase;
 
     // 팀 액션 목록 — teamId는 토큰에서만 꺼낸다(헤더로 받으면 남의 팀을 조회할 수 있다).
-    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER 전용.")
+    // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
+    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER 전용. "
+            + "페이지네이션(page/size), status 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("hasRole('LEADER')")
-    public ApiResponse<List<ActionSummaryResponse>> list(
+    public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
-            @AuthenticationPrincipal(expression = "teamId") Long teamId
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            @RequestParam(required = false) ActionStatus status,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "desc") String order,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
-        List<ActionSummaryResponse> response = getTeamActionsUseCase.getTeamActions(teamId).stream()
+        var result = getTeamActionsUseCase.getTeamActions(teamId, status, sort, order, page, size);
+        List<ActionSummaryResponse> items = result.items().stream()
                 .map(ActionSummaryResponse::from)
                 .toList();
 
-        return ApiResponse.success("팀 액션 목록을 조회했습니다.", response);
+        return ApiResponse.success("팀 액션 목록을 조회했습니다.",
+                PageResponse.of(items, page, size, result.totalElements()));
     }
 
     // 팀 액션 상세 — 전 구성원 공개, companyId만 토큰에서 확인한다(IDOR 방지).

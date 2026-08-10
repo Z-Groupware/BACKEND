@@ -114,12 +114,17 @@ public class ActionService implements
     }
 
     // FR-AC-02 목록 — 호출자 본인 소유 PERSONAL 액션만, 표시값은 배치조회로 조인한다.
+    // 2026-08-10 페이지네이션 도입(이홍근 요청) — totalElements는 요청한 page와 무관하게 항상
+    // 전체 건수라 비어있는 페이지에서도 먼저 구해둔다.
     @Override
     @Transactional(readOnly = true)
-    public List<GetMyActionsUseCase.ActionListItem> getMyActions(Long assigneeMemberId) {
-        List<Action> actions = actionRepository.findAllByAssigneeMemberId(assigneeMemberId);
+    public GetMyActionsUseCase.ActionListResult getMyActions(
+            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+        long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
+        List<Action> actions = actionRepository.findAllByAssigneeMemberId(
+                assigneeMemberId, status, overdue, sort, order, page, size);
         if (actions.isEmpty()) {
-            return List.of();
+            return new GetMyActionsUseCase.ActionListResult(List.of(), totalElements);
         }
 
         // 담당자는 호출자 본인 한 명뿐이라 단건 조회로 충분하다.
@@ -138,7 +143,7 @@ public class ActionService implements
         Map<Long, String> parentTitleById = actionRepository.findAllByIds(distinctNonNull(actions, Action::getParentActionId))
                 .stream().collect(Collectors.toMap(Action::getId, Action::getTitle));
 
-        return actions.stream()
+        List<GetMyActionsUseCase.ActionListItem> items = actions.stream()
                 .map(action -> new GetMyActionsUseCase.ActionListItem(
                         action,
                         assigneeName,
@@ -148,6 +153,8 @@ public class ActionService implements
                         action.getParentActionId() == null ? null : parentTitleById.get(action.getParentActionId())
                 ))
                 .toList();
+
+        return new GetMyActionsUseCase.ActionListResult(items, totalElements);
     }
 
     // FR-AC-02 상세 — 전 구성원 공개, 회사 스코프만 다시 확인한다(IDOR 방지, #100과 동일 판단).

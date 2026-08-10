@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +18,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.global.response.PageResponse;
 import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
 import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
@@ -27,6 +29,7 @@ import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
 import com.module06.backend.project.application.usecase.UpdateProjectUseCase;
 import com.module06.backend.project.domain.model.Project;
+import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.presentation.api.request.BulkUpdateProjectStatusRequest;
 import com.module06.backend.project.presentation.api.request.CreateProjectRequest;
 import com.module06.backend.project.presentation.api.request.UpdateProjectRequest;
@@ -91,18 +94,28 @@ public class ProjectController {
         같은 상태다. Task 10 이 anyRequest().authenticated() 로 뒤집으면 필터가 그 앞에서 막는다.
         그때 이 줄은 "이 엔드포인트는 로그인 전원용"이라는 의도 표시 + 2차 방어로 남는다.
     */
-    @Operation(summary = "프로젝트 목록 조회", description = "전 구성원 공개, 회사 전체 프로젝트.")
+    // 2026-08-10 페이지네이션 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
+    // 2026-08-10 필터/정렬 추가(이홍근 요청) — status 필터(선택), sort/order 화이트리스트(dueDate·createdAt).
+    @Operation(summary = "프로젝트 목록 조회", description = "전 구성원 공개, 회사 전체 프로젝트. "
+            + "페이지네이션(page/size), status 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    public ApiResponse<List<ProjectSummaryResponse>> list(
+    public ApiResponse<PageResponse<ProjectSummaryResponse>> list(
             @Parameter(hidden = true)
-            @AuthenticationPrincipal(expression = "companyId") Long companyId
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @RequestParam(required = false) ProjectStatus status,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "desc") String order,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
-        List<ProjectSummaryResponse> response = getProjectListUseCase.list(companyId).stream()
+        var result = getProjectListUseCase.list(companyId, status, sort, order, page, size);
+        List<ProjectSummaryResponse> items = result.items().stream()
                 .map(ProjectSummaryResponse::from)
                 .toList();
 
-        return ApiResponse.success("프로젝트 목록을 조회했습니다.", response);
+        return ApiResponse.success("프로젝트 목록을 조회했습니다.",
+                PageResponse.of(items, page, size, result.totalElements()));
     }
 
     @Operation(summary = "프로젝트 상세 조회", description = "기획(description) 포함, 전 구성원 공개.")

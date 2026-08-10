@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 
 import com.module06.backend.action.domain.model.ActionReviewStatus;
@@ -22,11 +23,17 @@ import jakarta.persistence.LockModeType;
     금지)에 걸려 파생 쿼리로 대체(2026-08-06) — 프로젝트 완료여부·팀장 소속 필터링은
     ActionPersistenceAdapter가 두 단계 조회로 자바 레벨에서 처리한다.
 
+    2026-08-10 필터/정렬 도입(이홍근 요청) — 목록 조회(개인·팀 액션)는 필터 조합(상태·지연여부)마다
+    파생 쿼리를 새로 만들지 않도록 JpaSpecificationExecutor로 처리한다(meeting 도메인 기존 패턴과
+    동일, 신규 @Query 아니라 Gate 1 QUERY_002에 안 걸림). 캘린더·인수인계용 전건 조회 메서드는
+    그대로 둔다.
+
     연결된 클래스
     - ActionJpaEntity          : 다루는 엔티티
     - ActionPersistenceAdapter : 이 인터페이스에 위임하는 어댑터
 */
-public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntity, Long> {
+public interface SpringDataActionRepository
+        extends JpaRepository<ActionJpaEntity, Long>, JpaSpecificationExecutor<ActionJpaEntity> {
 
     List<ActionJpaEntity> findAllByActionTypeAndAssigneeMemberId(ActionType actionType, Long assigneeMemberId);
 

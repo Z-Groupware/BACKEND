@@ -31,6 +31,7 @@ import com.module06.backend.global.security.AuthPrincipal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -118,15 +119,24 @@ class ActionControllerTest {
     @Test
     @DisplayName("내 액션 목록은 토큰의 memberId로 조회한다")
     void listUsesMemberIdFromToken() throws Exception {
+        // 비기본 page/size(2, 5)로 요청해서, PageResponse 필드 6개(content·page·size·
+        // totalElements·totalPages·hasNext) 전부가 요청값 기준으로 정확히 계산되는지 확인한다
+        // (CodeRabbit 지적, PR #305) — totalElements=42, size=5면 totalPages=9, hasNext=true.
         authenticateAs(1L, 5L);
-        when(getMyActionsUseCase.getMyActions(5L))
-                .thenReturn(List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)));
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(new GetMyActionsUseCase.ActionListResult(
+                        List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)), 42L));
 
-        mockMvc.perform(get("/api/actions"))
+        mockMvc.perform(get("/api/actions").param("page", "2").param("size", "5"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].assigneeName").value("이하윤"));
+                .andExpect(jsonPath("$.data.content[0].assigneeName").value("이하윤"))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(5))
+                .andExpect(jsonPath("$.data.totalElements").value(42))
+                .andExpect(jsonPath("$.data.totalPages").value(9))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
 
-        verify(getMyActionsUseCase).getMyActions(5L);
+        verify(getMyActionsUseCase).getMyActions(5L, null, null, null, "desc", 2, 5);
     }
 
     @Test
@@ -153,14 +163,15 @@ class ActionControllerTest {
                 com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
                 null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
 
-        when(getMyActionsUseCase.getMyActions(5L))
-                .thenReturn(List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)));
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(new GetMyActionsUseCase.ActionListResult(
+                        List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
                 .thenReturn(new ActionDetail(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
 
         mockMvc.perform(get("/api/actions"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].startDate").value("2026-08-05"));
+                .andExpect(jsonPath("$.data.content[0].startDate").value("2026-08-05"));
 
         mockMvc.perform(get("/api/actions/10"))
                 .andExpect(status().isOk())
