@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.AiLayerPort;
+import com.module06.backend.capture.application.port.out.AnalysisArtifactRepository;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockOutcome;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LockResult;
@@ -136,12 +138,53 @@ public class AnalysisOrchestrator {
             LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
             LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
 
+    /*
+     * 파이프라인 순서다. 재개(ANLZ-02)가 "어디까지가 앞 계층인가"를 이걸로 가른다.
+     *
+     * enum 선언 순서(ordinal)에 기대지 않는다 — 계층을 중간에 끼워 넣을 때 선언 위치를 잘못
+     * 두면 재개 지점이 조용히 어긋나고, 그건 컴파일러가 잡아주지 않는다. 순서를 뜻하는 목록을
+     * 따로 두면 계층 추가가 이 줄을 고치는 일이 된다.
+     *
+     * {@link #RUN_LAYERS} 와 같은 집합이어야 한다 — 아래 정적 검사가 그걸 지킨다.
+     */
+    private static final List<LayerName> PIPELINE = List.of(
+            LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
+            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
+
+    static {
+        // 둘이 갈리면 "전부 완료" 판정과 재개 순서가 서로 다른 계층 목록을 보게 된다.
+        if (!Set.copyOf(PIPELINE).equals(RUN_LAYERS) || PIPELINE.size() != RUN_LAYERS.size()) {
+            throw new IllegalStateException("PIPELINE 과 RUN_LAYERS 가 다릅니다.");
+        }
+    }
+
+    /*
+     * 재개 지점보다 앞이라 **부르지 않는** 계층인가.
+     *
+     * resumeFrom 이 null 이면 전체 실행이라 아무것도 건너뛰지 않는다.
+     */
+    private static boolean isReused(LayerName layer, LayerName resumeFrom) {
+        return resumeFrom != null && PIPELINE.indexOf(layer) < PIPELINE.indexOf(resumeFrom);
+    }
+
+    /* 재개 지점 앞의 계층들 — 응답의 reusedLayers 가 이 목록이다. */
+    public static List<LayerName> reusedLayersOf(LayerName resumeFrom) {
+        return PIPELINE.stream().filter(layer -> isReused(layer, resumeFrom)).toList();
+    }
+
+    /* 파이프라인에 있는 계층인가. 재개 요청의 resumeFromLayer 검증에 쓴다. */
+    public static boolean isPipelineLayer(LayerName layer) {
+        return PIPELINE.contains(layer);
+    }
+
     private final TranscriptRepository transcriptRepository;
     private final CaptionRepository captionRepository;
     private final AnalysisLayerRepository analysisLayerRepository;
     private final AnalysisRunRepository analysisRunRepository;
     private final MeetingSummaryRepository meetingSummaryRepository;
     private final AssignmentTupleRepository assignmentTupleRepository;
+    /* 재개(ANLZ-02)가 되살릴 중간 산출물 — 자기 테이블에 남지 않는 L1.5·L2 뿐이다(V5.20). */
+    private final AnalysisArtifactRepository analysisArtifactRepository;
     private final MeetingDateProvider meetingDateProvider;
     private final SpeakerAttributionResolver speakerAttributionResolver;
     private final ConflictDetector conflictDetector;
@@ -162,6 +205,31 @@ public class AnalysisOrchestrator {
      */
     public AnalysisOutcome run(long tenantId, long companyId, long meetingId,
                                List<AiLayerPort.Participant> participants, boolean force) {
+        return run(tenantId, companyId, meetingId, participants, force, null);
+    }
+
+    /*
+     * 계층 재개(ANLZ-02). {@code resumeFrom} 앞의 계층은 **부르지 않고** 산출물을 되살려 쓴다.
+     *
+     * <h2>재개는 앞 계층을 다시 태우지 않는 것이 전부다</h2>
+     * L7 에서 터진 회의를 살리려고 L1 부터 다시 돌리면 이미 성공한 계층의 토큰이 그대로 다시
+     * 나간다. 명세가 재시도 단위를 계층으로 정한 이유가 그거다.
+     *
+     * <h2>되살릴 것은 둘뿐이다</h2>
+     * 나머지 계층의 산출물은 자기 테이블에 남아 뒤 계층이 어차피 DB 에서 다시 읽는다
+     * (요약·게이트·tuple). 메모리로만 흐르던 것은 L1.5 의 해소 결과와 L2 의 주제 묶음이고,
+     * 그 둘만 V5.20 에 남긴다.
+     *
+     * <h2>L6·L7 은 건너뛰지 않는다</h2>
+     * 코드 계층이라 토큰이 0 이다. 재개 지점이 그 뒤(DIST)여도 그냥 다시 돌린다 — 산출물이
+     * 메모리로만 흐르는데 되살리자고 표를 하나 더 만드는 것보다, 공짜인 계산을 다시 하는 편이
+     * 단순하고 틀릴 여지가 없다. 재과금도 없다.
+     *
+     * @param resumeFrom 여기서부터 다시 돈다. null 이면 처음부터(= 기존 동작)
+     */
+    public AnalysisOutcome run(long tenantId, long companyId, long meetingId,
+                               List<AiLayerPort.Participant> participants, boolean force,
+                               LayerName resumeFrom) {
 
         /*
          * 이미 다 돌아간 회의를 다시 돌리지 않는다.
@@ -171,7 +239,12 @@ public class AnalysisOrchestrator {
          * 회의 전체를 다시 태우게 된다 — SQS 는 at-least-once 라 중복은 언젠가 반드시 온다.
          * 계층 잠금은 "동시 실행"만 막고 "완료 후 재실행"은 막지 못한다.
          */
-        if (!force && isFullyAnalyzed(meetingId)) {
+        /*
+         * ⚠ 재개(resumeFrom != null)는 이 판정을 지나지 않는다. 재개는 **실패한 계층을 다시
+         * 돌리려는** 요청이라 "전부 완료"면 애초에 여기 오지 않고, 온다면 그건 사람이 완료된
+         * 회의의 특정 계층을 다시 돌리려는 것이다. 그 판단은 유스케이스가 한다.
+         */
+        if (resumeFrom == null && !force && isFullyAnalyzed(meetingId)) {
             log.info("분석 생략 — 이미 완료된 회의다. meetingId={}", meetingId);
             return AnalysisOutcome.skipped("이미 분석이 완료된 회의입니다.");
         }
@@ -211,7 +284,8 @@ public class AnalysisOrchestrator {
          * 전원 판정 포기로 끝난다 — 지금과 같은 상태이고, 정상 동작이다. CAP-11 이 붙는 순간
          * 이 계층이 실제로 화자를 채우기 시작한다.
          */
-        LayerOutcome<Integer> attributed = runLayer(meetingId, runSeq, LayerName.L1, sink -> {
+        // 재개 시 되살릴 것이 없다 — 판정 결과는 transcript_chunk 에 있고, 바로 아래에서 다시 읽는다.
+        LayerOutcome<Integer> attributed = runOrReuse(meetingId, runSeq, LayerName.L1, resumeFrom, () -> 0, sink -> {
             /*
              * 판정할 발화를 **잠금 안에서 다시 읽는다.** 위에서 읽은 loaded 는 실행 여부를
              * 가리는 데(발화 0건) 쓰고 여기서는 쓰지 않는다 — 그 읽기와 이 잠금 사이에 자막이
@@ -263,12 +337,22 @@ public class AnalysisOrchestrator {
          * 보내고, 결과를 뒤 계층이 보는 발화에 반영한다. 순서를 뒤집으면 L4 가 이미 담당자를
          * 정한 뒤에 대명사가 풀린다 — 검토 사유 WRONG_ASSIGNEE 가 L1.5 로 귀속되는 이유다.
          */
-        LayerOutcome<ResolveReferenceResult> resolved = runLayer(meetingId, runSeq, LayerName.L1_5, sink -> {
+        LayerOutcome<ResolveReferenceResult> resolved = runOrReuse(meetingId, runSeq, LayerName.L1_5, resumeFrom,
+                // 재개: 해소 결과는 발화 사본에만 붙고 DB 원문은 그대로라, V5.20 에 남긴 것을 꺼낸다.
+                () -> new ResolveReferenceResult(analysisArtifactRepository.findReferences(meetingId),
+                        LayerRun.empty()),
+                sink -> {
             ResolveReferenceResult result = aiLayerPort.resolveReference(
                     // 대상 발화를 추리지 않고 전체를 넘긴다 — 지시어 후보를 고르는 코드가 아직 없고,
                     // 잘못 추리면 후보에서 빠진 지시어는 아예 풀릴 기회가 없다.
                     tenantId, meetingId, rawUtterances, List.of(), participants);
             sink.add(result.run());
+            /*
+             * 산출물을 남긴다 — 여기서 하는 이유는 L3 가 저장을 계층 안에서 하는 것과 같다.
+             * 밖에서 남기면 runLayer 가 이미 DONE 으로 닫은 뒤에 저장이 실패할 수 있고, 그러면
+             * "L1.5 완료인데 되살릴 문맥이 없는" 회의가 남아 재개가 조용히 빈 문맥으로 돈다.
+             */
+            analysisArtifactRepository.saveReferences(meetingId, result.references());
             return new Accumulated<>(result, sink.spent());
         });
         if (!resolved.succeeded()) {
@@ -286,7 +370,10 @@ public class AnalysisOrchestrator {
         utterances.forEach(utterance -> byId.put(utterance.utteranceId(), utterance));
 
         // ── L2 · 주제 분할 ───────────────────────────────────────────────────────
-        LayerOutcome<SegmentTopicsResult> segmented = runLayer(meetingId, runSeq, LayerName.L2, sink -> {
+        LayerOutcome<SegmentTopicsResult> segmented = runOrReuse(meetingId, runSeq, LayerName.L2, resumeFrom,
+                // 재개: 주제가 어느 발화를 묶었는지는 meeting_decision 에 없다. V5.20 에서 꺼낸다.
+                () -> new SegmentTopicsResult(analysisArtifactRepository.findTopics(meetingId), LayerRun.empty()),
+                sink -> {
             SegmentTopicsResult result = aiLayerPort.segmentTopics(tenantId, meetingId, utterances);
             // 토큰을 먼저 sink 에 넣는다. 아래에서 던져도 이미 쓴 비용은 기록된다.
             sink.add(result.run());
@@ -300,6 +387,11 @@ public class AnalysisOrchestrator {
                 // CAP-06 이 그 상태를 그대로 내려주므로 화면도 같이 거짓말한다.
                 throw new AiLayerException("EMPTY_TOPICS", "주제 분할 결과가 비어 있습니다.", true);
             }
+            /*
+             * 주제 묶음을 남긴다. L3~L5 가 모델에 넘기는 문맥이 이 utteranceIds 이고,
+             * meeting_decision 에는 주제 이름과 순번만 남아 되살릴 수 없다(V5.20 주석).
+             */
+            analysisArtifactRepository.saveTopics(meetingId, result.topics());
             return new Accumulated<>(result, sink.spent());
         });
         if (!segmented.succeeded()) {
@@ -307,12 +399,26 @@ public class AnalysisOrchestrator {
         }
 
         List<TopicSegment> topics = segmented.value().topics();
+        if (topics.isEmpty()) {
+            /*
+             * 재개인데 되살릴 주제가 없다(V5.20 이전에 분석된 회의다). 그대로 진행하면 L3~L5 가
+             * **문맥 없이** 모델을 부르고, 빈 결과가 DONE 으로 기록돼 조회는 "분석 완료"라고 말한다.
+             *
+             * 여기까지 오지 않도록 유스케이스가 먼저 막지만(ResumeAnalysisService), 이 오케스트레이터는
+             * MEET-08·SQS 워커도 부르므로 마지막 관문을 둔다 — 앞의 EMPTY_TOPICS 와 같은 판단이다.
+             */
+            log.warn("재개 중단 — 되살릴 주제 묶음이 없다. meetingId={} resumeFrom={}",
+                    meetingId, resumeFrom == null ? "-" : resumeFrom.wireValue());
+            return AnalysisOutcome.skipped("되살릴 주제 묶음이 없어 재개할 수 없습니다.");
+        }
 
         // ── L3 · 주제별 정리 (주제마다 한 번) + 산출물 저장 ──────────────────────
         List<TopicDecisions> decisions = new ArrayList<>();
         StringBuilder overview = new StringBuilder();
 
-        LayerOutcome<Void> summarized = runLayer(meetingId, runSeq, LayerName.L3, sink -> {
+        LayerOutcome<Void> summarized = runOrReuse(meetingId, runSeq, LayerName.L3, resumeFrom,
+                // 재개: 요약·항목은 meeting_summary·meeting_decision 에 있고 뒤 계층이 거기서 다시 읽는다.
+                () -> null, sink -> {
             for (TopicSegment topic : topics) {
                 SummarizeTopicResult result = aiLayerPort.summarizeTopic(
                         tenantId, meetingId, topic.topicSeq(), topic.topic(),
@@ -348,7 +454,9 @@ public class AnalysisOrchestrator {
          * 부르면 응답을 어느 행에 적용할지 임시 순번으로 맞춰야 한다 — 그 맞추기가 틀리면
          * A 항목의 판정이 B 항목에 저장되는데, 조회는 성공하므로 아무도 오류를 못 본다.
          */
-        LayerOutcome<Void> gated = runLayer(meetingId, runSeq, LayerName.L3_5, sink -> {
+        LayerOutcome<Void> gated = runOrReuse(meetingId, runSeq, LayerName.L3_5, resumeFrom,
+                // 재개: 판정은 meeting_decision.gate_status 에 남아 L4 가 거기서 다시 읽는다.
+                () -> null, sink -> {
             Map<Integer, TopicView> savedBySeq = savedTopicsBySeq(companyId, meetingId);
             List<GateVerdict> verdicts = new ArrayList<>();
             // 후보로 보낸 항목의 id. 판정을 되짚을 수 있는 유일한 집합이다.
@@ -412,7 +520,9 @@ public class AnalysisOrchestrator {
         }
 
         // ── L4 · assignment tuple 추출 (주제마다 한 번) + 산출물 저장 ────────────
-        LayerOutcome<Integer> extracted = runLayer(meetingId, runSeq, LayerName.L4, sink -> {
+        LayerOutcome<Integer> extracted = runOrReuse(meetingId, runSeq, LayerName.L4, resumeFrom,
+                // 재개: tuple 은 meeting_assignment_tuple 에 있고 L5·L6·L7 이 거기서 다시 읽는다.
+                () -> 0, sink -> {
             /*
              * 게이트 반영 **후의 값을 다시 읽는다.** 위에서 받은 판정 목록을 그대로 쓰면
              * 되짚지 못해 반영되지 않은 판정까지 CONFIRMED 로 취급하게 된다 — DB 에는
@@ -472,7 +582,9 @@ public class AnalysisOrchestrator {
          * 죽은 것이다. 지우면 사람이 검토할 대상 자체가 사라지고, 그건 검증을 안 한 것보다 나쁘다.
          * 이 판정을 무엇에 쓸지(자동확정 대상에서 제외)는 L7 이 정한다.
          */
-        LayerOutcome<Integer> verified = runLayer(meetingId, runSeq, LayerName.L5, sink -> {
+        LayerOutcome<Integer> verified = runOrReuse(meetingId, runSeq, LayerName.L5, resumeFrom,
+                // 재개: 판정은 tuple 행의 verify_* 컬럼에 남아 L7 게이트가 거기서 다시 읽는다.
+                () -> 0, sink -> {
             List<StoredTuple> stored = assignmentTupleRepository.findByMeeting(companyId, meetingId);
             if (stored.isEmpty()) {
                 // 뽑힌 배정이 없으면 검증할 것이 없다. 계층은 DONE 으로 닫는다 — 실패가 아니라
@@ -658,7 +770,14 @@ public class AnalysisOrchestrator {
                 meetingId, decisions.size(),
                 decisions.stream().mapToInt(d -> d.items().size()).sum(),
                 extracted.value(), verified.value(), autoConfirmed, distributed.value());
-        return AnalysisOutcome.done(decisions.size());
+        /*
+         * 주제 수는 topics 로 센다(CodeRabbit PR #262).
+         *
+         * decisions 는 L3 가 이번에 만든 것이라 **재개로 L3 를 건너뛰면 비어 있다.** 그걸 그대로
+         * 내보내면 요약은 meeting_summary 에 멀쩡히 있는데 응답만 "주제 0개"라고 말한다.
+         * topics 는 재개에서도 되살아나 있으므로(V5.20) 어느 경로에서든 값이 맞는다.
+         */
+        return AnalysisOutcome.done(topics.size());
     }
 
     /*
@@ -744,6 +863,29 @@ public class AnalysisOrchestrator {
      * 잠금 실패는 오류가 아니다. 중복 수신이 걸러진 정상 동작이고, 그때 이미 다른 실행이
      * 같은 계층을 돌고 있으므로 여기서는 조용히 물러난다.
      */
+    /*
+     * 재개 지점 앞이면 **부르지 않고** 되살린 산출물로 성공을 흉내낸다(ANLZ-02).
+     *
+     * <h2>잠금을 잡지 않는다</h2>
+     * 부르지 않는 계층을 잠그면 attempt_count 가 오르고 started_at 이 갱신돼, 그 계층을 이번에
+     * 다시 돌린 것처럼 보인다. CAP-06 이 그대로 내려주므로 화면도 같이 거짓말한다.
+     *
+     * <h2>토큰은 0 이다</h2>
+     * 부르지 않았으니 실제로 0 이다. 지난 실행의 토큰을 다시 세면 미터링 원장이 같은 호출을
+     * 두 번 청구한다 — 재개로 비용을 아끼려던 것이 장부에서는 반대로 나타난다.
+     *
+     * @param reused 되살린 산출물 공급자. 건너뛸 때만 부른다 — 전체 실행에서 쓸데없이
+     *               DB 를 읽지 않기 위해서다
+     */
+    private <T> LayerOutcome<T> runOrReuse(long meetingId, long runSeq, LayerName layer,
+                                           LayerName resumeFrom, Supplier<T> reused, LayerCall<T> call) {
+        if (isReused(layer, resumeFrom)) {
+            log.info("계층 재사용 — 부르지 않는다. meetingId={} layer={}", meetingId, layer.wireValue());
+            return LayerOutcome.reused(reused.get());
+        }
+        return runLayer(meetingId, runSeq, layer, call);
+    }
+
     private <T> LayerOutcome<T> runLayer(long meetingId, long runSeq, LayerName layer, LayerCall<T> call) {
         LockOutcome acquired = analysisLayerRepository.tryLock(meetingId, layer, runSeq);
         LockResult lock = acquired.result();
@@ -1099,6 +1241,17 @@ public class AnalysisOrchestrator {
 
         static <T> LayerOutcome<T> success(T value, LayerRun run) {
             return new LayerOutcome<>(value, run, true, false, false, null, null, false);
+        }
+
+        /*
+         * 재개(ANLZ-02)에서 **부르지 않고** 되살린 계층이다. 성공으로 다룬다 — 뒤 계층에게는
+         * "앞이 끝나 있다"가 사실이고, 그게 재개의 전제다.
+         *
+         * 토큰은 {@link LayerRun#empty()} 다. 부르지 않았으니 실제로 0 이고, 지난 실행의 값을
+         * 다시 실으면 미터링 원장이 같은 호출을 두 번 청구한다.
+         */
+        static <T> LayerOutcome<T> reused(T value) {
+            return new LayerOutcome<>(value, LayerRun.empty(), true, false, false, null, null, false);
         }
 
         /*

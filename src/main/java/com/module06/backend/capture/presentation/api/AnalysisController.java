@@ -33,11 +33,14 @@ import com.module06.backend.capture.application.usecase.GetActionReviewUseCase;
 import com.module06.backend.capture.application.usecase.GetProcessingStatusUseCase;
 import com.module06.backend.capture.application.usecase.GetSummaryUseCase;
 import com.module06.backend.capture.application.usecase.GetTranscriptsUseCase;
+import com.module06.backend.capture.application.usecase.ResumeAnalysisUseCase;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.capture.presentation.api.request.AddReviewActionRequest;
+import com.module06.backend.capture.presentation.api.request.ResumeAnalysisRequest;
 import com.module06.backend.capture.presentation.api.request.ReviewDecisionRequest;
 import com.module06.backend.capture.presentation.api.response.ActionReviewResponse;
 import com.module06.backend.capture.presentation.api.response.AddReviewActionResponse;
+import com.module06.backend.capture.presentation.api.response.AnalysisResumeResponse;
 import com.module06.backend.capture.presentation.api.response.AnalysisRunResponse;
 import com.module06.backend.capture.presentation.api.response.DistributionConfirmResponse;
 import com.module06.backend.capture.presentation.api.response.MeetingSummaryResponse;
@@ -78,6 +81,7 @@ public class AnalysisController {
     private final CancelReviewActionUseCase cancelReviewActionUseCase;
     private final AddReviewActionUseCase addReviewActionUseCase;
     private final GetTranscriptsUseCase getTranscriptsUseCase;
+    private final ResumeAnalysisUseCase resumeAnalysisUseCase;
 
     /*
      * ANLZ-01 · 요약 수동 실행·강제 재실행.
@@ -100,6 +104,32 @@ public class AnalysisController {
         return ApiResponse.success(
                 "분석을 실행했습니다.",
                 AnalysisRunResponse.from(runAnalysisUseCase.run(me.getCompanyId(), meetingId, force)));
+    }
+
+    /*
+     * ANLZ-02 · 요약 재시도(계층 재개).
+     *
+     * ANLZ-01 과 다르다 — 저쪽은 **처음부터** 다시 돌리고 이쪽은 **그 계층부터** 이어 돌린다.
+     * L7 에서 터진 회의를 ANLZ-01 로 살리면 이미 성공한 계층의 토큰이 그대로 다시 나간다.
+     *
+     * 재개 지점은 ANLZ-01·CAP-06 응답의 failedLayer 를 그대로 넣으면 된다.
+     */
+    @Operation(
+            summary = "요약 재시도 · 계층 재개 (ANLZ-02)",
+            description = "실패한 계층부터 이어서 돌린다. 앞 계층은 다시 부르지 않으므로 재과금이 없다. "
+                    + "앞 계층이 끝나지 않았으면 409 로 막는다 — 문맥 없이 부르면 빈 결과가 완료로 기록된다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/analysis/retry")
+    public ApiResponse<AnalysisResumeResponse> resumeAnalysis(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
+            @PathVariable Long meetingId,
+            @Valid @RequestBody ResumeAnalysisRequest request
+    ) {
+        return ApiResponse.success(
+                "재시도를 시작했습니다.",
+                AnalysisResumeResponse.from(
+                        resumeAnalysisUseCase.resume(me.getCompanyId(), meetingId, request.resumeFromLayer())));
     }
 
     /* CAP-06 · AI 처리 상태 조회. 사용자가 "어디까지 됐는지"를 보는 유일한 경로다. */
