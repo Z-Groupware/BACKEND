@@ -1,6 +1,7 @@
 package com.module06.backend.capture.application.service;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -113,18 +114,23 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     public ResumeOutcome resume(long companyId, long meetingId, String resumeFromLayer) {
         meetingAccessGuard.requireAccessible(companyId, meetingId);
 
-        LayerName resumeFrom = parseLayer(resumeFromLayer);
-
         /*
          * 도는 중이면 막는다 — run 과 같은 검사다(CodeRabbit PR #262).
          *
          * 없으면 재개가 새 runSeq 를 발급하고, 진행 중이던 실행은 다음 계층 잠금에서 SUPERSEDED
          * 로 물러난다(#134). 데이터는 안전하지만 **그 실행이 이미 태운 토큰이 버려진다** —
          * 재과금을 줄이려고 만든 API 가 정확히 반대로 동작하는 경로다.
+         *
+         * ⚠ 계층 파싱보다 **먼저** 본다. 자동 선택(계층 미지정)은 계층 상태를 읽어야 하는데,
+         * 도는 중인 회의의 상태로 재개 지점을 고르면 아직 끝나지 않은 계층을 실패로 볼 수 있다.
          */
         if (ProcessingStatus.of(layerProgress(meetingId)).status() == ProcessingStatus.OverallStatus.RUNNING) {
             throw new BusinessException(CaptureErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
+
+        LayerName resumeFrom = resumeFromLayer == null
+                ? firstBrokenLayer(meetingId)
+                : parseLayer(resumeFromLayer);
 
         List<LayerName> reused = AnalysisOrchestrator.reusedLayersOf(resumeFrom);
         requireAllDone(meetingId, reused);
@@ -140,6 +146,43 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
                 companyId, companyId, meetingId, participants, false, resumeFrom);
 
         return new ResumeOutcome(outcome, resumeFrom, reused);
+    }
+
+    /*
+     * 재개 지점을 자동으로 고른다 — 파이프라인 순서로 **처음 깨진 계층**이다.
+     *
+     * <h2>왜 이 자리가 필요한가</h2>
+     * 화면의 「다시 분석」 버튼은 계층 이름을 모른다. 그 값을 알아내려면 CAP-06 을 먼저 부르는
+     * 왕복이 생기고, 그걸 피하려고 ANLZ-01(force)로 돌리면 이미 성공한 계층의 토큰이 다시
+     * 나간다 — 재개 API 가 막으려던 바로 그것이다. 그래서 계층을 안 보내면 이쪽이 고른다.
+     *
+     * <h2>중단(stalled)도 깨진 것으로 본다</h2>
+     * status 는 RUNNING 이지만 심장이 멈춘 계층이다(#177). ProcessingStatus 가 그것을 FAILED 로
+     * 접는 것과 같은 판단이다 — 접는 쪽과 재개 지점을 고르는 쪽이 갈리면 화면은 "중단됨"이라
+     * 말하는데 재개는 그 계층을 건너뛴다.
+     *
+     * <h2>앞 계층 검사를 대신하지 않는다</h2>
+     * 고른 계층은 그대로 requireAllDone 을 지난다. 정상 경로에서는 앞 계층이 전부 DONE 이므로
+     * 통과하지만, 중간 계층이 비어 있는 회의(계층이 새로 붙은 뒤 예전에 분석된 회의)는 거기서
+     * 걸려야 한다 — 문맥 없이 부르는 것을 막는 검사를 여기서 우회하면 안 된다.
+     */
+    private LayerName firstBrokenLayer(long meetingId) {
+        Map<LayerName, ProcessingStatus.LayerProgress> byLayer = layerProgress(meetingId).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        ProcessingStatus.LayerProgress::layer, progress -> progress,
+                        (first, second) -> first));
+
+        for (LayerName layer : AnalysisOrchestrator.pipelineLayers()) {
+            ProcessingStatus.LayerProgress progress = byLayer.get(layer);
+            if (progress != null && (progress.status() == LayerStatus.FAILED || progress.stalled())) {
+                return layer;
+            }
+        }
+        /*
+         * 깨진 계층이 없다. 전부 성공했거나 아직 한 번도 안 돌았거나인데, 둘 다 재개할 자리가
+         * 없다 — 여기서 기본값(L1)으로 넘기면 성공한 회의를 통째로 다시 태우게 된다.
+         */
+        throw new BusinessException(CaptureErrorCode.RESUME_NOTHING_TO_RESUME);
     }
 
     private LayerName parseLayer(String wireValue) {

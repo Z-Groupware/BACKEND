@@ -2,7 +2,10 @@ package com.module06.backend.capture.infrastructure.persistence.adapter;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
@@ -138,12 +141,38 @@ public class AnalysisLayerPersistenceAdapter implements AnalysisLayerRepository 
     public List<LayerState> findStates(long meetingId) {
         LocalDateTime now = LocalDateTime.now(clock);
         return repository.findByMeetingIdOrderByIdAsc(meetingId).stream()
-                .map(entity -> new LayerState(
-                        entity.layerName(), entity.getStatus(),
-                        entity.getTokensIn(), entity.getTokensOut(),
-                        // 잠금을 회수하는 쪽과 **같은 기준**을 쓴다. 갈리면 잠금은 풀렸는데
-                        // 화면은 「AI 처리 중」이거나, 그 반대가 된다.
-                        LayerLiveness.isStalled(entity, now)))
+                .map(entity -> toState(entity, now))
                 .toList();
+    }
+
+    /*
+     * 배치 판정도 `now` 를 **한 번만** 읽는다.
+     *
+     * 회의마다 시각을 다시 읽으면 같은 응답 안에서 기준선이 밀린다 — 앞 회의는 아직 살아 있고
+     * 뒤 회의는 멈춘 것으로 판정될 수 있고, 그 차이가 목록을 새로 고칠 때마다 흔들린다.
+     * 한 번 읽은 시각으로 전부 재는 것이 같은 화면에서 같은 답을 준다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, List<LayerState>> findStatesByMeetings(List<Long> meetingIds) {
+        if (meetingIds == null || meetingIds.isEmpty()) {
+            return Map.of();
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        Map<Long, List<LayerState>> byMeeting = new LinkedHashMap<>();
+        for (AnalysisLayerJpaEntity entity : repository.findByMeetingIdInOrderByMeetingIdAscIdAsc(meetingIds)) {
+            byMeeting.computeIfAbsent(entity.getMeetingId(), id -> new ArrayList<>())
+                    .add(toState(entity, now));
+        }
+        return byMeeting;
+    }
+
+    private static LayerState toState(AnalysisLayerJpaEntity entity, LocalDateTime now) {
+        return new LayerState(
+                entity.layerName(), entity.getStatus(),
+                entity.getTokensIn(), entity.getTokensOut(),
+                // 잠금을 회수하는 쪽과 **같은 기준**을 쓴다. 갈리면 잠금은 풀렸는데
+                // 화면은 「AI 처리 중」이거나, 그 반대가 된다.
+                LayerLiveness.isStalled(entity, now));
     }
 }

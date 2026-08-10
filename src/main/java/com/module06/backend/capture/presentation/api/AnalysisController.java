@@ -121,19 +121,22 @@ public class AnalysisController {
     @Operation(
             summary = "요약 재시도 · 계층 재개 (ANLZ-02)",
             description = "실패한 계층부터 이어서 돌린다. 앞 계층은 다시 부르지 않으므로 재과금이 없다. "
-                    + "앞 계층이 끝나지 않았으면 409 로 막는다 — 문맥 없이 부르면 빈 결과가 완료로 기록된다."
+                    + "앞 계층이 끝나지 않았으면 409 로 막는다 — 문맥 없이 부르면 빈 결과가 완료로 기록된다. "
+                    + "몸통을 생략하면 처음 깨진 계층(실패·중단)에서 자동 재개한다 — 깨진 계층이 "
+                    + "없으면 409(ANLZ-005)이고, 그 회의는 ANLZ-01 로 처음부터 돌려야 한다."
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @PostMapping("/analysis/retry")
     public ApiResponse<AnalysisResumeResponse> resumeAnalysis(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal me,
             @PathVariable Long meetingId,
-            @Valid @RequestBody ResumeAnalysisRequest request
+            // required = false — 「다시 분석」 버튼은 계층을 모른다(ResumeAnalysisRequest 주석).
+            @Valid @RequestBody(required = false) ResumeAnalysisRequest request
     ) {
         return ApiResponse.success(
                 "재시도를 시작했습니다.",
-                AnalysisResumeResponse.from(
-                        resumeAnalysisUseCase.resume(me.getCompanyId(), meetingId, request.resumeFromLayer())));
+                AnalysisResumeResponse.from(resumeAnalysisUseCase.resume(
+                        me.getCompanyId(), meetingId, ResumeAnalysisRequest.layerOf(request))));
     }
 
     /* CAP-06 · AI 처리 상태 조회. 사용자가 "어디까지 됐는지"를 보는 유일한 경로다. */
