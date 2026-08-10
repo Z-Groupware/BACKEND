@@ -103,6 +103,25 @@ public class MeetingDecisionJpaEntity {
     }
 
     /*
+     * ANLZ-04 · 사람이 문장을 고친다.
+     *
+     * <b>내용과 근거만 바꾼다.</b> item_type · gate_status · evidence_transcript_id 는 그대로 둔다 —
+     * 그건 계층이 판정한 값이고, 사람이 문구를 다듬었다고 해서 "결정인가 논의인가"나 근거 발화가
+     * 달라지지 않는다. 함께 열면 게이트를 우회해 논의를 결정으로 바꾸는 경로가 생긴다.
+     *
+     * reason 은 null 이면 건드리지 않는다. 명세 요청에서 선택 항목이고, 안 보낸 것을 지우기로
+     * 읽으면 사람이 내용만 고쳤는데 AI 가 적은 분류 근거가 조용히 사라진다.
+     */
+    public void edit(String content, String reason) {
+        if (content != null && !content.isBlank()) {
+            this.content = content;
+        }
+        if (reason != null) {
+            this.reason = clip(reason, 1000);
+        }
+    }
+
+    /*
      * 컬럼 길이를 넘기면 저장이 통째로 터진다. 계층이 이미 자르고 있지만, 그쪽 상한이
      * 바뀌었을 때 회의 하나의 분석 전체가 실패하는 것보다 여기서 자르는 편이 낫다.
      */

@@ -1,5 +1,7 @@
 package com.module06.backend.capture.infrastructure.persistence.adapter;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +38,15 @@ public class MeetingSummaryPersistenceAdapter implements MeetingSummaryRepositor
 
     private final SpringDataMeetingSummaryRepository summaryRepository;
     private final SpringDataMeetingDecisionRepository decisionRepository;
+
+    /*
+     * 편집 시각을 고정할 수 있어야 테스트가 성립한다.
+     *
+     * ⚠ 프로젝트 전체에 Clock 빈이 하나뿐이라(MeetingTimeConfiguration#meetingClock, KST)
+     * 타입으로 주입된다. 캡처 전용 Clock 빈을 새로 만들면 타입 주입이 모호해져 meeting 도메인
+     * 서비스들이 부팅에서 죽는다(AnalysisLayerLockAcquirer 와 같은 주의).
+     */
+    private final Clock clock;
 
     @Override
     @Transactional
@@ -109,6 +120,48 @@ public class MeetingSummaryPersistenceAdapter implements MeetingSummaryRepositor
         // 항목만 존재한다 — 요약이 이 회사 것임을 위에서 확인했으므로 범위 안이다.
         return summaryRepository.findByMeetingIdAndCompanyId(meetingId, companyId)
                 .map(summary -> new MeetingSummaryView(summary.getOverview(), topicsOf(meetingId)));
+    }
+
+    /* ANLZ-04 · 고칠 항목을 회의 안에서 찾는다. meetingId 를 함께 거는 것이 곧 회사 스코프다. */
+    @Override
+    @Transactional(readOnly = true)
+    public List<ItemView> findItemsInMeeting(long meetingId, List<Long> itemIds) {
+        if (itemIds == null || itemIds.isEmpty()) {
+            return List.of();
+        }
+        return decisionRepository.findByMeetingIdAndIdIn(meetingId, itemIds).stream()
+                .map(row -> new ItemView(
+                        row.getId(), row.getItemType(), row.getContent(), row.getReason(),
+                        row.getEvidenceTranscriptId(), row.getGateStatus()))
+                .toList();
+    }
+
+    /*
+     * ANLZ-04 · 항목을 고치고 편집 표시를 남긴다.
+     *
+     * 조회한 엔티티를 고쳐 더티 체킹으로 반영한다 — 벌크 UPDATE 로 하면 신규 @Query 가 필요하고
+     * (QUERY_002 금지), 어차피 고칠 행을 회의 스코프로 읽어야 한다.
+     *
+     * 요약 행이 없으면 편집 표시를 남길 곳이 없다. 그런 회의는 분석 자체가 안 돈 것이라
+     * 고칠 항목도 없고, 위에서 이미 걸러져 여기까지 오지 않는다.
+     */
+    @Override
+    @Transactional
+    public LocalDateTime applyItemEdits(long meetingId, List<ItemEdit> edits, long editorMemberId) {
+        Map<Long, ItemEdit> byId = new LinkedHashMap<>();
+        for (ItemEdit edit : edits) {
+            byId.put(edit.itemId(), edit);
+        }
+
+        decisionRepository.findByMeetingIdAndIdIn(meetingId, byId.keySet()).forEach(row -> {
+            ItemEdit edit = byId.get(row.getId());
+            row.edit(edit.content(), edit.reason());
+        });
+
+        LocalDateTime editedAt = LocalDateTime.now(clock);
+        summaryRepository.findByMeetingId(meetingId)
+                .ifPresent(summary -> summary.markEdited(editorMemberId, editedAt));
+        return editedAt;
     }
 
     /*
