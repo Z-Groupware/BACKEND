@@ -9,7 +9,10 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.search.application.query.RecentQueryCommand;
+import com.module06.backend.search.application.query.RecentViewCommand;
 import com.module06.backend.search.application.query.SearchQuery;
+import com.module06.backend.search.application.result.SearchOverviewResult;
 import com.module06.backend.search.application.result.SearchResult;
 import com.module06.backend.search.application.usecase.SearchUseCase;
 import com.module06.backend.search.domain.exception.SearchErrorCode;
@@ -29,6 +32,7 @@ public class SearchService implements SearchUseCase {
 
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 50;
+    private static final int RECENT_LIMIT = 10;
 
     private final SearchQueryRepository searchQueryRepository;
 
@@ -82,6 +86,61 @@ public class SearchService implements SearchUseCase {
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public SearchOverviewResult overview(SearchScope scope) {
+        validateScope(scope.companyId(), scope.requesterMemberId());
+        SearchScope normalizedScope = new SearchScope(
+                scope.companyId(),
+                scope.requesterMemberId(),
+                scope.requesterTeamId(),
+                scope.requesterRole(),
+                scope.admin(),
+                List.of(),
+                null,
+                null
+        );
+
+        return new SearchOverviewResult(
+                searchQueryRepository.findRecentQueries(normalizedScope, RECENT_LIMIT),
+                searchQueryRepository.findRecentItems(normalizedScope, RECENT_LIMIT),
+                searchQueryRepository.findOverviewProjects(normalizedScope),
+                searchQueryRepository.findOverviewPeople(normalizedScope)
+        );
+    }
+
+    @Override
+    @Transactional
+    public void saveRecentQuery(RecentQueryCommand command) {
+        if (command == null) {
+            throw new BusinessException(SearchErrorCode.INVALID_SEARCH_PARAMETER);
+        }
+        validateScope(command.companyId(), command.memberId());
+        String query = command.query() == null ? "" : command.query().trim();
+        if (query.isBlank()) {
+            throw new BusinessException(SearchErrorCode.BLANK_QUERY);
+        }
+        searchQueryRepository.saveRecentQuery(command.companyId(), command.memberId(), query);
+        searchQueryRepository.pruneRecentQueries(command.companyId(), command.memberId(), RECENT_LIMIT);
+    }
+
+    @Override
+    @Transactional
+    public void saveRecentView(RecentViewCommand command) {
+        if (command == null) {
+            throw new BusinessException(SearchErrorCode.INVALID_SEARCH_PARAMETER);
+        }
+        validateScope(command.companyId(), command.memberId());
+        if (command.type() == null
+                || command.type() == SearchType.ALL
+                || command.id() == null
+                || command.id() <= 0L) {
+            throw new BusinessException(SearchErrorCode.INVALID_RECENT_VIEW_TYPE);
+        }
+        searchQueryRepository.saveRecentView(command.companyId(), command.memberId(), command.type(), command.id());
+        searchQueryRepository.pruneRecentViews(command.companyId(), command.memberId(), RECENT_LIMIT);
+    }
+
     private long countIfRequested(SearchScope scope, SearchType countedType, SearchType requestedType, String keyword) {
         if (requestedType != SearchType.ALL && requestedType != countedType) {
             return 0L;
@@ -116,10 +175,8 @@ public class SearchService implements SearchUseCase {
 
     private String normalizeKeyword(SearchQuery query) {
         if (query == null
-                || query.companyId() == null
-                || query.companyId() <= 0L
-                || query.requesterMemberId() == null
-                || query.requesterMemberId() <= 0L) {
+                || !isValidId(query.companyId())
+                || !isValidId(query.requesterMemberId())) {
             throw new BusinessException(SearchErrorCode.INVALID_SEARCH_PARAMETER);
         }
         String keyword = query.keyword() == null ? "" : query.keyword().trim();
@@ -135,5 +192,15 @@ public class SearchService implements SearchUseCase {
             throw new BusinessException(SearchErrorCode.INVALID_SEARCH_PARAMETER);
         }
         return resolved;
+    }
+
+    private void validateScope(Long companyId, Long memberId) {
+        if (!isValidId(companyId) || !isValidId(memberId)) {
+            throw new BusinessException(SearchErrorCode.INVALID_SEARCH_PARAMETER);
+        }
+    }
+
+    private boolean isValidId(Long id) {
+        return id != null && id > 0L;
     }
 }
