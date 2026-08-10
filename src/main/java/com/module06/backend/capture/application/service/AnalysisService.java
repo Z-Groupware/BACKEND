@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository;
+import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository.MeetingSummaryView;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.result.ProcessingStatus;
@@ -46,6 +48,13 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
     private final AnalysisLayerRepository analysisLayerRepository;
     private final MeetingSummaryRepository meetingSummaryRepository;
     private final MeetingParticipantProvider participantProvider;
+
+    /*
+     * CAP-06 이 구멍과 "확인했는가"를 함께 답한다. 둘을 따로 두면 화면이 빈 배열을
+     * "구멍 없음"으로 읽는다 — 그게 이 필드가 존재하는 이유다(ProcessingStatus 주석).
+     */
+    private final SttGapRepository sttGapRepository;
+    private final SttBlockRepository sttBlockRepository;
 
     /*
      * 회사 스코프 관문. 세 유스케이스가 **전부** 이걸 먼저 지난다.
@@ -93,7 +102,44 @@ public class AnalysisService implements RunAnalysisUseCase, GetProcessingStatusU
         // 관문을 먼저 지나는 것이 유일한 방법이다(이 검증이 빠져 뚫려 있던 자리다).
         meetingAccessGuard.requireAccessible(companyId, meetingId);
 
-        return ProcessingStatus.of(layerProgress(meetingId));
+        List<ProcessingStatus.Gap> gaps = sttGapRepository.findByMeeting(meetingId).stream()
+                .map(gap -> new ProcessingStatus.Gap(gap.startOffsetMs(), gap.endOffsetMs(),
+                        gap.reason(), gap.mentionedNames(), gap.keywords()))
+                .toList();
+
+        return ProcessingStatus.of(layerProgress(meetingId), gaps, gapsChecked(meetingId));
+    }
+
+    /*
+     * 그 빈 배열이 **확인 결과인가.**
+     *
+     * <h2>받아쓰기가 끝나야 확인된 것이다</h2>
+     * 블록이 아직 QUEUED·RUNNING 이면 그 구간은 실패할 수도 있다 — 지금 구멍이 없다고 답하면
+     * 사람이 그걸 "구멍 없음"으로 읽고 분배를 확정한다. 그래서 미완 블록이 하나라도 있으면
+     * false 다. 분석 시작 관문과 **같은 집합**을 본다(countUnfinished) — 갈리면 분석은 시작됐는데
+     * 구멍은 확인 안 됐다고 답하는 상태가 생긴다.
+     *
+     * <h2>블록이 아예 없으면 false 다</h2>
+     * 받아쓰기를 한 적이 없는 회의다. 0 == 0 이라고 true 를 주면 "확인했고 구멍이 없다"가 되는데,
+     * 실제로는 확인할 대상 자체가 없었다. 확인하지 않은 것과 확인해서 없는 것은 다르다.
+     *
+     * ⚠ **여기서 true 는 「받아쓰기는 확인했다」는 뜻이다.** 청크 유실·조립 구멍
+     * (UPLOAD_MISSING · ASSEMBLY_GAP)은 녹음 조각을 아는 cap 이 판정하고 RecordSttGapPort 로
+     * 기록한다 — 그 경로가 붙기 전까지 그 종류의 구멍은 이 목록에 나타나지 않는다.
+     * 자동 블록 트리거가 청크 구멍을 검증하지 않는다는 것이 PR #302 의 리뷰 지적이었고,
+     * 그 답이 이 포트다.
+     */
+    private boolean gapsChecked(long meetingId) {
+        /*
+         * 블록 존재 여부는 목록으로 본다. 회의 하나에 블록은 10분당 하나라 2시간이어도 열몇 건이고,
+         * STT-03 이 이미 같은 읽기를 한다 — "총 몇 건인가"를 세는 메서드를 따로 두면 미완 판정과
+         * 존재 판정이 서로 다른 쿼리를 보게 되고, 그 둘이 어긋날 자리가 생긴다.
+         */
+        if (sttBlockRepository.findByMeeting(meetingId).isEmpty()) {
+            return false;
+        }
+        // 미완 판정은 countUnfinished 하나만 쓴다(분석 시작 관문과 같은 집합).
+        return sttBlockRepository.countUnfinished(meetingId) == 0;
     }
 
     /*

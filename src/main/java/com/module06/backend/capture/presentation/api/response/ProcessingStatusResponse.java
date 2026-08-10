@@ -44,10 +44,16 @@ public record ProcessingStatusResponse(
                                 layer.tokensOut(),
                                 layer.stalled()))
                         .toList(),
-                // 채우는 경로(조립·Transcribe·stt_gap)가 아직 없다. 빈 목록 + checked=false 가
-                // 지금 상태를 정확히 말한다 — "구멍이 없다"가 아니라 "확인하지 않았다".
-                List.of(),
-                false);
+                /*
+                 * 이제 실제 값이 온다. 폴링이 블록을 FAILED 로 닫을 때 그 구간을 stt_gap 에
+                 * 남기고, 재처리가 성공하면 지운다 — 예전 주석의 "채우는 경로가 아직 없다"가
+                 * 해소된 자리다.
+                 */
+                status.gaps().stream()
+                        .map(gap -> new GapResponse(gap.startMs(), gap.endMs(), gap.reason(),
+                                gap.mentionedNames(), gap.keywords()))
+                        .toList(),
+                status.gapsChecked());
     }
 
     /*

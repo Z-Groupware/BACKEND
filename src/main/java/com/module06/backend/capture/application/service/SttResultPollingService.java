@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.PendingBlock;
+import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.port.out.SttJobResultPort;
 import com.module06.backend.capture.application.port.out.SttJobResultPort.SttJobOutcome;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
@@ -57,6 +58,12 @@ public class SttResultPollingService {
     private final SttBlockRepository sttBlockRepository;
     private final SttJobResultPort sttJobResultPort;
     private final TranscriptRepository transcriptRepository;
+
+    /*
+     * 실패한 구간을 구멍으로 남긴다. FAILED 만 남기면 분배 확정(RVW-05)이 그대로 열려 있고,
+     * 사람은 회의가 온전히 처리된 줄 알고 확정한다 — 그 구간의 할 일은 영구히 사라진다.
+     */
+    private final SttGapRepository sttGapRepository;
 
     /*
      * 한 주기 돈다.
@@ -112,12 +119,21 @@ public class SttResultPollingService {
             }
             case COMPLETED -> {
                 loadTranscript(block, outcome.words());
-                yield sttBlockRepository.markDone(block.id());
+                boolean closed = sttBlockRepository.markDone(block.id());
+                /*
+                 * 이 블록에 남아 있던 받아쓰기 구멍을 지운다 — **재처리가 성공한 경우다.**
+                 * 이게 없으면 한 번 실패한 블록은 나중에 성공해도 구멍이 남아 분배가 영구히
+                 * 막히고, 사람은 STT-03 에서 DONE 을 보면서 "왜 확정이 안 되지"를 묻게 된다.
+                 */
+                if (closed) {
+                    sttGapRepository.clearSttFailureGap(block.meetingId(), block.blockSeq());
+                }
+                yield closed;
             }
             case FAILED -> {
                 log.warn("STT 실패 — meetingId={} blockSeq={} job={} 사유={}",
                         block.meetingId(), block.blockSeq(), block.providerJobName(), outcome.errorCode());
-                yield sttBlockRepository.markFailed(block.id(), outcome.errorCode());
+                yield failWithGap(block, outcome.errorCode());
             }
             /*
              * 제공자가 그 이름을 모른다. **실패로 닫는다** — 우리만 QUEUED 로 남은 상태이고
@@ -127,11 +143,46 @@ public class SttResultPollingService {
             case UNKNOWN -> {
                 log.warn("제공자가 모르는 잡 — 우리 상태와 어긋났다. meetingId={} blockSeq={} job={}",
                         block.meetingId(), block.blockSeq(), block.providerJobName());
-                yield sttBlockRepository.markFailed(block.id(), ERROR_JOB_NOT_FOUND);
+                yield failWithGap(block, ERROR_JOB_NOT_FOUND);
             }
             // 네트워크·권한 문제다. 상태를 바꾸지 않고 다음 주기에 다시 본다.
             case UNAVAILABLE -> false;
         };
+    }
+
+    /*
+     * 실패로 닫고 **그 구간을 구멍으로 남긴다.**
+     *
+     * <h2>구멍을 남기는 것이 실패 처리의 절반이다</h2>
+     * FAILED 만 남기면 그 구간은 "아무도 못 들은 10분"인데 분배 확정(RVW-05)은 그대로 열려
+     * 있다. 사람은 회의가 온전히 처리된 줄 알고 확정하고, 그 구간에서 나온 할 일은 영구히
+     * 사라진다 — 구멍을 레코드로 남기는 이유가 그것이다(V5.5 주석).
+     *
+     * <h2>전이가 실패했으면 구멍도 남기지 않는다</h2>
+     * 그 사이 사람이 재처리를 눌러 QUEUED 로 되돌렸다는 뜻이다. 그때 구멍을 남기면 **아직
+     * 돌고 있는 블록에 구멍이 붙어** 분배가 막히고, 새 잡이 성공해도 그 구멍은 이 블록의
+     * 것이라 성공 경로가 지워주긴 하지만 그 사이 화면이 거짓 배너를 띄운다.
+     *
+     * <h2>구멍 기록이 터져도 실패 처리는 유지한다</h2>
+     * 여기서 예외를 올리면 이미 FAILED 로 닫힌 블록의 처리가 예외로 끝나고, 워커 로그에는
+     * 그 블록이 미처리로 보인다. 구멍 누락은 관문 하나가 덜 서는 것이고 로그로 남는다.
+     */
+    private boolean failWithGap(PendingBlock block, String errorCode) {
+        boolean closed = sttBlockRepository.markFailed(block.id(), errorCode);
+        if (!closed) {
+            return false;
+        }
+        try {
+            sttGapRepository.replaceSttFailureGap(block.meetingId(), block.blockSeq(),
+                    block.startOffsetMs(), block.endOffsetMs());
+            log.warn("받아쓰기 구멍 기록 — meetingId={} blockSeq={} 구간={}~{}ms 사유={}",
+                    block.meetingId(), block.blockSeq(),
+                    block.startOffsetMs(), block.endOffsetMs(), errorCode);
+        } catch (RuntimeException e) {
+            log.error("구멍 기록 실패 — 블록은 FAILED 로 닫혔지만 관문이 서지 않는다. "
+                    + "meetingId={} blockSeq={}", block.meetingId(), block.blockSeq(), e);
+        }
+        return true;
     }
 
     /*

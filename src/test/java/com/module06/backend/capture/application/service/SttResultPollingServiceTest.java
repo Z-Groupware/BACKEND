@@ -14,6 +14,7 @@ import org.mockito.quality.Strictness;
 
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.PendingBlock;
+import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.port.out.SttJobResultPort;
 import com.module06.backend.capture.application.port.out.SttJobResultPort.SttJobOutcome;
 import com.module06.backend.capture.application.port.out.SttJobResultPort.State;
@@ -60,8 +61,12 @@ class SttResultPollingServiceTest {
     @Mock
     private TranscriptRepository transcriptRepository;
 
+    @Mock
+    private SttGapRepository sttGapRepository;
+
     private SttResultPollingService service() {
-        return new SttResultPollingService(sttBlockRepository, sttJobResultPort, transcriptRepository);
+        return new SttResultPollingService(
+                sttBlockRepository, sttJobResultPort, transcriptRepository, sttGapRepository);
     }
 
     @Test
@@ -153,6 +158,66 @@ class SttResultPollingServiceTest {
     }
 
     @Test
+    @DisplayName("⚠ 실패하면 그 구간을 구멍으로 남긴다 — 안 남기면 분배가 그대로 열려 있다")
+    void 실패_구간을_구멍으로_남긴다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.failed("JOB_FAILED"));
+        when(sttBlockRepository.markFailed(anyLong(), anyString())).thenReturn(true);
+
+        service().pollOnce();
+
+        /*
+         * FAILED 만 남기면 그 구간은 "아무도 못 들은 10분"인데 분배 확정(RVW-05)은 열려 있다.
+         * 사람은 회의가 온전히 처리된 줄 알고 확정하고, 그 구간의 할 일은 영구히 사라진다.
+         */
+        verify(sttGapRepository).replaceSttFailureGap(
+                MEETING, BLOCK_SEQ, BLOCK_START_MS, BLOCK_START_MS + 600_000);
+    }
+
+    @Test
+    @DisplayName("전이가 실패하면 구멍도 남기지 않는다 — 재처리로 되돌린 블록에 구멍이 붙는다")
+    void 전이가_실패하면_구멍도_안_남긴다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.failed("JOB_FAILED"));
+        // 그 사이 사람이 재처리를 눌러 QUEUED 로 되돌렸다.
+        when(sttBlockRepository.markFailed(anyLong(), anyString())).thenReturn(false);
+
+        assertThat(service().pollOnce()).isZero();
+
+        verify(sttGapRepository, never()).replaceSttFailureGap(anyLong(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("⚠ 재처리가 성공하면 구멍을 지운다 — 안 지우면 분배가 영구히 막힌다")
+    void 성공하면_구멍을_지운다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+        when(sttBlockRepository.markDone(BLOCK_ID)).thenReturn(true);
+
+        service().pollOnce();
+
+        /*
+         * 한 번 실패한 블록이 나중에 성공해도 구멍이 남으면 분배가 영구히 막히고, 사람은
+         * STT-03 에서 그 블록이 DONE 인 것을 보면서 "왜 확정이 안 되지"를 묻게 된다.
+         */
+        verify(sttGapRepository).clearSttFailureGap(MEETING, BLOCK_SEQ);
+    }
+
+    @Test
+    @DisplayName("구멍 기록이 터져도 실패 처리는 유지한다 — 워커 로그에 미처리로 보이면 안 된다")
+    void 구멍_기록_실패가_실패_처리를_뒤집지_않는다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.failed("JOB_FAILED"));
+        when(sttBlockRepository.markFailed(anyLong(), anyString())).thenReturn(true);
+        org.mockito.Mockito.doThrow(new IllegalStateException("DB 흔들림"))
+                .when(sttGapRepository).replaceSttFailureGap(anyLong(), anyInt(), anyInt(), anyInt());
+
+        // 블록은 이미 FAILED 로 닫혔다. 여기서 예외를 올리면 그 사실이 로그에서 사라진다.
+        assertThat(service().pollOnce()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("제공자가 모르는 잡은 FAILED 로 닫는다 — 그대로 두면 영원히 안 움직인다")
     void 모르는_잡은_FAILED로_닫는다() {
         given(queued());
@@ -168,7 +233,7 @@ class SttResultPollingServiceTest {
     @DisplayName("잡 이름이 없는 블록은 FAILED — 결과를 되짚을 방법이 없다")
     void 잡_이름이_없으면_FAILED다() {
         given(new PendingBlock(BLOCK_ID, MEETING, BLOCK_SEQ, SttBlockStatus.QUEUED,
-                "aws-transcribe", null, BLOCK_START_MS));
+                "aws-transcribe", null, BLOCK_START_MS, BLOCK_START_MS + 600_000));
         when(sttBlockRepository.markFailed(anyLong(), anyString())).thenReturn(true);
 
         assertThat(service().pollOnce()).isEqualTo(1);
@@ -182,7 +247,7 @@ class SttResultPollingServiceTest {
     @DisplayName("아직 제출 전(PENDING)인 블록은 건드리지 않는다 — 실패로 닫으면 제출이 막힌다")
     void 제출_전_블록은_건드리지_않는다() {
         given(new PendingBlock(BLOCK_ID, MEETING, BLOCK_SEQ, SttBlockStatus.PENDING,
-                "aws-transcribe", null, BLOCK_START_MS));
+                "aws-transcribe", null, BLOCK_START_MS, BLOCK_START_MS + 600_000));
 
         assertThat(service().pollOnce()).isZero();
 
@@ -208,9 +273,9 @@ class SttResultPollingServiceTest {
     @DisplayName("블록 하나가 터져도 나머지를 처리한다 — 워커가 죽으면 밀린 잡 전부가 멈춘다")
     void 블록_하나의_실패가_나머지를_막지_않는다() {
         PendingBlock broken = new PendingBlock(1L, MEETING, 1, SttBlockStatus.QUEUED,
-                "aws-transcribe", "job-1", 0);
+                "aws-transcribe", "job-1", 0, 0 + 600_000);
         PendingBlock healthy = new PendingBlock(2L, MEETING, 2, SttBlockStatus.QUEUED,
-                "aws-transcribe", "job-2", 600_000);
+                "aws-transcribe", "job-2", 600_000, 600_000 + 600_000);
         when(sttBlockRepository.findUnfinished(anyInt())).thenReturn(List.of(broken, healthy));
 
         when(sttJobResultPort.fetch("job-1")).thenThrow(new IllegalStateException("터짐"));
@@ -241,7 +306,7 @@ class SttResultPollingServiceTest {
 
     private static PendingBlock queued() {
         return new PendingBlock(BLOCK_ID, MEETING, BLOCK_SEQ, SttBlockStatus.QUEUED,
-                "aws-transcribe", "meeting-500-block-3-r0", BLOCK_START_MS);
+                "aws-transcribe", "meeting-500-block-3-r0", BLOCK_START_MS, BLOCK_START_MS + 600_000);
     }
 
     /* 블록 기준 오프셋 0~900ms 의 한 문장. */

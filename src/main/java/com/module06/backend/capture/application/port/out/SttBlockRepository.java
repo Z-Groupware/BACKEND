@@ -129,6 +129,8 @@ public interface SttBlockRepository {
      * @param startOffsetMs 회의 기준 블록 시작. 제공자가 주는 오프셋은 블록 기준이라 이 값을
      *                      더해야 회의 좌표가 된다 — 빠뜨리면 두 번째 블록부터 발화가 회의
      *                      맨 앞으로 겹쳐 쌓인다
+     * @param endOffsetMs   회의 기준 블록 끝. 실패했을 때 **구멍 구간**이 이 둘이다 —
+     *                      "아무도 못 들은 구간"을 남기려면 끝을 알아야 한다(stt_gap · V5.5)
      */
     record PendingBlock(
             long id,
@@ -137,7 +139,8 @@ public interface SttBlockRepository {
             SttBlockStatus status,
             String provider,
             String providerJobName,
-            int startOffsetMs
+            int startOffsetMs,
+            int endOffsetMs
     ) {
     }
 

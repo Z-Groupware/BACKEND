@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LayerState;
 import com.module06.backend.capture.application.port.out.MeetingSummaryRepository;
+import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.usecase.ResumeAnalysisUseCase.ResumeOutcome;
 import com.module06.backend.capture.domain.model.LayerName;
@@ -56,10 +58,18 @@ class ResumeAnalysisServiceTest {
     @Mock
     private MeetingSummaryRepository meetingSummaryRepository;
 
+    @Mock
+    private SttGapRepository sttGapRepository;
+
+    @Mock
+    private SttBlockRepository sttBlockRepository;
+
+    /* 구멍·블록 저장소는 CAP-06 만 쓴다 — 재개(ANLZ-02) 경로는 건드리지 않는다. */
     private AnalysisService service(boolean accessible) {
         return new AnalysisService(
                 orchestrator, analysisLayerRepository, meetingSummaryRepository,
                 meetingId -> List.of(),
+                sttGapRepository, sttBlockRepository,
                 new MeetingAccessGuard((companyId, meetingId) -> accessible));
     }
 
