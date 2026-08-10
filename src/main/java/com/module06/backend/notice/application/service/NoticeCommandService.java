@@ -10,19 +10,21 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.notice.application.command.CreateNoticeCommand;
+import com.module06.backend.notice.application.command.DeleteNoticeCommand;
 import com.module06.backend.notice.application.command.UpdateNoticeCommand;
 import com.module06.backend.notice.application.result.NoticeCreationResult;
 import com.module06.backend.notice.application.result.NoticeUpdateResult;
 import com.module06.backend.notice.application.usecase.CreateNoticeUseCase;
+import com.module06.backend.notice.application.usecase.DeleteNoticeUseCase;
 import com.module06.backend.notice.application.usecase.UpdateNoticeUseCase;
 import com.module06.backend.notice.domain.model.Notice;
 import com.module06.backend.notice.domain.repository.NoticeCommandRepository;
 import com.module06.backend.notice.exception.NoticeErrorCode;
 
-/* NOTI-03·04 공지 작성과 수정의 입력·권한·저장을 조율하는 애플리케이션 서비스다. */
+/* NOTI-03~05 공지 작성·수정·삭제의 입력·권한·저장을 조율하는 애플리케이션 서비스다. */
 @Service
 @RequiredArgsConstructor
-public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUseCase {
+public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUseCase, DeleteNoticeUseCase {
 
     /* 공지 도메인 모델을 notice 테이블에 저장하는 명령 저장소다. */
     private final NoticeCommandRepository noticeCommandRepository;
@@ -86,6 +88,30 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
         return NoticeUpdateResult.from(savedNotice);
     }
 
+    /* 인증 회사의 활성 공지를 소프트 삭제해 조회 화면에서 제외한다. */
+    @Override
+    @Transactional
+    public void deleteNotice(DeleteNoticeCommand command) {
+        /* 내부 호출도 인증 식별자와 삭제 경로 계약을 준수하도록 저장소 접근 전에 검증한다. */
+        validateDeleteCommand(command);
+
+        /* 애노테이션 인가 우회 호출도 OWNER·ADMIN이 아니면 공지 삭제를 거절한다. */
+        if (!isNoticeManager(command.requesterRole())) {
+            throw new BusinessException(NoticeErrorCode.NOTICE_MANAGEMENT_FORBIDDEN);
+        }
+
+        /* 타 회사·이미 삭제·없는 공지를 구분하지 않고 동일한 NT-001로 숨긴다. */
+        Notice currentNotice = noticeCommandRepository
+                .findActiveNotice(command.companyId(), command.noticeId())
+                .orElseThrow(() -> new BusinessException(NoticeErrorCode.NOTICE_NOT_FOUND));
+
+        /* 현재 KST 시각을 deletedAt에 기록하고 기존 공지 이력은 그대로 유지한다. */
+        Notice deletedNotice = currentNotice.softDelete(LocalDateTime.now(clock));
+
+        /* 소프트 삭제 상태를 같은 공지 행에 저장해 이후 활성 조회에서 제외한다. */
+        noticeCommandRepository.save(deletedNotice);
+    }
+
     /* 회사·작성자·역할과 제목·본문이 NOTI-03 계약에 맞는지 확인한다. */
     private void validateRequiredValues(CreateNoticeCommand command) {
         /* 인증 식별자·역할과 공지 필드의 누락 또는 공백은 NT-003 입력 오류로 거절한다. */
@@ -122,6 +148,22 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
                 || command.title().length() > 200
                 || command.content() == null
                 || command.content().isBlank()) {
+            throw new BusinessException(NoticeErrorCode.INVALID_NOTICE_INPUT);
+        }
+    }
+
+    /* 회사·요청자·공지 식별자가 NOTI-05 삭제 계약에 맞는지 확인한다. */
+    private void validateDeleteCommand(DeleteNoticeCommand command) {
+        /* 경로와 인증 원본이 누락되거나 유효 범위를 벗어나면 NT-003으로 거절한다. */
+        if (command == null
+                || command.companyId() == null
+                || command.companyId() <= 0L
+                || command.noticeId() == null
+                || command.noticeId() <= 0L
+                || command.requesterMemberId() == null
+                || command.requesterMemberId() <= 0L
+                || command.requesterRole() == null
+                || command.requesterRole().isBlank()) {
             throw new BusinessException(NoticeErrorCode.INVALID_NOTICE_INPUT);
         }
     }

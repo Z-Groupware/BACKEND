@@ -4,7 +4,7 @@ import java.util.Optional;
 
 import com.module06.backend.notice.domain.model.Notice;
 
-/* NOTI-03·04 공지 작성과 수정에 필요한 도메인 저장소 계약이다. */
+/* NOTI-03~05 공지 작성·수정·소프트 삭제에 필요한 도메인 저장소 계약이다. */
 public interface NoticeCommandRepository {
 
     /* 인증 회사 범위에서 삭제되지 않은 수정 대상 공지를 조회한다. */
