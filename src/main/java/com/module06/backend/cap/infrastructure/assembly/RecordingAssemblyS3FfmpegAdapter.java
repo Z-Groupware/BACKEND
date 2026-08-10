@@ -5,7 +5,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -197,19 +196,19 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     // ffprobe로 최종 산출물의 실제 길이를 읽는다 — recording.durationSec은 클라이언트가 주장한 값이
     // 아니라 여기서 실측한 값이어야 재생바 탐색이 정확하다.
     //
-    // stdout·stderr를 합치지 않는다(CodeRabbit 지적) — exit=0이어도 stderr에 경고가 섞여 나오면
-    // duration 숫자와 같은 파일에 합쳐져 파싱이 깨진다. stdout은 출력이 한 줄짜리 숫자뿐이라
-    // 파이프로 직접 읽어도 버퍼가 찰 위험이 없고, stderr만 실패 시 진단용 로그 파일로 남긴다.
+    // stdout·stderr를 각각 별도 로그 파일로 리다이렉트한다(CodeRabbit 지적 두 건) — (1) 합치면
+    // exit=0이어도 stderr 경고가 duration 숫자와 섞여 파싱이 깨진다. (2) stdout을 waitFor() 전에
+    // 파이프로 직접 읽으면, ffprobe가 멈췄을 때 그 읽기 자체가 영원히 블로킹돼 뒤의 타임아웃
+    // 로직에 도달하지 못한다 — 파일로 리다이렉트하고 waitFor()가 끝난 뒤에만 읽어야 안전하다.
     private int probeDurationSeconds(Path workDir, Path file) {
         Path errorLog = workDir.resolve("ffprobe-" + UUID.randomUUID() + ".err.log");
+        Path outputLog = workDir.resolve("ffprobe-" + UUID.randomUUID() + ".out.log");
         try {
             Process process = new ProcessBuilder(List.of("ffprobe", "-v", "error", "-show_entries",
                     "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file.toString()))
-                    .redirectErrorStream(false)
                     .redirectError(errorLog.toFile())
+                    .redirectOutput(outputLog.toFile())
                     .start();
-
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 
             boolean finished = process.waitFor(FFPROBE_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
             if (!finished) {
@@ -221,7 +220,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                 throw new IllegalStateException("ffprobe 실패(exit=%d) — %s"
                         .formatted(process.exitValue(), readLogQuietly(errorLog)));
             }
-            return parseDurationSeconds(stdout, file);
+            return parseDurationSeconds(readLogQuietly(outputLog), file);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
