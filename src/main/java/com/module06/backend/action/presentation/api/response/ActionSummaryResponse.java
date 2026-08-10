@@ -14,11 +14,17 @@ import com.module06.backend.action.domain.model.ActionType;
 /* comment.
     액션 목록/카드용 요약 응답 DTO. 개인 액션 목록·팀 액션 목록·타임라인·회의별 조회에서
     공용으로 쓰인다 — actionType(TEAM/PERSONAL) 필드로 화면이 구분해서 렌더링한다.
-    담을 값: id·actionType·title·status·dueDate·needsReview·지연 배지(파생값)에 더해
-    담당자명·프로젝트태그·소속팀명·출처회의명·상위팀액션(id·제목) — Figma "내 액션" 카드
+    담을 값: id·actionType·title·status·startDate·dueDate·needsReview·지연 배지(파생값)에
+    더해 담당자명·프로젝트태그·소속팀명·출처회의명·상위팀액션(id·제목) — Figma "내 액션" 카드
     확인 결과 추가(2026-08-07). TEAM 액션·수동 생성 등 값이 없는 항목은 null로 내려간다.
     needsReview는 reviewStatus == PENDING 여부다(AI 분배 직후만 참). isDelayed는 저장값이
     아니라 dueDate 기준으로 조회 시 계산된다.
+
+    startDate는 프로젝트 startDate와 동일한 성격의 표시용 값이다(2026-08-10, 이홍근 요청 —
+    보드/타임라인이 프로젝트·액션에 같은 로직을 쓰는데 액션만 노출이 빠져있었음). 컬럼 자체는
+    이미 존재(V2.6.7, 2026-08-07 재설계로 isDone·startDate에서 status를 파생) — 여기선 그냥
+    노출만 추가한다. TODO 상태(아직 시작 안 함)면 null이 정상이다 — 마이그레이션 이전 데이터라서
+    비어있는 게 아니라, "아직 시작 안 한 액션"이라는 의미 자체가 null이다.
 
     연결된 클래스
     - ActionController · TeamActionController : 이 DTO를 내보내는 진입점
@@ -30,6 +36,7 @@ public record ActionSummaryResponse(
         ActionType actionType,
         String title,
         ActionStatus status,
+        LocalDate startDate,
         LocalDate dueDate,
         boolean needsReview,
         boolean isDelayed,
@@ -84,6 +91,7 @@ public record ActionSummaryResponse(
                 action.getActionType(),
                 action.getTitle(),
                 action.getStatus(),
+                action.getStartDate(),
                 action.getDueDate(),
                 action.getReviewStatus() == ActionReviewStatus.PENDING,
                 delayed,

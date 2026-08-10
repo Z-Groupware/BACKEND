@@ -144,6 +144,43 @@ class ActionControllerTest {
     }
 
     @Test
+    @DisplayName("startDate는 목록·상세 응답 둘 다 노출된다 (2026-08-10, 이홍근 요청)")
+    void exposesStartDateOnListAndDetail() throws Exception {
+        authenticateAs(1L, 5L);
+        Action inProgress = Action.reconstitute(
+                10L, 1L, 100L, null, null, null, 5L, ActionType.PERSONAL, "진행중 액션", "설명",
+                false, LocalDate.of(2026, 8, 5), LocalDate.of(2026, 12, 31), false,
+                com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
+                null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
+
+        when(getMyActionsUseCase.getMyActions(5L))
+                .thenReturn(List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)));
+        when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
+                .thenReturn(new ActionDetail(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
+
+        mockMvc.perform(get("/api/actions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].startDate").value("2026-08-05"));
+
+        mockMvc.perform(get("/api/actions/10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.startDate").value("2026-08-05"));
+    }
+
+    @Test
+    @DisplayName("startDate는 아직 시작 안 한(TODO) 액션이면 null로 내려간다")
+    void startDateIsNullForNotYetStartedAction() throws Exception {
+        authenticateAs(1L, 5L);
+
+        when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
+                .thenReturn(new ActionDetail(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
+
+        mockMvc.perform(get("/api/actions/10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.startDate").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
     @DisplayName("벌크 상태변경은 토큰의 memberId를 requesterId로, items를 그대로 커맨드로 전달한다")
     void bulkUpdateStatusConvertsItemsAndUsesMemberIdFromToken() throws Exception {
         authenticateAs(1L, 5L);
