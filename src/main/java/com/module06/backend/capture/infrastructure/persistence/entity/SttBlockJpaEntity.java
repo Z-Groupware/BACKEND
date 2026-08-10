@@ -91,6 +91,27 @@ public class SttBlockJpaEntity {
     private LocalDateTime finishedAt;
 
     /*
+     * 새 블록을 QUEUED로 만든다(10분/40청크 자동 트리거 전용). retry()의 markQueuedForRetry와
+     * 달리 이전 실패 흔적을 지울 필요가 없다 — 처음 만드는 행이라 지울 과거 자체가 없다.
+     */
+    public static SttBlockJpaEntity createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                                                 SttCutReason cutReason, String audioS3Key, String provider,
+                                                 String providerJobName) {
+        SttBlockJpaEntity entity = new SttBlockJpaEntity();
+        entity.meetingId = meetingId;
+        entity.blockSeq = blockSeq;
+        entity.startOffsetMs = startOffsetMs;
+        entity.endOffsetMs = endOffsetMs;
+        entity.cutReason = cutReason;
+        entity.audioS3Key = audioS3Key;
+        entity.provider = provider;
+        entity.providerJobName = providerJobName;
+        entity.status = SttBlockStatus.QUEUED;
+        entity.retryCount = 0;
+        return entity;
+    }
+
+    /*
      * 재처리를 접수한다(STT-04).
      *
      * 이전 실패의 흔적을 지운다 — errorCode 와 finishedAt 이 남아 있으면 이번 시도가 아직

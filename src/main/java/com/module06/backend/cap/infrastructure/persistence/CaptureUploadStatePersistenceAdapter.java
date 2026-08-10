@@ -3,6 +3,7 @@ package com.module06.backend.cap.infrastructure.persistence;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -29,5 +30,21 @@ public class CaptureUploadStatePersistenceAdapter implements CaptureUploadStateR
         CaptureUploadStateJpaEntity saved =
                 springDataCaptureUploadStateRepository.save(CaptureUploadStateJpaEntity.fromDomain(state));
         return saved.toDomain();
+    }
+
+    // 조회~잠금~갱신을 한 트랜잭션으로 묶어야 쓰기 잠금이 실제로 경합을 막는다.
+    @Override
+    @Transactional
+    public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+        Optional<CaptureUploadStateJpaEntity> locked = springDataCaptureUploadStateRepository
+                .findWithLockByMeetingIdAndBlocksFormed(meetingId, expectedBlocksFormed);
+        if (locked.isEmpty()) {
+            // 다른 트리거가 먼저 예약해갔거나, 그 사이 blocksFormed가 바뀌었다 — 경합에서 졌다.
+            return Optional.empty();
+        }
+        CaptureUploadState state = locked.get().toDomain();
+        int reservedSeq = state.reserveNextBlockSeq();
+        springDataCaptureUploadStateRepository.save(CaptureUploadStateJpaEntity.fromDomain(state));
+        return Optional.of(reservedSeq);
     }
 }

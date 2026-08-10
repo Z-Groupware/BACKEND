@@ -28,6 +28,24 @@ public interface SttBlockRepository {
     Optional<SttBlockView> findOne(long meetingId, int blockSeq);
 
     /*
+     * 새 블록을 QUEUED 상태로 만든다(10분/40청크 자동 트리거 전용, cap 소유 오케스트레이션이
+     * 호출한다 — CreateSttBlockPort 경유).
+     *
+     * markQueuedForRetry와 달리 CAS(compare-and-set)가 필요 없다 — 이 블록 자리를 "처음" 만드는
+     * 것이라 경합할 기존 행 자체가 없다(회의당 트리거는 cap의 청크 카운터가 순차적으로만 발화시킨다).
+     *
+     * provider/providerJobName을 생성 시점에 이미 확정해 받는다 — 호출자(SttBlockCreationService)가
+     * 이 값으로 곧바로 SttJobPort.submit()을 부를 것이므로, 여기서 다시 조회해 잡 이름을 짓지 않는다.
+     *
+     * @param cutReason 문자열로 받는다 — cap이 SttCutReason enum(이쪽 도메인 소유)에 의존하지
+     *                  않기 위함이다(CapSttBlockReferenceEntity가 status를 String으로 읽는 것과
+     *                  같은 이유). 알 수 없는 값이면 IllegalArgumentException.
+     * @return 새로 만들어진 블록의 id
+     */
+    long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                      String cutReason, String audioS3Key, String provider, String providerJobName);
+
+    /*
      * 재처리를 접수한다 — 상태를 QUEUED 로 되돌리고 시도 횟수를 올린다.
      *
      * <h2>읽은 값이 그대로일 때만 바꾼다 (compare-and-set)</h2>

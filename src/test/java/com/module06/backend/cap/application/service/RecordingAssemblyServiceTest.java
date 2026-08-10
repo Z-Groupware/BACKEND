@@ -145,7 +145,7 @@ class RecordingAssemblyServiceTest {
 
     // 세그먼트/녹음자 지정한 캡처 상태.
     private CaptureUploadState state(int segmentSeq, Long recorderId) {
-        return CaptureUploadState.restore(500L, segmentSeq, recorderId, 0, 0, null, null);
+        return CaptureUploadState.restore(500L, segmentSeq, recorderId, 0, 0, 0L, null, null);
     }
 
     // 지정한 회의 존재/참석 여부·상태·세그먼트별 순번으로 서비스를 조립한다. 조립 포트는 호출 여부를 기록한다.
@@ -194,6 +194,11 @@ class RecordingAssemblyServiceTest {
             public CaptureUploadState save(CaptureUploadState value) {
                 return value;
             }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
         RecordingPartRepository partRepo = new RecordingPartRepository() {
             @Override
@@ -208,6 +213,12 @@ class RecordingAssemblyServiceTest {
 
             @Override
             public void deleteByMeetingId(Long meetingId) {
+            }
+
+            @Override
+            public List<RecordingPart> findInSegmentBetweenSeqs(Long meetingId, int segmentSeq, int fromSeq,
+                                                                 int toSeq) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
         RecordingAssemblyPort assemblyPort = (meetingId, lastSegmentSeq, lastSeq) -> assemblyTriggered[0] = true;
