@@ -2,6 +2,7 @@ package com.module06.backend.project.application.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.domain.repository.ProjectAttachmentRepository;
 import com.module06.backend.project.domain.repository.ProjectRepository;
+import com.module06.backend.project.domain.repository.TeamReferenceRepository;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,11 +65,18 @@ class ProjectServiceTest {
     @Mock
     private ActionQueryPort actionQueryPort;
 
+    @Mock
+    private com.module06.backend.project.application.port.MeetingQueryPort meetingQueryPort;
+
+    @Mock
+    private TeamReferenceRepository teamReferenceRepository;
+
     private ProjectService projectService;
 
     private ProjectService service() {
         return new ProjectService(projectRepository, projectAttachmentRepository,
-                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort);
+                projectOwnerOnlyPolicy, projectTeamOwnershipPolicy, actionQueryPort, meetingQueryPort,
+                teamReferenceRepository);
     }
 
     private Project project(Long companyId) {
@@ -111,19 +120,25 @@ class ProjectServiceTest {
     // ---------- list ----------
 
     @Test
-    void listReturnsAllProjectsWithZeroCountsWhenNoActions() {
+    void listReturnsAllProjectsWithZeroCountsWhenNoActionsOrMeetings() {
         projectService = service();
-        Project project = project(COMPANY);
+        Project project = Project.reconstitute(1L, COMPANY, "TAG", "이름", "설명", "#16A34A",
+                ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
+        when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
+        when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of(
+                new TeamReferenceRepository.TeamName(1L, "개발팀"),
+                new TeamReferenceRepository.TeamName(2L, "마케팅팀")));
 
         List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
-        assertThat(result).containsExactly(new GetProjectListUseCase.ProjectListItem(project, 0, 0));
+        assertThat(result).containsExactly(
+                new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0, List.of("개발팀", "마케팅팀")));
     }
 
     @Test
-    void listAttachesActionCountsFromBatchQuery() {
+    void listAttachesActionAndMeetingCountsFromBatchQueries() {
         projectService = service();
         Project projectA = Project.reconstitute(1L, COMPANY, "TAG-A", "A", "설명", "#000000",
                 ProjectStatus.TODO, LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
@@ -132,12 +147,14 @@ class ProjectServiceTest {
         when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(projectA, projectB));
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
+        when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
+        when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of());
 
         List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
 
         assertThat(result).containsExactly(
-                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2),
-                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0));
+                new GetProjectListUseCase.ProjectListItem(projectA, 5, 2, 3, List.of()),
+                new GetProjectListUseCase.ProjectListItem(projectB, 0, 0, 0, List.of()));
     }
 
     // ---------- getDetail ----------

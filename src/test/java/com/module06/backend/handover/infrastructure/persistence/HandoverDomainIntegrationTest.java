@@ -21,7 +21,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -245,7 +244,6 @@ class HandoverDomainIntegrationTest {
         assertThat(insightCount(handover.getId())).isGreaterThan(0);
     }
 
-    @Disabled("C ActionReassignPort#rollbackReassignment 실구현 대기 — 머지되면 활성화")
     @Test
     @DisplayName("reject after complete rolls action assignment back to writer")
     void rejectAfterCompleteRollsBackCommittedReassignment() {

@@ -211,6 +211,40 @@ class NoticeQueryPersistenceAdapterTest {
         assertThat(reloaded.getUpdatedAt()).isEqualTo(updatedAt);
     }
 
+    /* 소프트 삭제가 행을 보존하면서 모든 활성 조회에서 공지를 제외하는지 검증한다. */
+    @Test
+    @DisplayName("공지를 소프트 삭제하고 목록·상세·명령 조회에서 제외한다")
+    void softDeletesNoticeAndExcludesItFromActiveQueries() {
+        /* 회사 10의 활성 공지를 저장하고 명령 저장소로 삭제 대상 원본을 조회한다. */
+        NoticeJpaEntity active = springDataNoticeRepository.saveAndFlush(
+                notice(10L, "삭제 대상 공지", null)
+        );
+        Notice current = noticeCommandRepository.findActiveNotice(10L, active.getId())
+                .orElseThrow(() -> new AssertionError("삭제할 활성 공지를 조회해야 합니다."));
+
+        /* 삭제 시각을 기록한 도메인 상태를 같은 공지 행에 저장한다. */
+        LocalDateTime deletedAt = LocalDateTime.of(2026, 8, 9, 15, 0);
+        Notice saved = noticeCommandRepository.save(current.softDelete(deletedAt));
+
+        /* 저장 결과에는 기존 식별자와 요청한 삭제 시각이 유지돼야 한다. */
+        assertThat(saved.getId()).isEqualTo(active.getId());
+        assertThat(saved.getDeletedAt()).isEqualTo(deletedAt);
+
+        /* 영속성 컨텍스트를 비워 이후 조회가 실제 데이터베이스 상태를 사용하게 한다. */
+        entityManager.flush();
+        entityManager.clear();
+
+        /* 삭제 행은 물리적으로 남지만 세 가지 활성 조회 경로에서는 모두 사라져야 한다. */
+        assertThat(springDataNoticeRepository.findById(active.getId()))
+                .isPresent()
+                .get()
+                .extracting(NoticeJpaEntity::getDeletedAt)
+                .isEqualTo(deletedAt);
+        assertThat(noticeCommandRepository.findActiveNotice(10L, active.getId())).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNotice(10L, active.getId())).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L)).isEmpty();
+    }
+
     /* 영속성 테스트에 사용할 신규 또는 삭제 공지 엔티티를 만든다. */
     private NoticeJpaEntity notice(Long companyId, String title, LocalDateTime deletedAt) {
         /* 생성 시각은 Hibernate가 채우고 삭제 여부만 테스트 조건에 맞춰 복원한다. */

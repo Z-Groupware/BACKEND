@@ -14,12 +14,13 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.notice.application.command.CreateNoticeCommand;
+import com.module06.backend.notice.application.command.DeleteNoticeCommand;
 import com.module06.backend.notice.application.command.UpdateNoticeCommand;
 import com.module06.backend.notice.domain.model.Notice;
 import com.module06.backend.notice.domain.repository.NoticeCommandRepository;
 
-/* NOTI-03·04 공지 작성·수정 서비스의 인증 정보·권한·입력·저장 결과를 검증한다. */
-@DisplayName("공지 작성·수정 서비스")
+/* NOTI-03~05 공지 작성·수정·삭제 서비스의 인증 정보·권한·입력·저장을 검증한다. */
+@DisplayName("공지 작성·수정·삭제 서비스")
 class NoticeCommandServiceTest {
 
     /* 수정 시각을 2026-08-09 13:40:02 KST로 고정하는 테스트 시계다. */
@@ -220,6 +221,98 @@ class NoticeCommandServiceTest {
         assertErrorCode(() -> service.updateNotice(updateCommand("OWNER", "제목", " \n ")), "NT-003");
     }
 
+    /* OWNER가 자기 회사의 활성 공지를 소프트 삭제하고 고정 삭제 시각을 기록하는지 검증한다. */
+    @Test
+    @DisplayName("OWNER가 활성 공지를 소프트 삭제한다")
+    void softDeletesActiveNoticeForOwnerCompany() {
+        /* 회사 10의 활성 공지를 반환하는 저장소와 삭제 서비스를 구성한다. */
+        Notice current = activeNotice();
+        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
+        repository.noticeToFind = Optional.of(current);
+        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+
+        /* 회사 10의 OWNER 3이 공지 41을 삭제한다. */
+        service.deleteNotice(deleteCommand("OWNER"));
+
+        /* 삭제 대상 조회는 인증 회사와 경로 식별자를 함께 사용해야 한다. */
+        assertThat(repository.requestedCompanyId).isEqualTo(10L);
+        assertThat(repository.requestedNoticeId).isEqualTo(41L);
+
+        /* 기존 원본과 수정 이력은 유지하고 고정 KST 삭제 시각만 기록돼야 한다. */
+        assertThat(repository.savedNotice.getId()).isEqualTo(current.getId());
+        assertThat(repository.savedNotice.getTitle()).isEqualTo(current.getTitle());
+        assertThat(repository.savedNotice.getContent()).isEqualTo(current.getContent());
+        assertThat(repository.savedNotice.getCreatedAt()).isEqualTo(current.getCreatedAt());
+        assertThat(repository.savedNotice.getUpdatedAt()).isEqualTo(current.getUpdatedAt());
+        assertThat(repository.savedNotice.getDeletedAt())
+                .isEqualTo(LocalDateTime.of(2026, 8, 9, 13, 40, 2));
+    }
+
+    /* ADMIN도 OWNER와 동일한 소프트 삭제 권한을 갖는지 검증한다. */
+    @Test
+    @DisplayName("ADMIN도 공지를 삭제할 수 있다")
+    void allowsAdminToDeleteNotice() {
+        /* 회사 10의 활성 공지를 반환하는 저장소와 공지 명령 서비스를 구성한다. */
+        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
+        repository.noticeToFind = Optional.of(activeNotice());
+        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+
+        /* ADMIN 역할로 공지 삭제 유스케이스를 호출한다. */
+        service.deleteNotice(deleteCommand("ADMIN"));
+
+        /* ADMIN 요청도 정상 저장돼 deletedAt이 기록되어야 한다. */
+        assertThat(repository.savedNotice.getDeletedAt()).isNotNull();
+    }
+
+    /* 비관리 역할이 서비스 직접 호출로 삭제 권한을 우회하지 못하는지 검증한다. */
+    @Test
+    @DisplayName("LEADER와 MEMBER의 공지 삭제를 NT-002로 거절한다")
+    void rejectsNonManagerRolesForDelete() {
+        /* 권한 검증 뒤 저장소에 접근하면 실패하도록 저장소 대역을 구성한다. */
+        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
+        repository.failOnAccess = true;
+        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+
+        /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
+        assertErrorCode(() -> service.deleteNotice(deleteCommand("LEADER")), "NT-002");
+        assertErrorCode(() -> service.deleteNotice(deleteCommand("MEMBER")), "NT-002");
+    }
+
+    /* 타 회사·이미 삭제·없는 공지의 빈 저장소 결과를 NT-001로 숨기는지 검증한다. */
+    @Test
+    @DisplayName("삭제할 활성 공지가 없으면 NT-001을 반환한다")
+    void rejectsMissingDeletedOrOtherCompanyNoticeForDelete() {
+        /* 삭제 대상 조회가 빈 결과를 반환하는 저장소로 서비스를 구성한다. */
+        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
+        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+
+        /* 존재하지 않는 이유를 구분하지 않는 공지 없음 오류로 처리해야 한다. */
+        assertErrorCode(() -> service.deleteNotice(deleteCommand("OWNER")), "NT-001");
+        assertThat(repository.savedNotice).isNull();
+    }
+
+    /* 잘못된 삭제 Command가 저장소 접근 전에 NT-003으로 거절되는지 검증한다. */
+    @Test
+    @DisplayName("잘못된 공지 삭제 입력을 NT-003으로 거절한다")
+    void rejectsInvalidDeleteInput() {
+        /* 입력 오류가 저장소에 도달하면 실패하도록 저장소 대역을 구성한다. */
+        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
+        repository.failOnAccess = true;
+        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+
+        /* null Command와 유효하지 않은 회사·공지·요청자 식별자를 모두 NT-003으로 처리한다. */
+        assertErrorCode(() -> service.deleteNotice(null), "NT-003");
+        assertErrorCode(() -> service.deleteNotice(new DeleteNoticeCommand(
+                0L, 41L, 3L, "OWNER"
+        )), "NT-003");
+        assertErrorCode(() -> service.deleteNotice(new DeleteNoticeCommand(
+                10L, 0L, 3L, "OWNER"
+        )), "NT-003");
+        assertErrorCode(() -> service.deleteNotice(new DeleteNoticeCommand(
+                10L, 41L, 0L, "OWNER"
+        )), "NT-003");
+    }
+
     /* 역할과 제목·본문만 바꿀 수 있는 정상 인증 작성 Command를 만든다. */
     private CreateNoticeCommand command(String role, String title, String content) {
         /* 회사 10의 구성원 3을 공통 인증 값으로 사용한다. */
@@ -230,6 +323,12 @@ class NoticeCommandServiceTest {
     private UpdateNoticeCommand updateCommand(String role, String title, String content) {
         /* 회사 10의 구성원 3이 공지 41을 수정하는 공통 인증 값을 사용한다. */
         return new UpdateNoticeCommand(10L, 41L, 3L, role, title, content);
+    }
+
+    /* 역할만 바꿀 수 있는 정상 인증 공지 삭제 Command를 만든다. */
+    private DeleteNoticeCommand deleteCommand(String role) {
+        /* 회사 10의 구성원 3이 공지 41을 삭제하는 공통 인증 값을 사용한다. */
+        return new DeleteNoticeCommand(10L, 41L, 3L, role);
     }
 
     /* 수정 서비스 테스트에서 공통으로 사용하는 회사 10의 활성 공지를 만든다. */

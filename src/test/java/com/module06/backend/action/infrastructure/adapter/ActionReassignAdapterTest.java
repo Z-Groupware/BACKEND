@@ -74,6 +74,29 @@ class ActionReassignAdapterTest {
                 .hasMessageContaining("존재하지 않는 액션입니다");
     }
 
+    @Test
+    void rollbackReassignmentDelegatesToReassignSymmetrically() {
+        Action action = personalAction(7L);
+        when(actionRepository.findByIdForUpdate(ACTION_ID)).thenReturn(Optional.of(action));
+
+        adapter().rollbackReassignment(ACTION_ID, 7L, 5L);
+
+        verify(actionRepository).save(action);
+        assertThat(action.getAssigneeMemberId()).isEqualTo(5L);
+    }
+
+    @Test
+    void rollbackReassignmentThrowsWhenCurrentAssigneeAlreadyChanged() {
+        Action action = personalAction(999L);
+        when(actionRepository.findByIdForUpdate(ACTION_ID)).thenReturn(Optional.of(action));
+
+        assertThatThrownBy(() -> adapter().rollbackReassignment(ACTION_ID, 7L, 5L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("담당자가 일치하지 않는");
+
+        verify(actionRepository, never()).save(any());
+    }
+
     private Action personalAction(Long assigneeMemberId) {
         return Action.reconstitute(
                 ACTION_ID, 1L, 100L, null, null, null, assigneeMemberId,
