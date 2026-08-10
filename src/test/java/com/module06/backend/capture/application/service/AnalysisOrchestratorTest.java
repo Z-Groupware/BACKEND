@@ -430,16 +430,26 @@ class AnalysisOrchestratorTest {
     @DisplayName("받아쓰기가 안 끝났으면 발화가 있어도 계층을 부르지 않는다")
     void 미완_블록이_있으면_생략한다() {
         RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+        /*
+         * 실행 번호 저장소를 공유해 넘긴다 — **관문이 begin 앞에 있다는 것까지 고정한다.**
+         * AI 미호출만 보면 관문이 begin 뒤로 밀려도 통과하는데, 그러면 시작하지도 않은 분석의
+         * 실행 행이 남는다(CodeRabbit PR #312 지적).
+         */
+        FakeRunRepository runs = new FakeRunRepository();
+        FakeLayerRepository layers = new FakeLayerRepository(runs);
 
         AnalysisOutcome outcome = orchestratorOf(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(2),
-                new FakeCaptionRepository(), new FakeLayerRepository(), new FakeSummaryRepository(),
+                new FakeCaptionRepository(), layers, new FakeSummaryRepository(),
                 new FakeTupleRepository(), meetingId -> Optional.of(MEETING_DATE), ai)
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
         assertThat(outcome.message()).contains("받아쓰기");
         assertThat(ai.resolveCalls).isZero();
+        // 실행 번호를 발급하지 않았고, 계층 잠금도 잡지 않았다.
+        assertThat(runs.current).isZero();
+        assertThat(layers.locked).isEmpty();
     }
 
     /*
