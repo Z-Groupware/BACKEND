@@ -4,6 +4,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
+import com.module06.backend.handover.application.command.ReassignItemsCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.service.HandoverService;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 @DisplayName("Handover domain integration")
 @SpringBootTest
@@ -212,6 +214,63 @@ class HandoverDomainIntegrationTest {
                     assertThat(restoredItem.getReassigneeNameSnap()).isEqualTo("Target");
                     assertThat(restoredItem.getReassigneePositionSnap()).isEqualTo("Staff");
                 });
+    }
+
+    @Test
+    @DisplayName("reassignItems batch-assigns multiple actions in one transaction")
+    void reassignItemsBatchAssignsMultipleActions() {
+        Long secondAction = 969L;
+        seedOrganization(false);
+        insertProject(PROJECT, "P-HO", "Handover Project", "IN_PROGRESS");
+        insertMeeting(MEETING, PROJECT, WRITER);
+        insertPersonalAction(ACTION_TODO, PROJECT, MEETING, WRITER, "TODO", false, "First action");
+        insertPersonalAction(secondAction, PROJECT, MEETING, WRITER, "TODO", false, "Second action");
+        Handover handover = handoverService.create(new CreateHandoverCommand(
+                WRITER, TEAM, HandoverType.VACATION, LEAVE_START, LEAVE_END, null, null,
+                List.of(ACTION_TODO, secondAction)
+        ));
+
+        handoverService.reassignItems(new ReassignItemsCommand(
+                handover.getId(),
+                List.of(
+                        new ReassignItemsCommand.Assignment(ACTION_TODO, TARGET),
+                        new ReassignItemsCommand.Assignment(secondAction, LEADER)
+                ),
+                NOW
+        ));
+
+        em.flush();
+        em.clear();
+        Handover restored = handoverRepository.findById(handover.getId()).orElseThrow();
+        assertThat(restored.getItems())
+                .extracting(HandoverItem::getActionId, HandoverItem::getReassigneeId)
+                .containsExactlyInAnyOrder(
+                        tuple(ACTION_TODO, TARGET),
+                        tuple(secondAction, LEADER)
+                );
+    }
+
+    @Test
+    @DisplayName("reassignItems rolls back every assignment when one action is not in the handover")
+    void reassignItemsIsAtomicOnInvalidAction() {
+        seedOrganization(false);
+        insertProject(PROJECT, "P-HO", "Handover Project", "IN_PROGRESS");
+        insertMeeting(MEETING, PROJECT, WRITER);
+        insertPersonalAction(ACTION_TODO, PROJECT, MEETING, WRITER, "TODO", false, "Only action");
+        Handover handover = handoverService.create(new CreateHandoverCommand(
+                WRITER, TEAM, HandoverType.VACATION, LEAVE_START, LEAVE_END, null, null,
+                List.of(ACTION_TODO)
+        ));
+
+        // 두 번째 배정 대상이 이 인수인계에 없는 액션 → 전체가 실패해야 한다(부분 재분배 금지).
+        assertThatThrownBy(() -> handoverService.reassignItems(new ReassignItemsCommand(
+                handover.getId(),
+                List.of(
+                        new ReassignItemsCommand.Assignment(ACTION_TODO, TARGET),
+                        new ReassignItemsCommand.Assignment(999_999L, LEADER)
+                ),
+                NOW
+        ))).isInstanceOf(BusinessException.class);
     }
 
     @Test

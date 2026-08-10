@@ -3,6 +3,7 @@ package com.module06.backend.handover.application.service;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
+import com.module06.backend.handover.application.command.ReassignItemsCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
 import com.module06.backend.handover.application.port.out.MemberStatusPort;
@@ -93,6 +94,22 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
         OrgQueryPort.MemberSnapshot reassignee = orgQueryPort().findMember(command.toMemberId());
         handover.reassignItem(command.actionId(), command.toMemberId(), reassignee.name(), reassignee.position(),
                 command.reassignedAt());
+        return handoverRepository.save(handover);
+    }
+
+    @Override
+    public Handover reassignItems(ReassignItemsCommand command) {
+        if (command == null || command.assignments() == null || command.assignments().isEmpty()) {
+            throw new BusinessException(HandoverErrorCode.HO_REASSIGN_COMMAND_INVALID);
+        }
+        Handover handover = findHandover(command.handoverId());
+        // 한 트랜잭션(@Transactional) 안에서 전부 적용한다 — 하나라도 실패하면(없는 액션·잘못된 상태)
+        // 전체가 롤백되어 부분 재분배로 어긋난 채 남지 않는다.
+        for (ReassignItemsCommand.Assignment assignment : command.assignments()) {
+            OrgQueryPort.MemberSnapshot reassignee = orgQueryPort().findMember(assignment.toMemberId());
+            handover.reassignItem(assignment.actionId(), assignment.toMemberId(),
+                    reassignee.name(), reassignee.position(), command.reassignedAt());
+        }
         return handoverRepository.save(handover);
     }
 

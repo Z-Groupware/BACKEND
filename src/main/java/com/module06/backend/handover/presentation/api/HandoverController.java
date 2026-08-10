@@ -18,6 +18,7 @@ import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.presentation.api.dto.request.CreateHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRequest;
+import com.module06.backend.handover.presentation.api.dto.request.ReassignItemsRequest;
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverInsightResponse;
 import com.module06.backend.handover.presentation.api.dto.response.HandoverPackageResponse;
@@ -162,6 +163,21 @@ public class HandoverController {
                 request.toCommand(id, actionId, LocalDateTime.now())
         );
         return ApiResponse.success("Handover item reassigned.", HandoverResponse.from(handover));
+    }
+
+    /*
+     * 일괄 재분배 — 휴직 신청 화면(팀장 자가 재할당)이 액션별 담당자를 한 번에 보낸다.
+     * 건별(/items/{actionId}/reassign)과 경로 세그먼트 수가 달라 충돌하지 않는다.
+     * 한 트랜잭션에서 전부 적용 — 하나라도 실패하면 전체 롤백(부분 재분배 방지).
+     */
+    @PatchMapping("/{id}/items/reassign")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<HandoverResponse> reassignItems(@PathVariable Long id,
+                                                       @Valid @RequestBody ReassignItemsRequest request) {
+        Handover handover = reassignHandoverItemUseCase.reassignItems(
+                request.toCommand(id, LocalDateTime.now())
+        );
+        return ApiResponse.success("Handover items reassigned.", HandoverResponse.from(handover));
     }
 
     /*
