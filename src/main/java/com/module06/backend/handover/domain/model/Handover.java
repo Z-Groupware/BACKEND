@@ -160,7 +160,15 @@ public class Handover {
     }
 
     public void finalizeApproval(Long approverId, String approverNameSnap, LocalDateTime at) {
-        if (status != HandoverStatus.REASSIGNED) {
+        finalizeApproval(approverId, approverNameSnap, at, false);
+    }
+
+    public void finalizeApproval(Long approverId, String approverNameSnap, LocalDateTime at,
+                                 boolean allowDirectOffboardingFinalize) {
+        boolean directOffboardingFinalizeAllowed = allowDirectOffboardingFinalize
+                && status == HandoverStatus.SUBMITTED
+                && handoverType == HandoverType.OFFBOARDING;
+        if (status != HandoverStatus.REASSIGNED && !directOffboardingFinalizeAllowed) {
             throw new BusinessException(HandoverErrorCode.HO_FINALIZE_NOT_ALLOWED);
         }
         requireId(approverId, "approverId");
