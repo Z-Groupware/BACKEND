@@ -93,6 +93,30 @@ class CaptureUploadStateTest {
         assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
     }
 
+    /* willChangeSegment가 실제 이어받기 성립 조건(assignOrVerifyRecorder와 동일)만 true를 내는지 검증한다. */
+    @Test
+    @DisplayName("willChangeSegment는 다른 사람이 canTakeover=true로 부를 때만 true다")
+    void willChangeSegmentMatchesTakeoverCondition() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
+
+        assertThat(state.willChangeSegment(7L, true)).isFalse();   // 본인 재호출
+        assertThat(state.willChangeSegment(9L, false)).isFalse();  // 하트비트 살아있음
+        assertThat(state.willChangeSegment(9L, true)).isTrue();    // 이어받기 성립
+    }
+
+    /* 세그먼트 전환 시 blocksFormed는 오르고 lastBlockEndOffsetMs는 0으로 초기화되는지 검증한다. */
+    @Test
+    @DisplayName("startNewSegmentBlockCounting은 blocksFormed를 올리고 끝 지점을 0으로 되돌린다")
+    void startNewSegmentBlockCountingResetsOffset() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
+        state.recordBlockFormed(600_000L);
+
+        state.startNewSegmentBlockCounting();
+
+        assertThat(state.getBlocksFormed()).isEqualTo(2);
+        assertThat(state.getLastBlockEndOffsetMs()).isZero();
+    }
+
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.
     private void assertErrorCode(Runnable execution, String expectedCode) {
         assertThatThrownBy(execution::run)

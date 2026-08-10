@@ -20,10 +20,11 @@ import com.module06.backend.capture.application.port.in.CreateSttBlockPort.Creat
  * ffmpeg 변환·AI-01 호출·블록 조립은 청크 완료 통보(CAP-07)가 "즉시 반환한다"는 명세 계약과
  * 안 맞는 무거운 작업이다(MeetingCompletedAnalysisTrigger와 같은 이유 — 전용 스레드 풀로 뺀다).
  *
- * <h2>세그먼트를 넘어가지 않는다(단순화 결정)</h2>
- * 녹음자 이어받기로 세그먼트가 바뀌면, 그 시점까지 쌓인 청크만으로 블록을 마무리하지 않고
- * *이번 트리거에서는* 새 세그먼트에서 카운트를 처음부터 다시 센다 — 세그먼트 경계를 넘어
- * 오디오를 이어붙이는 연속성 처리는 범위 밖으로 남긴다(추후 별도 작업).
+ * <h2>세그먼트를 넘어 오디오를 이어붙이지 않는다(단순화 결정)</h2>
+ * 녹음자 이어받기로 세그먼트가 바뀌기 직전엔 {@link #finalizeTailBlockOnSegmentChange}가 그때까지
+ * 쌓인 자투리를 TAIL 블록으로 마무리하고, 새 세그먼트는 카운트를 처음부터 다시 센다 — 그래도
+ * 이전 세그먼트의 오디오와 새 세그먼트의 오디오를 하나로 이어붙이는 연속성 처리는 안 한다
+ * (이어받기 사이 실제 공백 시간 포함, 두 세그먼트는 끝까지 별개의 블록들로 남는다).
  *
  * <h2>여기서 던지지 않는다</h2>
  * best-effort다. 실패해도 청크 업로드 자체(CAP-07)는 이미 성공적으로 끝난 뒤라 되돌릴 것이
@@ -35,8 +36,9 @@ public class SttBlockCutTrigger {
     private static final Logger log = LoggerFactory.getLogger(SttBlockCutTrigger.class);
 
     // 청크 하나는 15초 — 40개 누적이 곧 10분이다(MAX_SEQ 산정과 같은 물리적 사실).
+    private static final long CHUNK_DURATION_MS = 15_000L;
     private static final int CHUNKS_PER_BLOCK = 40;
-    private static final long BLOCK_DURATION_MS = 600_000L;
+    private static final long BLOCK_DURATION_MS = CHUNKS_PER_BLOCK * CHUNK_DURATION_MS;
 
     private final SttBlockAudioAssemblyPort audioAssemblyPort;
     private final SttBlockCutDetectionPort cutDetectionPort;
@@ -93,8 +95,52 @@ public class SttBlockCutTrigger {
         }
     }
 
+    // ⚠️ state.getBlocksFormed()를 여기 쓰면 안 된다 — TAIL 처리 이후로 그 값은 세그먼트를 넘어
+    // 계속 누적되는 "회의 전체 블록 순번"이 됐다(startNewSegmentBlockCounting). 반면 lastSeq는
+    // 세그먼트가 바뀌면 0부터 다시 센다. 그래서 lastBlockEndOffsetMs(세그먼트마다 정확히 0으로
+    // 리셋됨)를 청크 개수로 역산해 "이 세그먼트에서 이미 블록으로 소비된 청크 수"를 구한다.
     private boolean hasReachedThreshold(CaptureUploadState state) {
-        int chunksSinceLastBlock = state.getLastSeq() - state.getBlocksFormed() * CHUNKS_PER_BLOCK;
+        long chunksAlreadyConsumedInSegment = state.getLastBlockEndOffsetMs() / CHUNK_DURATION_MS;
+        long chunksSinceLastBlock = state.getLastSeq() - chunksAlreadyConsumedInSegment;
         return chunksSinceLastBlock >= CHUNKS_PER_BLOCK;
+    }
+
+    /*
+     * 세그먼트 전환 직전(이어받기 성립 시) 이전 세그먼트에 쌓인 자투리를 TAIL 블록으로 마무리한다
+     * (CaptureUploadService.issuePartUploadUrls가 state.willChangeSegment()==true일 때, 실제
+     * 전환 전에 부른다).
+     *
+     * <h2>파라미터를 값으로 받는다 — 다시 조회하지 않는다</h2>
+     * 이 메서드가 비동기로 실행되는 사이 호출자가 이미 새 세그먼트로 상태를 저장했을 수 있다.
+     * 여기서 CaptureUploadState를 다시 읽으면 "바뀌기 전" 값이 아니라 "바뀐 후" 값을 보게 된다 —
+     * 그래서 호출 시점의 이전 세그먼트 값을 그대로 인자로 받아 쓴다.
+     *
+     * <h2>AI-01을 부르지 않는다</h2>
+     * TAIL은 무음을 찾아 자르는 게 아니라 "가진 것까지 강제로 끊는" 것이다 — 절단 지점을 결정할
+     * 필요가 없으므로 SttBlockCutDetectionPort를 거치지 않는다.
+     */
+    @Async("sttBlockCutTaskExecutor")
+    public void finalizeTailBlockOnSegmentChange(Long companyId, Long meetingId, int oldSegmentSeq,
+                                                 int oldLastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
+        try {
+            long endOffsetMs = (long) oldLastSeq * CHUNK_DURATION_MS;
+            if (endOffsetMs <= lastBlockEndOffsetMs) {
+                // 이미 블록 경계에 딱 맞게 끝났거나, 애초에 이 세그먼트에 청크가 없었다 — 자투리 없음.
+                return;
+            }
+
+            String blockAudioS3Key = audioAssemblyPort.assembleBlockAudio(companyId, meetingId, oldSegmentSeq,
+                    blocksFormed, lastBlockEndOffsetMs, endOffsetMs);
+
+            createSttBlockPort.createAndSubmitBlock(new CreateSttBlockCommand(
+                    meetingId, blocksFormed, Math.toIntExact(lastBlockEndOffsetMs),
+                    Math.toIntExact(endOffsetMs), "TAIL", blockAudioS3Key));
+
+            sttBlockFormedWriter.recordSegmentTailBlockFormed(meetingId);
+        } catch (RuntimeException e) {
+            // 여기서도 던지지 않는다 — 세그먼트 전환(이어받기) 자체는 이미 별도로 진행된다.
+            log.error("세그먼트 전환 시 자투리(TAIL) 블록 마무리 실패 — meetingId={} oldSegmentSeq={}",
+                    meetingId, oldSegmentSeq, e);
+        }
     }
 }

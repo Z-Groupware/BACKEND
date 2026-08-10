@@ -103,6 +103,73 @@ class SttBlockCutTriggerTest {
         assertThat(state.getBlocksFormed()).isZero();
     }
 
+    @Test
+    @DisplayName("TAIL로 blocksFormed가 이미 늘어난 새 세그먼트에서도 40개만 쌓이면 트리거된다")
+    void triggersAtFortyChunksEvenAfterBlocksFormedAdvancedByTailInPriorSegment() {
+        // 이전 세그먼트에서 TAIL 블록까지 포함해 blocksFormed=3이 된 뒤, 새 세그먼트가 시작된 상황을
+        // 재현한다(startNewSegmentBlockCounting 직후와 동일 — lastBlockEndOffsetMs는 0으로 리셋).
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        state.recordBlockFormed(600_000L);
+        state.recordBlockFormed(1_200_000L);
+        state.startNewSegmentBlockCounting();
+        assertThat(state.getBlocksFormed()).isEqualTo(3);
+        assertThat(state.getLastBlockEndOffsetMs()).isZero();
+
+        // 새 세그먼트에서 정확히 40개(=10분)만 올라왔다 — blocksFormed(3)와 무관하게 트리거돼야 한다.
+        state.recordUpload(7L, 40);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        trigger(stateRepo, audioPort, cutPort, createPort).triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        assertThat(audioPort.extractCalls).containsExactly(600_000L);
+        assertThat(createPort.received).hasSize(1);
+        assertThat(createPort.received.get(0).blockSeq()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("세그먼트 전환 시 자투리가 없으면(청크 없음/이미 경계에 맞음) 아무 포트도 부르지 않는다")
+    void skipsTailFinalizationWhenNothingAccumulated() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(), createPort)
+                .finalizeTailBlockOnSegmentChange(COMPANY_ID, MEETING_ID, 0, 0, 0, 0L);
+
+        assertThat(createPort.received).isEmpty();
+        assertThat(state.getBlocksFormed()).isZero();
+    }
+
+    @Test
+    @DisplayName("세그먼트 전환 시 자투리가 있으면 AI-01 없이 바로 블록을 조립·생성하고 카운터를 갱신한다")
+    void finalizesTailBlockWhenChunksAccumulated() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        // 세그먼트 0에서 25개(=375,000ms)만 쌓인 채 이어받기가 일어난 상황.
+        trigger(stateRepo, audioPort, new RefusingCutDetectionPort(), createPort)
+                .finalizeTailBlockOnSegmentChange(COMPANY_ID, MEETING_ID, 0, 25, 0, 0L);
+
+        assertThat(audioPort.assembleCalls).hasSize(1);
+        assertThat(createPort.received).hasSize(1);
+
+        CreateSttBlockCommand created = createPort.received.get(0);
+        assertThat(created.meetingId()).isEqualTo(MEETING_ID);
+        assertThat(created.blockSeq()).isZero();
+        assertThat(created.startOffsetMs()).isZero();
+        assertThat(created.endOffsetMs()).isEqualTo(375_000);
+        assertThat(created.cutReason()).isEqualTo("TAIL");
+
+        // 세그먼트 전환용 카운터 갱신 — blocksFormed는 오르고 끝 지점은 새 세그먼트를 위해 0으로 리셋.
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
+        assertThat(state.getLastBlockEndOffsetMs()).isZero();
+    }
+
     private SttBlockCutTrigger trigger(CaptureUploadStateRepository stateRepo, SttBlockAudioAssemblyPort audioPort,
                                        SttBlockCutDetectionPort cutPort, CreateSttBlockPort createPort) {
         return new SttBlockCutTrigger(audioPort, cutPort, createPort, stateRepo, new SttBlockFormedWriter(stateRepo));

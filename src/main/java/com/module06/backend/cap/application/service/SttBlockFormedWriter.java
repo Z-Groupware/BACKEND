@@ -26,4 +26,14 @@ class SttBlockFormedWriter {
         state.recordBlockFormed(cutOffsetMs);
         captureUploadStateRepository.save(state);
     }
+
+    // 세그먼트 전환 직전 자투리(TAIL) 블록을 마무리한 뒤 카운터를 갱신한다. issuePartUploadUrls가
+    // 이미 새 세그먼트로 저장을 마쳤을 수도 있는 시점에 비동기로 도착하므로, segmentSeq·
+    // recorderPersonId는 건드리지 않고 blocksFormed·lastBlockEndOffsetMs만 갱신한다.
+    @Transactional
+    void recordSegmentTailBlockFormed(Long meetingId) {
+        CaptureUploadState state = captureUploadStateRepository.findByMeetingId(meetingId).orElseThrow();
+        state.startNewSegmentBlockCounting();
+        captureUploadStateRepository.save(state);
+    }
 }

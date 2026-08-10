@@ -77,6 +77,27 @@ public class CaptureUploadState {
         segmentSeq++;
     }
 
+    /*
+     * assignOrVerifyRecorder를 호출하면 세그먼트가 실제로 올라갈지(이어받기가 성립할지)를
+     * 미리 판정한다. 그 판정 로직과 완전히 같은 조건이어야 한다 — 세그먼트가 바뀌기 직전에
+     * 이전 세그먼트의 자투리를 TAIL 블록으로 마무리하려면(SttBlockCutTrigger), 실제로 바뀌기
+     * 전에 "지금 바뀌려는 참인가"를 물어볼 곳이 필요하다.
+     */
+    public boolean willChangeSegment(Long callerId, boolean canTakeover) {
+        return recorderPersonId != null && !recorderPersonId.equals(callerId) && canTakeover;
+    }
+
+    /*
+     * 세그먼트 전환 직전 자투리를 TAIL 블록으로 마무리한 뒤 호출한다. 블록 순번(blocksFormed)은
+     * 회의 전체를 관통하는 번호라 계속 증가시키지만, 끝 지점(lastBlockEndOffsetMs)은 0으로
+     * 되돌린다 — 새 세그먼트는 자신만의 독립된 오디오 스트림이라 0부터 자기 시간을 다시 센다
+     * (이어받기 사이의 실제 공백 시간은 반영하지 않는다 — 세그먼트를 넘는 연속성은 범위 밖).
+     */
+    public void startNewSegmentBlockCounting() {
+        blocksFormed++;
+        lastBlockEndOffsetMs = 0L;
+    }
+
     /** 현재 녹음자인지 검증만 한다(상태 변경 없음). 아니면 CAP_NOT_CURRENT_RECORDER — 상태 조회(#4)처럼 읽기 권한 확인용. */
     public void verifyRecorder(Long callerId) {
         if (recorderPersonId == null || !recorderPersonId.equals(callerId)) {

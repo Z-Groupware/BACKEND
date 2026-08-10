@@ -15,6 +15,8 @@ import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,8 +77,25 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         // 이미 녹음자가 있는 상태에서 다른 사람이 호출하면, 하트비트가 끊긴 경우(canTakeover)에만 교체 허용.
         boolean canTakeover = !captureHeartbeatPort.isAlive(command.meetingId());
+
+        // 세그먼트가 실제로 바뀌기 전에(이어받기 성립 시) 이전 세그먼트 값을 미리 붙잡아둔다 —
+        // assignOrVerifyRecorder가 세그먼트를 올리고 나면 이 값은 사라진다.
+        boolean willChangeSegment = state.willChangeSegment(command.callerId(), canTakeover);
+        int oldSegmentSeq = state.getSegmentSeq();
+        int oldLastSeq = state.getLastSeq();
+        int oldBlocksFormed = state.getBlocksFormed();
+        long oldLastBlockEndOffsetMs = state.getLastBlockEndOffsetMs();
+
         state.assignOrVerifyRecorder(command.callerId(), canTakeover);
         CaptureUploadState saved = captureUploadStateRepository.save(state);
+
+        // 커밋 후에만 트리거한다 — 커밋 전에 부르면 (1) TAIL 마무리가 실패해도 세그먼트 전환
+        // 자체는 이미 커밋된 상태와 어긋나고 (2) 아직 커밋 안 된 새 세그먼트 값을 다른 트랜잭션이
+        // 먼저 볼 수 없어야 한다(SubmitCaptionsService.broadcastAfterCommit와 동일 원칙).
+        if (willChangeSegment) {
+            finalizeTailBlockAfterCommit(companyId, command.meetingId(), oldSegmentSeq, oldLastSeq,
+                    oldBlocksFormed, oldLastBlockEndOffsetMs);
+        }
 
         // presign도 녹음자의 살아있음 신호다 — 여기서 하트비트를 세워두지 않으면 첫 배정 직후
         // (아직 complete 전) 두 번째 호출자의 isAlive가 false로 떠서 즉시 takeover가 열린다.
@@ -151,6 +170,24 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         // 10분(40청크) 누적 시 블록 자동 트리거(비동기, best-effort) — 이 메서드는 여기서 즉시 반환한다.
         sttBlockCutTrigger.triggerIfThresholdReached(companyId, command.meetingId());
+    }
+
+    // SubmitCaptionsService.broadcastAfterCommit와 동일 패턴 — 트랜잭션 동기화가 없는 컨텍스트
+    // (순수 단위 테스트)에서는 즉시 호출로 대체한다.
+    private void finalizeTailBlockAfterCommit(Long companyId, Long meetingId, int oldSegmentSeq, int oldLastSeq,
+                                              int oldBlocksFormed, long oldLastBlockEndOffsetMs) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            sttBlockCutTrigger.finalizeTailBlockOnSegmentChange(companyId, meetingId, oldSegmentSeq, oldLastSeq,
+                    oldBlocksFormed, oldLastBlockEndOffsetMs);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                sttBlockCutTrigger.finalizeTailBlockOnSegmentChange(companyId, meetingId, oldSegmentSeq, oldLastSeq,
+                        oldBlocksFormed, oldLastBlockEndOffsetMs);
+            }
+        });
     }
 
     // 회의 참석자 명단에 없으면 CAP_NOT_ATTENDEE(403). presign/complete는 참석자만 호출 가능.
