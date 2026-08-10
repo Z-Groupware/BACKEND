@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
@@ -48,16 +47,16 @@ public class MeetingCompletedAssemblyTrigger {
     private final RecordingRepository recordingRepository;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingGapChecker gapChecker;
-    private final RecordingAssemblyPort recordingAssemblyPort;
+    private final RecordingAssemblyDispatcher recordingAssemblyDispatcher;
 
     public MeetingCompletedAssemblyTrigger(RecordingRepository recordingRepository,
                                            CaptureUploadStateRepository captureUploadStateRepository,
                                            RecordingGapChecker gapChecker,
-                                           RecordingAssemblyPort recordingAssemblyPort) {
+                                           RecordingAssemblyDispatcher recordingAssemblyDispatcher) {
         this.recordingRepository = recordingRepository;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.gapChecker = gapChecker;
-        this.recordingAssemblyPort = recordingAssemblyPort;
+        this.recordingAssemblyDispatcher = recordingAssemblyDispatcher;
     }
 
     @Async("recordingAssemblyTaskExecutor")
@@ -90,7 +89,7 @@ public class MeetingCompletedAssemblyTrigger {
                 return;
             }
 
-            recordingAssemblyPort.startAssembly(meetingId, lastSegmentSeq, lastSeq);
+            recordingAssemblyDispatcher.dispatch(meetingId, lastSegmentSeq, lastSeq);
             log.info("회의 종료 자동 조립 트리거 — meetingId={} lastSegmentSeq={} lastSeq={}",
                     meetingId, lastSegmentSeq, lastSeq);
 

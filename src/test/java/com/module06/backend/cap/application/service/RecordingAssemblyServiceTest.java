@@ -225,7 +225,9 @@ class RecordingAssemblyServiceTest {
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
         RecordingGapChecker gapChecker = new RecordingGapChecker(partRepo);
-        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, assemblyPort);
+        // @Async는 스프링 컨텍스트 없이 직접 호출하면 프록시를 안 타므로 이 테스트 스레드에서 그대로 동기 실행된다.
+        RecordingAssemblyDispatcher dispatcher = new RecordingAssemblyDispatcher(assemblyPort);
+        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, dispatcher);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

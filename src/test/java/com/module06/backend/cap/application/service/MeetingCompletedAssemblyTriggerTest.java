@@ -107,7 +107,8 @@ class MeetingCompletedAssemblyTriggerTest {
             throw new IllegalStateException("조립 파이프라인 호출이 터졌다");
         };
         MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
-                recordingRepo(false), stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))), exploding);
+                recordingRepo(false), stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
+                new RecordingAssemblyDispatcher(exploding));
 
         assertThatCode(() -> trigger.onMeetingCompleted(event())).doesNotThrowAnyException();
     }
@@ -138,7 +139,8 @@ class MeetingCompletedAssemblyTriggerTest {
         };
         RecordingAssemblyCalls port = new RecordingAssemblyCalls();
         MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
-                exploding, stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))), port);
+                exploding, stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
+                new RecordingAssemblyDispatcher(port));
 
         assertThatCode(() -> trigger.onMeetingCompleted(event())).doesNotThrowAnyException();
         assertThat(port.calls).isEmpty();
@@ -146,11 +148,13 @@ class MeetingCompletedAssemblyTriggerTest {
 
     // ── 조립 헬퍼 ──────────────────────────────────────────────────────────
 
+    // @Async는 스프링 컨텍스트 없이 직접 호출하면 프록시를 안 타므로 이 테스트 스레드에서 그대로 동기 실행된다.
     private MeetingCompletedAssemblyTrigger trigger(boolean recordingExists, Optional<CaptureUploadState> state,
                                                      Map<Integer, List<Integer>> seqsBySegment,
                                                      RecordingAssemblyPort port) {
         return new MeetingCompletedAssemblyTrigger(
-                recordingRepo(recordingExists), stateRepo(state), gapChecker(seqsBySegment), port);
+                recordingRepo(recordingExists), stateRepo(state), gapChecker(seqsBySegment),
+                new RecordingAssemblyDispatcher(port));
     }
 
     private RecordingRepository recordingRepo(boolean exists) {

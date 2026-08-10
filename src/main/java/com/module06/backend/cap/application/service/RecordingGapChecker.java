@@ -28,7 +28,7 @@ class RecordingGapChecker {
     boolean hasGap(Long meetingId, int lastSegmentSeq, int lastSeq) {
         for (int segment = 0; segment <= lastSegmentSeq; segment++) {
             Set<Integer> present = new HashSet<>(recordingPartRepository.findSeqsInSegment(meetingId, segment));
-            int target = (segment == lastSegmentSeq) ? lastSeq : maxOrZero(present);
+            int target = (segment == lastSegmentSeq) ? lastSeq : RecordingPartRepository.maxOf(present);
             for (int seq = 1; seq <= target; seq++) {
                 if (!present.contains(seq)) {
                     return true;
@@ -36,15 +36,5 @@ class RecordingGapChecker {
             }
         }
         return false;
-    }
-
-    private int maxOrZero(Set<Integer> seqs) {
-        int max = 0;
-        for (int seq : seqs) {
-            if (seq > max) {
-                max = seq;
-            }
-        }
-        return max;
     }
 }

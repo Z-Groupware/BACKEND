@@ -2,7 +2,6 @@ package com.module06.backend.cap.application.service;
 
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
-import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
@@ -24,18 +23,18 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
     private final CapMeetingAccessGuard accessGuard;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingGapChecker gapChecker;
-    private final RecordingAssemblyPort recordingAssemblyPort;
+    private final RecordingAssemblyDispatcher recordingAssemblyDispatcher;
 
     public RecordingAssemblyService(MeetingReferenceRepository meetingReferenceRepository,
                                     CapMeetingAccessGuard accessGuard,
                                     CaptureUploadStateRepository captureUploadStateRepository,
                                     RecordingGapChecker gapChecker,
-                                    RecordingAssemblyPort recordingAssemblyPort) {
+                                    RecordingAssemblyDispatcher recordingAssemblyDispatcher) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.gapChecker = gapChecker;
-        this.recordingAssemblyPort = recordingAssemblyPort;
+        this.recordingAssemblyDispatcher = recordingAssemblyDispatcher;
     }
 
     @Override
@@ -61,8 +60,10 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
             throw new BusinessException(CapErrorCode.CAP_ASSEMBLY_INCOMPLETE);
         }
 
-        // 연속성 OK → 조립 파이프라인 트리거(스텁, best-effort). 실제 조립/상태 전이는 파이프라인이 담당.
-        recordingAssemblyPort.startAssembly(command.meetingId(), command.lastSegmentSeq(), command.lastSeq());
+        // 연속성 OK → 조립 파이프라인 트리거(best-effort, 비동기). 실제 조립/상태 전이는 파이프라인이 담당.
+        // 여기서 바로 포트를 부르지 않는다 — 실 어댑터는 무거운 ffmpeg 작업이라, 동기로 부르면
+        // 이 API의 "즉시 202" 계약이 깨진다(RecordingAssemblyDispatcher 주석 참고).
+        recordingAssemblyDispatcher.dispatch(command.meetingId(), command.lastSegmentSeq(), command.lastSeq());
 
         // 여기 도달했으면 구멍이 없으므로 missingSeqs는 빈 목록.
         return new Result("ASSEMBLING", List.of());

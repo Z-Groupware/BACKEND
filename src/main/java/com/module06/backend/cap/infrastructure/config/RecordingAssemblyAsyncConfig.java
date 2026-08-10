@@ -18,6 +18,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  *
  * @EnableAsync는 여기서 다시 선언하지 않는다 — AnalysisAsyncConfig가 애플리케이션 전역에
  * 이미 켜놨다(@EnableAsync는 컨텍스트당 한 번이면 충분하다).
+ *
+ * TODO: 풀 2개·큐 20은 근거 있는 값이 아니라 AnalysisAsyncConfig 값을 그대로 베낀 것이다.
+ * analysis는 외부 모델 호출 대기가 대부분(CPU를 거의 안 씀)이라 이 값으로 충분하지만, assembly는
+ * ffmpeg가 CPU·디스크를 실제로 점유한다 — 회의 길이별(분)로 처리 시간·CPU·메모리를 실측한 뒤
+ * 풀 크기와 RecordingAssemblyS3FfmpegAdapter.FFMPEG_TIMEOUT을 다시 정해야 한다.
  */
 @Configuration
 public class RecordingAssemblyAsyncConfig {
