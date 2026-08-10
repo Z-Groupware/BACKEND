@@ -124,17 +124,19 @@ class ProjectServiceTest {
         projectService = service();
         Project project = Project.reconstitute(1L, COMPANY, "TAG", "이름", "설명", "#16A34A",
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
-        when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(project));
+        when(projectRepository.findAllByCompanyId(COMPANY, 0, 20)).thenReturn(List.of(project));
+        when(projectRepository.countByCompanyId(COMPANY)).thenReturn(1L);
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of(
                 new TeamReferenceRepository.TeamName(1L, "개발팀"),
                 new TeamReferenceRepository.TeamName(2L, "마케팅팀")));
 
-        List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
+        GetProjectListUseCase.ProjectListResult result = projectService.list(COMPANY, 0, 20);
 
-        assertThat(result).containsExactly(
+        assertThat(result.items()).containsExactly(
                 new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0, List.of("개발팀", "마케팅팀")));
+        assertThat(result.totalElements()).isEqualTo(1L);
     }
 
     @Test
@@ -144,17 +146,19 @@ class ProjectServiceTest {
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
         Project projectB = Project.reconstitute(2L, COMPANY, "TAG-B", "B", "설명", "#000000",
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
-        when(projectRepository.findAllByCompanyId(COMPANY)).thenReturn(List.of(projectA, projectB));
+        when(projectRepository.findAllByCompanyId(COMPANY, 0, 20)).thenReturn(List.of(projectA, projectB));
+        when(projectRepository.countByCompanyId(COMPANY)).thenReturn(2L);
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of());
 
-        List<GetProjectListUseCase.ProjectListItem> result = projectService.list(COMPANY);
+        GetProjectListUseCase.ProjectListResult result = projectService.list(COMPANY, 0, 20);
 
-        assertThat(result).containsExactly(
+        assertThat(result.items()).containsExactly(
                 new GetProjectListUseCase.ProjectListItem(projectA, 5, 2, 3, List.of()),
                 new GetProjectListUseCase.ProjectListItem(projectB, 0, 0, 0, List.of()));
+        assertThat(result.totalElements()).isEqualTo(2L);
     }
 
     // ---------- getDetail ----------

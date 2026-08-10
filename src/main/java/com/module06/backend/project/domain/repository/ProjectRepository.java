@@ -16,7 +16,10 @@ public interface ProjectRepository {
 
     boolean existsByTag(String tag);
 
-    List<Project> findAllByCompanyId(Long companyId);
+    // 2026-08-10 페이지네이션 도입(이홍근 요청) — page는 0부터 시작.
+    List<Project> findAllByCompanyId(Long companyId, int page, int size);
+
+    long countByCompanyId(Long companyId);
 
     boolean existsActiveByCompanyIdAndId(Long companyId, Long id);
 

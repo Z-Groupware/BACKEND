@@ -38,6 +38,7 @@ import com.module06.backend.project.exception.ProjectErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -186,25 +187,42 @@ class ProjectControllerTest {
     @DisplayName("목록도 토큰의 회사로만 조회한다")
     void listTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any())).thenReturn(List.of(
-                new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0, 0, List.of())));
+        when(getProjectListUseCase.list(any(), anyInt(), anyInt())).thenReturn(
+                new GetProjectListUseCase.ProjectListResult(
+                        List.of(new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0, 0, List.of())), 1L));
 
         mockMvc.perform(get("/api/projects"))
                 .andExpect(status().isOk());
 
-        verify(getProjectListUseCase).list(1L);
+        verify(getProjectListUseCase).list(1L, 0, 20);
     }
 
     @Test
     @DisplayName("목록 조회도 헤더를 무시한다")
     void listIgnoresSpoofedHeader() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any())).thenReturn(List.of());
+        when(getProjectListUseCase.list(any(), anyInt(), anyInt()))
+                .thenReturn(new GetProjectListUseCase.ProjectListResult(List.of(), 0L));
 
         mockMvc.perform(get("/api/projects").header("X-Company-Id", "999"))
                 .andExpect(status().isOk());
 
-        verify(getProjectListUseCase).list(eq(1L));
+        verify(getProjectListUseCase).list(eq(1L), eq(0), eq(20));
+    }
+
+    @Test
+    @DisplayName("목록 조회는 page/size 쿼리파라미터를 그대로 UseCase에 전달한다")
+    void listPassesPageAndSizeThrough() throws Exception {
+        authenticateAs(1L, 3L);
+        when(getProjectListUseCase.list(any(), anyInt(), anyInt()))
+                .thenReturn(new GetProjectListUseCase.ProjectListResult(List.of(), 0L));
+
+        mockMvc.perform(get("/api/projects").param("page", "2").param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(5));
+
+        verify(getProjectListUseCase).list(1L, 2, 5);
     }
 
     @Test

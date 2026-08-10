@@ -2,6 +2,7 @@ package com.module06.backend.project.infrastructure.persistence;
 
 import java.util.List;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /* comment.
@@ -13,7 +14,10 @@ public interface SpringDataProjectRepository extends JpaRepository<ProjectJpaEnt
     boolean existsByTag(String tag);
 
     // 기존 findAllByCompanyId는 deletedAt 필터가 빠진 버그였음 — 이름 바꿔서 명시적으로 고침
-    List<ProjectJpaEntity> findAllByCompanyIdAndDeletedAtIsNull(Long companyId);
+    // 2026-08-10 페이지네이션 도입 — 조회 조건은 그대로, Pageable만 추가.
+    List<ProjectJpaEntity> findAllByCompanyIdAndDeletedAtIsNull(Long companyId, Pageable pageable);
+
+    long countByCompanyIdAndDeletedAtIsNull(Long companyId);
 
     boolean existsByCompanyIdAndIdAndDeletedAtIsNull(Long companyId, Long id);
 

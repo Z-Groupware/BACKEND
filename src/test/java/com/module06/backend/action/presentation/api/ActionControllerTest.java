@@ -31,6 +31,7 @@ import com.module06.backend.global.security.AuthPrincipal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -119,14 +120,16 @@ class ActionControllerTest {
     @DisplayName("내 액션 목록은 토큰의 memberId로 조회한다")
     void listUsesMemberIdFromToken() throws Exception {
         authenticateAs(1L, 5L);
-        when(getMyActionsUseCase.getMyActions(5L))
-                .thenReturn(List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)));
+        when(getMyActionsUseCase.getMyActions(eq(5L), anyInt(), anyInt()))
+                .thenReturn(new GetMyActionsUseCase.ActionListResult(
+                        List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
 
         mockMvc.perform(get("/api/actions"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].assigneeName").value("이하윤"));
+                .andExpect(jsonPath("$.data.content[0].assigneeName").value("이하윤"))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
 
-        verify(getMyActionsUseCase).getMyActions(5L);
+        verify(getMyActionsUseCase).getMyActions(5L, 0, 20);
     }
 
     @Test
@@ -153,14 +156,15 @@ class ActionControllerTest {
                 com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
                 null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
 
-        when(getMyActionsUseCase.getMyActions(5L))
-                .thenReturn(List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)));
+        when(getMyActionsUseCase.getMyActions(eq(5L), anyInt(), anyInt()))
+                .thenReturn(new GetMyActionsUseCase.ActionListResult(
+                        List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
                 .thenReturn(new ActionDetail(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
 
         mockMvc.perform(get("/api/actions"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].startDate").value("2026-08-05"));
+                .andExpect(jsonPath("$.data.content[0].startDate").value("2026-08-05"));
 
         mockMvc.perform(get("/api/actions/10"))
                 .andExpect(status().isOk())

@@ -9,6 +9,8 @@ import com.module06.backend.action.domain.model.Action;
     (Controller의 @PreAuthorize(hasRole)가 1차 방어, teamId 자체가 JWT에서만 나와 다른 팀
     조회가 애초에 불가능하므로 여기서 별도 소유권 검사를 하지 않는다).
 
+    2026-08-10 페이지네이션 도입(이홍근 요청) — page는 0부터 시작.
+
     연결된 클래스
     - ActionRepository          : 조회
     - ActionReferenceRepository : 프로젝트태그·팀명 조인
@@ -17,8 +19,11 @@ import com.module06.backend.action.domain.model.Action;
 */
 public interface GetTeamActionsUseCase {
 
-    List<TeamActionListItem> getTeamActions(Long teamId);
+    TeamActionListResult getTeamActions(Long teamId, int page, int size);
 
     record TeamActionListItem(Action action, String projectTag, String teamName) {
+    }
+
+    record TeamActionListResult(List<TeamActionListItem> items, long totalElements) {
     }
 }

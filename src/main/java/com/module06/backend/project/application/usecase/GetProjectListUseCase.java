@@ -10,10 +10,13 @@ import com.module06.backend.project.domain.model.Project;
     action BC·meeting(D) 계약이 다 갖춰진 지금은 배치 집계로 채운다(2026-08-09) —
     ProjectDetailResult와 같은 이유로 Project 단독이 아니라 함께 반환한다.
     teamNames는 목록 행의 부서 칩 표시용 — team(B) 참조 테이블에서 배치 조회해 채운다(2026-08-09, 윤종호 확인).
+
+    2026-08-10 페이지네이션 도입(이홍근 요청) — page는 0부터 시작. totalElements는 페이지와
+    무관하게 전체 건수라 ProjectListResult로 함께 반환한다.
 */
 public interface GetProjectListUseCase {
 
-    List<ProjectListItem> list(Long companyId);
+    ProjectListResult list(Long companyId, int page, int size);
 
     record ProjectListItem(
             Project project,
@@ -22,5 +25,8 @@ public interface GetProjectListUseCase {
             int meetingCount,
             List<String> teamNames
     ) {
+    }
+
+    record ProjectListResult(List<ProjectListItem> items, long totalElements) {
     }
 }

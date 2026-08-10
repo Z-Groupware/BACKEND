@@ -56,16 +56,18 @@ class TeamActionServiceTest {
     void getTeamActionsReturnsEnrichedListScopedByTeamId() {
         TeamActionService service = teamActionService();
         Action action = teamAction(10L, ActionStatus.TODO);
-        when(actionRepository.findAllByTeamId(TEAM)).thenReturn(List.of(action));
+        when(actionRepository.countByTeamId(TEAM)).thenReturn(1L);
+        when(actionRepository.findAllByTeamId(TEAM, 0, 20)).thenReturn(List.of(action));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
                 .thenReturn(List.of(new TeamReference(TEAM, "개발팀")));
 
-        List<TeamActionListItem> result = service.getTeamActions(TEAM);
+        var result = service.getTeamActions(TEAM, 0, 20);
 
-        assertThat(result).hasSize(1);
-        TeamActionListItem item = result.get(0);
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(1L);
+        TeamActionListItem item = result.items().get(0);
         assertThat(item.action()).isEqualTo(action);
         assertThat(item.projectTag()).isEqualTo("GOODS");
         assertThat(item.teamName()).isEqualTo("개발팀");
@@ -74,9 +76,10 @@ class TeamActionServiceTest {
     @Test
     void getTeamActionsReturnsEmptyListWithoutQueryingReferencesWhenTeamHasNoActions() {
         TeamActionService service = teamActionService();
-        when(actionRepository.findAllByTeamId(TEAM)).thenReturn(List.of());
+        when(actionRepository.countByTeamId(TEAM)).thenReturn(0L);
+        when(actionRepository.findAllByTeamId(TEAM, 0, 20)).thenReturn(List.of());
 
-        assertThat(service.getTeamActions(TEAM)).isEmpty();
+        assertThat(service.getTeamActions(TEAM, 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findProjectReferences(anyList());
         verify(actionReferenceRepository, never()).findTeamReferences(anyList());
     }

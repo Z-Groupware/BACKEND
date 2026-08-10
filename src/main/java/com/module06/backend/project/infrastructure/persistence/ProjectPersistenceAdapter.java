@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.project.domain.model.Project;
@@ -63,8 +64,9 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     }
 
     @Override
-    public List<Project> findAllByCompanyId(Long companyId) {
-        List<ProjectJpaEntity> entities = springDataProjectRepository.findAllByCompanyIdAndDeletedAtIsNull(companyId);
+    public List<Project> findAllByCompanyId(Long companyId, int page, int size) {
+        List<ProjectJpaEntity> entities = springDataProjectRepository.findAllByCompanyIdAndDeletedAtIsNull(
+                companyId, PageRequest.of(page, size));
         List<Long> projectIds = entities.stream().map(ProjectJpaEntity::getId).toList();
 
         // N+1 방지 — 프로젝트별로 따로 조회하지 않고 한 번에 배치 조회해 프로젝트 id로 묶는다(2026-08-09).
@@ -76,6 +78,11 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
         return entities.stream()
                 .map(entity -> toDomain(entity, teamIdsByProjectId.getOrDefault(entity.getId(), List.of())))
                 .toList();
+    }
+
+    @Override
+    public long countByCompanyId(Long companyId) {
+        return springDataProjectRepository.countByCompanyIdAndDeletedAtIsNull(companyId);
     }
 
     @Override

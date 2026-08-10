@@ -50,12 +50,14 @@ public class TeamActionService implements
     private final ActionReferenceRepository actionReferenceRepository;
 
     // FR-AC-06 목록 — teamId는 JWT에서만 나오므로 다른 팀 조회가 애초에 불가능하다.
+    // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
     @Transactional(readOnly = true)
-    public List<TeamActionListItem> getTeamActions(Long teamId) {
-        List<Action> actions = actionRepository.findAllByTeamId(teamId);
+    public TeamActionListResult getTeamActions(Long teamId, int page, int size) {
+        long totalElements = actionRepository.countByTeamId(teamId);
+        List<Action> actions = actionRepository.findAllByTeamId(teamId, page, size);
         if (actions.isEmpty()) {
-            return List.of();
+            return new TeamActionListResult(List.of(), totalElements);
         }
 
         Map<Long, String> projectTagById = toDisplayMap(
@@ -64,9 +66,11 @@ public class TeamActionService implements
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
-        return actions.stream()
+        List<TeamActionListItem> items = actions.stream()
                 .map(action -> new TeamActionListItem(action, projectTagById.get(action.getProjectId()), teamName))
                 .toList();
+
+        return new TeamActionListResult(items, totalElements);
     }
 
     // FR-AC-06 상세 — 전 구성원 공개, 회사 스코프와 TEAM 종류만 다시 확인한다(IDOR 방지).

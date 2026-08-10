@@ -3,6 +3,7 @@ package com.module06.backend.action.infrastructure.persistence;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 
@@ -30,7 +31,17 @@ public interface SpringDataActionRepository extends JpaRepository<ActionJpaEntit
 
     List<ActionJpaEntity> findAllByActionTypeAndAssigneeMemberId(ActionType actionType, Long assigneeMemberId);
 
+    // 2026-08-10 페이지네이션 도입 — 위 전건 조회는 캘린더 월간 집계용으로 남겨두고, 목록
+    // 화면용으로 Pageable 오버로드를 추가한다.
+    List<ActionJpaEntity> findAllByActionTypeAndAssigneeMemberId(ActionType actionType, Long assigneeMemberId, Pageable pageable);
+
+    long countByActionTypeAndAssigneeMemberId(ActionType actionType, Long assigneeMemberId);
+
     List<ActionJpaEntity> findAllByActionTypeAndTeamIdIn(ActionType actionType, List<Long> teamIds);
+
+    List<ActionJpaEntity> findAllByActionTypeAndTeamIdIn(ActionType actionType, List<Long> teamIds, Pageable pageable);
+
+    long countByActionTypeAndTeamIdIn(ActionType actionType, List<Long> teamIds);
 
     List<ActionJpaEntity> findAllByActionTypeAndProjectId(ActionType actionType, Long projectId);
 

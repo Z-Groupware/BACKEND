@@ -34,8 +34,14 @@ public interface ActionRepository {
        담당자 재배정처럼 "누가 최종 담당자인가"가 중요한 경로에서 유실이 생긴다. */
     Optional<Action> findByIdForUpdate(Long id);
 
-    // FR-AC-02 — 개인 액션 목록(호출자 본인 소유분만).
+    // FR-AC-02 — 개인 액션 목록(호출자 본인 소유분만). 캘린더(CalendarQueryService)가 월간
+    // 집계에 전건이 필요해서 그대로 쓰고 있다 — 페이지네이션 버전은 별도 메서드로 추가한다
+    // (2026-08-10, 이홍근 요청).
     List<Action> findAllByAssigneeMemberId(Long assigneeMemberId);
+
+    List<Action> findAllByAssigneeMemberId(Long assigneeMemberId, int page, int size);
+
+    long countByAssigneeMemberId(Long assigneeMemberId);
 
     // FR-AC-02/03 — 상위 액션 표시값·벌크 상태변경 대상 배치 조회.
     List<Action> findAllByIds(List<Long> ids);
@@ -49,7 +55,11 @@ public interface ActionRepository {
     List<Action> findTeamActionsByLeaderMemberId(Long leaderMemberId);
 
     // FR-AC-06 — 팀 액션 목록. JWT의 teamId로 이미 스코프된 값을 그대로 받아 그 팀의 TEAM 액션만 찾는다.
-    List<Action> findAllByTeamId(Long teamId);
+    // 2026-08-10 페이지네이션 도입(이홍근 요청) — 기존 전건 조회는 다른 호출자가 없어 페이지네이션
+    // 버전으로 교체했다(Project.findAllByCompanyId와 동일 판단).
+    List<Action> findAllByTeamId(Long teamId, int page, int size);
+
+    long countByTeamId(Long teamId);
 
     // FR-AC-08 — 팀 액션 타임라인. 이 팀 액션(parentActionId) 아래 걸린, 같은 회사 소속 PERSONAL 액션 전체.
     List<Action> findAllByParentActionId(Long companyId, Long parentActionId);

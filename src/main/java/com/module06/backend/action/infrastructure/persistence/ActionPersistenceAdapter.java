@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.action.application.port.ActionQueryPort;
@@ -85,13 +86,28 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
         return springDataActionRepository.findWithLockById(id).map(this::toDomain);
     }
 
-    // 내 액션 목록 — PERSONAL만 담당자 개념이 있다.
+    // 내 액션 목록 — PERSONAL만 담당자 개념이 있다. 캘린더가 월간 집계에 전건을 쓰므로 그대로 둔다.
     @Override
     public List<Action> findAllByAssigneeMemberId(Long assigneeMemberId) {
         return springDataActionRepository.findAllByActionTypeAndAssigneeMemberId(ActionType.PERSONAL, assigneeMemberId)
                 .stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    // 2026-08-10 페이지네이션 도입(이홍근 요청) — 목록 화면 전용.
+    @Override
+    public List<Action> findAllByAssigneeMemberId(Long assigneeMemberId, int page, int size) {
+        return springDataActionRepository.findAllByActionTypeAndAssigneeMemberId(
+                        ActionType.PERSONAL, assigneeMemberId, PageRequest.of(page, size))
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public long countByAssigneeMemberId(Long assigneeMemberId) {
+        return springDataActionRepository.countByActionTypeAndAssigneeMemberId(ActionType.PERSONAL, assigneeMemberId);
     }
 
     // 배치 조회 — 빈 id 목록이면 IN 절 쿼리 자체를 건너뛴다.
@@ -149,11 +165,19 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
     }
 
     // FR-AC-06 — 팀 액션 목록. 기존 findAllByActionTypeAndTeamIdIn을 단일 teamId로 재사용한다.
+    // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
-    public List<Action> findAllByTeamId(Long teamId) {
-        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(ActionType.TEAM, List.of(teamId)).stream()
+    public List<Action> findAllByTeamId(Long teamId, int page, int size) {
+        return springDataActionRepository.findAllByActionTypeAndTeamIdIn(
+                        ActionType.TEAM, List.of(teamId), PageRequest.of(page, size))
+                .stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    @Override
+    public long countByTeamId(Long teamId) {
+        return springDataActionRepository.countByActionTypeAndTeamIdIn(ActionType.TEAM, List.of(teamId));
     }
 
     // FR-AC-08 — 팀 액션 타임라인. companyId·PERSONAL 조건을 조회 자체에 넣어 다른 회사 행이나
