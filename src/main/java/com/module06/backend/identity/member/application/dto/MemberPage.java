@@ -20,6 +20,7 @@ public record MemberPage(
     public static MemberPage of(long totalElements, int page, int size, List<MemberListItem> content) {
         /* size 는 컨트롤러가 1 이상으로 막지만, 0 이 들어와도 0 나눗셈으로 터지지 않게 한다. */
         int totalPages = size <= 0 ? 0 : (int) ((totalElements + size - 1) / size);
-        return new MemberPage(totalElements, totalPages, page + 1 < totalPages, page, size, content);
+        /* page 에는 상한이 없다 — int 로 더하면 Integer.MAX_VALUE 가 음수로 돌아 hasNext 가 뒤집힌다. */
+        return new MemberPage(totalElements, totalPages, (long) page + 1 < totalPages, page, size, content);
     }
 }

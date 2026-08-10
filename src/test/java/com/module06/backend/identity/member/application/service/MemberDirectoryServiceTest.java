@@ -105,6 +105,19 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
+    @DisplayName("page 가 Integer.MAX_VALUE 여도 hasNext 는 false 다 — page + 1 이 음수로 돌지 않는다")
+    void outOfRangePageHasNoNext() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActive(COMPANY_ID, "김서준", null, null);
+
+        MemberPage page = service(directory).getMembers(
+                COMPANY_ID, MemberListFilter.ALL, null, Integer.MAX_VALUE, 20);
+
+        assertThat(page.hasNext()).isFalse();
+        assertThat(page.content()).isEmpty();
+    }
+
+    @Test
     @DisplayName("결과가 없으면 totalPages 0 · hasNext false 다")
     void emptyResultHasNoPages() {
         MemberPage page = service(new FakeDirectory()).getMembers(COMPANY_ID, MemberListFilter.ALL, null, 0, 20);
