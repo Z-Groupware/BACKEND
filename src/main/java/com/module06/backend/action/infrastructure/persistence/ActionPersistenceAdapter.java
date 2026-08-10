@@ -154,7 +154,10 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
             default -> "createdAt";
         };
         Sort.Direction direction = "asc".equalsIgnoreCase(order) ? Sort.Direction.ASC : Sort.Direction.DESC;
-        return Sort.by(direction, field);
+        // id를 보조 정렬키로 덧붙인다 — dueDate·createdAt만으로는 같은 값을 가진 행이 여러 개일 때
+        // DB가 순서를 보장 안 해서, 페이지 경계에서 같은 행이 두 번 나오거나 아예 빠질 수 있다
+        // (CodeRabbit 지적, PR #305).
+        return Sort.by(direction, field).and(Sort.by(Sort.Direction.ASC, "id"));
     }
 
     // 배치 조회 — 빈 id 목록이면 IN 절 쿼리 자체를 건너뛴다.

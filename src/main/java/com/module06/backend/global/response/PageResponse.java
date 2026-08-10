@@ -18,7 +18,10 @@ public record PageResponse<T>(
 
     public static <T> PageResponse<T> of(List<T> content, int page, int size, long totalElements) {
         int totalPages = size <= 0 ? 0 : (int) Math.ceil((double) totalElements / size);
-        boolean hasNext = (long) (page + 1) * size < totalElements;
+        // page를 먼저 long으로 넓혀야 한다 — page+1을 int로 먼저 계산하면 page가
+        // Integer.MAX_VALUE일 때 오버플로로 음수가 되어 hasNext가 실제와 반대로 나온다
+        // (CodeRabbit 지적, PR #305).
+        boolean hasNext = ((long) page + 1) * size < totalElements;
         return new PageResponse<>(content, page, size, totalElements, totalPages, hasNext);
     }
 }

@@ -119,17 +119,24 @@ class ActionControllerTest {
     @Test
     @DisplayName("내 액션 목록은 토큰의 memberId로 조회한다")
     void listUsesMemberIdFromToken() throws Exception {
+        // 비기본 page/size(2, 5)로 요청해서, PageResponse 필드 6개(content·page·size·
+        // totalElements·totalPages·hasNext) 전부가 요청값 기준으로 정확히 계산되는지 확인한다
+        // (CodeRabbit 지적, PR #305) — totalElements=42, size=5면 totalPages=9, hasNext=true.
         authenticateAs(1L, 5L);
         when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
-                        List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
+                        List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)), 42L));
 
-        mockMvc.perform(get("/api/actions"))
+        mockMvc.perform(get("/api/actions").param("page", "2").param("size", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].assigneeName").value("이하윤"))
-                .andExpect(jsonPath("$.data.totalElements").value(1));
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(5))
+                .andExpect(jsonPath("$.data.totalElements").value(42))
+                .andExpect(jsonPath("$.data.totalPages").value(9))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
 
-        verify(getMyActionsUseCase).getMyActions(5L, null, null, null, "desc", 0, 20);
+        verify(getMyActionsUseCase).getMyActions(5L, null, null, null, "desc", 2, 5);
     }
 
     @Test
