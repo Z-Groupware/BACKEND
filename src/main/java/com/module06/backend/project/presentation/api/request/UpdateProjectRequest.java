@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import com.module06.backend.project.domain.model.ProjectColorPalette;
+
 /* comment.
     프로젝트 수정 요청 DTO. 이름·기획(description)·색상·마감일·지정 부서를 담는다.
     tag·status 필드는 두지 않는다 — tag는 생성 후 불변(FR-PJ-04), status는
@@ -20,7 +22,11 @@ import jakarta.validation.constraints.Size;
 public record UpdateProjectRequest(
         @NotBlank @Size(max = 150) String name,
         String description,
-        @NotBlank @Pattern(regexp = "^#[0-9A-Fa-f]{6}$", message = "색상은 #RRGGBB 형식이어야 합니다.") String color,
+        @NotBlank @Pattern(
+                regexp = ProjectColorPalette.REGEXP,
+                flags = Pattern.Flag.CASE_INSENSITIVE,
+                message = "색상은 지정된 팔레트 11색 중 하나여야 합니다."
+        ) String color,
         @NotNull LocalDate dueDate,
         @NotNull List<Long> teamIds
 ) {
