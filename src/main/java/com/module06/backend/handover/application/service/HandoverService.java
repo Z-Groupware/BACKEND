@@ -136,8 +136,10 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             throw new BusinessException(HandoverErrorCode.HO_REJECT_COMMAND_INVALID);
         }
         Handover handover = findHandover(command.handoverId());
-        rollbackCommittedReassignments(handover);
+        // 상태 전이 검증을 먼저 통과시킨다 — FINALIZED/REJECTED 같은 종단 상태면 여기서 예외로 끝나
+        // 액션 롤백 같은 부수효과가 전혀 일어나지 않는다. 유효한 반려 경로에서만 롤백을 실행한다.
         handover.reject(command.reason());
+        rollbackCommittedReassignments(handover);
         memberStatusPort().restoreActive(handover.getWriterMemberId());
         return handoverRepository.save(handover);
     }

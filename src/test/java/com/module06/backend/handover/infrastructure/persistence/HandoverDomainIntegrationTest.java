@@ -199,6 +199,9 @@ class HandoverDomainIntegrationTest {
         );
 
         Handover saved = handoverRepository.save(handover);
+        // 1차 캐시가 같은 인스턴스를 돌려주면 DB 컬럼 매핑이 검증되지 않는다 — 비우고 실제로 다시 읽는다.
+        em.flush();
+        em.clear();
         Handover restored = handoverRepository.findById(saved.getId()).orElseThrow();
 
         assertThat(restored.getItems()).singleElement()
