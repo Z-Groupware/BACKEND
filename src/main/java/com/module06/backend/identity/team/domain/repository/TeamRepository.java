@@ -11,6 +11,13 @@ public interface TeamRepository {
 
     Optional<Team> findByIdAndCompanyId(Long id, Long companyId);
 
+    /**
+     * 이 구성원이 팀장으로 앉아 있는 부서. 오프보딩이 팀장 자리를 비울 때 쓴다 — 회사 스코프를
+     * 받지 않아도 되는 이유는 {@code UK_TEAM_LEADER_MEMBER}(V2.2.6)가 한 사람이 두 부서의
+     * 팀장이 되는 것을 막고 있기 때문이다.
+     */
+    Optional<Team> findByLeaderMemberId(Long leaderMemberId);
+
     Team create(Long companyId, String name);
 
     void rename(Long id, String name);

@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.notice.domain.model.Notice;
+import com.module06.backend.notice.domain.repository.NoticeCommandRepository;
 import com.module06.backend.notice.domain.repository.NoticeQueryRepository;
 import com.module06.backend.notice.infrastructure.persistence.entity.NoticeJpaEntity;
 import com.module06.backend.notice.infrastructure.persistence.repository.SpringDataNoticeRepository;
@@ -27,6 +28,10 @@ class NoticeQueryPersistenceAdapterTest {
     /* 애플리케이션이 사용하는 공지 목록 도메인 저장소 계약이다. */
     @Autowired
     private NoticeQueryRepository noticeQueryRepository;
+
+    /* 애플리케이션 명령 서비스가 사용하는 공지 저장 도메인 계약이다. */
+    @Autowired
+    private NoticeCommandRepository noticeCommandRepository;
 
     /* 테스트 공지 행을 저장하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -100,6 +105,63 @@ class NoticeQueryPersistenceAdapterTest {
 
         /* 회사 10 범위 조회는 예외 없이 빈 목록이어야 한다. */
         assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L)).isEmpty();
+    }
+
+    /* 공지 상세 조회가 회사·활성 조건을 모두 적용하는지 검증한다. */
+    @Test
+    @DisplayName("같은 회사의 활성 공지만 상세 조회한다")
+    void findsNoticeDetailOnlyInsideCompanyScope() {
+        /* 같은 회사의 활성·삭제 공지와 다른 회사의 활성 공지를 각각 저장한다. */
+        NoticeJpaEntity active = springDataNoticeRepository.saveAndFlush(
+                notice(10L, "활성 공지", null)
+        );
+        NoticeJpaEntity deleted = springDataNoticeRepository.saveAndFlush(
+                notice(10L, "삭제 공지", LocalDateTime.of(2026, 8, 9, 12, 0))
+        );
+        NoticeJpaEntity otherCompany = springDataNoticeRepository.saveAndFlush(
+                notice(20L, "다른 회사 공지", null)
+        );
+
+        /* 같은 회사의 활성 공지는 제목·본문을 포함한 상세 스냅샷으로 조회돼야 한다. */
+        assertThat(noticeQueryRepository.findActiveNotice(10L, active.getId()))
+                .isPresent()
+                .get()
+                .satisfies(notice -> {
+                    /* 상세 응답 원본의 식별자·제목·본문이 저장값과 일치해야 한다. */
+                    assertThat(notice.noticeId()).isEqualTo(active.getId());
+                    assertThat(notice.title()).isEqualTo("활성 공지");
+                    assertThat(notice.content()).isEqualTo("활성 공지 본문");
+                    assertThat(notice.updatedAt()).isNull();
+                });
+
+        /* 삭제 공지와 다른 회사 공지는 존재 여부를 구분하지 않고 빈 결과로 숨겨야 한다. */
+        assertThat(noticeQueryRepository.findActiveNotice(10L, deleted.getId())).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNotice(10L, otherCompany.getId())).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNotice(10L, 999_999L)).isEmpty();
+    }
+
+    /* 신규 공지 저장 시 인증 회사·작성자와 생성 식별자·시각이 반영되는지 검증한다. */
+    @Test
+    @DisplayName("신규 공지를 저장하고 데이터베이스 생성 값을 반환한다")
+    void savesNewNoticeWithGeneratedValues() {
+        /* 인증 회사 10의 OWNER 3이 작성할 신규 공지 도메인 모델을 만든다. */
+        Notice notice = Notice.create(
+                10L,
+                3L,
+                "회의실 예약과 참석 안내",
+                "회의는 회의실 예약 화면에서만 개설할 수 있습니다."
+        );
+
+        /* NOTI-03 명령 저장소로 신규 공지를 저장한다. */
+        Notice savedNotice = noticeCommandRepository.save(notice);
+
+        /* 데이터베이스 식별자·생성 시각이 생기고 인증 원본과 수정 전 상태가 유지돼야 한다. */
+        assertThat(savedNotice.getId()).isPositive();
+        assertThat(savedNotice.getCompanyId()).isEqualTo(10L);
+        assertThat(savedNotice.getCreatedBy()).isEqualTo(3L);
+        assertThat(savedNotice.getCreatedAt()).isNotNull();
+        assertThat(savedNotice.getUpdatedAt()).isNull();
+        assertThat(savedNotice.getDeletedAt()).isNull();
     }
 
     /* 영속성 테스트에 사용할 신규 또는 삭제 공지 엔티티를 만든다. */
