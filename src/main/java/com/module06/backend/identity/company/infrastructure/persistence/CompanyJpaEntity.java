@@ -55,7 +55,11 @@ public class CompanyJpaEntity {
     @Column(name = "manager_phone", length = 30)
     private String managerPhone;
 
-    /** 등록 폼에 없다. 기업 설정(API 08)에서 나중에 채운다. */
+    /**
+     * 등록 신청에서 선택으로 받고, 기업 설정(API 08)에서 고칠 수 있다. 신청 화면이 지도로 위치를
+     * 고르게 하는데 온보딩을 마치기 전까지는 기업 설정이 열리지 않아, 신청 때 받지 않으면 그 값이
+     * 갈 곳이 없다. 지도가 뜨지 않는 환경에서는 비어 오므로 NULL 을 허용한다.
+     */
     @Column(name = "address", length = 255)
     private String address;
 
@@ -97,7 +101,7 @@ public class CompanyJpaEntity {
      */
     static CompanyJpaEntity register(String code, String name, String registrationNo,
                                      String representativeName, String managerEmail, String managerPhone,
-                                     String employeeScale, String purpose,
+                                     String address, String employeeScale, String purpose,
                                      boolean agreedMarketing, LocalDateTime now) {
         CompanyJpaEntity company = new CompanyJpaEntity();
         company.code = code;
@@ -106,6 +110,7 @@ public class CompanyJpaEntity {
         company.representativeName = representativeName;
         company.managerEmail = managerEmail;
         company.managerPhone = managerPhone;
+        company.address = address;
         company.employeeScale = employeeScale;
         company.purpose = purpose;
         company.termsAgreedAt = now;

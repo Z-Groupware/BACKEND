@@ -18,11 +18,13 @@ public interface CompanyRegistrationRepository {
      * {@code UK_COMPANY_CODE} 위반이 그대로 올라오게 두고 호출자가 잡아 다시 뽑는다.
      * {@code registration_no} 도 같다({@code UK_COMPANY_REGISTRATION_NO}).
      *
+     * @param address 회사 주소. 선택이라 NULL 일 수 있다 — 주소 없음은 빈 문자열이 아니라 NULL 이다
      * @param now 약관 동의 3종이 공유할 시각. 컬럼마다 따로 찍으면 한 번의 동의가 서로 다른 시각이 된다
      * @return 저장된 회사의 id
      */
     Long register(String code, String name, String registrationNo, String representativeName,
-                  String managerEmail, String managerPhone, String employeeScale, String purpose,
+                  String managerEmail, String managerPhone, String address,
+                  String employeeScale, String purpose,
                   boolean agreedMarketing, LocalDateTime now);
 
     /** 사업자등록번호 선점 여부. 안내용이고, 최종 방어선은 UNIQUE 제약이다. */
