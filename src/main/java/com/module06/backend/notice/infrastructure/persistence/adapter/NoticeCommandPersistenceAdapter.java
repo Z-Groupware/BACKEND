@@ -22,8 +22,8 @@ public class NoticeCommandPersistenceAdapter implements NoticeCommandRepository 
     /* 회사·식별자·활성 조건을 한 쿼리에 적용해 수정·삭제할 수 있는 공지만 반환한다. */
     @Override
     public Optional<Notice> findActiveNotice(Long companyId, Long noticeId) {
-        /* 타 회사·삭제·없는 공지는 모두 빈 결과가 되어 상위 계층에서 동일한 NT-001로 처리된다. */
-        return springDataNoticeRepository.findByIdAndCompanyIdAndDeletedAtIsNull(noticeId, companyId)
+        /* 활성 행을 쓰기 잠금으로 읽어 동시 수정·삭제 요청이 같은 원본 상태를 사용하지 못하게 한다. */
+        return springDataNoticeRepository.findForUpdateByIdAndCompanyIdAndDeletedAtIsNull(noticeId, companyId)
                 .map(NoticeJpaEntity::toDomain);
     }
 
