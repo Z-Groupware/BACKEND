@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.domain.model.SttBlockStatus;
+import com.module06.backend.capture.domain.model.SttCutReason;
 import com.module06.backend.capture.infrastructure.persistence.entity.SttBlockJpaEntity;
 import com.module06.backend.capture.infrastructure.persistence.repository.SpringDataSttBlockRepository;
 
@@ -71,6 +72,15 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
         entity.markQueuedForRetry(provider, providerJobName);
         sttBlockRepository.save(entity);
         return true;
+    }
+
+    @Override
+    @Transactional
+    public long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,
+                             String cutReason, String audioS3Key, String provider, String providerJobName) {
+        SttBlockJpaEntity entity = SttBlockJpaEntity.createQueued(meetingId, blockSeq, startOffsetMs, endOffsetMs,
+                SttCutReason.valueOf(cutReason), audioS3Key, provider, providerJobName);
+        return sttBlockRepository.save(entity).getId();
     }
 
     private static SttBlockView toView(SttBlockJpaEntity entity) {

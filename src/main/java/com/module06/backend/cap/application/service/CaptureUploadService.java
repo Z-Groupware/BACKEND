@@ -9,6 +9,7 @@ import com.module06.backend.cap.application.usecase.CompletePartUploadUseCase;
 import com.module06.backend.cap.application.usecase.IssuePartUploadUrlsUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
+import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepository;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
@@ -28,23 +29,33 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final CaptureHeartbeatPort captureHeartbeatPort;
+    // 10분/40청크 블록 카운터가 일시정지 구간을 세지 않도록(명세) — 청크 완료 통보 시점에 D의
+    // capture_session이 PAUSED인지 확인한다.
+    private final CapCaptureSessionReferenceRepository captureSessionReferenceRepository;
     // completePartUpload의 실제 DB 쓰기(청크·상태 저장)만 짧은 트랜잭션으로 묶는 별도 협력자
     // (CodeRabbit 지적 — S3 HEAD 호출을 트랜잭션 밖에 두려고 분리). CaptureUploadService 자신을
     // this.xxx()로 불렀다면 @Transactional이 프록시를 못 거쳐 안 걸렸을 것이라, 별도 빈으로 뽑았다.
     private final CompletePartUploadWriter completePartUploadWriter;
+    // 10분/40청크 자동 블록 트리거(비동기, best-effort) — 이 호출은 즉시 반환하고 실제 파이프라인은
+    // 별도 스레드 풀에서 돈다.
+    private final SttBlockCutTrigger sttBlockCutTrigger;
 
     public CaptureUploadService(MeetingReferenceRepository meetingReferenceRepository,
                                 CapMeetingAccessGuard accessGuard,
                                 CaptureUploadStateRepository captureUploadStateRepository,
                                 CapObjectStoragePort capObjectStoragePort,
                                 CaptureHeartbeatPort captureHeartbeatPort,
-                                CompletePartUploadWriter completePartUploadWriter) {
+                                CapCaptureSessionReferenceRepository captureSessionReferenceRepository,
+                                CompletePartUploadWriter completePartUploadWriter,
+                                SttBlockCutTrigger sttBlockCutTrigger) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.capObjectStoragePort = capObjectStoragePort;
         this.captureHeartbeatPort = captureHeartbeatPort;
+        this.captureSessionReferenceRepository = captureSessionReferenceRepository;
         this.completePartUploadWriter = completePartUploadWriter;
+        this.sttBlockCutTrigger = sttBlockCutTrigger;
     }
 
     // 회의 존재 확인 → 참석자 확인 → 녹음자 배정/검증 → 하트비트 갱신 → presigned URL count개 발급
@@ -98,6 +109,13 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         requireAttendee(command.meetingId(), command.callerId());
 
+        // 일시정지 중엔 청크를 받지 않는다 — 10분/40청크 블록 카운터가 청크 개수 기준이라
+        // 일시정지 중엔 자연히 안 늘지만, 서버가 그걸 강제하는 코드는 없었다(클라이언트를
+        // 신뢰하는 것뿐). 방어선을 하나 둔다: 일시정지 중 통보는 거부하고 상태를 바꾸지 않는다.
+        if (captureSessionReferenceRepository.isPaused(command.meetingId())) {
+            throw new BusinessException(CapErrorCode.CAP_CAPTURE_PAUSED);
+        }
+
         // capture_upload_state가 없다는 건 presign이 한 번도 호출 안 됐다는 뜻 — 즉 아무도 아직
         // 녹음자로 배정 안 됐으므로, 이 caller도 당연히 "현재 녹음자"가 아니다.
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(command.meetingId())
@@ -131,9 +149,8 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         // recording_part.content_type(NOT NULL)을 채운다 — 확장자에서 역산(webm→audio/webm, mp4→audio/mp4).
         completePartUploadWriter.write(state, expectedKey, contentTypeForExtension(extension), command);
 
-        // TODO: 10분(40청크) 누적 시 블록 조립 베스트에포트 트리거.
-        // 이태연 capture/STT 도메인(develop의 V5.x·stt_block)과 연동해야 하나, 조립 트리거 배선은
-        // 이번 PR 범위 밖 — 포트 계약을 이태연과 맞춘 뒤 별도로 배선 예정.
+        // 10분(40청크) 누적 시 블록 자동 트리거(비동기, best-effort) — 이 메서드는 여기서 즉시 반환한다.
+        sttBlockCutTrigger.triggerIfThresholdReached(companyId, command.meetingId());
     }
 
     // 회의 참석자 명단에 없으면 CAP_NOT_ATTENDEE(403). presign/complete는 참석자만 호출 가능.

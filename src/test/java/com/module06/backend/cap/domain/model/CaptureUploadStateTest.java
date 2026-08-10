@@ -66,6 +66,33 @@ class CaptureUploadStateTest {
         assertThatCode(() -> state.recordUpload(7L, CaptureUploadState.MAX_SEQ)).doesNotThrowAnyException();
     }
 
+    /* 블록 형성 시 개수가 오르고 끝 지점이 갱신되는지 검증한다. */
+    @Test
+    @DisplayName("recordBlockFormed는 blocksFormed를 올리고 끝 지점을 갱신한다")
+    void recordBlockFormedAdvancesCountAndOffset() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
+
+        state.recordBlockFormed(600_000L);
+
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
+        assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
+    }
+
+    /* 이전 블록 끝 지점보다 앞서거나 같은 값은 CAP-021로 거절해 블록이 시간을 거스르지 않게 막는지 검증한다. */
+    @Test
+    @DisplayName("recordBlockFormed는 이전 끝 지점 이하 값을 CAP-021로 거절한다")
+    void recordBlockFormedRejectsNonAdvancingOffset() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
+        state.recordBlockFormed(600_000L);
+
+        assertErrorCode(() -> state.recordBlockFormed(600_000L), "CAP-021");
+        assertErrorCode(() -> state.recordBlockFormed(500_000L), "CAP-021");
+
+        // 거절됐으므로 상태가 그대로여야 한다.
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
+        assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
+    }
+
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.
     private void assertErrorCode(Runnable execution, String expectedCode) {
         assertThatThrownBy(execution::run)

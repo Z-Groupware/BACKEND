@@ -22,11 +22,14 @@ public class CaptureUploadState {
     private Long recorderPersonId;
     private int lastSeq;
     private int blocksFormed;
+    // 마지막으로 형성된 STT 블록의 끝 지점(ms) — 다음 블록이 빈틈·겹침 없이 여기서부터 시작한다.
+    private long lastBlockEndOffsetMs;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     private CaptureUploadState(Long meetingId, int segmentSeq, Long recorderPersonId, int lastSeq,
-                               int blocksFormed, LocalDateTime createdAt, LocalDateTime updatedAt) {
+                               int blocksFormed, long lastBlockEndOffsetMs, LocalDateTime createdAt,
+                               LocalDateTime updatedAt) {
         if (meetingId == null) {
             throw new BusinessException(CapErrorCode.CAP_REQUIRED_ID);
         }
@@ -35,20 +38,22 @@ public class CaptureUploadState {
         this.recorderPersonId = recorderPersonId;
         this.lastSeq = lastSeq;
         this.blocksFormed = blocksFormed;
+        this.lastBlockEndOffsetMs = lastBlockEndOffsetMs;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
     // 신규 생성 — 이 회의에 처음 presign을 호출한 사람을 녹음자로 삼아 세그먼트 0부터 시작
     public static CaptureUploadState startWithRecorder(Long meetingId, Long recorderPersonId) {
-        return new CaptureUploadState(meetingId, 0, recorderPersonId, 0, 0, null, null);
+        return new CaptureUploadState(meetingId, 0, recorderPersonId, 0, 0, 0L, null, null);
     }
 
     // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델)
     public static CaptureUploadState restore(Long meetingId, int segmentSeq, Long recorderPersonId, int lastSeq,
-                                             int blocksFormed, LocalDateTime createdAt, LocalDateTime updatedAt) {
+                                             int blocksFormed, long lastBlockEndOffsetMs,
+                                             LocalDateTime createdAt, LocalDateTime updatedAt) {
         return new CaptureUploadState(meetingId, segmentSeq, recorderPersonId, lastSeq, blocksFormed,
-                createdAt, updatedAt);
+                lastBlockEndOffsetMs, createdAt, updatedAt);
     }
 
     /**
@@ -91,9 +96,19 @@ public class CaptureUploadState {
         }
     }
 
-    // STT 블록이 하나 더 조립됐을 때 카운트 증가 (이번 PR에선 아직 호출되지 않음 — STT 도메인 배선 후 사용)
-    public void incrementBlocksFormed() {
+    /*
+     * STT 블록 하나가 형성됐을 때 카운트를 올리고 끝 지점을 갱신한다.
+     *
+     * blockEndOffsetMs는 지금까지 기록된 끝 지점보다 커야 한다 — 블록은 항상 앞으로만
+     * 진행해야 하고(시간을 거스르는 블록은 없음), 작거나 같은 값이 들어오면 호출자가 순서를
+     * 잘못 불렀거나 같은 블록을 중복 처리하려는 것이다.
+     */
+    public void recordBlockFormed(long blockEndOffsetMs) {
+        if (blockEndOffsetMs <= lastBlockEndOffsetMs) {
+            throw new BusinessException(CapErrorCode.CAP_BLOCK_OFFSET_INVALID);
+        }
         blocksFormed++;
+        lastBlockEndOffsetMs = blockEndOffsetMs;
     }
 
     public Long getMeetingId() { return meetingId; }
@@ -101,6 +116,7 @@ public class CaptureUploadState {
     public Long getRecorderPersonId() { return recorderPersonId; }
     public int getLastSeq() { return lastSeq; }
     public int getBlocksFormed() { return blocksFormed; }
+    public long getLastBlockEndOffsetMs() { return lastBlockEndOffsetMs; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }
