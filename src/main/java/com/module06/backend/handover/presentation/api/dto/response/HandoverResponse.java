@@ -26,6 +26,11 @@ public record HandoverResponse(
         LocalDateTime finalizedAt,
         Long finalApproverId,
         String finalApproverNameSnap,
+        boolean leaderHandover,
+        Long newLeaderId,
+        String newLeaderNameSnap,
+        String newLeaderPositionSnap,
+        LocalDateTime attributedAt,
         Long version,
         List<HandoverItemResponse> items
 ) {
@@ -49,6 +54,11 @@ public record HandoverResponse(
                 handover.getFinalizedAt(),
                 handover.getFinalApproverId(),
                 handover.getFinalApproverNameSnap(),
+                handover.isLeaderHandover(),
+                handover.getNewLeaderId(),
+                handover.getNewLeaderNameSnap(),
+                handover.getNewLeaderPositionSnap(),
+                handover.getAttributedAt(),
                 handover.getVersion(),
                 handover.getItems().stream()
                         .map(HandoverItemResponse::from)

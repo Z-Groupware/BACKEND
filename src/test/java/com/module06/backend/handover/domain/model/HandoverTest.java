@@ -1,6 +1,7 @@
 package com.module06.backend.handover.domain.model;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -14,6 +15,7 @@ class HandoverTest {
     private static final Long WRITER = 1L;
     private static final Long TEAM = 10L;
     private static final Long TARGET = 2L;
+    private static final Long NEW_LEADER = 3L;
     private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
     private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
     private static final LocalDate LAST_WORKING_DAY = LocalDate.of(2026, 8, 31);
@@ -115,6 +117,70 @@ class HandoverTest {
 
         assertThat(reassigned.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         assertThat(reassigned.getFinalizedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void leaderOffboardingFinalizesAsPendingAttribution() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, true, List.of(item(100L)));
+
+        handover.finalizeAsPendingAttribution(9L, "Owner", NOW);
+
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.PENDING_ATTRIBUTION);
+        assertThat(handover.getFinalApproverId()).isEqualTo(9L);
+        assertThat(handover.getFinalApproverNameSnap()).isEqualTo("Owner");
+        assertThat(handover.getFinalizedAt()).isNull();
+        assertThat(handover.getIntermediateApprovedAt()).isNull();
+    }
+
+    @Test
+    void nonLeaderOffboardingCannotFinalizeAsPendingAttribution() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, false, List.of(item(100L)));
+
+        assertThatThrownBy(() -> handover.finalizeAsPendingAttribution(9L, "Owner", NOW))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_PENDING_ATTRIBUTION_NOT_ALLOWED));
+    }
+
+    @Test
+    void pendingAttributionAttributesAllRequiredItemsToNewLeaderAndFinalizes() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, true, List.of(item(100L), completedItem(101L)));
+        handover.finalizeAsPendingAttribution(9L, "Owner", NOW);
+
+        handover.attributeToNewLeader(NEW_LEADER, "Choi", "Lead", NOW.plusHours(1));
+
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
+        assertThat(handover.getNewLeaderId()).isEqualTo(NEW_LEADER);
+        assertThat(handover.getNewLeaderNameSnap()).isEqualTo("Choi");
+        assertThat(handover.getNewLeaderPositionSnap()).isEqualTo("Lead");
+        assertThat(handover.getAttributedAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(handover.getFinalizedAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(handover.getItems().get(0).getReassigneeId()).isEqualTo(NEW_LEADER);
+        assertThat(handover.getItems().get(1).getReassigneeId()).isNull();
+    }
+
+    @Test
+    void attributeToNewLeaderRequiresPendingAttribution() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, true, List.of(item(100L)));
+
+        assertThatThrownBy(() -> handover.attributeToNewLeader(NEW_LEADER, "Choi", "Lead", NOW))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ATTRIBUTE_NOT_ALLOWED));
+    }
+
+    @Test
+    void pendingAttributionCannotBeRejected() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, true, List.of(item(100L)));
+        handover.finalizeAsPendingAttribution(9L, "Owner", NOW);
+
+        assertThatThrownBy(() -> handover.reject("late"))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test

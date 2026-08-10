@@ -2,14 +2,17 @@ package com.module06.backend.handover.presentation.api;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.AttributeHandoverToLeaderUseCase;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetPendingAttributionListUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverStatus;
+import com.module06.backend.handover.presentation.api.dto.request.AttributeToLeaderRequest;
 import com.module06.backend.handover.presentation.api.dto.request.CreateHandoverRequest;
 import com.module06.backend.handover.presentation.api.dto.request.ReassignItemRequest;
 import com.module06.backend.handover.presentation.api.dto.request.RejectHandoverRequest;
@@ -42,6 +45,8 @@ public class HandoverController {
     private final FinalizeHandoverUseCase finalizeHandoverUseCase;
     private final RejectHandoverUseCase rejectHandoverUseCase;
     private final GetHandoverListUseCase getHandoverListUseCase;
+    private final GetPendingAttributionListUseCase getPendingAttributionListUseCase;
+    private final AttributeHandoverToLeaderUseCase attributeHandoverToLeaderUseCase;
     private final OrgQueryPort orgQueryPort;
 
     public HandoverController(CreateHandoverUseCase createHandoverUseCase,
@@ -50,6 +55,8 @@ public class HandoverController {
                               FinalizeHandoverUseCase finalizeHandoverUseCase,
                               RejectHandoverUseCase rejectHandoverUseCase,
                               GetHandoverListUseCase getHandoverListUseCase,
+                              GetPendingAttributionListUseCase getPendingAttributionListUseCase,
+                              AttributeHandoverToLeaderUseCase attributeHandoverToLeaderUseCase,
                               OrgQueryPort orgQueryPort) {
         this.createHandoverUseCase = createHandoverUseCase;
         this.reassignHandoverItemUseCase = reassignHandoverItemUseCase;
@@ -57,6 +64,8 @@ public class HandoverController {
         this.finalizeHandoverUseCase = finalizeHandoverUseCase;
         this.rejectHandoverUseCase = rejectHandoverUseCase;
         this.getHandoverListUseCase = getHandoverListUseCase;
+        this.getPendingAttributionListUseCase = getPendingAttributionListUseCase;
+        this.attributeHandoverToLeaderUseCase = attributeHandoverToLeaderUseCase;
         this.orgQueryPort = orgQueryPort;
     }
 
@@ -71,6 +80,16 @@ public class HandoverController {
                 .map(HandoverSummaryResponse::from)
                 .toList();
         return ApiResponse.success("인수인계 목록을 조회했습니다.", data);
+    }
+
+    @GetMapping("/pending-attribution")
+    public ApiResponse<List<HandoverSummaryResponse>> pendingAttribution(@RequestParam Long companyId) {
+        // TODO: auth(B) 도입 후 companyId를 JWT claim으로 대체한다.
+        List<HandoverSummaryResponse> data = getPendingAttributionListUseCase
+                .listPendingAttribution(companyId).stream()
+                .map(HandoverSummaryResponse::from)
+                .toList();
+        return ApiResponse.success("Pending attribution handovers retrieved.", data);
     }
 
     @PostMapping
@@ -109,6 +128,18 @@ public class HandoverController {
         OrgQueryPort.MemberSnapshot approver = orgQueryPort.findMember(memberId);
         Handover handover = finalizeHandoverUseCase.finalize(id, memberId, approver.name(), LocalDateTime.now());
         return ApiResponse.success("Handover finalized.", HandoverResponse.from(handover));
+    }
+
+    @PatchMapping("/{id}/attribute-to-leader")
+    public ApiResponse<HandoverResponse> attributeToLeader(@PathVariable Long id,
+                                                           @Valid @RequestBody AttributeToLeaderRequest request,
+                                                           @Parameter(hidden = true)
+                                                           @AuthenticationPrincipal(expression = "memberId")
+                                                           Long memberId) {
+        Handover handover = attributeHandoverToLeaderUseCase.attributeToNewLeader(
+                request.toCommand(id, memberId, LocalDateTime.now())
+        );
+        return ApiResponse.success("Handover attributed to leader.", HandoverResponse.from(handover));
     }
 
     @PatchMapping("/{id}/reject")

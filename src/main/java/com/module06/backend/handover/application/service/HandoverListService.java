@@ -1,10 +1,13 @@
 package com.module06.backend.handover.application.service;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetPendingAttributionListUseCase;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
+import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.repository.HandoverRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,12 +16,14 @@ import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
-public class HandoverListService implements GetHandoverListUseCase {
+public class HandoverListService implements GetHandoverListUseCase, GetPendingAttributionListUseCase {
 
     private final HandoverRepository handoverRepository;
+    private final OrgQueryPort orgQueryPort;
 
-    public HandoverListService(HandoverRepository handoverRepository) {
+    public HandoverListService(HandoverRepository handoverRepository, OrgQueryPort orgQueryPort) {
         this.handoverRepository = handoverRepository;
+        this.orgQueryPort = orgQueryPort;
     }
 
     @Override
@@ -38,6 +43,18 @@ public class HandoverListService implements GetHandoverListUseCase {
 
         return handovers.stream()
                 .filter(handover -> query.status() == null || handover.getStatus() == query.status())
+                .map(this::toSummary)
+                .toList();
+    }
+
+    @Override
+    public List<HandoverSummary> listPendingAttribution(Long companyId) {
+        if (companyId == null) {
+            throw new BusinessException(HandoverErrorCode.HO_LIST_SCOPE_REQUIRED);
+        }
+        List<Long> memberIds = orgQueryPort.findMemberIdsByCompany(companyId);
+        return handoverRepository.findByWriterMemberIdInAndStatus(memberIds, HandoverStatus.PENDING_ATTRIBUTION)
+                .stream()
                 .map(this::toSummary)
                 .toList();
     }

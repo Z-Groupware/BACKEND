@@ -81,6 +81,21 @@ public class HandoverJpaEntity {
     @Column(name = "final_approver_name_snap")
     private String finalApproverNameSnap;
 
+    @Column(name = "is_leader_handover", nullable = false)
+    private boolean leaderHandover;
+
+    @Column(name = "new_leader_id")
+    private Long newLeaderId;
+
+    @Column(name = "new_leader_name_snap")
+    private String newLeaderNameSnap;
+
+    @Column(name = "new_leader_position_snap")
+    private String newLeaderPositionSnap;
+
+    @Column(name = "attributed_at")
+    private LocalDateTime attributedAt;
+
     @Version
     @Column(name = "version")
     private Long version;
@@ -121,6 +136,11 @@ public class HandoverJpaEntity {
         entity.finalizedAt = handover.getFinalizedAt();
         entity.finalApproverId = handover.getFinalApproverId();
         entity.finalApproverNameSnap = handover.getFinalApproverNameSnap();
+        entity.leaderHandover = handover.isLeaderHandover();
+        entity.newLeaderId = handover.getNewLeaderId();
+        entity.newLeaderNameSnap = handover.getNewLeaderNameSnap();
+        entity.newLeaderPositionSnap = handover.getNewLeaderPositionSnap();
+        entity.attributedAt = handover.getAttributedAt();
         entity.version = handover.getVersion();
         entity.items = new ArrayList<>(handover.getItems().stream()
                 .map(HandoverItemJpaEntity::fromDomain)
@@ -133,7 +153,8 @@ public class HandoverJpaEntity {
         return Handover.restore(id, writerMemberId, teamId, handoverType, status, leaveStartAt, leaveEndAt,
                 lastWorkingDay,
                 writerNameSnap, writerPositionSnap, intermediateApproverId, intermediateApproverNameSnap,
-                intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap, version,
+                intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap,
+                leaderHandover, newLeaderId, newLeaderNameSnap, newLeaderPositionSnap, attributedAt, version,
                 items.stream().map(HandoverItemJpaEntity::toDomain).toList());
     }
 

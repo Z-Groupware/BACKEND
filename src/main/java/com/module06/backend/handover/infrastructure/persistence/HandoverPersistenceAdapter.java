@@ -8,6 +8,7 @@ import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,7 +37,8 @@ public class HandoverPersistenceAdapter implements HandoverRepository {
     @Override
     public boolean existsActiveByWriter(Long writerMemberId) {
         return springDataHandoverRepository.existsByWriterMemberIdAndStatusIn(
-                writerMemberId, List.of(HandoverStatus.SUBMITTED, HandoverStatus.REASSIGNED));
+                writerMemberId, List.of(HandoverStatus.SUBMITTED, HandoverStatus.PENDING_ATTRIBUTION,
+                        HandoverStatus.REASSIGNED));
     }
 
     @Override
@@ -61,6 +63,16 @@ public class HandoverPersistenceAdapter implements HandoverRepository {
     @Override
     public List<Handover> findByTeamIdAndStatus(Long teamId, HandoverStatus status) {
         return springDataHandoverRepository.findByTeamIdAndStatus(teamId, status).stream()
+                .map(HandoverJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<Handover> findByWriterMemberIdInAndStatus(Collection<Long> writerMemberIds, HandoverStatus status) {
+        if (writerMemberIds == null || writerMemberIds.isEmpty()) {
+            return List.of();
+        }
+        return springDataHandoverRepository.findByWriterMemberIdInAndStatus(writerMemberIds, status).stream()
                 .map(HandoverJpaEntity::toDomain)
                 .toList();
     }

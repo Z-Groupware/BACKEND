@@ -49,7 +49,7 @@ class HandoverPackageServiceTest {
         Handover handover = Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.OFFBOARDING,
                 HandoverStatus.SUBMITTED, null, null, LAST_WORKING_DAY, "Kim", "Manager",
                 null, null, null, null, null,
-                null, null, null,
+                null, null, false, null, null, null, null, null,
                 List.of(
                         item(100L, "Prepare runbook", "TODO", REFERENCE_DATE.plusDays(7),
                                 700L, "Weekly Sync", "Runbook context", 2L, "Lee"),

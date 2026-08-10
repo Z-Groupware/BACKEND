@@ -27,6 +27,11 @@ public class Handover {
     private LocalDateTime finalizedAt;
     private Long finalApproverId;
     private String finalApproverNameSnap;
+    private boolean leaderHandover;
+    private Long newLeaderId;
+    private String newLeaderNameSnap;
+    private String newLeaderPositionSnap;
+    private LocalDateTime attributedAt;
     private final Long version;
     private final List<HandoverItem> items;
 
@@ -35,7 +40,9 @@ public class Handover {
                      LocalDate lastWorkingDay, String writerNameSnap, String writerPositionSnap,
                      Long intermediateApproverId, String intermediateApproverNameSnap,
                      LocalDateTime intermediateApprovedAt, String rejectReason, LocalDateTime finalizedAt,
-                     Long finalApproverId, String finalApproverNameSnap, Long version,
+                     Long finalApproverId, String finalApproverNameSnap, boolean leaderHandover,
+                     Long newLeaderId, String newLeaderNameSnap, String newLeaderPositionSnap,
+                     LocalDateTime attributedAt, Long version,
                      List<HandoverItem> items) {
         requireId(writerMemberId, "writerMemberId");
         requireId(teamId, "teamId");
@@ -64,6 +71,11 @@ public class Handover {
         this.finalizedAt = finalizedAt;
         this.finalApproverId = finalApproverId;
         this.finalApproverNameSnap = finalApproverNameSnap;
+        this.leaderHandover = leaderHandover;
+        this.newLeaderId = newLeaderId;
+        this.newLeaderNameSnap = newLeaderNameSnap;
+        this.newLeaderPositionSnap = newLeaderPositionSnap;
+        this.attributedAt = attributedAt;
         this.version = version;
         this.items = new ArrayList<>(items == null ? List.of() : items);
         validatePeriod();
@@ -74,15 +86,22 @@ public class Handover {
                                           LocalDateTime leaveEndAt, List<HandoverItem> items) {
         return new Handover(null, writerMemberId, teamId, HandoverType.VACATION, HandoverStatus.SUBMITTED,
                 leaveStartAt, leaveEndAt, null, writerNameSnap, writerPositionSnap,
-                null, null, null, null, null, null, null, null, items);
+                null, null, null, null, null, null, null, false, null, null, null, null, null, items);
+    }
+
+    public static Handover createOffboarding(Long writerMemberId, Long teamId, String writerNameSnap,
+                                             String writerPositionSnap, LocalDate lastWorkingDay,
+                                             boolean leaderHandover, List<HandoverItem> items) {
+        return new Handover(null, writerMemberId, teamId, HandoverType.OFFBOARDING, HandoverStatus.SUBMITTED,
+                null, null, lastWorkingDay, writerNameSnap, writerPositionSnap,
+                null, null, null, null, null, null, null, leaderHandover, null, null, null, null, null, items);
     }
 
     public static Handover createOffboarding(Long writerMemberId, Long teamId, String writerNameSnap,
                                              String writerPositionSnap, LocalDate lastWorkingDay,
                                              List<HandoverItem> items) {
-        return new Handover(null, writerMemberId, teamId, HandoverType.OFFBOARDING, HandoverStatus.SUBMITTED,
-                null, null, lastWorkingDay, writerNameSnap, writerPositionSnap,
-                null, null, null, null, null, null, null, null, items);
+        return createOffboarding(writerMemberId, teamId, writerNameSnap, writerPositionSnap, lastWorkingDay, false,
+                items);
     }
 
     public static Handover restore(Long id, Long writerMemberId, Long teamId, HandoverType handoverType,
@@ -91,11 +110,13 @@ public class Handover {
                                    Long intermediateApproverId, String intermediateApproverNameSnap,
                                    LocalDateTime intermediateApprovedAt, String rejectReason,
                                    LocalDateTime finalizedAt, Long finalApproverId, String finalApproverNameSnap,
-                                   Long version, List<HandoverItem> items) {
+                                   boolean leaderHandover, Long newLeaderId, String newLeaderNameSnap,
+                                   String newLeaderPositionSnap, LocalDateTime attributedAt, Long version,
+                                   List<HandoverItem> items) {
         return new Handover(id, writerMemberId, teamId, handoverType, status, leaveStartAt, leaveEndAt, lastWorkingDay,
                 writerNameSnap, writerPositionSnap, intermediateApproverId, intermediateApproverNameSnap,
-                intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap, version,
-                items);
+                intermediateApprovedAt, rejectReason, finalizedAt, finalApproverId, finalApproverNameSnap,
+                leaderHandover, newLeaderId, newLeaderNameSnap, newLeaderPositionSnap, attributedAt, version, items);
     }
 
     public void reassignItem(Long actionId, Long toMemberId, String reassigneeNameSnap,
@@ -139,9 +160,45 @@ public class Handover {
         finalApproverNameSnap = approverNameSnap;
     }
 
+    public void finalizeAsPendingAttribution(Long ownerId, String ownerNameSnap, LocalDateTime at) {
+        if (status != HandoverStatus.SUBMITTED || handoverType != HandoverType.OFFBOARDING || !leaderHandover) {
+            throw new BusinessException(HandoverErrorCode.HO_PENDING_ATTRIBUTION_NOT_ALLOWED);
+        }
+        requireId(ownerId, "ownerId");
+        requireText(ownerNameSnap, "ownerNameSnap");
+        if (at == null) {
+            throw new BusinessException(HandoverErrorCode.HO_FINALIZED_AT_REQUIRED);
+        }
+        status = HandoverStatus.PENDING_ATTRIBUTION;
+        finalApproverId = ownerId;
+        finalApproverNameSnap = ownerNameSnap;
+    }
+
+    public void attributeToNewLeader(Long newLeaderId, String nameSnap, String positionSnap, LocalDateTime at) {
+        if (status != HandoverStatus.PENDING_ATTRIBUTION) {
+            throw new BusinessException(HandoverErrorCode.HO_ATTRIBUTE_NOT_ALLOWED);
+        }
+        requireId(newLeaderId, "newLeaderId");
+        requireText(nameSnap, "nameSnap");
+        requireText(positionSnap, "positionSnap");
+        if (at == null) {
+            throw new BusinessException(HandoverErrorCode.HO_REASSIGNED_AT_REQUIRED);
+        }
+        items.stream()
+                .filter(HandoverItem::isReassignRequired)
+                .forEach(item -> item.reassignTo(newLeaderId, nameSnap, positionSnap, at));
+        this.newLeaderId = newLeaderId;
+        this.newLeaderNameSnap = nameSnap;
+        this.newLeaderPositionSnap = positionSnap;
+        this.attributedAt = at;
+        this.status = HandoverStatus.FINALIZED;
+        this.finalizedAt = at;
+    }
+
     public void reject(String reason) {
         // FINALIZED·REJECTED는 상태머신 종료 상태 — 재반려로 rejectReason을 덮어쓰지 못하게 막는다.
-        if (status == HandoverStatus.FINALIZED || status == HandoverStatus.REJECTED) {
+        if (status == HandoverStatus.FINALIZED || status == HandoverStatus.REJECTED
+                || status == HandoverStatus.PENDING_ATTRIBUTION) {
             throw new BusinessException(HandoverErrorCode.HO_REJECT_NOT_ALLOWED);
         }
         requireText(reason, "reason");
@@ -217,5 +274,10 @@ public class Handover {
     public LocalDateTime getFinalizedAt() { return finalizedAt; }
     public Long getFinalApproverId() { return finalApproverId; }
     public String getFinalApproverNameSnap() { return finalApproverNameSnap; }
+    public boolean isLeaderHandover() { return leaderHandover; }
+    public Long getNewLeaderId() { return newLeaderId; }
+    public String getNewLeaderNameSnap() { return newLeaderNameSnap; }
+    public String getNewLeaderPositionSnap() { return newLeaderPositionSnap; }
+    public LocalDateTime getAttributedAt() { return attributedAt; }
     public Long getVersion() { return version; }
 }

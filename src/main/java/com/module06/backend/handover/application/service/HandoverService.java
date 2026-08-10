@@ -1,5 +1,6 @@
 package com.module06.backend.handover.application.service;
 
+import com.module06.backend.handover.application.command.AttributeHandoverToLeaderCommand;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.FinalizeHandoverInsightsCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
@@ -7,6 +8,7 @@ import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.ActionReassignPort;
 import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.AttributeHandoverToLeaderUseCase;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
@@ -18,6 +20,7 @@ import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverActionStatus;
 import com.module06.backend.handover.domain.model.HandoverItem;
+import com.module06.backend.handover.domain.model.HandoverStatus;
 import com.module06.backend.handover.domain.model.HandoverType;
 import com.module06.backend.handover.domain.repository.HandoverRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -33,7 +37,8 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class HandoverService implements CreateHandoverUseCase, ReassignHandoverItemUseCase,
-        CompleteHandoverUseCase, FinalizeHandoverUseCase, RejectHandoverUseCase {
+        CompleteHandoverUseCase, FinalizeHandoverUseCase, RejectHandoverUseCase,
+        AttributeHandoverToLeaderUseCase {
 
     private final HandoverRepository handoverRepository;
     private final ActionReassignPort actionReassignPort;
@@ -76,7 +81,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                 ? Handover.createVacation(command.writerMemberId(), command.teamId(), writer.name(), writer.position(),
                         command.leaveStartAt(), command.leaveEndAt(), items)
                 : Handover.createOffboarding(command.writerMemberId(), command.teamId(), writer.name(), writer.position(),
-                        command.lastWorkingDay(), items);
+                        command.lastWorkingDay(), isLeaderOffboarding(command), items);
         Handover saved = handoverRepository.save(handover);
         memberStatusPort().toWaiting(command.writerMemberId());
         return saved;
@@ -112,6 +117,16 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     @Override
     public Handover finalize(Long handoverId, Long approverId, String approverName, LocalDateTime finalizedAt) {
         Handover handover = findHandover(handoverId);
+        if (handover.getStatus() == HandoverStatus.SUBMITTED
+                && handover.getHandoverType() == HandoverType.OFFBOARDING
+                && handover.isLeaderHandover()) {
+            handover.finalizeAsPendingAttribution(approverId, approverName, finalizedAt);
+            memberStatusPort().offboard(handover.getWriterMemberId());
+            finalizeHandoverInsightsUseCase.finalizeInsights(
+                    new FinalizeHandoverInsightsCommand(handoverId, handover.getWriterMemberId()));
+            return handoverRepository.save(handover);
+        }
+
         handover.finalizeApproval(approverId, approverName, finalizedAt);
         if (handover.getHandoverType() == HandoverType.VACATION) {
             memberStatusPort().toVacation(handover.getWriterMemberId());
@@ -122,6 +137,25 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             finalizeHandoverInsightsUseCase.finalizeInsights(
                     new FinalizeHandoverInsightsCommand(handoverId, handover.getWriterMemberId()));
         }
+        return handoverRepository.save(handover);
+    }
+
+    @Override
+    public Handover attributeToNewLeader(AttributeHandoverToLeaderCommand command) {
+        if (command == null || command.newLeaderId() == null) {
+            throw new BusinessException(HandoverErrorCode.HO_ATTRIBUTE_COMMAND_INVALID);
+        }
+        Handover handover = findHandover(command.handoverId());
+        OrgQueryPort.MemberSnapshot newLeader = orgQueryPort().findMember(command.newLeaderId());
+        handover.attributeToNewLeader(command.newLeaderId(), newLeader.name(), newLeader.position(),
+                command.attributedAt());
+        handover.getItems().stream()
+                .filter(HandoverItem::isReassignRequired)
+                .forEach(item -> actionReassignPort().reassign(
+                        item.getActionId(),
+                        handover.getWriterMemberId(),
+                        command.newLeaderId()
+                ));
         return handoverRepository.save(handover);
     }
 
@@ -171,6 +205,11 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                         !HandoverActionStatus.isComplete(action.status())
                 ))
                 .toList();
+    }
+
+    private boolean isLeaderOffboarding(CreateHandoverCommand command) {
+        return command.handoverType() == HandoverType.OFFBOARDING
+                && Objects.equals(orgQueryPort().findTeamLeaderId(command.teamId()), command.writerMemberId());
     }
 
     private Handover findHandover(Long handoverId) {

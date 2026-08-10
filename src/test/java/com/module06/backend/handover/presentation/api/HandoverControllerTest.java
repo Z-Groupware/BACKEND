@@ -1,13 +1,16 @@
 package com.module06.backend.handover.presentation.api;
 
+import com.module06.backend.handover.application.command.AttributeHandoverToLeaderCommand;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.AttributeHandoverToLeaderUseCase;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
+import com.module06.backend.handover.application.usecase.GetPendingAttributionListUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
@@ -75,6 +78,12 @@ class HandoverControllerTest {
 
     @MockitoBean
     private GetHandoverListUseCase getHandoverListUseCase;
+
+    @MockitoBean
+    private GetPendingAttributionListUseCase getPendingAttributionListUseCase;
+
+    @MockitoBean
+    private AttributeHandoverToLeaderUseCase attributeHandoverToLeaderUseCase;
 
     @MockitoBean
     private OrgQueryPort orgQueryPort;
@@ -208,6 +217,45 @@ class HandoverControllerTest {
     }
 
     @Test
+    void pendingAttributionListMapsCompanyIdAndReturnsSummaries() throws Exception {
+        when(getPendingAttributionListUseCase.listPendingAttribution(1L)).thenReturn(List.of(
+                new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
+                        HandoverType.OFFBOARDING, HandoverStatus.PENDING_ATTRIBUTION, null, null,
+                        LocalDate.of(2026, 8, 31), 1, 1, 0)
+        ));
+
+        mockMvc.perform(get("/api/handovers/pending-attribution").param("companyId", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].status").value("PENDING_ATTRIBUTION"))
+                .andExpect(jsonPath("$.data[0].reassignRequiredCount").value(1));
+
+        verify(getPendingAttributionListUseCase).listPendingAttribution(1L);
+    }
+
+    @Test
+    void attributeToLeaderMapsRequestToCommand() throws Exception {
+        authenticateAs(APPROVER);
+        when(attributeHandoverToLeaderUseCase.attributeToNewLeader(any(AttributeHandoverToLeaderCommand.class)))
+                .thenReturn(finalized());
+
+        mockMvc.perform(patch("/api/handovers/{id}/attribute-to-leader", HANDOVER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"newLeaderId": 2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FINALIZED"));
+
+        ArgumentCaptor<AttributeHandoverToLeaderCommand> captor =
+                ArgumentCaptor.forClass(AttributeHandoverToLeaderCommand.class);
+        verify(attributeHandoverToLeaderUseCase).attributeToNewLeader(captor.capture());
+        assertThat(captor.getValue().handoverId()).isEqualTo(HANDOVER_ID);
+        assertThat(captor.getValue().ownerId()).isEqualTo(APPROVER);
+        assertThat(captor.getValue().newLeaderId()).isEqualTo(TARGET);
+        assertThat(captor.getValue().attributedAt()).isNotNull();
+    }
+
+    @Test
     void listMapsQueryParamsAndReturnsSummaries() throws Exception {
         when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
                 .thenReturn(List.of(summary()));
@@ -232,25 +280,25 @@ class HandoverControllerTest {
     private static Handover submitted() {
         return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.SUBMITTED,
                 START, END, null, "Kim", "Manager", null, null, null, null, null,
-                null, null, 1L, List.of(item()));
+                null, null, false, null, null, null, null, 1L, List.of(item()));
     }
 
     private static Handover reassigned() {
         return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.REASSIGNED,
                 START, END, null, "Kim", "Manager", APPROVER, "Park", LocalDateTime.now(), null,
-                null, null, null, 1L, List.of(item()));
+                null, null, null, false, null, null, null, null, 1L, List.of(item()));
     }
 
     private static Handover finalized() {
         return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.FINALIZED,
                 START, END, null, "Kim", "Manager", APPROVER, "Park", LocalDateTime.now(), null,
-                LocalDateTime.now(), APPROVER, "Park", 1L, List.of(item()));
+                LocalDateTime.now(), APPROVER, "Park", false, null, null, null, null, 1L, List.of(item()));
     }
 
     private static Handover rejected() {
         return Handover.restore(HANDOVER_ID, WRITER, TEAM, HandoverType.VACATION, HandoverStatus.REJECTED,
                 START, END, null, "Kim", "Manager", null, null, null, "needs more detail",
-                null, null, null, 1L, List.of(item()));
+                null, null, null, false, null, null, null, null, 1L, List.of(item()));
     }
 
     private static HandoverItem item() {
