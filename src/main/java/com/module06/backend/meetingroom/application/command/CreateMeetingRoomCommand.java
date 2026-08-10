@@ -11,7 +11,6 @@ public record CreateMeetingRoomCommand(
         Long companyId,
         String name,
         String location,
-        Integer capacity,
         LocalTime availableFrom,
         LocalTime availableTo
 ) {

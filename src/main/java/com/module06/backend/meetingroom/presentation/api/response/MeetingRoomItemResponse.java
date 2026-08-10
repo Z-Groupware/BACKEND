@@ -11,7 +11,6 @@ import com.module06.backend.meetingroom.application.result.MeetingRoomSummary;
  * @param meetingRoomId 회의실 식별자
  * @param name 회의실 이름
  * @param location 회의실 위치
- * @param capacity 최대 수용 인원
  * @param availableFrom 이용 가능 시작 시각
  * @param availableTo 이용 가능 종료 시각
  */
@@ -19,7 +18,6 @@ public record MeetingRoomItemResponse(
         Long meetingRoomId,
         String name,
         String location,
-        int capacity,
         String availableFrom,
         String availableTo
 ) {
@@ -36,7 +34,6 @@ public record MeetingRoomItemResponse(
                 summary.meetingRoomId(),
                 summary.name(),
                 summary.location(),
-                summary.capacity(),
                 ApiTimeFormat.formatTime(summary.availableFrom()),
                 ApiTimeFormat.formatTime(summary.availableTo())
         );

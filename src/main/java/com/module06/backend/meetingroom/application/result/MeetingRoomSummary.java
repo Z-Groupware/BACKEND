@@ -13,7 +13,6 @@ import com.module06.backend.meetingroom.domain.model.MeetingRoom;
  * @param meetingRoomId 회의실 식별자
  * @param name 회의실 이름
  * @param location 회의실 위치
- * @param capacity 최대 수용 인원
  * @param availableFrom 이용 가능 시작 시각
  * @param availableTo 이용 가능 종료 시각
  */
@@ -21,7 +20,6 @@ public record MeetingRoomSummary(
         Long meetingRoomId,
         String name,
         String location,
-        int capacity,
         LocalTime availableFrom,
         LocalTime availableTo
 ) {
@@ -38,7 +36,6 @@ public record MeetingRoomSummary(
                 meetingRoom.getId(),
                 meetingRoom.getName(),
                 meetingRoom.getLocation(),
-                meetingRoom.getCapacity(),
                 meetingRoom.getAvailableFrom(),
                 meetingRoom.getAvailableTo()
         );

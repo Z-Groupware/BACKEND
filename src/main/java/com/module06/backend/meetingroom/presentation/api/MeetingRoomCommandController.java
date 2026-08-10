@@ -80,7 +80,7 @@ public class MeetingRoomCommandController {
     /* OWNER·ADMIN이 자기 회사의 활성 회의실 정보를 부분 수정한다. */
     @Operation(
             summary = "회의실 정보 수정",
-            description = "회의실 이름·위치·수용 인원·이용 가능 시간을 부분 수정합니다."
+            description = "회의실 이름·위치·이용 가능 시간을 부분 수정합니다."
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
     @PatchMapping("/{meetingRoomId}")

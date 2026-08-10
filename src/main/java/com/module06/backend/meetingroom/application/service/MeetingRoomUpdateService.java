@@ -60,7 +60,6 @@ public class MeetingRoomUpdateService implements UpdateMeetingRoomUseCase {
         String finalLocation = command.locationProvided()
                 ? normalizeLocation(command.location())
                 : current.getLocation();
-        int finalCapacity = command.capacityProvided() ? requirePositiveCapacity(command.capacity()) : current.getCapacity();
         LocalTime finalAvailableFrom = command.availableFromProvided()
                 ? requireTime(command.availableFrom())
                 : current.getAvailableFrom();
@@ -95,7 +94,6 @@ public class MeetingRoomUpdateService implements UpdateMeetingRoomUseCase {
         MeetingRoom updated = current.update(
                 finalName,
                 finalLocation,
-                finalCapacity,
                 finalAvailableFrom,
                 finalAvailableTo
         );
@@ -157,15 +155,6 @@ public class MeetingRoomUpdateService implements UpdateMeetingRoomUseCase {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
         return normalizedLocation;
-    }
-
-    /* 명시적으로 전달된 수용 인원이 양수인지 확인한다. */
-    private int requirePositiveCapacity(Integer capacity) {
-        /* null 또는 1 미만은 실제 예약 인원을 수용할 수 없는 값이므로 거절한다. */
-        if (capacity == null || capacity <= 0) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
-        }
-        return capacity;
     }
 
     /* 명시적으로 전달된 시각이 null이 아닌지 확인한다. */

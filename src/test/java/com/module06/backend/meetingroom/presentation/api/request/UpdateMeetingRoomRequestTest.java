@@ -22,11 +22,11 @@ class UpdateMeetingRoomRequestTest {
     @Test
     @DisplayName("location 미전달은 기존 위치 유지로 변환한다")
     void distinguishesOmittedLocation() throws Exception {
-        /* 수용 인원만 포함한 PATCH JSON을 요청 DTO로 역직렬화한다. */
+        /* 종료 시각만 포함한 PATCH JSON을 요청 DTO로 역직렬화한다. */
         UpdateMeetingRoomRequest request = objectMapper.readValue(
                 """
                         {
-                          "capacity": 10
+                          "availableTo": "20:00"
                         }
                         """,
                 UpdateMeetingRoomRequest.class
@@ -36,8 +36,8 @@ class UpdateMeetingRoomRequestTest {
         UpdateMeetingRoomCommand command = request.toCommand(10L, "OWNER", 2L);
         assertThat(command.locationProvided()).isFalse();
         assertThat(command.location()).isNull();
-        assertThat(command.capacityProvided()).isTrue();
-        assertThat(command.capacity()).isEqualTo(10);
+        assertThat(command.availableToProvided()).isTrue();
+        assertThat(command.availableTo()).isEqualTo(java.time.LocalTime.of(20, 0));
     }
 
     /* location null을 명시하면 위치 삭제 명령이 되는지 검증한다. */

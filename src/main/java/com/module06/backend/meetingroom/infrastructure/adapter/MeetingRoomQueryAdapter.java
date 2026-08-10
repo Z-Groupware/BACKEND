@@ -52,7 +52,6 @@ public class MeetingRoomQueryAdapter implements MeetingRoomQueryPort {
                 meetingRoom.getId(),
                 meetingRoom.getName(),
                 meetingRoom.getLocation(),
-                meetingRoom.getCapacity(),
                 meetingRoom.getAvailableFrom(),
                 meetingRoom.getAvailableTo()
         );
