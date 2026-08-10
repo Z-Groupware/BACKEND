@@ -207,6 +207,11 @@ class HandoverServiceTest {
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REASSIGNED);
         assertThat(saved.getIntermediateApproverId()).isEqualTo(LEADER);
         assertThat(saved.getIntermediateApproverNameSnap()).isEqualTo("Park");
+        assertThat(saved.getItems()).singleElement()
+                .satisfies(item -> {
+                    assertThat(item.getCommittedAt()).isEqualTo(NOW);
+                    assertThat(item.isCommitted()).isTrue();
+                });
         verify(actionReassignPort).reassign(100L, WRITER, TARGET);
     }
 
@@ -221,6 +226,7 @@ class HandoverServiceTest {
         Handover saved = handoverService.complete(HANDOVER_ID, LEADER, NOW);
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REASSIGNED);
+        assertThat(saved.getItems()).extracting(HandoverItem::getCommittedAt).containsExactly(NOW, null);
         verify(actionReassignPort).reassign(100L, WRITER, TARGET);
         // 재분배 불필요 항목(101L)에 대한 어떤 상호작용도 없어야 함 — never(특정 인자)보다 넓게 봉쇄.
         verifyNoMoreInteractions(actionReassignPort);
@@ -265,6 +271,39 @@ class HandoverServiceTest {
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
         assertThat(saved.getRejectReason()).isEqualTo("needs more detail");
         verify(memberStatusPort).restoreActive(WRITER);
+        verify(actionReassignPort, never()).rollbackReassignment(any(), any(), any());
+    }
+
+    @Test
+    void rejectAfterCompleteRollsBackCommittedReassignmentsToWriterAndRestoresWriterActive() {
+        Handover handover = submittedWithOneItem();
+        handover.reassignItem(100L, TARGET, "Lee", "Staff", NOW);
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Park", "Leader"));
+
+        handoverService.complete(HANDOVER_ID, LEADER, NOW);
+        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "not enough"));
+
+        assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
+        assertThat(saved.getItems()).singleElement()
+                .satisfies(item -> assertThat(item.getRollbackStatus()).isEqualTo("ROLLED_BACK"));
+        verify(actionReassignPort).reassign(100L, WRITER, TARGET);
+        verify(actionReassignPort).rollbackReassignment(100L, TARGET, WRITER);
+        verify(memberStatusPort).restoreActive(WRITER);
+    }
+
+    @Test
+    void rejectSubmittedHandoverDoesNotRollbackUncommittedReassignments() {
+        Handover handover = submittedWithOneItem();
+        handover.reassignItem(100L, TARGET, "Lee", "Staff", NOW);
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+
+        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "try again"));
+
+        assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
+        assertThat(saved.getItems()).singleElement()
+                .satisfies(item -> assertThat(item.getRollbackStatus()).isNull());
+        verify(actionReassignPort, never()).rollbackReassignment(any(), any(), any());
     }
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
