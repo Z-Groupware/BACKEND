@@ -10,8 +10,15 @@ public interface SttBlockAudioAssemblyPort {
     /*
      * 10분 경계(targetOffsetMs) 앞뒤 ±20초 구간의 청크들을 모아 wav(16kHz mono 16bit)로
      * 변환·이어붙여 임시 S3에 올린다. AI-01이 무음 절단 지점을 찾는 데 쓸 입력이다.
+     *
+     * @param availableUpToMs 지금까지 실제로 업로드된 오디오의 끝 지점(ms). 트리거는 target
+     *                        지점에 도달한 그 순간(청크 40개째) 곧바로 발화하므로(명세 "40개
+     *                        누적 시"), target 뒤쪽 20초는 아직 안 올라와 있을 수 있다 —
+     *                        구현체는 windowEndMs를 이 값 이상으로 요청하면 안 된다(있는
+     *                        데이터까지만 자른 좁은 창으로 대체한다).
      */
-    ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq, long targetOffsetMs);
+    ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq, long targetOffsetMs,
+                                     long availableUpToMs);
 
     /*
      * 확정된 절단 지점(startOffsetMs~endOffsetMs)까지의 청크 전체를 이어붙여 블록 오디오

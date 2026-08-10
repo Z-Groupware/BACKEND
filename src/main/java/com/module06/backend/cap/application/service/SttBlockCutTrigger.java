@@ -52,12 +52,6 @@ public class SttBlockCutTrigger {
     private static final int CHUNKS_PER_BLOCK = 40;
     private static final long BLOCK_DURATION_MS = CHUNKS_PER_BLOCK * CHUNK_DURATION_MS;
 
-    // ±20초 윈도우가 "미래"를 가리키지 않으려면(CodeRabbit 지적), 절단 지점(target) 뒤쪽 20초
-    // 분량도 실제로 업로드돼 있어야 한다 — 그래서 40개가 아니라 42개(≈10분+20초)가 쌓인 뒤에
-    // 트리거한다. 블록 자체는 여전히 40개(10분) 지점을 목표로 자른다 — 여유분 2개는 AI-01이
-    // "target 뒤쪽에 무음이 있는지" 볼 수 있게 미리 확보해두는 것뿐이다.
-    private static final int LOOKAHEAD_CHUNKS_FOR_WINDOW = 2;
-
     private final SttBlockAudioAssemblyPort audioAssemblyPort;
     private final SttBlockCutDetectionPort cutDetectionPort;
     private final CreateSttBlockPort createSttBlockPort;
@@ -77,8 +71,9 @@ public class SttBlockCutTrigger {
     }
 
     /*
-     * 지금 세그먼트에서 마지막 블록 이후로 40개(+여유 2개)가 쌓였는지 확인하고, 쌓였으면 블록을
-     * 만든다. 임계값 미달이면 아무 일도 하지 않는다 — CaptureUploadService가 매 청크 완료마다 부른다.
+     * 지금 세그먼트에서 마지막 블록 이후로 40개가 쌓였는지(명세 "40개 누적 시") 확인하고,
+     * 쌓였으면 블록을 만든다. 임계값 미달이면 아무 일도 하지 않는다 — CaptureUploadService가
+     * 매 청크 완료마다 부른다.
      */
     @Async("sttBlockCutTaskExecutor")
     public void triggerIfThresholdReached(Long companyId, Long meetingId) {
@@ -91,6 +86,10 @@ public class SttBlockCutTrigger {
             long targetOffsetMs = state.getLastBlockEndOffsetMs() + BLOCK_DURATION_MS;
             long lastBlockEndOffsetMs = state.getLastBlockEndOffsetMs();
             int segmentSeq = state.getSegmentSeq();
+            // 지금까지 실제로 올라온 오디오의 끝 지점 — target 지점에 막 도달한 순간이라, 뒤쪽
+            // 20초 여유분은 아직 없을 수 있다(CodeRabbit 지적: 트리거를 늦추지 말고 명세대로
+            // 40개에서 바로 돈다 — 대신 윈도우 쪽이 이 한도를 넘지 않게 스스로 잘라 쓴다).
+            long availableUpToMs = (long) state.getLastSeq() * CHUNK_DURATION_MS;
 
             // 무거운 작업 전에 이 블록 자리를 먼저 찜한다 — 경합에서 지면 조용히 넘어간다.
             Optional<Integer> reserved =
@@ -102,7 +101,8 @@ public class SttBlockCutTrigger {
             int blockSeq = reserved.get();
 
             SttBlockAudioAssemblyPort.ExtractedWindow window =
-                    audioAssemblyPort.extractCutWindow(companyId, meetingId, segmentSeq, targetOffsetMs);
+                    audioAssemblyPort.extractCutWindow(companyId, meetingId, segmentSeq, targetOffsetMs,
+                            availableUpToMs);
 
             SttBlockCutDetectionPort.CutDetectionResult cut = cutDetectionPort.detectCutPoint(
                     window.s3Key(), window.windowStartOffsetMs(), targetOffsetMs);
@@ -132,7 +132,7 @@ public class SttBlockCutTrigger {
     private boolean hasReachedThreshold(CaptureUploadState state) {
         long chunksAlreadyConsumedInSegment = state.getLastBlockEndOffsetMs() / CHUNK_DURATION_MS;
         long chunksSinceLastBlock = state.getLastSeq() - chunksAlreadyConsumedInSegment;
-        return chunksSinceLastBlock >= CHUNKS_PER_BLOCK + LOOKAHEAD_CHUNKS_FOR_WINDOW;
+        return chunksSinceLastBlock >= CHUNKS_PER_BLOCK;
     }
 
     /*

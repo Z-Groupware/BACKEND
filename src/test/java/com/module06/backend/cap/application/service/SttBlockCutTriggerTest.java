@@ -17,10 +17,13 @@ import com.module06.backend.capture.application.port.in.CreateSttBlockPort;
 import com.module06.backend.capture.application.port.in.CreateSttBlockPort.CreateSttBlockCommand;
 
 /*
- * 10분/40청크(+20초 여유분) 자동 블록 트리거(SttBlockCutTrigger)의 임계값 판정·예약(CAS) 순서·
- * 파이프라인 순서·실패 시 best-effort(카운터 미갱신) 규칙을 검증하는 단위 테스트다. @Async
- * 어노테이션은 순수 호출(new)로 조립한 이 테스트에선 적용되지 않으므로, 메서드가 동기적으로
- * 바로 실행된다.
+ * 10분/40청크 자동 블록 트리거(SttBlockCutTrigger)의 임계값 판정·예약(CAS) 순서·파이프라인 순서·
+ * 실패 시 best-effort(카운터 미갱신) 규칙을 검증하는 단위 테스트다. 트리거는 명세대로 정확히
+ * 40개에서 돈다(CodeRabbit 지적 — 여유분을 채우려고 트리거 자체를 늦추면 안 된다) — 대신 아직
+ * 안 올라온 뒤쪽 20초를 요청하지 않도록 윈도우 쪽에서 스스로 잘라 쓴다(availableUpToMs).
+ *
+ * @Async 어노테이션은 순수 호출(new)로 조립한 이 테스트에선 적용되지 않으므로, 메서드가
+ * 동기적으로 바로 실행된다.
  */
 @DisplayName("10분/40청크 자동 블록 트리거")
 class SttBlockCutTriggerTest {
@@ -29,10 +32,10 @@ class SttBlockCutTriggerTest {
     private static final Long MEETING_ID = 500L;
 
     @Test
-    @DisplayName("42개(=10분+20초 여유) 미만이면 아무 포트도 부르지 않는다")
+    @DisplayName("40개 미만이면 아무 포트도 부르지 않는다")
     void doesNothingBelowThreshold() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 41);
+        state.recordUpload(7L, 39);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RefusingAudioAssemblyPort audioPort = new RefusingAudioAssemblyPort();
         RefusingCutDetectionPort cutPort = new RefusingCutDetectionPort();
@@ -45,10 +48,10 @@ class SttBlockCutTriggerTest {
     }
 
     @Test
-    @DisplayName("42개 누적이면 예약→윈도우 추출→절단 탐지→블록 조립→블록 생성 순서로 파이프라인 전체를 돈다")
-    void runsFullPipelineAtThreshold() {
+    @DisplayName("40개 누적이면(여유분 없어도) 예약→윈도우 추출→절단 탐지→블록 조립→블록 생성 순서로 돈다")
+    void runsFullPipelineExactlyAtFortyChunks() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 42);
+        state.recordUpload(7L, 40);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
@@ -56,9 +59,10 @@ class SttBlockCutTriggerTest {
 
         trigger(stateRepo, audioPort, cutPort, createPort).triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
 
-        // 목표 지점(targetOffsetMs)은 15초×40청크 = 600,000ms — 여유분 2개는 트리거 시점만 늦출 뿐,
-        // 블록 자체는 여전히 40개(10분) 지점을 목표로 자른다.
+        // 목표 지점(targetOffsetMs)은 15초×40청크 = 600,000ms.
         assertThat(audioPort.extractCalls).containsExactly(600_000L);
+        // 딱 40개만 올라온 시점이라 availableUpToMs도 600,000ms — 뒤쪽 20초 여유분은 아직 없다.
+        assertThat(audioPort.availableUpToCalls).containsExactly(600_000L);
         assertThat(cutPort.detectCalls).containsExactly(600_000L);
         assertThat(audioPort.assembleCalls).hasSize(1);
         assertThat(createPort.received).hasSize(1);
@@ -76,10 +80,28 @@ class SttBlockCutTriggerTest {
     }
 
     @Test
+    @DisplayName("뒤쪽 여유분 청크가 이미 올라와 있으면 availableUpToMs가 그만큼 더 크게 전달된다")
+    void passesLargerAvailableUpToMsWhenLookaheadChunksExist() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        // 42개(=target 뒤 20초 분량 포함)가 이미 올라온 상황 — 트리거는 여전히 40개 지점에서
+        // 이미 발화 조건을 만족하지만, availableUpToMs는 실제 업로드분(42개=630,000ms)을 반영한다.
+        state.recordUpload(7L, 42);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        trigger(stateRepo, audioPort, cutPort, createPort).triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        assertThat(audioPort.extractCalls).containsExactly(600_000L);
+        assertThat(audioPort.availableUpToCalls).containsExactly(630_000L);
+    }
+
+    @Test
     @DisplayName("예약에서 경합에 지면(blocksFormed가 기대와 다르면) 아무 포트도 안 부르고 조용히 넘어간다")
     void skipsWhenReservationLosesRace() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 42);
+        state.recordUpload(7L, 40);
         // 이미 누가 먼저 예약해간 상황을 흉내낸다 — FakeStateRepo가 기대값 불일치로 항상 empty를 준다.
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         stateRepo.forceReservationConflict = true;
@@ -95,12 +117,12 @@ class SttBlockCutTriggerTest {
     @DisplayName("파이프라인 도중 실패하면 예외를 던지지 않는다(카운터는 예약 시점에 이미 전진해 있다)")
     void swallowsFailureAfterReservation() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 42);
+        state.recordUpload(7L, 40);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         SttBlockAudioAssemblyPort failingAudioPort = new SttBlockAudioAssemblyPort() {
             @Override
             public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
-                                                     long targetOffsetMs) {
+                                                     long targetOffsetMs, long availableUpToMs) {
                 throw new RuntimeException("S3/ffmpeg 실패 가정");
             }
 
@@ -124,7 +146,7 @@ class SttBlockCutTriggerTest {
     }
 
     @Test
-    @DisplayName("이어받기로 세그먼트가 바뀐 뒤에도(blocksFormed는 유지, lastSeq는 리셋) 42개면 트리거된다")
+    @DisplayName("이어받기로 세그먼트가 바뀐 뒤에도(blocksFormed는 유지, lastSeq는 리셋) 40개면 트리거된다")
     void triggersInNewSegmentRegardlessOfPriorBlocksFormed() {
         // 이전 세그먼트에서 블록 2개를 이미 만든 뒤(blocksFormed=2) 이어받기가 일어난 상황을
         // 재현한다 — assignOrVerifyRecorder가 lastSeq·lastBlockEndOffsetMs를 0으로 리셋한다.
@@ -138,8 +160,8 @@ class SttBlockCutTriggerTest {
         assertThat(state.getLastBlockEndOffsetMs()).isZero();
         assertThat(state.getLastSeq()).isZero();
 
-        // 새 세그먼트에서 정확히 42개만 올라왔다 — blocksFormed(2)와 무관하게 트리거돼야 한다.
-        state.recordUpload(9L, 42);
+        // 새 세그먼트에서 정확히 40개만 올라왔다 — blocksFormed(2)와 무관하게 트리거돼야 한다.
+        state.recordUpload(9L, 40);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
@@ -232,7 +254,7 @@ class SttBlockCutTriggerTest {
     private static final class RefusingAudioAssemblyPort implements SttBlockAudioAssemblyPort {
         @Override
         public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
-                                                 long targetOffsetMs) {
+                                                 long targetOffsetMs, long availableUpToMs) {
             throw new AssertionError("임계값 미달이므로 호출되면 안 됩니다.");
         }
 
@@ -253,12 +275,14 @@ class SttBlockCutTriggerTest {
 
     private static final class RecordingAudioAssemblyPort implements SttBlockAudioAssemblyPort {
         private final List<Long> extractCalls = new ArrayList<>();
+        private final List<Long> availableUpToCalls = new ArrayList<>();
         private final List<Object> assembleCalls = new ArrayList<>();
 
         @Override
         public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
-                                                 long targetOffsetMs) {
+                                                 long targetOffsetMs, long availableUpToMs) {
             extractCalls.add(targetOffsetMs);
+            availableUpToCalls.add(availableUpToMs);
             return new ExtractedWindow("stt-temp/org-1/meeting-500/cut-window.wav", targetOffsetMs - 20_000L);
         }
 

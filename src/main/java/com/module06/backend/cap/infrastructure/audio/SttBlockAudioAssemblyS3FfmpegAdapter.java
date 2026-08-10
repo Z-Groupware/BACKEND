@@ -76,9 +76,14 @@ public class SttBlockAudioAssemblyS3FfmpegAdapter implements SttBlockAudioAssemb
     }
 
     @Override
-    public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq, long targetOffsetMs) {
+    public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq, long targetOffsetMs,
+                                            long availableUpToMs) {
         long windowStartMs = Math.max(0L, targetOffsetMs - CUT_WINDOW_MARGIN_MS);
-        long windowEndMs = targetOffsetMs + CUT_WINDOW_MARGIN_MS;
+        // 트리거는 target 지점에 도달한 그 순간 곧바로 돈다(명세 "40개 누적 시") — 뒤쪽 20초
+        // 여유분은 아직 안 올라와 있을 수 있으므로, 실제 업로드된 데이터를 넘어서는 요청을
+        // 하지 않는다(CodeRabbit 지적). 여유분이 없으면 그만큼 좁은 창으로 대체될 뿐, 실패하지
+        // 않는다.
+        long windowEndMs = Math.min(targetOffsetMs + CUT_WINDOW_MARGIN_MS, availableUpToMs);
 
         Path workDir = createWorkDir(meetingId, segmentSeq);
         try {

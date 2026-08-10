@@ -375,7 +375,7 @@ class CaptureUploadServiceTest {
         SttBlockAudioAssemblyPort audioAssemblyPort = new SttBlockAudioAssemblyPort() {
             @Override
             public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
-                                                     long targetOffsetMs) {
+                                                     long targetOffsetMs, long availableUpToMs) {
                 throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
             }
 

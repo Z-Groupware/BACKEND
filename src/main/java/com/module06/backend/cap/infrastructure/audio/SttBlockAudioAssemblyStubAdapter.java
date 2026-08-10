@@ -19,12 +19,16 @@ public class SttBlockAudioAssemblyStubAdapter implements SttBlockAudioAssemblyPo
     private static final Logger log = LoggerFactory.getLogger(SttBlockAudioAssemblyStubAdapter.class);
 
     @Override
-    public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq, long targetOffsetMs) {
+    public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq, long targetOffsetMs,
+                                            long availableUpToMs) {
         String s3Key = "stt-temp/org-%d/meeting-%d/segments/%d/cut-window-%d.wav"
                 .formatted(companyId, meetingId, segmentSeq, targetOffsetMs);
         long windowStartOffsetMs = Math.max(0L, targetOffsetMs - 20_000L);
-        log.info("절단 지점 탐지용 ±20초 윈도우 추출(stub) — meetingId={}, segmentSeq={}, targetOffsetMs={}. "
-                + "실제 ffmpeg 변환·업로드는 후속 인프라에서 수행.", meetingId, segmentSeq, targetOffsetMs);
+        // 뒤쪽 20초 여유분이 아직 안 올라와 있을 수 있다 — 실제 있는 데이터까지만 요청한다.
+        long windowEndOffsetMs = Math.min(targetOffsetMs + 20_000L, availableUpToMs);
+        log.info("절단 지점 탐지용 윈도우 추출(stub) — meetingId={}, segmentSeq={}, targetOffsetMs={}, "
+                + "실제 창 {}~{}ms. 실제 ffmpeg 변환·업로드는 후속 인프라에서 수행.",
+                meetingId, segmentSeq, targetOffsetMs, windowStartOffsetMs, windowEndOffsetMs);
         return new ExtractedWindow(s3Key, windowStartOffsetMs);
     }
 
