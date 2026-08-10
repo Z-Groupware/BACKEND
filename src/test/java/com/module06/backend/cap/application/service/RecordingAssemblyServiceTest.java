@@ -224,7 +224,8 @@ class RecordingAssemblyServiceTest {
         RecordingAssemblyPort assemblyPort = (meetingId, lastSegmentSeq, lastSeq) -> assemblyTriggered[0] = true;
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
-        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, partRepo, assemblyPort);
+        RecordingGapChecker gapChecker = new RecordingGapChecker(partRepo);
+        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, assemblyPort);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.
