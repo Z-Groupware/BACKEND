@@ -112,6 +112,14 @@ cap:
   s3:
     bucket: ${S3_BUCKET:}
 
+# ── 프로젝트 첨부파일 오브젝트 스토리지(S3) ──
+# CAP과 같은 버킷(S3_BUCKET)을 재사용한다 — SSM 파라미터를 늘리지 않고 prefix(project-attachments/...
+# vs recordings/...)로만 구분한다. ProjectAttachmentS3Properties 주석 참고.
+project:
+  attachment:
+    s3:
+      bucket: ${S3_BUCKET:}
+
 # Prometheus 설정
 management:
   endpoints:
