@@ -32,4 +32,10 @@ public interface SpringDataAnalysisLayerRepository extends JpaRepository<Analysi
     Optional<AnalysisLayerJpaEntity> findWithLockByMeetingIdAndLayer(Long meetingId, String layer);
 
     List<AnalysisLayerJpaEntity> findByMeetingIdOrderByIdAsc(Long meetingId);
+
+    /*
+     * 여러 회의의 계층 행을 한 번에 읽는다(마이페이지 배치). meetingId 로 먼저 묶어야
+     * 호출자가 회의별로 접을 때 순서가 섞이지 않는다.
+     */
+    List<AnalysisLayerJpaEntity> findByMeetingIdInOrderByMeetingIdAscIdAsc(List<Long> meetingIds);
 }

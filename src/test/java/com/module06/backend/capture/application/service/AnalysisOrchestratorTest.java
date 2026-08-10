@@ -1787,6 +1787,12 @@ class AnalysisOrchestratorTest {
                     .map(layer -> new LayerState(layer, LayerStatus.DONE, 0, 0, false))
                     .toList();
         }
+
+        /* 오케스트레이터는 배치 조회를 쓰지 않는다 — 마이페이지 카드(D 위임) 전용이다. */
+        @Override
+        public Map<Long, List<LayerState>> findStatesByMeetings(List<Long> meetingIds) {
+            throw new UnsupportedOperationException("오케스트레이터는 여러 회의를 한 번에 읽지 않는다");
+        }
     }
 
     /*

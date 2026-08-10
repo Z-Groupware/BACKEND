@@ -178,6 +178,17 @@ public class AnalysisOrchestrator {
         return PIPELINE.contains(layer);
     }
 
+    /*
+     * 파이프라인 순서 그대로의 계층 목록이다.
+     *
+     * 재개 지점을 **자동으로 고를 때** 쓴다(ANLZ-02 에 계층을 안 보낸 경우). 순서가 있어야
+     * "실패한 첫 계층"이 정해지고, LayerName 의 enum 선언 순서에 기대면 계층을 하나 끼워
+     * 넣을 때 조용히 어긋난다 — 순서를 아는 것은 이 목록 하나여야 한다.
+     */
+    public static List<LayerName> pipelineLayers() {
+        return PIPELINE;
+    }
+
     private final TranscriptRepository transcriptRepository;
     private final SttBlockRepository sttBlockRepository;
     private final CaptionRepository captionRepository;

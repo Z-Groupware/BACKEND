@@ -200,6 +200,90 @@ class ResumeAnalysisServiceTest {
                 .isEqualTo(CaptureErrorCode.RESUME_LAYER_UNKNOWN);
     }
 
+    // ── 계층 미지정(자동 선택) ──────────────────────────────────────────────────
+    /*
+     * 화면의 「다시 분석」 버튼은 어느 계층이 실패했는지 모른다. 계층을 필수로 두면 호출자가
+     * CAP-06 을 먼저 부르는 왕복이 생기고, 그걸 피해 ANLZ-01(force)로 돌리면 이미 성공한
+     * 계층의 토큰이 다시 나간다 — 재개 API 가 막으려던 바로 그것이다.
+     */
+
+    @Test
+    @DisplayName("계층을 안 보내면 실패한 첫 계층에서 재개한다")
+    void 계층_미지정이면_실패한_계층을_고른다() {
+        // L1~L3.5 는 DONE, L4 가 FAILED. 그 뒤 계층은 행이 아예 없다(거기서 멈췄다).
+        List<LayerState> states = new java.util.ArrayList<>(doneUpTo(LayerName.L3_5));
+        states.add(new LayerState(LayerName.L4, LayerStatus.FAILED, 0, 0, false));
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(states);
+        when(orchestrator.run(anyLong(), anyLong(), anyLong(), any(), anyBoolean(), eq(LayerName.L4)))
+                .thenReturn(AnalysisOutcome.skipped("테스트"));
+
+        ResumeOutcome resumed = service(true).resume(COMPANY, MEETING, null);
+
+        assertThat(resumed.resumeFrom()).isEqualTo(LayerName.L4);
+        // 앞 계층 검사를 우회하지 않는다 — 고른 계층도 그대로 그 검사를 지난다.
+        assertThat(resumed.reusedLayers())
+                .containsExactly(LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5);
+        verify(orchestrator).run(COMPANY, COMPANY, MEETING, List.of(), false, LayerName.L4);
+    }
+
+    @Test
+    @DisplayName("중단된 계층(#177)도 깨진 것으로 보고 거기서 재개한다")
+    void 계층_미지정이면_중단된_계층도_고른다() {
+        /*
+         * status 는 RUNNING 인데 심장이 멈춘 계층이다. ProcessingStatus 가 이걸 FAILED 로
+         * 접는 것과 같은 판단이어야 한다 — 갈리면 화면은 "중단됨"이라 말하는데 재개는 그
+         * 계층을 건너뛴다.
+         */
+        List<LayerState> states = new java.util.ArrayList<>(doneUpTo(LayerName.L2));
+        states.add(new LayerState(LayerName.L3, LayerStatus.RUNNING, 0, 0, true));
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(states);
+        when(orchestrator.run(anyLong(), anyLong(), anyLong(), any(), anyBoolean(), eq(LayerName.L3)))
+                .thenReturn(AnalysisOutcome.skipped("테스트"));
+
+        assertThat(service(true).resume(COMPANY, MEETING, null).resumeFrom()).isEqualTo(LayerName.L3);
+    }
+
+    @Test
+    @DisplayName("깨진 계층이 없으면 409 — 성공한 회의를 통째로 다시 태우지 않는다")
+    void 계층_미지정인데_깨진_곳이_없으면_막는다() {
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(doneUpTo(LayerName.DIST));
+
+        assertThatThrownBy(() -> service(true).resume(COMPANY, MEETING, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .satisfies(code -> {
+                    assertThat(code).isEqualTo(CaptureErrorCode.RESUME_NOTHING_TO_RESUME);
+                    assertThat(code.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT);
+                });
+
+        verify(orchestrator, never()).run(anyLong(), anyLong(), anyLong(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    @DisplayName("한 번도 분석하지 않은 회의도 409 — 재개가 아니라 ANLZ-01 이 필요하다")
+    void 분석_이력이_없으면_막는다() {
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service(true).resume(COMPANY, MEETING, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CaptureErrorCode.RESUME_NOTHING_TO_RESUME);
+    }
+
+    @Test
+    @DisplayName("계층 미지정이어도 도는 중이면 먼저 막는다 — 그 상태로 재개 지점을 고르면 안 된다")
+    void 계층_미지정인데_도는_중이면_막는다() {
+        // 살아 있는 RUNNING 이다(stalled=false). 아직 끝나지 않은 계층을 실패로 고르면 안 된다.
+        List<LayerState> running = new java.util.ArrayList<>(doneUpTo(LayerName.L2));
+        running.add(new LayerState(LayerName.L3, LayerStatus.RUNNING, 0, 0, false));
+        when(analysisLayerRepository.findStates(MEETING)).thenReturn(running);
+
+        assertThatThrownBy(() -> service(true).resume(COMPANY, MEETING, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CaptureErrorCode.ANALYSIS_ALREADY_RUNNING);
+    }
+
     /* 파이프라인 순서대로 그 계층까지 DONE 인 상태를 만든다. */
     private static List<LayerState> doneUpTo(LayerName last) {
         List<LayerName> order = List.of(LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3,

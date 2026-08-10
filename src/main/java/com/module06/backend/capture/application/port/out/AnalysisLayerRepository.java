@@ -1,6 +1,7 @@
 package com.module06.backend.capture.application.port.out;
 
 import java.util.List;
+import java.util.Map;
 
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
@@ -112,6 +113,19 @@ public interface AnalysisLayerRepository {
 
     /* CAP-06 이 내려주는 계층 상태 목록이다. */
     List<LayerState> findStates(long meetingId);
+
+    /*
+     * 여러 회의의 계층 상태를 한 번에 읽는다(마이페이지 배치 카드).
+     *
+     * 회의당 계층이 최대 10 행이라 목록 화면이 회의 수만큼 findStates 를 부르면 그대로 N+1 이
+     * 된다 — 카드 20개면 쿼리 20번이다.
+     *
+     * <h2>계층 행이 없는 회의는 키로 나오지 않는다</h2>
+     * 아직 분석하지 않은 회의다. 빈 리스트를 담아 돌려주면 호출자가 "행이 없음"과 "분석 안 함"을
+     * 구분하려고 다시 크기를 보게 된다 — 없는 것은 없는 것으로 둔다
+     * (MeetingActionQueryPort 가 count=0 항목을 아예 안 담는 것과 같은 규칙).
+     */
+    Map<Long, List<LayerState>> findStatesByMeetings(List<Long> meetingIds);
 
     /*
      * 계층 하나의 현재 상태. 없으면 아직 시작하지 않은 것이다.
