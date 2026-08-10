@@ -132,7 +132,7 @@ class NoticeControllerTest {
 
     /* 인증 principal과 요청 본문이 작성 Command로 전달되고 201 본문이 반환되는지 검증한다. */
     @Test
-    @DisplayName("OWNER가 공지를 작성하고 생성 식별자를 반환한다")
+    @DisplayName("관리자 겸직자의 권한 정보를 전달하고 생성 식별자를 반환한다")
     void createsNoticeWithAuthenticatedPrincipal() {
         /* 작성 Command를 기록하고 생성된 공지 식별자 31을 반환하는 유스케이스 대역을 만든다. */
         CreateNoticeCommand[] capturedCommand = new CreateNoticeCommand[1];
@@ -145,18 +145,19 @@ class NoticeControllerTest {
                 unusedDetailUseCase(),
                 createUseCase
         );
-        AuthPrincipal principal = new AuthPrincipal(3L, 10L, "OWNER", false, null);
+        AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", true, 100L);
 
-        /* 인증 OWNER와 정상 제목·본문으로 Controller 작성 메서드를 호출한다. */
+        /* MEMBER 권한을 가진 관리자 겸직자와 정상 제목·본문으로 Controller 작성 메서드를 호출한다. */
         var response = controller.createNotice(
                 principal,
                 new CreateNoticeRequest("회의실 예약과 참석 안내", "공지 본문")
         );
 
-        /* 회사·작성자·역할은 요청이 아니라 인증 principal 값으로 Command에 들어가야 한다. */
+        /* 회사·작성자·권한·관리자 여부는 요청이 아니라 인증 principal 값으로 Command에 들어가야 한다. */
         assertThat(capturedCommand[0].companyId()).isEqualTo(10L);
         assertThat(capturedCommand[0].requesterMemberId()).isEqualTo(3L);
-        assertThat(capturedCommand[0].requesterRole()).isEqualTo("OWNER");
+        assertThat(capturedCommand[0].requesterRole()).isEqualTo("MEMBER");
+        assertThat(capturedCommand[0].requesterAdmin()).isTrue();
 
         /* 공통 생성 응답 본문은 201 상태와 생성된 공지 식별자만 포함해야 한다. */
         assertThat(response.getHttpStatus()).isEqualTo(201);

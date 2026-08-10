@@ -41,6 +41,7 @@ class NoticeCommandServiceTest {
                 10L,
                 3L,
                 "OWNER",
+                false,
                 "  회의실 예약과 참석 안내  ",
                 "첫 번째 줄\n두 번째 줄"
         ));
@@ -71,11 +72,12 @@ class NoticeCommandServiceTest {
                 null
         ));
 
-        /* 회사 10의 ADMIN 4가 정상 제목과 본문으로 공지를 작성한다. */
+        /* 회사 10의 MEMBER이면서 관리자 겸직자인 구성원 4가 정상 제목과 본문으로 공지를 작성한다. */
         var result = service.createNotice(new CreateNoticeCommand(
                 10L,
                 4L,
-                "ADMIN",
+                "MEMBER",
+                true,
                 "관리자 공지",
                 "관리자 공지 본문"
         ));
@@ -94,8 +96,8 @@ class NoticeCommandServiceTest {
         });
 
         /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
-        assertErrorCode(() -> service.createNotice(command("LEADER", "제목", "본문")), "NT-002");
-        assertErrorCode(() -> service.createNotice(command("MEMBER", "제목", "본문")), "NT-002");
+        assertErrorCode(() -> service.createNotice(command("LEADER", false, "제목", "본문")), "NT-002");
+        assertErrorCode(() -> service.createNotice(command("MEMBER", false, "제목", "본문")), "NT-002");
     }
 
     /* Bean Validation을 우회한 잘못된 Command도 서비스에서 NT-003으로 거절하는지 검증한다. */
@@ -109,15 +111,15 @@ class NoticeCommandServiceTest {
 
         /* null Command와 공백·길이 초과 제목 및 공백 본문을 모두 공지 입력 오류로 처리한다. */
         assertErrorCode(() -> service.createNotice(null), "NT-003");
-        assertErrorCode(() -> service.createNotice(command("OWNER", " ", "본문")), "NT-003");
-        assertErrorCode(() -> service.createNotice(command("OWNER", "가".repeat(201), "본문")), "NT-003");
-        assertErrorCode(() -> service.createNotice(command("OWNER", "제목", " \n ")), "NT-003");
+        assertErrorCode(() -> service.createNotice(command("OWNER", false, " ", "본문")), "NT-003");
+        assertErrorCode(() -> service.createNotice(command("OWNER", false, "가".repeat(201), "본문")), "NT-003");
+        assertErrorCode(() -> service.createNotice(command("OWNER", false, "제목", " \n ")), "NT-003");
     }
 
-    /* 역할과 제목·본문만 바꿀 수 있는 정상 인증 작성 Command를 만든다. */
-    private CreateNoticeCommand command(String role, String title, String content) {
+    /* 역할·관리자 여부와 제목·본문만 바꿀 수 있는 정상 인증 작성 Command를 만든다. */
+    private CreateNoticeCommand command(String role, boolean isAdmin, String title, String content) {
         /* 회사 10의 구성원 3을 공통 인증 값으로 사용한다. */
-        return new CreateNoticeCommand(10L, 3L, role, title, content);
+        return new CreateNoticeCommand(10L, 3L, role, isAdmin, title, content);
     }
 
     /* 실행 결과가 기대한 공지 BusinessException 코드인지 검증한다. */

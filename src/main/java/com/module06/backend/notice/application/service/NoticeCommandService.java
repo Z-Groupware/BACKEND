@@ -29,7 +29,7 @@ public class NoticeCommandService implements CreateNoticeUseCase {
         validateRequiredValues(command);
 
         /* 애노테이션 인가를 우회한 내부 호출도 OWNER·ADMIN이 아니면 공지 작성을 거절한다. */
-        if (!isNoticeManager(command.requesterRole())) {
+        if (!isNoticeManager(command.requesterRole(), command.requesterAdmin())) {
             throw new BusinessException(NoticeErrorCode.NOTICE_MANAGEMENT_FORBIDDEN);
         }
 
@@ -67,9 +67,9 @@ public class NoticeCommandService implements CreateNoticeUseCase {
         }
     }
 
-    /* 인증 역할이 공지 작성 권한을 가진 OWNER 또는 ADMIN인지 판단한다. */
-    private boolean isNoticeManager(String role) {
-        /* 명세에 확정된 두 역할만 쓰기 권한으로 인정한다. */
-        return "OWNER".equals(role) || "ADMIN".equals(role);
+    /* 인증 권한과 별도 관리자 플래그로 공지 작성 권한을 판단한다. */
+    private boolean isNoticeManager(String role, boolean isAdmin) {
+        /* OWNER이거나 관리자 겸직자이면 직급 권한과 관계없이 쓰기 권한으로 인정한다. */
+        return "OWNER".equals(role) || isAdmin;
     }
 }

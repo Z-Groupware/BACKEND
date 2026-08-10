@@ -12,8 +12,8 @@ public record CreateNoticeRequest(
 ) {
 
     /* 인증 principal 정보와 요청 본문을 공지 작성 Command로 변환한다. */
-    public CreateNoticeCommand toCommand(Long companyId, Long memberId, String role) {
-        /* 회사·작성자·권한은 사용자가 조작할 수 없는 인증 principal 값만 사용한다. */
-        return new CreateNoticeCommand(companyId, memberId, role, title, content);
+    public CreateNoticeCommand toCommand(Long companyId, Long memberId, String role, boolean isAdmin) {
+        /* 회사·작성자·직급 권한·관리자 여부는 사용자가 조작할 수 없는 인증 principal 값만 사용한다. */
+        return new CreateNoticeCommand(companyId, memberId, role, isAdmin, title, content);
     }
 }

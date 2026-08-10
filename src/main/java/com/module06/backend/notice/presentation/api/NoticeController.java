@@ -101,7 +101,8 @@ public class NoticeController {
         NoticeCreationResult result = createNoticeUseCase.createNotice(request.toCommand(
                 principal.getCompanyId(),
                 principal.getMemberId(),
-                principal.getAuthority()
+                principal.getAuthority(),
+                principal.isAdmin()
         ));
 
         /* 실제 HTTP와 응답 본문의 상태를 모두 201로 맞추고 생성 식별자만 반환한다. */

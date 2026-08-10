@@ -5,6 +5,7 @@ public record CreateNoticeCommand(
         Long companyId,
         Long requesterMemberId,
         String requesterRole,
+        boolean requesterAdmin,
         String title,
         String content
 ) {
