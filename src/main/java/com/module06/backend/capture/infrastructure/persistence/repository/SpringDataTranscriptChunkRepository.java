@@ -2,6 +2,7 @@ package com.module06.backend.capture.infrastructure.persistence.repository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -80,6 +81,23 @@ public interface SpringDataTranscriptChunkRepository extends JpaRepository<Trans
 
     /* 본문 구간 첫 페이지. */
     List<TranscriptChunkJpaEntity> findByMeetingIdAndOffsetMsIsNotNull(Long meetingId, Pageable pageable);
+
+    /*
+     * 블록 하나가 만든 발화를 지운다(적재 교체).
+     *
+     * sttBlockSeq 를 조건에 넣으므로 NULL 인 행(이 경로 전에 들어온 발화)은 지워지지 않는다 —
+     * 파생 쿼리의 `=` 비교가 NULL 과 일치하지 않기 때문이고, 그게 의도한 동작이다.
+     */
+    void deleteByMeetingIdAndSttBlockSeq(Long meetingId, Integer sttBlockSeq);
+
+    /*
+     * 그 회의의 가장 큰 seq. 적재가 그다음 번호부터 붙인다.
+     *
+     * seq 는 **오프셋이 같을 때의 tie-breaker** 라 회의 안에서 유일하면 된다(커서 페이징이 그
+     * 자리에서만 비교한다). 블록을 재처리해 뒤늦게 큰 번호가 붙어도 정렬은 offset_ms 가 하므로
+     * 페이징이 깨지지 않는다.
+     */
+    Optional<TranscriptChunkJpaEntity> findTopByMeetingIdOrderBySeqDesc(Long meetingId);
 
     /* 본문 구간에서 커서보다 **뒤쪽 오프셋**. 커서와 같은 오프셋은 아래 메서드가 맡는다. */
     List<TranscriptChunkJpaEntity> findByMeetingIdAndOffsetMsGreaterThan(

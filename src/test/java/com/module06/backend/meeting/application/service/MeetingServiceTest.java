@@ -182,6 +182,15 @@ class MeetingServiceTest {
             ) {
                 throw new AssertionError("회의 예약 경로에서 분배 대기 배치 조회를 호출하면 안 됩니다.");
             }
+
+            /* MEET-02 액션 수 조회도 회의 예약 경로에서 사용하지 않는다. */
+            @Override
+            public java.util.List<MeetingActionCount> countActionsByMeetings(
+                    Long companyId,
+                    java.util.List<Long> meetingIds
+            ) {
+                throw new AssertionError("회의 예약 경로에서 액션 수 배치 조회를 호출하면 안 됩니다.");
+            }
         };
         MeetingService service = serviceWithActionPort(pendingActionPort);
 
@@ -323,6 +332,15 @@ class MeetingServiceTest {
             /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */
             @Override
             public java.util.List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
+                    Long companyId,
+                    java.util.List<Long> meetingIds
+            ) {
+                return java.util.List.of();
+            }
+
+            /* MEET-02 액션 수 조회는 회의 예약 경로에서 사용하지 않는다. */
+            @Override
+            public java.util.List<MeetingActionCount> countActionsByMeetings(
                     Long companyId,
                     java.util.List<Long> meetingIds
             ) {

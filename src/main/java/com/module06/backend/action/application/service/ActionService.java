@@ -1,5 +1,7 @@
 package com.module06.backend.action.application.service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +27,7 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.SubTeamReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
@@ -113,13 +116,32 @@ public class ActionService implements
         return actionRepository.save(action);
     }
 
-    // FR-AC-02 목록 — 호출자 본인 소유 PERSONAL 액션만, 표시값은 배치조회로 조인한다.
+    // FR-AC-02 목록 — 기본은 호출자 본인 소유 PERSONAL 액션, 표시값은 배치조회로 조인한다.
     // 2026-08-10 페이지네이션 도입(이홍근 요청) — totalElements는 요청한 page와 무관하게 항상
     // 전체 건수라 비어있는 페이지에서도 먼저 구해둔다.
+    // 2026-08-11 — targetMemberId가 있으면(팀원 관리 화면) 호출자가 LEADER인지, 대상이 같은 팀
+    // 소속인지 검증 후 그 팀원의 목록으로 스코프를 바꾼다. IDOR 방지 — 순서 중요(리더 자격 먼저,
+    // 그다음 팀 소속 확인).
     @Override
     @Transactional(readOnly = true)
     public GetMyActionsUseCase.ActionListResult getMyActions(
-            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+            Long requesterId, String requesterAuthority, Long requesterTeamId, Long targetMemberId,
+            ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+        Long assigneeMemberId = requesterId;
+        if (targetMemberId != null) {
+            if (!"LEADER".equals(requesterAuthority)) {
+                throw new BusinessException(ActionErrorCode.NOT_TEAM_LEADER);
+            }
+            // requesterTeamId가 null이면 existsMemberInTeam(targetId, null)이 Spring Data JPA의
+            // "null 파라미터 → IS NULL" 변환 때문에 team_id가 똑같이 NULL인 팀 무소속 대상과
+            // 우연히 매치해버릴 수 있다(CodeRabbit 지적, 2026-08-11) — 스코프로 삼을 팀 자체가
+            // 없으니 매칭 여부와 무관하게 여기서 막는다.
+            if (requesterTeamId == null || !actionReferenceRepository.existsMemberInTeam(targetMemberId, requesterTeamId)) {
+                throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
+            }
+            assigneeMemberId = targetMemberId;
+        }
+
         long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
         List<Action> actions = actionRepository.findAllByAssigneeMemberId(
                 assigneeMemberId, status, overdue, sort, order, page, size);
@@ -131,9 +153,10 @@ public class ActionService implements
         String assigneeName = actionReferenceRepository.findMemberReferences(List.of(assigneeMemberId)).stream()
                 .findFirst().map(MemberReference::name).orElse(null);
 
-        Map<Long, String> projectTagById = toDisplayMap(
-                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId)),
-                ProjectReference::projectId, ProjectReference::tag);
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
         Map<Long, String> teamNameById = toDisplayMap(
                 actionReferenceRepository.findTeamReferences(distinctNonNull(actions, Action::getTeamId)),
                 TeamReference::teamId, TeamReference::name);
@@ -148,6 +171,7 @@ public class ActionService implements
                         action,
                         assigneeName,
                         projectTagById.get(action.getProjectId()),
+                        projectNameById.get(action.getProjectId()),
                         action.getTeamId() == null ? null : teamNameById.get(action.getTeamId()),
                         action.getSourceMeetingId() == null ? null : meetingTitleById.get(action.getSourceMeetingId()),
                         action.getParentActionId() == null ? null : parentTitleById.get(action.getParentActionId())
@@ -168,9 +192,14 @@ public class ActionService implements
             throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
         }
 
-        String assigneeName = action.getAssigneeMemberId() == null ? null
+        MemberReference assignee = action.getAssigneeMemberId() == null ? null
                 : actionReferenceRepository.findMemberReferences(List.of(action.getAssigneeMemberId())).stream()
-                        .findFirst().map(MemberReference::name).orElse(null);
+                        .findFirst().orElse(null);
+        String assigneeName = assignee == null ? null : assignee.name();
+        // "역할"(sub_team)은 team과 달리 리더 없는 순수 분류 태그라 미지정 담당자는 null(이홍근 확인, 2026-08-11).
+        String assigneeRoleLabel = assignee == null || assignee.subTeamId() == null ? null
+                : actionReferenceRepository.findSubTeamReferences(List.of(assignee.subTeamId())).stream()
+                        .findFirst().map(SubTeamReference::name).orElse(null);
 
         ProjectReference project = actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
                 .findFirst().orElse(null);
@@ -179,18 +208,27 @@ public class ActionService implements
                 : actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
                         .findFirst().map(TeamReference::name).orElse(null);
 
-        String sourceMeetingTitle = action.getSourceMeetingId() == null ? null
+        MeetingReference sourceMeeting = action.getSourceMeetingId() == null ? null
                 : actionReferenceRepository.findMeetingReferences(List.of(action.getSourceMeetingId())).stream()
-                        .findFirst().map(MeetingReference::title).orElse(null);
+                        .findFirst().orElse(null);
+        String sourceMeetingTitle = sourceMeeting == null ? null : sourceMeeting.title();
+        LocalDateTime sourceMeetingScheduledAt = sourceMeeting == null ? null : sourceMeeting.scheduledAt();
 
-        String parentActionTitle = action.getParentActionId() == null ? null
-                : actionRepository.findById(action.getParentActionId()).map(Action::getTitle).orElse(null);
+        // 상위 TEAM 액션 카드(팀명·마감일)용 — 부모는 항상 TEAM 액션이라 자신의 teamId를 그대로 쓴다.
+        Action parentAction = action.getParentActionId() == null ? null
+                : actionRepository.findById(action.getParentActionId()).orElse(null);
+        String parentActionTitle = parentAction == null ? null : parentAction.getTitle();
+        String parentActionTeamName = parentAction == null || parentAction.getTeamId() == null ? null
+                : actionReferenceRepository.findTeamReferences(List.of(parentAction.getTeamId())).stream()
+                        .findFirst().map(TeamReference::name).orElse(null);
+        LocalDate parentActionDueDate = parentAction == null ? null : parentAction.getDueDate();
 
         return new GetActionDetailUseCase.ActionDetail(
-                action, assigneeName,
+                action, assigneeName, assigneeRoleLabel,
                 project == null ? null : project.tag(),
                 project == null ? null : project.name(),
-                teamName, sourceMeetingTitle, parentActionTitle
+                teamName, sourceMeetingTitle, sourceMeetingScheduledAt,
+                parentActionTitle, parentActionTeamName, parentActionDueDate
         );
     }
 

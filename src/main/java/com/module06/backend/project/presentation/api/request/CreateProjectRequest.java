@@ -12,12 +12,13 @@ import jakarta.validation.constraints.Size;
 import com.module06.backend.project.domain.model.ProjectColorPalette;
 
 /* comment.
-    프로젝트 생성 요청 DTO. tag는 URL 식별자라 영문·숫자·-_ 만 허용(1차 검증), 중복 여부는
-    service가 판단한다. 길이 제한은 DB 컬럼(name 150/tag 30) 기준 + Figma 실제 UI(tag 8자) 반영.
+    프로젝트 생성 요청 DTO. tag는 URL 식별자라 영문 대문자만 허용(1차 검증), 중복 여부는
+    service가 판단한다. 길이 제한은 DB 컬럼(name 150/tag 30) 기준 + FE 상수(PROJECT_TAG_MAX_LENGTH=6)와
+    통일, 문자셋도 FE 정책(대문자 전용)에 맞춤(2026-08-11, 이홍근 확인).
 */
 public record CreateProjectRequest(
         @NotBlank @Size(max = 150) String name,
-        @NotBlank @Size(max = 8) @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "태그는 영문·숫자·-_ 만 허용합니다.") String tag,
+        @NotBlank @Size(max = 6) @Pattern(regexp = "^[A-Z]+$", message = "태그는 영문 대문자만 허용합니다.") String tag,
         String description,
         @NotBlank @Pattern(
                 regexp = ProjectColorPalette.REGEXP,

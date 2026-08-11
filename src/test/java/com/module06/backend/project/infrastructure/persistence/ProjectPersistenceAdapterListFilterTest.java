@@ -57,6 +57,22 @@ class ProjectPersistenceAdapterListFilterTest {
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 15), LocalDate.of(2026, 12, 31));
     }
 
+    // ---------- countDueSoonByCompanyId (이슈 #352, 오너 대시보드 "마감 D-7") ----------
+
+    @Test
+    void countDueSoonExcludesDoneProjectsAndProjectsOutsideWindow() {
+        LocalDate today = LocalDate.now();
+        save("SOON1", ProjectStatus.IN_PROGRESS, today.plusDays(3)); // 창 안, 카운트됨
+        save("SOON2", ProjectStatus.TODO, today.plusDays(7)); // 창 경계(포함), 카운트됨
+        save("DONE", ProjectStatus.DONE, today.plusDays(3)); // 완료라 제외
+        save("LATER", ProjectStatus.TODO, today.plusDays(8)); // 창 밖이라 제외
+        save("PAST", ProjectStatus.TODO, today.minusDays(1)); // 이미 지나서 제외
+
+        long result = projectRepository.countDueSoonByCompanyId(COMPANY, today, today.plusDays(7));
+
+        assertThat(result).isEqualTo(2L);
+    }
+
     private void save(String tag, ProjectStatus status, LocalDate dueDate) {
         Project project = Project.create(
                 COMPANY, tag, "프로젝트 " + tag, "설명", "#059669",

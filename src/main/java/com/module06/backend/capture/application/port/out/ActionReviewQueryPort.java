@@ -49,6 +49,9 @@ public interface ActionReviewQueryPort {
      */
     record ReviewAction(
             Long actionId,
+            // 2026-08-11 추가 — RVW-05가 PENDING 항목을 암묵 확정할 때, 담당자 없는 TEAM
+            // 액션은 정상(담당자 개념 자체가 없음)이라 함께 걸러야 한다(ConfirmDistributionService).
+            ActionType actionType,
             Long assigneeMemberId,
             String assigneeName,
             AssigneeSource assigneeSource,
@@ -121,6 +124,9 @@ public interface ActionReviewQueryPort {
             Long assigneeMemberId,
             LocalDate dueDate,
             String title,
+            // 2026-08-11 추가(이홍근 요청, 내용 인라인 수정) — action.description. 안 고친
+            // 칸의 현재값을 review_log human_value에 채우려면 필요하다.
+            String detail,
             boolean manual,
             String reviewStatus,
             Long evidenceTranscriptId,
@@ -138,6 +144,10 @@ public interface ActionReviewQueryPort {
      */
     record AiValue(
             String title,
+            // 2026-08-11 추가 — meeting_assignment_tuple에 대응 컬럼이 없어 항상 null이다.
+            // AI는 제목만 내고 내용(description)은 원래 내지 않는다 — 필드는 humanValueJson
+            // 대칭성을 위해 둔다.
+            String detail,
             Long assigneeMemberId,
             AssigneeSource assigneeSource,
             LocalDate dueDate,

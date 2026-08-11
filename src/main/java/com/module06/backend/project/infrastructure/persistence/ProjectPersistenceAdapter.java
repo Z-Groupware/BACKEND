@@ -1,5 +1,6 @@
 package com.module06.backend.project.infrastructure.persistence;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -90,6 +91,20 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     @Override
     public long countByCompanyId(Long companyId, ProjectStatus status) {
         return springDataProjectRepository.count(buildProjectSpecification(companyId, status));
+    }
+
+    // 2026-08-11 — 오너 대시보드 KPI "마감 D-7" 카드. buildProjectSpecification을 그대로 쓰지
+    // 않는 이유는 그쪽이 status 단일값 필터라 "DONE 제외"(!=)를 표현 못 하기 때문이다.
+    @Override
+    public long countDueSoonByCompanyId(Long companyId, LocalDate from, LocalDate to) {
+        Specification<ProjectJpaEntity> specification = (root, query, cb) -> cb.and(
+                cb.equal(root.get("companyId"), companyId),
+                cb.isNull(root.get("deletedAt")),
+                cb.notEqual(root.get("status"), ProjectStatus.DONE),
+                cb.between(root.get("dueDate"), from, to)
+        );
+
+        return springDataProjectRepository.count(specification);
     }
 
     // 2026-08-10 필터/정렬 도입(이홍근 요청) — status가 null이면 조건에서 빠진다(필터 안 함).

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.capture.application.port.out.AiLayerPort;
 import com.module06.backend.capture.application.port.out.ReviewActionCreatePort;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
+import com.module06.backend.capture.application.port.out.TranscriptRepository.NewUtterance;
 import com.module06.backend.capture.domain.model.Utterance;
 import com.module06.backend.capture.application.result.ReviewActionAdded;
 import com.module06.backend.capture.application.usecase.AddReviewActionUseCase.AddReviewActionCommand;
@@ -186,6 +187,13 @@ class AddReviewActionServiceTest {
 
             @Override
             public List<Utterance> findByMeetingOrderByOffset(long meetingId) {
+                throw new UnsupportedOperationException();
+            }
+
+            /* STT 적재 경로다 — 이 서비스(RVW-03)는 정본을 쓰지 않는다. */
+            @Override
+            public int replaceBlockTranscript(long meetingId, int sttBlockSeq,
+                                              List<NewUtterance> utterances) {
                 throw new UnsupportedOperationException();
             }
 
