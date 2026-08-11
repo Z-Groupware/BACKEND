@@ -29,6 +29,7 @@ public record MeetingListResult(
             LocalDateTime startAt,
             LocalDateTime endAt,
             int attendeeCount,
+            long actionCount,
             MeetingRoom meetingRoom,
             Project project
     ) {

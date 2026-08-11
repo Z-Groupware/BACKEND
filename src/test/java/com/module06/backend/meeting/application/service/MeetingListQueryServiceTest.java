@@ -16,6 +16,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
@@ -35,7 +36,7 @@ class MeetingListQueryServiceTest {
             ZoneId.of("Asia/Seoul")
     );
 
-    /* 기본 기간과 페이지가 적용되고 회의실·프로젝트가 배치 조립되는지 검증한다. */
+    /* 기본 기간과 페이지가 적용되고 회의실·프로젝트·액션 수가 배치 조립되는지 검증한다. */
     @Test
     @DisplayName("기본 최근 3개월 회의에 회의실과 프로젝트 표시값을 조립한다")
     void appliesDefaultsAndAssemblesMeetingList() {
@@ -50,10 +51,15 @@ class MeetingListQueryServiceTest {
                         2
                 )
         );
+        RecordingActionQueryPort actionQueryPort = new RecordingActionQueryPort(List.of(
+                new ActionQueryPort.MeetingActionCount(92L, 3L),
+                new ActionQueryPort.MeetingActionCount(999L, 7L)
+        ));
         MeetingListQueryService service = new MeetingListQueryService(
                 repository,
                 meetingRoomPort(),
                 projectPort(),
+                actionQueryPort,
                 FIXED_CLOCK
         );
 
@@ -78,12 +84,20 @@ class MeetingListQueryServiceTest {
         assertThat(result.meetings())
                 .extracting(MeetingListResult.MeetingItem::attendeeCount)
                 .containsExactly(2, 4);
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::actionCount)
+                .containsExactly(3L, 0L);
         assertThat(result.page().totalElements()).isEqualTo(37L);
         assertThat(result.page().totalPages()).isEqualTo(2);
 
         /* 회의 식별자에 맞는 회의실 이름과 프로젝트 태그가 배치 결과에서 조립돼야 한다. */
         assertThat(result.meetings().get(0).meetingRoom().name()).isEqualTo("회의실 D");
         assertThat(result.meetings().get(1).project().tag()).isEqualTo("acommerce");
+
+        /* 액션 도메인은 현재 페이지 회의 ID만 회사 범위와 함께 정확히 한 번 호출해야 한다. */
+        assertThat(actionQueryPort.companyId).isEqualTo(10L);
+        assertThat(actionQueryPort.meetingIds).containsExactly(92L, 91L);
+        assertThat(actionQueryPort.callCount).isEqualTo(1);
     }
 
     /* 일반 구성원의 제한 열람 조건과 선택 필터가 저장소까지 유지되는지 검증한다. */
@@ -94,10 +108,12 @@ class MeetingListQueryServiceTest {
         RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
                 new MeetingListRepository.MeetingPage(List.of(), 0L, 0)
         );
+        RecordingActionQueryPort actionQueryPort = new RecordingActionQueryPort(List.of());
         MeetingListQueryService service = new MeetingListQueryService(
                 repository,
                 meetingRoomPort(),
                 projectPort(),
+                actionQueryPort,
                 FIXED_CLOCK
         );
 
@@ -125,6 +141,9 @@ class MeetingListQueryServiceTest {
         assertThat(repository.criteria.status()).isEqualTo(MeetingStatus.DONE);
         assertThat(repository.criteria.page()).isEqualTo(2);
         assertThat(repository.criteria.size()).isEqualTo(50);
+
+        /* 빈 페이지에서는 불필요한 액션 배치 조회를 실행하지 않아야 한다. */
+        assertThat(actionQueryPort.callCount).isZero();
     }
 
     /* 잘못된 날짜 범위와 페이지 값이 저장소 전에 Z-001로 거절되는지 검증한다. */
@@ -136,6 +155,7 @@ class MeetingListQueryServiceTest {
                 new RecordingMeetingListRepository(new MeetingListRepository.MeetingPage(List.of(), 0L, 0)),
                 meetingRoomPort(),
                 projectPort(),
+                new RecordingActionQueryPort(List.of()),
                 FIXED_CLOCK
         );
 
@@ -171,6 +191,7 @@ class MeetingListQueryServiceTest {
                 new RecordingMeetingListRepository(new MeetingListRepository.MeetingPage(List.of(), 0L, 0)),
                 emptyMeetingRoomPort(),
                 emptyProjectPort(),
+                new RecordingActionQueryPort(List.of()),
                 FIXED_CLOCK
         );
 
@@ -325,6 +346,51 @@ class MeetingListQueryServiceTest {
             /* 서비스가 만든 실제 조건을 테스트 검증을 위해 보관한다. */
             this.criteria = criteria;
             return meetingPage;
+        }
+    }
+
+    /* MEET-02가 액션 수를 현재 페이지 단위로 한 번만 요청하는지 기록하는 Port 대역이다. */
+    private static final class RecordingActionQueryPort implements ActionQueryPort {
+
+        /* 서비스 호출에 반환할 회의별 전체 액션 수다. */
+        private final List<MeetingActionCount> actionCounts;
+
+        /* 실제 배치 호출 횟수와 회사·회의 식별자를 검증하기 위한 기록이다. */
+        private int callCount;
+        private Long companyId;
+        private List<Long> meetingIds;
+
+        /* 테스트가 지정한 액션 집계 결과로 Port 대역을 생성한다. */
+        private RecordingActionQueryPort(List<MeetingActionCount> actionCounts) {
+            /* 변경 불가능한 목록으로 복사해 테스트 도중 반환값 변형을 막는다. */
+            this.actionCounts = List.copyOf(actionCounts);
+        }
+
+        /* MEET-01 존재 검증 계약은 MEET-02 테스트에서 사용하지 않는다. */
+        @Override
+        public boolean existsAction(Long companyId, Long actionId) {
+            /* 잘못된 호출이 생기면 테스트가 즉시 실패하도록 한다. */
+            throw new AssertionError("MEET-02는 액션 단건 존재 검증을 호출하면 안 됩니다.");
+        }
+
+        /* MEET-10 분배 대기 계약은 MEET-02 테스트에서 사용하지 않는다. */
+        @Override
+        public List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
+                Long companyId,
+                List<Long> meetingIds
+        ) {
+            /* 잘못된 호출이 생기면 테스트가 즉시 실패하도록 한다. */
+            throw new AssertionError("MEET-02는 분배 대기 액션 조회를 호출하면 안 됩니다.");
+        }
+
+        /* 현재 페이지의 배치 호출 조건을 기록하고 준비된 액션 수를 반환한다. */
+        @Override
+        public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> meetingIds) {
+            /* 호출 횟수와 전달값을 보관해 N+1 방지 계약을 검증한다. */
+            this.callCount++;
+            this.companyId = companyId;
+            this.meetingIds = List.copyOf(meetingIds);
+            return actionCounts;
         }
     }
 }

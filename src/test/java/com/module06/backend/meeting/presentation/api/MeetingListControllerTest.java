@@ -71,6 +71,7 @@ class MeetingListControllerTest {
         /* 회의 일시와 중첩 회의실·프로젝트 표시값이 외부 응답 형식으로 변환돼야 한다. */
         var meeting = response.getData().meetings().get(0);
         assertThat(meeting.startAt()).isEqualTo("2026-08-04T14:00:00");
+        assertThat(meeting.actionCount()).isEqualTo(5L);
         assertThat(meeting.meetingRoom().name()).isEqualTo("회의실 B");
         assertThat(meeting.project().tag()).isEqualTo("acommerce");
     }
@@ -142,6 +143,7 @@ class MeetingListControllerTest {
                         LocalDateTime.of(2026, 8, 4, 14, 0),
                         LocalDateTime.of(2026, 8, 4, 15, 0),
                         4,
+                        5L,
                         new MeetingListResult.MeetingRoom(2L, "회의실 B"),
                         new MeetingListResult.Project(12L, "acommerce", "A커머스 온보딩")
                 )),
