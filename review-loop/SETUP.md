@@ -11,7 +11,7 @@
 |---|---|---|---|
 | **Gate 1** · ArchUnit | 레이어 규칙(ARCH_001~003) | ✅ **차단** | ❌ |
 | **Gate 2** · LLM Judge | 변경 `.java`의 의미 규칙(N+1·유틸 재발명·도메인 침범) | ❌ **리포터** | ✅ `GEMINI_API_KEY` |
-| CI · semgrep | 신규 `@Query` | ✅ 차단 | ❌ |
+| CI · semgrep | 신규 `@Query`(QUERY_002) · 회사 경계 없는 파생 쿼리(TENANT_001) · `@PreAuthorize` 없는 엔드포인트(AUTHZ_001) | ✅ 차단 | ❌ |
 
 - **Gate 2는 push를 막지 않는다.** 수정 요청서만 남긴다 — 정책이다(DRIVER.md 참조).
 - 키가 없으면 Gate 2는 **조용히 생략하고 통과**시킨다. 즉 키 없이도 push는 된다(리뷰만 못 받는다).
