@@ -145,7 +145,7 @@ class ConfirmDistributionServiceTest {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
         ConfirmDistributionService service = new ConfirmDistributionService(
                 new StubQueryPort(List.of(action(1L, "AUTO_CONFIRMED", HOST))), dispatch,
-                meetingId -> 0, new MeetingAccessGuard((companyId, meetingId) -> true),
+                gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
                 meetingId -> Optional.empty(), fixedClock());
 
         assertThatThrownBy(() -> service.confirm(command(HOST, false)))
@@ -198,10 +198,48 @@ class ConfirmDistributionServiceTest {
         return new ConfirmDistributionService(
                 new StubQueryPort(actions),
                 dispatch,
-                (SttGapRepository) meetingId -> unresolvedGaps,
+                gaps(unresolvedGaps),
                 new MeetingAccessGuard((companyId, meetingId) -> true),
                 meetingId -> Optional.of(HOST),
                 fixedClock());
+    }
+
+    /*
+     * 미확인 구멍 수만 답하는 가짜다.
+     *
+     * 람다로 넘기던 자리인데 포트에 쓰기 계약이 붙어(구멍 기록·해소) 함수형이 아니게 됐다.
+     * 이 서비스(RVW-05)는 **세는 것만** 한다 — 나머지를 부르면 터뜨려 그 사실을 고정한다.
+     */
+    private static SttGapRepository gaps(int unresolvedGaps) {
+        return new SttGapRepository() {
+
+            @Override
+            public int countUnresolved(long meetingId) {
+                return unresolvedGaps;
+            }
+
+            @Override
+            public List<GapView> findByMeeting(long meetingId) {
+                throw new UnsupportedOperationException("RVW-05 는 구멍 목록을 읽지 않는다 — 세기만 한다");
+            }
+
+            @Override
+            public void replaceSttFailureGap(long meetingId, int blockSeq,
+                                             int startOffsetMs, int endOffsetMs) {
+                throw new UnsupportedOperationException("구멍 기록은 폴링 워커의 몫이다");
+            }
+
+            @Override
+            public void clearSttFailureGap(long meetingId, int blockSeq) {
+                throw new UnsupportedOperationException("구멍 해소는 폴링 워커의 몫이다");
+            }
+
+            @Override
+            public void replaceRecordingGap(long meetingId, int startOffsetMs, int endOffsetMs,
+                                            String reason) {
+                throw new UnsupportedOperationException("녹음 구멍 기록은 cap 이 요청한다");
+            }
+        };
     }
 
     private Clock fixedClock() {

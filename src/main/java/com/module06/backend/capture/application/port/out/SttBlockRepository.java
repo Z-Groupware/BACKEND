@@ -1,5 +1,6 @@
 package com.module06.backend.capture.application.port.out;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -85,6 +86,86 @@ public interface SttBlockRepository {
                                String providerJobName);
 
     /*
+     * 아직 끝나지 않은 블록(QUEUED·RUNNING)을 폴링 워커에게 준다.
+     *
+     * 회의를 가리지 않는다 — 워커는 특정 회의의 요청을 처리하는 것이 아니라 제출해 둔 잡 전부를
+     * 훑는다. 그래서 회사 관문도 지나지 않는다(사람의 요청이 아니다).
+     *
+     * FAILED 는 담지 않는다. **끝난 상태**이고 사람이 STT-04 를 눌러야 다시 QUEUED 가 된다 —
+     * 워커가 실패한 잡을 계속 물어보면 제공자 호출만 늘고 상태는 안 바뀐다.
+     *
+     * @param limit 한 주기에 볼 최대 건수. 상한이 없으면 밀린 잡이 많을 때 한 주기가 끝나지
+     *              않고, fixedDelay 의 겹침 방어가 의미를 잃는다
+     */
+    List<PendingBlock> findUnfinished(int limit);
+
+    /*
+     * 제공자가 돌리기 시작했다 — QUEUED 인 행만 옮긴다.
+     *
+     * 상태를 조건에 넣는 이유는 markQueuedForRetry 와 같다. 폴링과 재처리가 같은 행을 동시에
+     * 만질 수 있고, 사람이 방금 재처리를 눌러 QUEUED 로 되돌린 행을 워커가 옛 잡의 RUNNING 으로
+     * 덮으면 **새 잡의 결과를 기다리는 자리가 사라진다.**
+     *
+     * @return 내가 옮겼으면 true. false 면 그 사이에 상태가 바뀌었다
+     */
+    boolean markRunning(long blockId);
+
+    /*
+     * 인식이 끝났고 정본까지 적재됐다.
+     *
+     * ⚠ **적재 뒤에만 부른다.** 먼저 닫으면 분석 시작 관문이 통과되고 전사가 빈 회의가 분석에
+     * 들어간다(SttBlockJpaEntity#markDone 주석).
+     *
+     * QUEUED·RUNNING 에서만 옮긴다 — 이미 FAILED 로 닫힌 행을 뒤늦게 DONE 으로 되살리면
+     * 사람이 재처리로 만든 새 잡과 결과가 겹친다.
+     */
+    boolean markDone(long blockId);
+
+    /* 실패로 닫는다. STT-04 의 대상이 된다. QUEUED·RUNNING 에서만 옮긴다. */
+    boolean markFailed(long blockId, String errorCode);
+
+    /*
+     * 길이를 모른 채 만들어진 블록의 끝 오프셋을 채운다(**duration 복구**).
+     *
+     * <h2>수동 업로드(CAP-10)가 이 자리를 만든다</h2>
+     * 자동 블록은 트리거가 절단점을 알고 만들므로 구간이 처음부터 정확하다. 그런데 수동 업로드는
+     * 사용자가 올린 파일 하나가 통째로 블록 하나이고(WHOLE_FILE), **업로드 시점에는 길이를 모른다** —
+     * CAP-10 응답의 durationMs 가 0 인 이유이고, 그쪽 주석이 "파이프라인이 async 로 채운다"고
+     * 적어 둔 자리다.
+     *
+     * 인식이 끝나면 마지막 단어의 끝 시각이 곧 그 오디오의 길이다. 그걸로 채운다.
+     *
+     * <h2>이미 값이 있으면 덮지 않는다</h2>
+     * 자동 블록의 구간은 VAD 절단점이 정한 사실이고, 인식 결과로 그걸 덮으면 **블록 경계가
+     * 조용히 움직인다** — 뒤 블록의 시작과 맞지 않게 되고, 그 어긋남이 정본 오프셋에 그대로
+     * 실린다. 그래서 "0 이거나 시작보다 작은" 블록만 채운다.
+     *
+     * @return 채웠으면 true. 이미 값이 있었거나 그 블록이 없으면 false
+     */
+    boolean recoverAudioSpan(long blockId, int endOffsetMs);
+
+    /*
+     * 폴링이 잡 하나를 되짚는 데 필요한 것만 담는다.
+     *
+     * @param startOffsetMs 회의 기준 블록 시작. 제공자가 주는 오프셋은 블록 기준이라 이 값을
+     *                      더해야 회의 좌표가 된다 — 빠뜨리면 두 번째 블록부터 발화가 회의
+     *                      맨 앞으로 겹쳐 쌓인다
+     * @param endOffsetMs   회의 기준 블록 끝. 실패했을 때 **구멍 구간**이 이 둘이다 —
+     *                      "아무도 못 들은 구간"을 남기려면 끝을 알아야 한다(stt_gap · V5.5)
+     */
+    record PendingBlock(
+            long id,
+            long meetingId,
+            int blockSeq,
+            SttBlockStatus status,
+            String provider,
+            String providerJobName,
+            int startOffsetMs,
+            int endOffsetMs
+    ) {
+    }
+
+    /*
      * 블록 하나의 상태. 화면(STT-03)이 쓰는 값 그대로다.
      *
      * @param error      실패 사유 코드. **사용자에게 그대로 노출하지 않는다**(V5.4 주석) —
@@ -103,7 +184,14 @@ public interface SttBlockRepository {
             SttCutReason cutReason,
             int retryCount,
             String error,
-            String audioS3Key
+            String audioS3Key,
+            LocalDateTime startedAt,
+            LocalDateTime finishedAt
     ) {
+
+        /* 이 블록이 담은 오디오 길이. 남은 시간 추정이 쓴다(회의 시계가 아니라 처리할 양이다). */
+        public int audioMs() {
+            return Math.max(0, endOffsetMs - startOffsetMs);
+        }
     }
 }

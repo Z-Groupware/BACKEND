@@ -112,6 +112,20 @@ cap:
   s3:
     bucket: ${S3_BUCKET:}
 
+# ── STT(AWS Transcribe) ──
+# 버킷은 cap.s3.bucket과 **같은 환경변수**를 읽는다. SSM 파라미터를 하나 더 늘리지 않는다 —
+# 블록 오디오를 쓰는 쪽(cap)과 그걸 Transcribe에 넘기는 쪽(capture)이 같은 버킷을 봐야 하고,
+# 값을 두 곳에 두면 한쪽만 바뀌는 순간 제출은 성공하는데 오디오가 없는 상태가 된다.
+# 프로퍼티 키를 도메인별로 나눈 것은 바인딩 소유권을 나누기 위함이다(같은 prefix에 두 레코드를
+# 매핑하지 않는다).
+stt:
+  transcribe:
+    bucket: ${S3_BUCKET:}
+    # 결과 JSON이 쌓이는 접두사. 오디오(stt-temp/)와 나누는 이유 — 오디오는 조립이 끝나면
+    # 지우는 임시 파일이고 결과는 재처리·감사에 다시 읽는다. 수명 정책이 다르면 접두사도 달라야
+    # S3 라이프사이클 규칙을 각각 걸 수 있다.
+    output-prefix: stt-out/
+
 # ── 프로젝트 첨부파일 오브젝트 스토리지(S3) ──
 # CAP과 같은 버킷(S3_BUCKET)을 재사용한다 — SSM 파라미터를 늘리지 않고 prefix(project-attachments/...
 # vs recordings/...)로만 구분한다. ProjectAttachmentS3Properties 주석 참고.
