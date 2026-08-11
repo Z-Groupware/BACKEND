@@ -8,6 +8,7 @@ import com.module06.backend.metering.application.usecase.ManageCompanyStoragePla
 import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import com.module06.backend.metering.domain.model.CompanyStoragePlan;
 import com.module06.backend.metering.domain.repository.CompanyStoragePlanRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,8 +23,15 @@ public class CompanyStoragePlanService implements ManageCompanyStoragePlanUseCas
         this.companyStoragePlanRepository = companyStoragePlanRepository;
     }
 
+    /*
+     * @Transactional을 메서드 전체에 두지 않는다 — TokenMeteringService.record와 동일한 이유다.
+     * saveAndFlush 실패(DataIntegrityViolationException)를 여기서 잡아도, 그 실패가 같은
+     * @Transactional 경계 안에서 일어난 것이면 Hibernate 세션이 이미 rollback-only로 마킹돼
+     * 커밋 시점에 UnexpectedRollbackException이 터진다. 트랜잭션 경계를 메서드에 두지 않으면
+     * findByCompanyId·save 각각이 스프링 데이터 리포지토리 자신의 트랜잭션으로 독립적으로 돌아
+     * 실패한 시도가 다음 재시도를 오염시키지 않는다.
+     */
     @Override
-    @Transactional
     public CompanyStoragePlanResult setPlan(AuthPrincipal principal, SetCompanyStoragePlanCommand command) {
         Long companyId = requireOwnerOrAdmin(principal);
 
@@ -34,7 +42,17 @@ public class CompanyStoragePlanService implements ManageCompanyStoragePlanUseCas
                 .map(existing -> CompanyStoragePlan.restore(existing.getId(), companyId, command.storageCapBytes()))
                 .orElseGet(() -> CompanyStoragePlan.create(companyId, command.storageCapBytes()));
 
-        return CompanyStoragePlanResult.from(companyStoragePlanRepository.save(plan));
+        try {
+            return CompanyStoragePlanResult.from(companyStoragePlanRepository.save(plan));
+        } catch (DataIntegrityViolationException e) {
+            // 두 요청이 동시에 최초 설정을 시도한 경합(TOCTOU) — 이긴 쪽이 이미 만든 행을 다시
+            // 조회해 UPDATE로 재시도한다(recording 테이블의 "DB 제약이 최종 방어선" 패턴과 동일).
+            CompanyStoragePlan existing = companyStoragePlanRepository.findByCompanyId(companyId)
+                    .orElseThrow(() -> e);
+            CompanyStoragePlan updated = CompanyStoragePlan.restore(existing.getId(), companyId,
+                    command.storageCapBytes());
+            return CompanyStoragePlanResult.from(companyStoragePlanRepository.save(updated));
+        }
     }
 
     @Override

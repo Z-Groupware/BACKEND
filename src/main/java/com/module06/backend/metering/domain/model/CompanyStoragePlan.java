@@ -33,16 +33,10 @@ public class CompanyStoragePlan {
         return new CompanyStoragePlan(id, companyId, storageCapBytes);
     }
 
-    // 80% 미만: WITHIN, 80%~100% 미만: SOFT_WARN, 100% 이상: OVER. CompanyTokenPlan.quotaStatus와
-    // 동일한 경계값 — 미터링 전반에서 "80%가 경고선"이라는 규칙을 통일한다.
-    public QuotaStatus quotaStatus(long usedBytes) {
-        if (usedBytes < storageCapBytes * 0.8d) {
-            return QuotaStatus.WITHIN;
-        }
-        if (usedBytes < storageCapBytes) {
-            return QuotaStatus.SOFT_WARN;
-        }
-        return QuotaStatus.OVER;
+    // 알림·대시보드가 없어 80% 경고 단계를 쓰는 곳이 없다(YAGNI) — cap은 "막을지 말지"만
+    // 판단하면 되므로 한도 도달 여부만 본다. long 곱셈만 쓰므로 double 변환 정밀도 문제도 없다.
+    public boolean isOverQuota(long usedBytes) {
+        return usedBytes >= storageCapBytes;
     }
 
     public Long getId() {

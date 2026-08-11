@@ -35,18 +35,14 @@ public class StorageMeteringService implements ReportMeetingStorageUsagePort, St
     }
 
     /*
-     * find-or-create가 필요 없다 — CompanyStoragePlan과 달리 meetingId 자체가 식별자라 보존할
-     * 별도 auto-increment id가 없다. save()가 있으면 갱신·없으면 삽입을 알아서 처리한다(JPA가
-     * 미배정 아닌 식별자로 판단).
-     *
-     * @Transactional을 두지 않는다 — TokenMeteringService.record와 같은 이유다. 단일 save 뿐이고,
-     * meetingId PK가 최종 방어선이다.
+     * @Transactional을 두지 않는다 — TokenMeteringService.record와 같은 이유다. 실제 잠금·CAS
+     * 트랜잭션은 MeetingStorageUsagePersistenceAdapter.reportIfNewer 안에서 처리한다.
      */
     @Override
     public void report(ReportMeetingStorageUsageCommand command) {
         MeetingStorageUsage usage = MeetingStorageUsage.report(command.meetingId(), command.companyId(),
-                command.usedBytes(), LocalDateTime.now(clock));
-        meetingStorageUsageRepository.save(usage);
+                command.usedBytes(), command.revision(), LocalDateTime.now(clock));
+        meetingStorageUsageRepository.reportIfNewer(usage);
     }
 
     @Override
@@ -59,6 +55,6 @@ public class StorageMeteringService implements ReportMeetingStorageUsagePort, St
                 .orElseThrow(() -> new BusinessException(MeteringErrorCode.MT_STORAGE_PLAN_NOT_FOUND));
         long usedBytes = meetingStorageUsageRepository.sumUsedBytesByCompanyId(companyId);
         return new StorageQuotaStatusResult(companyId, usedBytes, plan.getStorageCapBytes(),
-                plan.quotaStatus(usedBytes));
+                plan.isOverQuota(usedBytes));
     }
 }

@@ -6,7 +6,6 @@ import com.module06.backend.metering.application.result.StorageQuotaStatusResult
 import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import com.module06.backend.metering.domain.model.CompanyStoragePlan;
 import com.module06.backend.metering.domain.model.MeetingStorageUsage;
-import com.module06.backend.metering.domain.model.QuotaStatus;
 import com.module06.backend.metering.domain.repository.CompanyStoragePlanRepository;
 import com.module06.backend.metering.domain.repository.MeetingStorageUsageRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Optional;
 
@@ -51,33 +51,35 @@ class StorageMeteringServiceTest {
     }
 
     @Test
-    void reportSavesSnapshotWithCurrentTimestamp() {
-        when(meetingStorageUsageRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 12_345L));
-
+    void reportSavesSnapshotWithFixedClockTimestamp() {
         ArgumentCaptor<MeetingStorageUsage> captor = ArgumentCaptor.forClass(MeetingStorageUsage.class);
-        verify(meetingStorageUsageRepository).save(captor.capture());
+
+        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 12_345L, 1L));
+
+        verify(meetingStorageUsageRepository).reportIfNewer(captor.capture());
         MeetingStorageUsage saved = captor.getValue();
         assertThat(saved.getMeetingId()).isEqualTo(MEETING);
         assertThat(saved.getCompanyId()).isEqualTo(COMPANY);
         assertThat(saved.getUsedBytes()).isEqualTo(12_345L);
-        assertThat(saved.getUpdatedAt()).isNotNull();
+        assertThat(saved.getRevision()).isEqualTo(1L);
+        // 서비스가 실제로 주입된 Clock을 쓰는지 검증 — null이 아닌지만 보면 시스템 시간을 써도
+        // 통과해버린다(CodeRabbit 지적).
+        assertThat(saved.getUpdatedAt())
+                .isEqualTo(LocalDateTime.ofInstant(FIXED_CLOCK.instant(), FIXED_CLOCK.getZone()));
     }
 
     @Test
-    void reportingSameValueTwiceIsIdempotent() {
-        when(meetingStorageUsageRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    void reportDelegatesEveryCallToRepositoryRegardlessOfRevisionOrdering() {
+        // revision 비교·무시 판정은 MeetingStorageUsageRepository 구현(락 기반 CAS)의 책임이다 —
+        // 서비스는 매번 그대로 위임만 한다는 걸 확인한다.
+        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 20_000L, 5L));
+        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 10_000L, 3L));
 
-        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 12_345L));
-        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 12_345L));
-
-        // meetingId가 식별자라 두 번째 호출도 그냥 같은 값으로 덮어쓴다 — 예외 없이 두 번 다 save된다.
-        verify(meetingStorageUsageRepository, times(2)).save(any());
+        verify(meetingStorageUsageRepository, times(2)).reportIfNewer(any());
     }
 
     @Test
-    void getStatusComputesQuotaFromSumOfMeetingSnapshots() {
+    void getStatusReturnsNotOverQuotaWhenBelowCap() {
         when(companyStoragePlanRepository.findByCompanyId(COMPANY))
                 .thenReturn(Optional.of(CompanyStoragePlan.restore(1L, COMPANY, 100_000L)));
         when(meetingStorageUsageRepository.sumUsedBytesByCompanyId(COMPANY)).thenReturn(50_000L);
@@ -86,25 +88,16 @@ class StorageMeteringServiceTest {
 
         assertThat(result.usedBytes()).isEqualTo(50_000L);
         assertThat(result.storageCapBytes()).isEqualTo(100_000L);
-        assertThat(result.quotaStatus()).isEqualTo(QuotaStatus.WITHIN);
+        assertThat(result.overQuota()).isFalse();
     }
 
     @Test
-    void getStatusReturnsSoftWarnAt80Percent() {
-        when(companyStoragePlanRepository.findByCompanyId(COMPANY))
-                .thenReturn(Optional.of(CompanyStoragePlan.restore(1L, COMPANY, 100_000L)));
-        when(meetingStorageUsageRepository.sumUsedBytesByCompanyId(COMPANY)).thenReturn(85_000L);
-
-        assertThat(service.getStatus(COMPANY).quotaStatus()).isEqualTo(QuotaStatus.SOFT_WARN);
-    }
-
-    @Test
-    void getStatusReturnsOverAtOrAboveCap() {
+    void getStatusReturnsOverQuotaAtOrAboveCap() {
         when(companyStoragePlanRepository.findByCompanyId(COMPANY))
                 .thenReturn(Optional.of(CompanyStoragePlan.restore(1L, COMPANY, 100_000L)));
         when(meetingStorageUsageRepository.sumUsedBytesByCompanyId(COMPANY)).thenReturn(100_000L);
 
-        assertThat(service.getStatus(COMPANY).quotaStatus()).isEqualTo(QuotaStatus.OVER);
+        assertThat(service.getStatus(COMPANY).overQuota()).isTrue();
     }
 
     @Test
