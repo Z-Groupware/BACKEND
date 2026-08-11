@@ -13,5 +13,8 @@ public enum NotificationType {
     MEETING_REMINDER,
 
     /* 예정된 회의가 취소된 뒤 참석자에게 보내는 알림이다. */
-    MEETING_CANCELED
+    MEETING_CANCELED,
+
+    /* 공지 등록 커밋 뒤 회사 구성원에게 저장 없이 실시간으로 보내는 배너 이벤트다. */
+    NOTICE_CREATED
 }
