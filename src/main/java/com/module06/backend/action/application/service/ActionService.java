@@ -1,5 +1,7 @@
 package com.module06.backend.action.application.service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +27,7 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.SubTeamReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
@@ -168,9 +171,14 @@ public class ActionService implements
             throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
         }
 
-        String assigneeName = action.getAssigneeMemberId() == null ? null
+        MemberReference assignee = action.getAssigneeMemberId() == null ? null
                 : actionReferenceRepository.findMemberReferences(List.of(action.getAssigneeMemberId())).stream()
-                        .findFirst().map(MemberReference::name).orElse(null);
+                        .findFirst().orElse(null);
+        String assigneeName = assignee == null ? null : assignee.name();
+        // "역할"(sub_team)은 team과 달리 리더 없는 순수 분류 태그라 미지정 담당자는 null(이홍근 확인, 2026-08-11).
+        String assigneeRoleLabel = assignee == null || assignee.subTeamId() == null ? null
+                : actionReferenceRepository.findSubTeamReferences(List.of(assignee.subTeamId())).stream()
+                        .findFirst().map(SubTeamReference::name).orElse(null);
 
         ProjectReference project = actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
                 .findFirst().orElse(null);
@@ -179,18 +187,27 @@ public class ActionService implements
                 : actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
                         .findFirst().map(TeamReference::name).orElse(null);
 
-        String sourceMeetingTitle = action.getSourceMeetingId() == null ? null
+        MeetingReference sourceMeeting = action.getSourceMeetingId() == null ? null
                 : actionReferenceRepository.findMeetingReferences(List.of(action.getSourceMeetingId())).stream()
-                        .findFirst().map(MeetingReference::title).orElse(null);
+                        .findFirst().orElse(null);
+        String sourceMeetingTitle = sourceMeeting == null ? null : sourceMeeting.title();
+        LocalDateTime sourceMeetingScheduledAt = sourceMeeting == null ? null : sourceMeeting.scheduledAt();
 
-        String parentActionTitle = action.getParentActionId() == null ? null
-                : actionRepository.findById(action.getParentActionId()).map(Action::getTitle).orElse(null);
+        // 상위 TEAM 액션 카드(팀명·마감일)용 — 부모는 항상 TEAM 액션이라 자신의 teamId를 그대로 쓴다.
+        Action parentAction = action.getParentActionId() == null ? null
+                : actionRepository.findById(action.getParentActionId()).orElse(null);
+        String parentActionTitle = parentAction == null ? null : parentAction.getTitle();
+        String parentActionTeamName = parentAction == null || parentAction.getTeamId() == null ? null
+                : actionReferenceRepository.findTeamReferences(List.of(parentAction.getTeamId())).stream()
+                        .findFirst().map(TeamReference::name).orElse(null);
+        LocalDate parentActionDueDate = parentAction == null ? null : parentAction.getDueDate();
 
         return new GetActionDetailUseCase.ActionDetail(
-                action, assigneeName,
+                action, assigneeName, assigneeRoleLabel,
                 project == null ? null : project.tag(),
                 project == null ? null : project.name(),
-                teamName, sourceMeetingTitle, parentActionTitle
+                teamName, sourceMeetingTitle, sourceMeetingScheduledAt,
+                parentActionTitle, parentActionTeamName, parentActionDueDate
         );
     }
 

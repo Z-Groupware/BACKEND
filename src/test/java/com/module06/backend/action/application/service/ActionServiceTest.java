@@ -179,13 +179,13 @@ class ActionServiceTest {
         when(actionRepository.countByAssigneeMemberId(5L, null, null)).thenReturn(1L);
         when(actionRepository.findAllByAssigneeMemberId(5L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
                 .thenReturn(List.of(new TeamReference(7L, "개발팀")));
         when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
-                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의")));
+                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", null)));
         when(actionRepository.findAllByIds(List.of(300L)))
                 .thenReturn(List.of(personalAction(300L, COMPANY, PROJECT, 7L, null, null, ActionStatus.TODO)));
 
@@ -214,23 +214,54 @@ class ActionServiceTest {
     @Test
     void getActionDetailReturnsEnrichedDetailForOwnCompany() {
         ActionService service = actionService();
-        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, null, ActionStatus.IN_PROGRESS);
+        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 999L, ActionStatus.IN_PROGRESS);
+        java.time.LocalDateTime scheduledAt = java.time.LocalDateTime.of(2026, 8, 12, 14, 0);
         when(actionRepository.findById(10L)).thenReturn(java.util.Optional.of(action));
+        when(actionRepository.findById(999L))
+                .thenReturn(java.util.Optional.of(teamAction(999L, COMPANY, PROJECT, 8L, null, ActionStatus.TODO)));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", 50L)));
+        when(actionReferenceRepository.findSubTeamReferences(List.of(50L)))
+                .thenReturn(List.of(new com.module06.backend.action.domain.repository.ActionReferenceRepository.SubTeamReference(50L, "프론트엔드")));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "연예인 굿즈 쇼핑몰 앱 구축")));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
                 .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+        when(actionReferenceRepository.findTeamReferences(List.of(8L)))
+                .thenReturn(List.of(new TeamReference(8L, "마케팅팀")));
         when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
-                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의")));
+                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", scheduledAt)));
 
         ActionDetail detail = service.getActionDetail(COMPANY, 10L);
 
         assertThat(detail.assigneeName()).isEqualTo("이하윤");
+        assertThat(detail.assigneeRoleLabel()).isEqualTo("프론트엔드");
         assertThat(detail.projectName()).isEqualTo("연예인 굿즈 쇼핑몰 앱 구축");
         assertThat(detail.teamName()).isEqualTo("개발팀");
         assertThat(detail.sourceMeetingTitle()).isEqualTo("기획 회의");
+        assertThat(detail.sourceMeetingScheduledAt()).isEqualTo(scheduledAt);
+        assertThat(detail.parentActionTeamName()).isEqualTo("마케팅팀");
+        assertThat(detail.parentActionDueDate()).isEqualTo(LocalDate.of(2026, 8, 20));
+        assertThat(detail.action().getProjectId()).isEqualTo(PROJECT);
+    }
+
+    @Test
+    void getActionDetailLeavesNewFieldsNullWhenNotApplicable() {
+        ActionService service = actionService();
+        Action action = personalAction(11L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO);
+        when(actionRepository.findById(11L)).thenReturn(java.util.Optional.of(action));
+        when(actionReferenceRepository.findMemberReferences(List.of(5L)))
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "연예인 굿즈 쇼핑몰 앱 구축")));
+
+        ActionDetail detail = service.getActionDetail(COMPANY, 11L);
+
+        assertThat(detail.assigneeRoleLabel()).isNull();
+        assertThat(detail.sourceMeetingScheduledAt()).isNull();
+        assertThat(detail.parentActionTeamName()).isNull();
+        assertThat(detail.parentActionDueDate()).isNull();
+        verify(actionReferenceRepository, never()).findSubTeamReferences(anyList());
     }
 
     @Test
@@ -359,7 +390,7 @@ class ActionServiceTest {
         when(actionRepository.findAllByCompanyIdAndSourceMeetingId(COMPANY, 200L))
                 .thenReturn(List.of(teamAction, personalAction));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
                 .thenReturn(List.of(new TeamReference(7L, "개발팀")));
 

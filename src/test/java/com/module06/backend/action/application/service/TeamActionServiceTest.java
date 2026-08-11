@@ -163,7 +163,7 @@ class TeamActionServiceTest {
         when(actionRepository.findById(10L)).thenReturn(Optional.of(teamAction));
         when(actionRepository.findAllByParentActionId(COMPANY, 10L)).thenReturn(List.of(child));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이태연")));
+                .thenReturn(List.of(new MemberReference(5L, "이태연", null)));
 
         List<TimelineItem> result = service.getTeamActionTimeline(COMPANY, 10L);
 

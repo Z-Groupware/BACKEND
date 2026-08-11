@@ -144,7 +144,7 @@ class ActionControllerTest {
     void detailUsesCompanyIdFromToken() throws Exception {
         authenticateAs(1L, 5L);
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
-                .thenReturn(new ActionDetail(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
+                .thenReturn(new ActionDetail(action(), "이하윤", null, "GOODS", "굿즈", "개발팀", "기획 회의", null, null, null, null));
 
         mockMvc.perform(get("/api/actions/10"))
                 .andExpect(status().isOk())
@@ -167,7 +167,7 @@ class ActionControllerTest {
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
-                .thenReturn(new ActionDetail(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
+                .thenReturn(new ActionDetail(inProgress, "이하윤", null, "GOODS", "굿즈", "개발팀", "기획 회의", null, null, null, null));
 
         mockMvc.perform(get("/api/actions"))
                 .andExpect(status().isOk())
@@ -184,7 +184,7 @@ class ActionControllerTest {
         authenticateAs(1L, 5L);
 
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
-                .thenReturn(new ActionDetail(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null));
+                .thenReturn(new ActionDetail(action(), "이하윤", null, "GOODS", "굿즈", "개발팀", "기획 회의", null, null, null, null));
 
         mockMvc.perform(get("/api/actions/10"))
                 .andExpect(status().isOk())
