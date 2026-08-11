@@ -1,0 +1,42 @@
+# Dependabot — 취약 의존성 알림과 갱신 PR.
+#
+# 두 생태계를 본다.
+#   gradle         : jjwt(토큰 검증) · spring-boot-starter-security · AWS SDK 처럼
+#                    보안 경로에 직접 물린 의존성이 많다.
+#   github-actions : 워크플로가 PR 코드를 러너에서 컴파일·실행한다. 액션이 변조되면
+#                    그 러너의 토큰과 시크릿이 함께 나간다.
+#
+# ★ github-actions 는 SHA 고정과 한 세트다. 액션을 SHA 로 박으면 사람이 손으로는 못 올리는데,
+#   Dependabot 이 `# v4` 같은 후행 태그 주석을 읽어 SHA 와 주석을 함께 올려준다.
+#   주석을 지우면 그 액션은 갱신이 멈추고 낡은 버전에 영구히 묶인다 — 주석을 지우지 말 것.
+#
+# 정책: 리포터다(머지를 막지 않는다). Dependabot 이 여는 것은 PR 이고, 그 PR 은 다른 PR 과
+#       똑같이 Gate 1·CI 를 통과해야 한다.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5   # 한 번에 쏟아지면 아무도 안 본다
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "[CHORE]"           # 팀 커밋 컨벤션(대괄호 태그)에 맞춘다
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "[CHORE]"
