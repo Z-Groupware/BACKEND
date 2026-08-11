@@ -13,10 +13,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -301,6 +305,73 @@ class CompanyControllerTest {
 
         /* 커맨드에 code 를 담는 자리가 아예 없다 — 이름만 반영된다. */
         assertThat(captor.getValue().name()).isEqualTo("(주)바뀐이름");
+    }
+
+    /*
+     * 화면이 빈 칸을 막고 있어도 서버가 막는 것과는 다르다. "" 가 들어오면 엔티티 병합이 null 검사만
+     * 하므로 그대로 덮어써진다 — 기업명이 사라진다. 필드를 안 보내는 것(= 미변경)은 계속 허용해야
+     * 하므로 @NotBlank 가 아니라 @Pattern 으로 "보냈으면 빈 값 금지"만 막는다.
+     */
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("blankPatchBodies")
+    @DisplayName("빈 값으로 보내면 400 — 유스케이스를 부르지 않는다")
+    void blankPatchFieldIsRejected(String label, String body) throws Exception {
+        authenticateAs(1L);
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+
+        verify(updateCompanyProfileUseCase, never()).updateProfile(any());
+    }
+
+    private static Stream<Arguments> blankPatchBodies() {
+        return Stream.of(
+                Arguments.of("name 빈 문자열", "{\"name\":\"\"}"),
+                Arguments.of("name 공백만", "{\"name\":\"   \"}"),
+                Arguments.of("businessNumber 빈 문자열", "{\"businessNumber\":\"\"}"),
+                Arguments.of("representativeName 빈 문자열", "{\"representativeName\":\"\"}"),
+                Arguments.of("address 빈 문자열", "{\"address\":\"\"}"),
+                Arguments.of("address 탭만", "{\"address\":\"\\t\"}"),
+                /* (?s) 를 붙여도 줄바꿈만 있는 값은 여전히 빈 값이다 — \S 가 하나도 없다. */
+                Arguments.of("address 줄바꿈만", "{\"address\":\"\\n\"}"),
+                Arguments.of("address 줄바꿈+공백만", "{\"address\":\" \\n \"}"),
+                Arguments.of("phone 빈 문자열", "{\"phone\":\"\"}"));
+    }
+
+    @Test
+    @DisplayName("줄바꿈이 든 값은 빈 값이 아니다 — 400 이 되면 안 된다")
+    void newlineInsideValueIsNotBlank() throws Exception {
+        authenticateAs(1L);
+        when(updateCompanyProfileUseCase.updateProfile(any())).thenReturn(company());
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"address":"서울시\\n강남구 테헤란로 123"}
+                                """))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("필드를 아예 안 보내는 건 계속 허용된다 — 부분 수정 계약이 깨지지 않는다")
+    void omittedFieldsStayAllowed() throws Exception {
+        authenticateAs(1L);
+        when(updateCompanyProfileUseCase.updateProfile(any())).thenReturn(company());
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"address":"서울시 강남구 테헤란로 123"}
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateCompanyCommand> captor = ArgumentCaptor.forClass(UpdateCompanyCommand.class);
+        verify(updateCompanyProfileUseCase).updateProfile(captor.capture());
+
+        assertThat(captor.getValue().address()).isEqualTo("서울시 강남구 테헤란로 123");
+        assertThat(captor.getValue().name()).isNull();
     }
 
     /* ── 픽스처 ────────────────────────────────────────────────────────────── */

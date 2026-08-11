@@ -88,9 +88,8 @@ public class SecurityConfig {
                         // health 는 배포·로드밸런서가 토큰 없이 부른다(show-details: never 라 내부 정보는 안 나간다).
                         // API 문서는 스펙을 잠그면 Swagger UI 가 읽지 못해 화면 자체가 죽는다 —
                         // 운영에서 감추려면 보안 규칙이 아니라 springdoc.api-docs.enabled=false 로 끈다.
-                        // /actuator/prometheus 는 일부러 열지 않는다. 스크래핑 주체가 아직 없어 막아도
-                        // 깨지지 않고, 엔드포인트 이름·호출 수·메모리가 그대로 나간다. 모니터링을 붙일 때
-                        // 네트워크 단(VPC·보안그룹)에서 열거나 토큰을 주는 편이 맞다.
+                        // Prometheus 서버가 JWT 없이 지표를 수집하므로 prometheus 경로도 공개한다.
+                        // 외부 노출 범위는 애플리케이션 인증이 아니라 VPC·보안그룹에서 제한한다.
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/health/**",
