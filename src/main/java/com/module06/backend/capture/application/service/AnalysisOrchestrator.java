@@ -52,6 +52,7 @@ import com.module06.backend.capture.domain.model.GateStatus;
 import com.module06.backend.capture.domain.model.GateVerdict;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.ReferenceCandidateSelector;
 import com.module06.backend.capture.domain.model.ReferenceType;
 import com.module06.backend.capture.domain.model.ResolvedReference;
 import com.module06.backend.capture.domain.model.TopicSegment;
@@ -392,10 +393,28 @@ public class AnalysisOrchestrator {
                 () -> new ResolveReferenceResult(analysisArtifactRepository.findReferences(meetingId),
                         LayerRun.empty()),
                 sink -> {
+            /*
+             * 지시어가 있을 법한 발화만 대상으로 표시한다.
+             *
+             * ⚠ **문맥은 여전히 전체를 보낸다**(rawUtterances). 좁히는 것은 대상 표시와 응답
+             * 스키마뿐이다 — 선행사가 주제 경계를 넘으므로 후보만 보내면 풀 근거가 사라진다.
+             * 그래서 입력 토큰은 줄지 않는다. 얻는 것은 지시어 없는 발화에 해소가 붙지 않는
+             * 것과 출력 토큰이다.
+             *
+             * 하나도 못 고르면 빈 목록이 그대로 간다 — 그건 "전체가 대상"이라 예전 동작이다.
+             * 후보 0건을 계층 생략으로 쓰지 않는 이유는 선별기 주석에 적었다(놓친 것과 없는
+             * 것을 구분할 방법이 아직 없다).
+             */
+            List<Long> targets = ReferenceCandidateSelector.select(rawUtterances);
+            /*
+             * 건수를 남긴다. 이 로그가 선별기를 나중에 손볼 근거다 — 후보가 전체와 거의 같으면
+             * 좁히는 의미가 없고, 0 이 잦으면 어간 목록이 한국어 회의를 못 잡고 있다는 뜻이다.
+             */
+            log.info("지시어 후보 선별 — meetingId={} 후보={}건 전체={}건",
+                    meetingId, targets.size(), rawUtterances.size());
+
             ResolveReferenceResult result = aiLayerPort.resolveReference(
-                    // 대상 발화를 추리지 않고 전체를 넘긴다 — 지시어 후보를 고르는 코드가 아직 없고,
-                    // 잘못 추리면 후보에서 빠진 지시어는 아예 풀릴 기회가 없다.
-                    tenantId, meetingId, rawUtterances, List.of(), participants);
+                    tenantId, meetingId, rawUtterances, targets, participants);
             sink.add(result.run());
             /*
              * 산출물을 남긴다 — 여기서 하는 이유는 L3 가 저장을 계층 안에서 하는 것과 같다.
