@@ -1,5 +1,6 @@
 package com.module06.backend.action.application.service;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,16 +13,21 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.AttachmentReference;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
+import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
 
 import lombok.RequiredArgsConstructor;
 
@@ -45,10 +51,12 @@ import lombok.RequiredArgsConstructor;
 public class TeamActionService implements
         GetTeamActionsUseCase,
         GetTeamActionDetailUseCase,
-        GetTeamActionTimelineUseCase {
+        GetTeamActionTimelineUseCase,
+        IssueTeamActionAttachmentDownloadUrlUseCase {
 
     private final ActionRepository actionRepository;
     private final ActionReferenceRepository actionReferenceRepository;
+    private final ProjectAttachmentStoragePort projectAttachmentStoragePort;
 
     // FR-AC-06 목록 — teamId는 JWT에서만 나오므로 다른 팀 조회가 애초에 불가능하다.
     // 2026-08-10 페이지네이션 도입(이홍근 요청).
@@ -61,14 +69,17 @@ public class TeamActionService implements
             return new TeamActionListResult(List.of(), totalElements);
         }
 
-        Map<Long, String> projectTagById = toDisplayMap(
-                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId)),
-                ProjectReference::projectId, ProjectReference::tag);
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
         List<TeamActionListItem> items = actions.stream()
-                .map(action -> new TeamActionListItem(action, projectTagById.get(action.getProjectId()), teamName))
+                .map(action -> new TeamActionListItem(
+                        action, projectTagById.get(action.getProjectId()),
+                        projectNameById.get(action.getProjectId()), teamName))
                 .toList();
 
         return new TeamActionListResult(items, totalElements);
@@ -82,12 +93,36 @@ public class TeamActionService implements
 
         String projectTag = actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
                 .findFirst().map(ProjectReference::tag).orElse(null);
-        String teamName = actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
-                .findFirst().map(TeamReference::name).orElse(null);
+
+        TeamReference team = actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
+                .findFirst().orElse(null);
+        String teamName = team == null ? null : team.name();
+
+        // "담당자"는 저장된 값이 아니라 그 팀의 현재 팀장을 유도한다(홍길동(개발팀장) 표시용,
+        // 2026-08-11 이홍근 확인) — 팀장 공석이면 정상적으로 둘 다 null.
+        String assigneeName = null;
+        String assigneeRoleLabel = null;
+        if (team != null && team.leaderMemberId() != null) {
+            assigneeName = actionReferenceRepository.findMemberReferences(List.of(team.leaderMemberId())).stream()
+                    .findFirst().map(MemberReference::name).orElse(null);
+            if (assigneeName != null) {
+                assigneeRoleLabel = teamName + "장";
+            }
+        }
+
+        MeetingReference sourceMeeting = action.getSourceMeetingId() == null ? null
+                : actionReferenceRepository.findMeetingReferences(List.of(action.getSourceMeetingId())).stream()
+                        .findFirst().orElse(null);
+        String sourceMeetingTitle = sourceMeeting == null ? null : sourceMeeting.title();
+        LocalDateTime sourceMeetingScheduledAt = sourceMeeting == null ? null : sourceMeeting.scheduledAt();
+
         List<ActionReferenceRepository.AttachmentReference> attachments =
                 actionReferenceRepository.findProjectAttachments(action.getProjectId());
 
-        return new TeamActionDetail(action, projectTag, teamName, attachments);
+        return new TeamActionDetail(
+                action, projectTag, teamName, assigneeName, assigneeRoleLabel,
+                sourceMeetingTitle, sourceMeetingScheduledAt, attachments
+        );
     }
 
     // FR-AC-08 타임라인(?tab=timeline) — 상세와 같은 IDOR 방지 확인 후 하위 개인 액션을 담당자명과 함께 내려준다.
@@ -112,6 +147,21 @@ public class TeamActionService implements
                 .map(action -> new TimelineItem(
                         action, action.getAssigneeMemberId() == null ? null : assigneeNameById.get(action.getAssigneeMemberId())))
                 .toList();
+    }
+
+    // 2026-08-10, 이홍근 요청 — 팀 액션 상세에 인라인으로 뜨는 첨부파일 다운로드 URL 발급.
+    // requireOwnCompanyTeamAction으로 팀 액션 소유부터 확인한 뒤, 그 액션의 projectId로
+    // attachmentId가 정말 같은 프로젝트 소속인지 한 번 더 좁힌다(IDOR 방지, project 쪽
+    // ProjectAttachmentService.requireAttachmentInProject와 같은 이유).
+    @Override
+    public IssuedDownloadUrl issueAttachmentDownloadUrl(Long companyId, Long teamActionId, Long attachmentId) {
+        Action action = requireOwnCompanyTeamAction(companyId, teamActionId);
+
+        AttachmentReference attachment = actionReferenceRepository
+                .findProjectAttachmentById(attachmentId, action.getProjectId())
+                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_ATTACHMENT_NOT_FOUND));
+
+        return projectAttachmentStoragePort.issueDownloadUrl(attachment.fileUrl());
     }
 
     // 상세·타임라인 공용 — 다른 회사 팀 액션 id나 PERSONAL 액션 id를 넣으면 존재하지 않는 것과 같은 404로 덮는다(#100과 동일 판단).

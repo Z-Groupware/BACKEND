@@ -107,6 +107,38 @@ class HandoverListServiceTest {
     }
 
     @Test
+    void pendingAttributionReturnsOnlyPendingHandoversInCompany() {
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(1L, 2L, 3L));
+        when(handoverRepository.findByWriterMemberIdIn(List.of(1L, 2L, 3L))).thenReturn(List.of(
+                pendingAttributionOffboarding(),      // 귀속 대기 (FINALIZED offboarding, 미귀속)
+                handover(HandoverStatus.FINALIZED),   // 휴직 FINALIZED — 대상 아님
+                handover(HandoverStatus.SUBMITTED))); // 진행 중 — 대상 아님
+
+        List<HandoverSummary> result = service.listPendingAttribution(COMPANY);
+
+        assertThat(result).singleElement().satisfies(summary -> {
+            assertThat(summary.handoverType()).isEqualTo(HandoverType.OFFBOARDING);
+            assertThat(summary.status()).isEqualTo(HandoverStatus.FINALIZED);
+        });
+    }
+
+    @Test
+    void pendingAttributionWithNoMembersReturnsEmptyWithoutHittingHandoverRepository() {
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of());
+
+        assertThat(service.listPendingAttribution(COMPANY)).isEmpty();
+        verify(handoverRepository, never()).findByWriterMemberIdIn(org.mockito.ArgumentMatchers.anyCollection());
+    }
+
+    @Test
+    void pendingAttributionNullCompanyRejectedLoudly() {
+        assertThatThrownBy(() -> service.listPendingAttribution(null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED);
+    }
+
+    @Test
     void getReturnsHandoverById() {
         Handover handover = handover();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
@@ -132,6 +164,14 @@ class HandoverListServiceTest {
         return Handover.restore(HANDOVER_ID, MEMBER, TEAM, HandoverType.VACATION, status,
                 LocalDateTime.of(2026, 8, 10, 9, 0), LocalDateTime.of(2026, 8, 20, 18, 0), null,
                 "Kim", "Manager", null, null, null, null, null, null, null, 1L, List.of(item()));
+    }
+
+    private static Handover pendingAttributionOffboarding() {
+        // 팀장 오프보딩 직행 finalize 결과: FINALIZED이지만 필수 항목이 미귀속 → isPendingAttribution=true
+        return Handover.restore(2000L, 2L, TEAM, HandoverType.OFFBOARDING, HandoverStatus.FINALIZED,
+                null, null, LocalDate.of(2026, 8, 31),
+                "Park", "Leader", null, null, null, null, LocalDateTime.of(2026, 8, 10, 12, 0),
+                9L, "Owner", 1L, List.of(item()));
     }
 
     private static HandoverItem item() {

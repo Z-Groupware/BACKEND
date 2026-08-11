@@ -12,6 +12,8 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.notice.application.command.CreateNoticeCommand;
 import com.module06.backend.notice.application.command.DeleteNoticeCommand;
 import com.module06.backend.notice.application.command.UpdateNoticeCommand;
+import com.module06.backend.notice.application.event.NoticeCreatedEvent;
+import com.module06.backend.notice.application.port.out.NoticeEventPublisher;
 import com.module06.backend.notice.application.result.NoticeCreationResult;
 import com.module06.backend.notice.application.result.NoticeUpdateResult;
 import com.module06.backend.notice.application.usecase.CreateNoticeUseCase;
@@ -31,6 +33,9 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
 
     /* 공지 수정 시각을 운영 KST와 테스트에서 같은 방식으로 결정하는 시계다. */
     private final Clock clock;
+
+    /* 공지 저장과 알림 구현을 분리한 채 등록 완료 사실을 발행하는 Port다. */
+    private final NoticeEventPublisher noticeEventPublisher;
 
     /* 인증 회사에 OWNER·ADMIN 작성자의 공지를 저장하고 생성 식별자를 반환한다. */
     @Override
@@ -54,6 +59,13 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
 
         /* 데이터베이스 생성 식별자가 반영된 공지를 저장 결과로 받는다. */
         Notice savedNotice = noticeCommandRepository.save(notice);
+
+        /* 같은 트랜잭션 안에서 이벤트를 발행해 소비자가 커밋 성공 뒤에만 SSE를 보내게 한다. */
+        noticeEventPublisher.publish(new NoticeCreatedEvent(
+                savedNotice.getId(),
+                savedNotice.getCompanyId(),
+                savedNotice.getTitle()
+        ));
 
         /* 전체 공지 대신 작성 직후 필요한 생성 식별자만 외부 결과로 반환한다. */
         return new NoticeCreationResult(savedNotice.getId());

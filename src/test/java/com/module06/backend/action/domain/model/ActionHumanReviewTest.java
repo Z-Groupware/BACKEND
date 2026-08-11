@@ -26,7 +26,7 @@ class ActionHumanReviewTest {
         Action action = confirmedAction();
         assertThat(action.getConfirmedAt()).isNotNull();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.REJECTED);
+        action.applyHumanReview(null, null, ActionReviewStatus.REJECTED, null, null);
 
         assertThat(action.getReviewStatus()).isEqualTo(ActionReviewStatus.REJECTED);
         assertThat(action.getConfirmedAt()).isNull();
@@ -37,7 +37,7 @@ class ActionHumanReviewTest {
     void 확정은_시각을_찍는다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED);
+        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null);
 
         assertThat(action.getConfirmedAt()).isNotNull();
     }
@@ -48,7 +48,7 @@ class ActionHumanReviewTest {
         Action action = pendingAction();
         assertThat(action.isDueDateDefaulted()).isTrue();
 
-        action.applyHumanReview(BOB, LocalDate.of(2026, 8, 20), ActionReviewStatus.HUMAN_CONFIRMED);
+        action.applyHumanReview(BOB, LocalDate.of(2026, 8, 20), ActionReviewStatus.HUMAN_CONFIRMED, null, null);
 
         assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(action.isDueDateDefaulted()).isFalse();
@@ -60,7 +60,7 @@ class ActionHumanReviewTest {
     void null_은_값을_비우지_않는다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED);
+        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null);
 
         assertThat(action.getAssigneeMemberId()).isEqualTo(ALICE);
         assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 8));

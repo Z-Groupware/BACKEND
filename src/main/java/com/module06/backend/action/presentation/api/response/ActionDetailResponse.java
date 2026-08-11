@@ -1,6 +1,7 @@
 package com.module06.backend.action.presentation.api.response;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase.ActionDetail;
 import com.module06.backend.action.domain.model.Action;
@@ -20,6 +21,14 @@ import com.module06.backend.action.domain.model.ActionStatus;
     startDate는 이미 있던 컬럼(V2.6.7)을 노출만 추가한 것(2026-08-10, 이홍근 요청) — 프로젝트
     쪽 startDate(PR #292)와 같은 성격의 표시용 값이다. TODO 상태면 null이 정상이다.
 
+    2026-08-11 — 이홍근(FE) 상세 화면 실데이터 대조로 4개 필드 추가:
+    - projectId       : 프로젝트 상세 링크 조립용. Action 엔티티에 이미 있는 값이라 조인 없음.
+    - assigneeRoleLabel : 담당자의 "역할"(sub_team, 예: "프론트엔드") — team과 달리 리더 없는
+      순수 분류 태그(이홍근 확인). 역할 미지정 담당자는 null.
+    - sourceMeetingScheduledAt : 출처 회의 일시(meeting.start_at).
+    - parentActionTeamName / parentActionDueDate : 상위 TEAM 액션 자신의 소속팀·마감일
+      (카드에 팀명·마감일 표시용).
+
     연결된 클래스
     - ActionController      : 이 DTO를 내보내는 진입점
     - ActionService          : 이 DTO를 만드는 구현체
@@ -27,6 +36,7 @@ import com.module06.backend.action.domain.model.ActionStatus;
 */
 public record ActionDetailResponse(
         Long id,
+        Long projectId,
         String title,
         String description,
         ActionStatus status,
@@ -34,13 +44,17 @@ public record ActionDetailResponse(
         LocalDate dueDate,
         boolean needsReview,
         String assigneeName,
+        String assigneeRoleLabel,
         String projectTag,
         String projectName,
         String teamName,
         Long parentActionId,
         String parentActionTitle,
+        String parentActionTeamName,
+        LocalDate parentActionDueDate,
         Long sourceMeetingId,
-        String sourceMeetingTitle
+        String sourceMeetingTitle,
+        LocalDateTime sourceMeetingScheduledAt
 ) {
 
     public static ActionDetailResponse from(ActionDetail detail) {
@@ -48,6 +62,7 @@ public record ActionDetailResponse(
 
         return new ActionDetailResponse(
                 action.getId(),
+                action.getProjectId(),
                 action.getTitle(),
                 action.getDescription(),
                 action.getStatus(),
@@ -55,13 +70,17 @@ public record ActionDetailResponse(
                 action.getDueDate(),
                 action.getReviewStatus() == ActionReviewStatus.PENDING,
                 detail.assigneeName(),
+                detail.assigneeRoleLabel(),
                 detail.projectTag(),
                 detail.projectName(),
                 detail.teamName(),
                 action.getParentActionId(),
                 detail.parentActionTitle(),
+                detail.parentActionTeamName(),
+                detail.parentActionDueDate(),
                 action.getSourceMeetingId(),
-                detail.sourceMeetingTitle()
+                detail.sourceMeetingTitle(),
+                detail.sourceMeetingScheduledAt()
         );
     }
 }

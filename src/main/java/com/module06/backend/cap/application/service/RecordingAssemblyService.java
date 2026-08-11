@@ -2,20 +2,16 @@ package com.module06.backend.cap.application.service;
 
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
-import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
-import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.global.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 // 녹음 종료/조립(CAP-05): 회의 존재 → 참석자 → 녹음자 검증 → 세그먼트별 seq 연속성 검증 → 조립 트리거.
 // 조립은 되돌릴 수 없으므로(성공 시 parts 삭제), 중간에 구멍이 있으면 시작 전에 409로 막는다.
@@ -26,19 +22,19 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapMeetingAccessGuard accessGuard;
     private final CaptureUploadStateRepository captureUploadStateRepository;
-    private final RecordingPartRepository recordingPartRepository;
-    private final RecordingAssemblyPort recordingAssemblyPort;
+    private final RecordingGapChecker gapChecker;
+    private final RecordingAssemblyDispatcher recordingAssemblyDispatcher;
 
     public RecordingAssemblyService(MeetingReferenceRepository meetingReferenceRepository,
                                     CapMeetingAccessGuard accessGuard,
                                     CaptureUploadStateRepository captureUploadStateRepository,
-                                    RecordingPartRepository recordingPartRepository,
-                                    RecordingAssemblyPort recordingAssemblyPort) {
+                                    RecordingGapChecker gapChecker,
+                                    RecordingAssemblyDispatcher recordingAssemblyDispatcher) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
-        this.recordingPartRepository = recordingPartRepository;
-        this.recordingAssemblyPort = recordingAssemblyPort;
+        this.gapChecker = gapChecker;
+        this.recordingAssemblyDispatcher = recordingAssemblyDispatcher;
     }
 
     @Override
@@ -60,12 +56,14 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
         state.verifyRecorder(command.callerId());
 
         // seq 연속성 검증 — 구멍이 하나라도 있으면 조립을 시작하지 않고 409로 막는다(어느 순번인지는 CAP-08로 확인).
-        if (hasSeqGap(command.meetingId(), command.lastSegmentSeq(), command.lastSeq())) {
+        if (gapChecker.hasGap(command.meetingId(), command.lastSegmentSeq(), command.lastSeq())) {
             throw new BusinessException(CapErrorCode.CAP_ASSEMBLY_INCOMPLETE);
         }
 
-        // 연속성 OK → 조립 파이프라인 트리거(스텁, best-effort). 실제 조립/상태 전이는 파이프라인이 담당.
-        recordingAssemblyPort.startAssembly(command.meetingId(), command.lastSegmentSeq(), command.lastSeq());
+        // 연속성 OK → 조립 파이프라인 트리거(best-effort, 비동기). 실제 조립/상태 전이는 파이프라인이 담당.
+        // 여기서 바로 포트를 부르지 않는다 — 실 어댑터는 무거운 ffmpeg 작업이라, 동기로 부르면
+        // 이 API의 "즉시 202" 계약이 깨진다(RecordingAssemblyDispatcher 주석 참고).
+        recordingAssemblyDispatcher.dispatch(command.meetingId(), command.lastSegmentSeq(), command.lastSeq());
 
         // 여기 도달했으면 구멍이 없으므로 missingSeqs는 빈 목록.
         return new Result("ASSEMBLING", List.of());
@@ -73,31 +71,5 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
 
     private boolean isOutOfRange(int value) {
         return value < 0 || value > CaptureUploadState.MAX_SEQ;
-    }
-
-    // 세그먼트 0..lastSegmentSeq를 훑어 각 세그먼트의 1..target이 빠짐 없이 있는지 본다.
-    // 마지막 세그먼트의 target은 본문 lastSeq(클라가 여기까지 올렸다고 주장), 중간 세그먼트는 그 세그먼트의 최대 순번
-    // (중간 세그먼트는 이어받기로 넘어간 것이라 내부 연속성만 검증 가능).
-    private boolean hasSeqGap(Long meetingId, int lastSegmentSeq, int lastSeq) {
-        for (int segment = 0; segment <= lastSegmentSeq; segment++) {
-            Set<Integer> present = new HashSet<>(recordingPartRepository.findSeqsInSegment(meetingId, segment));
-            int target = (segment == lastSegmentSeq) ? lastSeq : maxOrZero(present);
-            for (int seq = 1; seq <= target; seq++) {
-                if (!present.contains(seq)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private int maxOrZero(Set<Integer> seqs) {
-        int max = 0;
-        for (int seq : seqs) {
-            if (seq > max) {
-                max = seq;
-            }
-        }
-        return max;
     }
 }

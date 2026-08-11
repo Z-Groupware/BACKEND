@@ -41,7 +41,11 @@ public enum HandoverErrorCode implements ErrorCode {
     HO_LIST_SCOPE_AMBIGUOUS(HttpStatus.BAD_REQUEST, "HO-024", "인수인계 목록 조회 범위는 하나만 지정할 수 있습니다."),
 
     // auth(B) 도입 전이라 요청 시점 AuthPrincipal companyId가 없을 때. 타입화된 신호(500 방지).
-    HO_COMPANY_CONTEXT_REQUIRED(HttpStatus.UNAUTHORIZED, "HO-025", "회사 컨텍스트가 필요합니다.");
+    HO_COMPANY_CONTEXT_REQUIRED(HttpStatus.UNAUTHORIZED, "HO-025", "회사 컨텍스트가 필요합니다."),
+
+    HO_ATTRIBUTE_NOT_ALLOWED(HttpStatus.CONFLICT, "HO-027", "귀속 대기 상태가 아니라 신규 팀장 일괄 이관을 할 수 없습니다."),
+    HO_ATTRIBUTE_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "HO-028", "신규 팀장 이관 요청이 올바르지 않습니다."),
+    HO_ATTRIBUTE_TO_WRITER_NOT_ALLOWED(HttpStatus.CONFLICT, "HO-029", "퇴사자 본인을 신규 팀장으로 지정할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

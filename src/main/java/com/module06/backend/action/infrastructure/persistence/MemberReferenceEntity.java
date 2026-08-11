@@ -40,4 +40,15 @@ public class MemberReferenceEntity {
 
     @Column(name = "name")
     private String name;
+
+    // 2026-08-11 — 담당자 "역할" 라벨(예: "프론트엔드") 조회용. 실제 컬럼명은 role_id다 —
+    // 원래 sub_team_id였으나 V2.3.2(rename_member_sub_team_id_to_role_id)로 이미 개명됨.
+    // 리더 없는 순수 분류 태그라 team_id와는 다른 개념이다(이홍근 확인).
+    @Column(name = "role_id")
+    private Long subTeamId;
+
+    // 2026-08-11 — 팀장이 팀원의 개인 액션 목록을 조회할 때 "같은 팀 소속인지" 스코프 확인용.
+    // team_id는 V1부터 개명 이력 없음(마이그레이션 전수 확인, sub_team_id 사고 재발 방지).
+    @Column(name = "team_id")
+    private Long teamId;
 }

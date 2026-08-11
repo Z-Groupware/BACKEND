@@ -74,6 +74,27 @@ public enum CaptureErrorCode implements ErrorCode {
             "앞 계층이 끝나지 않아 재개할 수 없습니다."),
 
     /*
+     * ANLZ-02 — 재개 지점을 자동으로 고를 수 없다(계층을 안 보낸 요청).
+     *
+     * 실패·중단된 계층이 하나도 없을 때다. 두 경우가 여기로 온다 — 분석이 전부 성공했거나,
+     * 아직 한 번도 돌지 않았거나. 둘 다 **재개할 자리가 없다**는 뜻이고, 사람이 원하는 것은
+     * 처음부터 다시 돌리는 것(ANLZ-01)이다.
+     *
+     * 409 인 이유는 요청이 틀린 것이 아니라 회의 상태가 그 요청을 받을 수 없는 것이기
+     * 때문이다 — RESUME_PRECEDING_LAYER_NOT_DONE 과 같은 성질이다.
+     *
+     * 계층을 **명시해서** 보낸 요청은 여기로 오지 않는다. 그건 실패하지 않은 계층부터
+     * 다시 돌리려는 의도적인 요청일 수 있고, 앞 계층 검사(ANLZ-004)가 판단한다.
+     *
+     * ⚠ 번호가 008 인 이유 — 005 는 이미 SUMMARY_ITEM_NOT_FOUND(404)가 쓰고 있고,
+     * 006·007 도 요약 수정 쪽이 쓴다. 처음에 005 로 넣었다가 중복이 잡혔다
+     * (CodeRabbit PR #318). **기존 코드를 옮기지 않고 새 코드가 빈 번호를 잡는다** —
+     * 저쪽은 이미 프론트가 404 문구로 분기하고 있을 수 있고, 이쪽은 아직 클라이언트가 없다.
+     */
+    RESUME_NOTHING_TO_RESUME(HttpStatus.CONFLICT, "ANLZ-008",
+            "재개할 계층이 없습니다. 처음부터 다시 분석해야 합니다."),
+
+    /*
      * ANLZ-04 — 고칠 항목이 이 회의에 없다(없는 id 도 여기로 온다).
      *
      * REVIEW_ACTION_NOT_FOUND 와 같은 이유로 404 다. 관문은 회의까지만 보므로 회의는 내 것인데
@@ -366,7 +387,25 @@ public enum CaptureErrorCode implements ErrorCode {
      * 계산하는 근거라 달이 어긋나면 결론이 통째로 바뀐다.
      */
     QUALITY_PERIOD_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_8",
-            "기간 형식이 올바르지 않습니다(YYYY-MM).");
+            "기간 형식이 올바르지 않습니다(YYYY-MM)."),
+
+    /*
+     * RVW-02 — 2026-08-11 추가. 담당자·기한·제목·내용을 한 번에 여러 개 고칠 수 있게 되면서,
+     * MODIFY인데 넷 다 null이면 "뭘 고쳤다는 건지" 알 수 없다. 예전엔 rejectReason 필수
+     * 검증(REVIEW_REASON_REQUIRED)이 이 자리를 대신 막았지만, MODIFY가 rejectReason을 더 이상
+     * 안 받게 되면서 값 자체의 존재를 직접 확인해야 한다.
+     */
+    REVIEW_MODIFY_VALUE_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_9",
+            "수정하려면 담당자·기한·제목·내용 중 하나 이상 채워야 합니다."),
+
+    /*
+     * RVW-02 — 2026-08-11 추가. WRONG_ASSIGNEE·WRONG_DUE·WRONG_TITLE·WRONG_DETAIL은 BE가
+     * 바뀐 필드로 자동으로 붙이는 값이라, REJECT 요청에 사람이 이 값들을 직접 골라 보내면
+     * 막는다 — 반려 사유(HALLUCINATION 등 5종)와 수정 사유(WRONG_* 4종)가 섞이면 review_log가
+     * "왜 반려했는지"를 더 이상 정확히 말하지 못한다(RejectReason.isHumanSelectable()).
+     */
+    REVIEW_REASON_NOT_SELECTABLE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_10",
+            "이 사유는 반려 사유로 고를 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
