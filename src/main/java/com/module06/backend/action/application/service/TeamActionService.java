@@ -69,14 +69,17 @@ public class TeamActionService implements
             return new TeamActionListResult(List.of(), totalElements);
         }
 
-        Map<Long, String> projectTagById = toDisplayMap(
-                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId)),
-                ProjectReference::projectId, ProjectReference::tag);
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
         List<TeamActionListItem> items = actions.stream()
-                .map(action -> new TeamActionListItem(action, projectTagById.get(action.getProjectId()), teamName))
+                .map(action -> new TeamActionListItem(
+                        action, projectTagById.get(action.getProjectId()),
+                        projectNameById.get(action.getProjectId()), teamName))
                 .toList();
 
         return new TeamActionListResult(items, totalElements);

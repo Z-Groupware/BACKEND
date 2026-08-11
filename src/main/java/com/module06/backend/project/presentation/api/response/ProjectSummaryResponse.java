@@ -12,12 +12,15 @@ import com.module06.backend.project.domain.model.ProjectStatus;
     2026-08-09부로 실집계 — meeting(D)이 countMeetingsByProjectIds 배치 계약을 제공하면서
     meetingCount도 채워진다(취소 회의 제외, MeetingQueryPortDelegatingAdapter 경유).
     teamNames는 부서 칩 표시용 — team(B) 참조 테이블 배치 조회로 채운다(2026-08-09, 윤종호 확인).
+    description은 2026-08-11 추가(이홍근 요청, 목록 카드 첫 줄 요약용) — Project 엔티티에
+    이미 있는 값이라 조인 없이 채운다.
 */
 public record ProjectSummaryResponse(
         Long id,
         String tag,
         String color,
         String name,
+        String description,
         ProjectStatus status,
         LocalDate startDate,
         LocalDate dueDate,
@@ -36,6 +39,7 @@ public record ProjectSummaryResponse(
                 project.getTag(),
                 project.getColor(),
                 project.getName(),
+                project.getDescription(),
                 project.getStatus(),
                 project.getStartDate(),
                 project.getDueDate(),
@@ -59,6 +63,7 @@ public record ProjectSummaryResponse(
                 project.getTag(),
                 project.getColor(),
                 project.getName(),
+                project.getDescription(),
                 project.getStatus(),
                 project.getStartDate(),
                 project.getDueDate(),

@@ -76,6 +76,7 @@ class TeamActionServiceTest {
         TeamActionListItem item = result.items().get(0);
         assertThat(item.action()).isEqualTo(action);
         assertThat(item.projectTag()).isEqualTo("GOODS");
+        assertThat(item.projectName()).isEqualTo("굿즈");
         assertThat(item.teamName()).isEqualTo("개발팀");
     }
 

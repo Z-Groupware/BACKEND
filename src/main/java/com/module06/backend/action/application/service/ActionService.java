@@ -134,9 +134,10 @@ public class ActionService implements
         String assigneeName = actionReferenceRepository.findMemberReferences(List.of(assigneeMemberId)).stream()
                 .findFirst().map(MemberReference::name).orElse(null);
 
-        Map<Long, String> projectTagById = toDisplayMap(
-                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId)),
-                ProjectReference::projectId, ProjectReference::tag);
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
         Map<Long, String> teamNameById = toDisplayMap(
                 actionReferenceRepository.findTeamReferences(distinctNonNull(actions, Action::getTeamId)),
                 TeamReference::teamId, TeamReference::name);
@@ -151,6 +152,7 @@ public class ActionService implements
                         action,
                         assigneeName,
                         projectTagById.get(action.getProjectId()),
+                        projectNameById.get(action.getProjectId()),
                         action.getTeamId() == null ? null : teamNameById.get(action.getTeamId()),
                         action.getSourceMeetingId() == null ? null : meetingTitleById.get(action.getSourceMeetingId()),
                         action.getParentActionId() == null ? null : parentTitleById.get(action.getParentActionId())

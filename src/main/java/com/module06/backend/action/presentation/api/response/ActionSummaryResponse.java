@@ -26,6 +26,12 @@ import com.module06.backend.action.domain.model.ActionType;
     노출만 추가한다. TODO 상태(아직 시작 안 함)면 null이 정상이다 — 마이그레이션 이전 데이터라서
     비어있는 게 아니라, "아직 시작 안 한 액션"이라는 의미 자체가 null이다.
 
+    2026-08-11 — description·projectId 추가(이홍근 요청, 목록 카드 한 줄 요약·프로젝트별 그룹핑).
+    둘 다 Action 엔티티에 이미 있는 값이라 모든 경로에서 조인 없이 채운다. projectName은
+    Action에 없어(ProjectReference 조인 필요) 목록 두 경로(개인·팀)에서만 채워지고, 이미
+    "회의/타임라인 화면 안이라 중복" 이유로 projectTag를 비우던 두 경로(타임라인·회의별 조회)는
+    projectName도 같은 이유로 비운다.
+
     연결된 클래스
     - ActionController · TeamActionController : 이 DTO를 내보내는 진입점
     - ActionService · TeamActionService        : 이 DTO를 만드는 구현체
@@ -35,13 +41,16 @@ public record ActionSummaryResponse(
         Long id,
         ActionType actionType,
         String title,
+        String description,
         ActionStatus status,
         LocalDate startDate,
         LocalDate dueDate,
         boolean needsReview,
         boolean isDelayed,
         String assigneeName,
+        Long projectId,
         String projectTag,
+        String projectName,
         String teamName,
         String sourceMeetingTitle,
         Long parentActionId,
@@ -56,29 +65,36 @@ public record ActionSummaryResponse(
     // FR-AC-02 목록 조회 — ActionService가 배치조회로 채운 조인 값을 그대로 옮겨 담는다.
     public static ActionSummaryResponse from(ActionListItem item) {
         Action action = item.action();
-        return from(action, item.assigneeName(), item.projectTag(), item.teamName(),
+        return from(action, item.assigneeName(), item.projectTag(), item.projectName(), item.teamName(),
                 item.sourceMeetingTitle(), item.parentActionTitle());
     }
 
     // FR-AC-06 목록 조회 — TEAM 액션은 담당자·출처회의·상위액션 개념이 없어 전부 null로 내려간다.
     public static ActionSummaryResponse from(TeamActionListItem item) {
-        return from(item.action(), null, item.projectTag(), item.teamName(), null, null);
+        return from(item.action(), null, item.projectTag(), item.projectName(), item.teamName(), null, null);
     }
 
     // FR-AC-08 타임라인 조회 — 이미 팀 액션 상세 화면 안(같은 프로젝트·같은 팀)이라 projectTag·
-    // teamName·상위액션 제목은 중복이라 안 싣는다. 상위액션 id는 그대로 둔다(카드 클릭 이동용).
+    // projectName·teamName·상위액션 제목은 중복이라 안 싣는다. 상위액션 id는 그대로 둔다(카드 클릭 이동용).
     public static ActionSummaryResponse from(TimelineItem item) {
         return from(item.action(), item.assigneeName(), null, null, null, null);
     }
 
     // FR-AC-09 회의별 조회 — 이미 회의 상세 화면 안이라 sourceMeetingTitle은 중복이라 안 싣는다.
-    // projectTag도 마찬가지 이유로 뺀다. TEAM은 assigneeName, PERSONAL은 teamName이 null로 온다.
+    // projectTag·projectName도 마찬가지 이유로 뺀다. TEAM은 assigneeName, PERSONAL은 teamName이 null로 온다.
     public static ActionSummaryResponse from(MeetingActionItem item) {
         return from(item.action(), item.assigneeName(), null, item.teamName(), null, null);
     }
 
     private static ActionSummaryResponse from(
             Action action, String assigneeName, String projectTag, String teamName,
+            String sourceMeetingTitle, String parentActionTitle
+    ) {
+        return from(action, assigneeName, projectTag, null, teamName, sourceMeetingTitle, parentActionTitle);
+    }
+
+    private static ActionSummaryResponse from(
+            Action action, String assigneeName, String projectTag, String projectName, String teamName,
             String sourceMeetingTitle, String parentActionTitle
     ) {
         // 지연은 "진행중" 한정 배지다(2026-08-07 재설계) — 할일은 아직 안 늦은 것, 완료는 지연이 아니다.
@@ -90,13 +106,16 @@ public record ActionSummaryResponse(
                 action.getId(),
                 action.getActionType(),
                 action.getTitle(),
+                action.getDescription(),
                 action.getStatus(),
                 action.getStartDate(),
                 action.getDueDate(),
                 action.getReviewStatus() == ActionReviewStatus.PENDING,
                 delayed,
                 assigneeName,
+                action.getProjectId(),
                 projectTag,
+                projectName,
                 teamName,
                 sourceMeetingTitle,
                 action.getParentActionId(),
