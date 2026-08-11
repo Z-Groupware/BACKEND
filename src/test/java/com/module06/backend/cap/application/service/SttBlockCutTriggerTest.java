@@ -243,6 +243,11 @@ class SttBlockCutTriggerTest {
         }
 
         @Override
+        public void deleteByMeetingId(Long meetingId) {
+            throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+        }
+
+        @Override
         public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
             if (forceReservationConflict || state.getBlocksFormed() != expectedBlocksFormed) {
                 return Optional.empty();

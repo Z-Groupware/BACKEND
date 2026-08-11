@@ -81,7 +81,7 @@ class CancelReviewActionServiceTest {
     private ActionReviewQueryPort query(boolean manual) {
         return new StubQueryPort(new ActionReviewQueryPort.ReviewTarget(
                 ACTION, ActionType.PERSONAL, 42L, LocalDate.of(2026, 8, 8), "결제 실패 케이스 정리",
-                manual, manual ? "HUMAN_CONFIRMED" : "PENDING", null, null, null, null));
+                "정리 내용", manual, manual ? "HUMAN_CONFIRMED" : "PENDING", null, null, null, null));
     }
 
     private CancelReviewActionCommand command() {

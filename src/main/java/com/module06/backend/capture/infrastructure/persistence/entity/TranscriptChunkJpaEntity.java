@@ -4,6 +4,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -35,8 +37,14 @@ import com.module06.backend.capture.domain.model.SpeakerSource;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class TranscriptChunkJpaEntity {
 
-    /* V1 baseline 에 AUTO_INCREMENT 가 없다 — 값을 넣는 쪽(STT 적재)이 채운다. 여기선 읽기만 한다. */
+    /*
+     * ⚠ 이전 주석이 "V1 baseline 에 AUTO_INCREMENT 가 없다"고 적혀 있었는데 **사실이 아니다** —
+     * V1__init_schema.sql 이 PK 를 건 뒤 317 행에서 MODIFY 로 AUTO_INCREMENT 를 붙인다.
+     * 적재 경로(STT 결과 → transcript_chunk)를 만들면서 확인했고, IDENTITY 로 맞춘다.
+     * 그대로 두면 삽입 시 Hibernate 가 id 를 요구한다.
+     */
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Long id;
 
@@ -68,6 +76,41 @@ public class TranscriptChunkJpaEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "speaker_source")
     private SpeakerSource speakerSource;
+
+    /*
+     * 이 발화를 만든 stt_block.block_seq(V5.3). **블록 재처리의 교체 범위**다 —
+     * 블록 하나를 다시 돌리면 그 블록이 만든 행만 지우고 새로 넣는다.
+     *
+     * NULL 인 행은 이 경로가 붙기 전에 들어온 발화다(자막 기반 임시 적재 등). 지우지 않는다 —
+     * 어느 블록이 만든 것인지 모르는 행을 블록 교체가 건드리면 남의 발화가 사라진다.
+     */
+    @Column(name = "stt_block_seq")
+    private Integer sttBlockSeq;
+
+    /*
+     * STT 결과 한 발화를 만든다.
+     *
+     * <h2>seq 는 적재 순서일 뿐이다</h2>
+     * 정렬은 offset_ms 가 한다(ORDER = offsetMs NULLS LAST, seq). seq 는 **오프셋이 같을 때의
+     * tie-breaker** 이고 커서 페이징이 그 자리에서만 비교한다(ANLZ-05). 그래서 회의 안에서
+     * 유일하면 되고, 블록을 재처리해 뒤늦게 큰 번호가 붙어도 페이징은 깨지지 않는다 — 다른
+     * 오프셋끼리는 seq 를 비교하지 않는다.
+     *
+     * <h2>화자는 여기서 채우지 않는다</h2>
+     * 적재 시점에는 아무도 모른다. L1(SpeakerAttributionResolver)이 자막과 시간창을 맞춘 뒤
+     * attributeSpeaker 로 넣는다 — NULL 이 "아직 판정 안 함"이고 정상이다.
+     */
+    public static TranscriptChunkJpaEntity fromStt(long meetingId, int seq, String content,
+                                                   int offsetMs, int endOffsetMs, int sttBlockSeq) {
+        TranscriptChunkJpaEntity entity = new TranscriptChunkJpaEntity();
+        entity.meetingId = meetingId;
+        entity.seq = seq;
+        entity.content = content;
+        entity.offsetMs = offsetMs;
+        entity.endOffsetMs = endOffsetMs;
+        entity.sttBlockSeq = sttBlockSeq;
+        return entity;
+    }
 
     /*
      * L1 판정을 기록한다. 이 두 컬럼이 이 엔티티가 쓰는 전부다.

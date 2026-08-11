@@ -30,7 +30,9 @@ public record ProcessingStatusResponse(
         String status,
         List<LayerResponse> layers,
         List<GapResponse> gaps,
-        boolean gapsChecked
+        boolean gapsChecked,
+        BlocksResponse blocks,
+        Integer estimatedRemainingSec
 ) {
 
     public static ProcessingStatusResponse from(ProcessingStatus status) {
@@ -44,10 +46,25 @@ public record ProcessingStatusResponse(
                                 layer.tokensOut(),
                                 layer.stalled()))
                         .toList(),
-                // 채우는 경로(조립·Transcribe·stt_gap)가 아직 없다. 빈 목록 + checked=false 가
-                // 지금 상태를 정확히 말한다 — "구멍이 없다"가 아니라 "확인하지 않았다".
-                List.of(),
-                false);
+                /*
+                 * 이제 실제 값이 온다. 폴링이 블록을 FAILED 로 닫을 때 그 구간을 stt_gap 에
+                 * 남기고, 재처리가 성공하면 지운다 — 예전 주석의 "채우는 경로가 아직 없다"가
+                 * 해소된 자리다.
+                 */
+                status.gaps().stream()
+                        .map(gap -> new GapResponse(gap.startMs(), gap.endMs(), gap.reason(),
+                                gap.mentionedNames(), gap.keywords()))
+                        .toList(),
+                status.gapsChecked(),
+                new BlocksResponse(status.blocks().total(), status.blocks().done(),
+                        status.blocks().failed()),
+                /*
+                 * null 로 내려갈 수 있다. **0 으로 바꾸지 않는다** — 0 은 "곧 끝난다"로 읽히고,
+                 * null 은 "아직 못 잰다"다. 이 회의에서 끝난 블록이 없으면 곱할 처리율이 없고,
+                 * 받아쓰기가 끝난 뒤의 계층 소요는 주제·tuple 수에 좌우돼 앞 계층으로 못 잰다
+                 * (SttProgress 주석). 화면은 null 이면 남은 시간을 감춘다.
+                 */
+                status.blocks().estimatedRemainingSec());
     }
 
     /*
@@ -60,6 +77,20 @@ public record ProcessingStatusResponse(
      */
     public record LayerResponse(String layer, String status, int tokensIn, int tokensOut,
                                 boolean stalled) {
+    }
+
+    /*
+     * 받아쓰기 블록 집계(명세 CAP-06 의 {@code blocks}).
+     *
+     * <h2>목록이 아니라 집계다 — STT-03 과 겹치지 않는다</h2>
+     * 블록 하나하나의 상태·사유·재시도 횟수는 STT-03 이 준다. 여기서 같은 목록을 또 주면 두
+     * 응답이 같은 사실을 각자 말하게 되고, 화면이 어느 쪽을 믿을지 정해야 한다. 이 응답이
+     * 답하는 질문은 "얼마나 남았나"이므로 세 숫자로 충분하다.
+     *
+     * total 에서 done·failed 를 빼면 아직 도는 블록 수다. 그 값을 따로 주지 않는 이유 —
+     * 세 숫자가 서로 어긋날 자리를 만들지 않는다.
+     */
+    public record BlocksResponse(int total, int done, int failed) {
     }
 
     /*

@@ -3,8 +3,11 @@ package com.module06.backend.metering.presentation.api;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.metering.application.usecase.GetMeteringDashboardUseCase;
+import com.module06.backend.metering.application.usecase.ManageCompanyStoragePlanUseCase;
 import com.module06.backend.metering.application.usecase.ManageCompanyTokenPlanUseCase;
+import com.module06.backend.metering.presentation.api.dto.request.SetCompanyStoragePlanRequest;
 import com.module06.backend.metering.presentation.api.dto.request.SetCompanyTokenPlanRequest;
+import com.module06.backend.metering.presentation.api.dto.response.CompanyStoragePlanResponse;
 import com.module06.backend.metering.presentation.api.dto.response.CompanyTokenPlanResponse;
 import com.module06.backend.metering.presentation.api.dto.response.MeteringDashboardResponse;
 import com.module06.backend.metering.presentation.api.dto.response.TeamMeteringDashboardResponse;
@@ -22,11 +25,14 @@ public class MeteringController {
 
     private final GetMeteringDashboardUseCase getMeteringDashboardUseCase;
     private final ManageCompanyTokenPlanUseCase manageCompanyTokenPlanUseCase;
+    private final ManageCompanyStoragePlanUseCase manageCompanyStoragePlanUseCase;
 
     public MeteringController(GetMeteringDashboardUseCase getMeteringDashboardUseCase,
-                             ManageCompanyTokenPlanUseCase manageCompanyTokenPlanUseCase) {
+                             ManageCompanyTokenPlanUseCase manageCompanyTokenPlanUseCase,
+                             ManageCompanyStoragePlanUseCase manageCompanyStoragePlanUseCase) {
         this.getMeteringDashboardUseCase = getMeteringDashboardUseCase;
         this.manageCompanyTokenPlanUseCase = manageCompanyTokenPlanUseCase;
+        this.manageCompanyStoragePlanUseCase = manageCompanyStoragePlanUseCase;
     }
 
     @PutMapping("/plan")
@@ -42,6 +48,21 @@ public class MeteringController {
         CompanyTokenPlanResponse response = CompanyTokenPlanResponse.from(
                 manageCompanyTokenPlanUseCase.getPlan(principal));
         return ApiResponse.success("Company token plan loaded.", response);
+    }
+
+    @PutMapping("/storage-plan")
+    public ApiResponse<CompanyStoragePlanResponse> setStoragePlan(@AuthenticationPrincipal AuthPrincipal principal,
+                                                                   @RequestBody SetCompanyStoragePlanRequest request) {
+        CompanyStoragePlanResponse response = CompanyStoragePlanResponse.from(
+                manageCompanyStoragePlanUseCase.setPlan(principal, request.toCommand()));
+        return ApiResponse.success("Company storage plan saved.", response);
+    }
+
+    @GetMapping("/storage-plan")
+    public ApiResponse<CompanyStoragePlanResponse> getStoragePlan(@AuthenticationPrincipal AuthPrincipal principal) {
+        CompanyStoragePlanResponse response = CompanyStoragePlanResponse.from(
+                manageCompanyStoragePlanUseCase.getPlan(principal));
+        return ApiResponse.success("Company storage plan loaded.", response);
     }
 
     @GetMapping("/dashboard")

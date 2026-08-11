@@ -28,6 +28,7 @@ import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.domain.repository.PendingActionMeetingRepository;
+import com.module06.backend.meeting.domain.repository.StalledSummaryMeetingRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingTopicJpaEntity;
@@ -45,7 +46,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class MeetingQueryPersistenceAdapter
         implements MeetingQueryRepository, MeetingDetailRepository, MeetingLockRepository,
-        MeetingListRepository, PendingActionMeetingRepository {
+        MeetingListRepository, PendingActionMeetingRepository, StalledSummaryMeetingRepository {
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
@@ -521,4 +522,28 @@ public class MeetingQueryPersistenceAdapter
                 ))
                 .toList();
     }
+
+    /* MEET-15 후보로 요청 회사에서 사용자가 host인 종료 회의를 최근 시작 순으로 조회한다. */
+    @Override
+    public List<StalledSummaryMeetingCandidate> findHostedDoneSummaryCandidates(
+            Long companyId,
+            Long hostMemberId
+    ) {
+        /* 요약 상태 판정은 A 도메인 몫이므로 여기서는 회사·host·종료 상태까지만 좁힌다. */
+        return springDataMeetingRepository
+                .findAllByCompanyIdAndHostMemberIdAndStatusOrderByStartAtDescIdDesc(
+                        companyId,
+                        hostMemberId,
+                        MeetingStatus.DONE
+                )
+                .stream()
+                .map(meeting -> new StalledSummaryMeetingCandidate(
+                        meeting.getId(),
+                        meeting.getProjectId(),
+                        meeting.getTitle(),
+                        meeting.getStartAt()
+                ))
+                .toList();
+    }
+
 }

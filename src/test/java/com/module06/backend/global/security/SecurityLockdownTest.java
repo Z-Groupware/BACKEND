@@ -74,15 +74,11 @@ class SecurityLockdownTest {
         assertNotUnauthorized(get("/swagger-ui/index.html"));
     }
 
-    /*
-     * 지표는 잠근다. 스크래핑하는 주체가 아직 없어 막아도 깨지는 것이 없고, 엔드포인트 이름·호출 수·
-     * 메모리 같은 내부 정보가 그대로 나간다. 모니터링을 붙일 때 네트워크 단(VPC·보안그룹)에서
-     * 열거나 토큰을 주는 편이 맞다.
-     */
+    /* Prometheus 서버가 토큰 없이 지표를 수집할 수 있도록 보안 필터가 요청을 차단하지 않는지 확인한다. */
     @Test
-    @DisplayName("지표 엔드포인트는 잠겨 있다")
-    void metricsAreClosed() throws Exception {
-        assertUnauthorized(get("/actuator/prometheus"));
+    @DisplayName("Prometheus 지표 엔드포인트는 스크래핑을 위해 열려 있다")
+    void metricsStayOpen() throws Exception {
+        assertNotUnauthorized(get("/actuator/prometheus"));
     }
 
     @Test

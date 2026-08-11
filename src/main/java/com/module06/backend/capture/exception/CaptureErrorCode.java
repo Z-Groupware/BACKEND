@@ -286,6 +286,34 @@ public enum CaptureErrorCode implements ErrorCode {
             "블록 오디오가 없어 다시 처리할 수 없습니다."),
 
     /*
+     * STT-04 — 제공자에 제출하지 못했다.
+     *
+     * 502 인 이유 — 우리 요청이 잘못된 것이 아니라 제공자(AWS Transcribe)가 접수하지 못한
+     * 것이다. 500 으로 내리면 이 저장소의 버그와 구분되지 않고 알람이 엉뚱한 사람에게 간다
+     * (ANALYSIS_LAYER_FAILED 와 같은 판단).
+     *
+     * 제공자 메시지를 사용자에게 그대로 내보내지 않는다 — 그 문구는 우리 계약이 아니라 AWS 의
+     * 것이라 언제든 바뀌고, 바뀌는 문자열에 화면이 붙으면 되돌릴 수 없다(V5.4 주석과 같은 규칙).
+     * 원인은 로그에 남는다.
+     *
+     * STT- 접두사를 쓰는 이유는 RESUME_LAYER_UNKNOWN 과 같다 — 4xx 번호를 여러 갈래가 동시에
+     * 늘리고 있어 브랜치마다 같은 번호를 집는 충돌이 실제로 났다.
+     */
+    STT_SUBMIT_FAILED(HttpStatus.BAD_GATEWAY, "STT-001", "STT 제출에 실패했습니다."),
+
+    /*
+     * STT-04 — 지원하지 않는 STT 제공자다.
+     *
+     * 명세가 `{"provider":"whisper"}` 를 허용하지만 구현된 제공자는 aws-transcribe 하나다.
+     * 모르는 값을 기본 제공자로 대신 돌리면 **사용자가 요청한 것과 다른 제공자로 돌아가고**,
+     * 결과가 나아지지 않아도 "whisper 로 돌렸는데 안 낫네"로 읽힌다 — 제공자를 바꿔보는 판단
+     * 자체의 근거가 거짓이 된다.
+     *
+     * 400 인 이유 — 형식은 맞지만 값이 지원 범위 밖이다. 어느 값이 되는지는 명세가 말한다.
+     */
+    STT_PROVIDER_UNSUPPORTED(HttpStatus.BAD_REQUEST, "STT-002", "지원하지 않는 STT 제공자입니다."),
+
+    /*
      * STT-02 — 어휘에 넣을 단어가 하나도 없다.
      *
      * 그대로 만들면 **빈 어휘 리소스가 계정 상한을 하나 차지한다.** 인식률은 그대로인데 다른
@@ -297,6 +325,24 @@ public enum CaptureErrorCode implements ErrorCode {
      */
     VOCABULARY_NO_PHRASES(HttpStatus.CONFLICT, "MEETING_409_10",
             "어휘에 넣을 참석자 정보가 없습니다."),
+
+    /*
+     * STT-02 — 제공자에 어휘 생성을 접수하지 못했다.
+     *
+     * 502 인 이유 — 우리 요청이 잘못된 것이 아니라 AWS 가 접수하지 못한 것이다. 500 으로 내리면
+     * 이 저장소의 버그와 구분되지 않고 알람이 엉뚱한 사람에게 간다(ANALYSIS_LAYER_FAILED 와
+     * 같은 판단). 제공자 메시지는 로그에만 남긴다 — 그 문구는 우리 계약이 아니라 AWS 의 것이라
+     * 언제든 바뀌고, 바뀌는 문자열에 화면이 붙으면 되돌릴 수 없다.
+     *
+     * **어휘가 없어도 녹음은 시작할 수 있다**(명세 STT-01). 그래서 이 실패는 회의를 막지 않고
+     * 화면에 "어휘 생성 실패"로만 보인다 — 고유명사 인식률이 낮아지는 대가를 사람이 알고
+     * 진행하는 것이 이 값의 목적이다.
+     *
+     * 번호가 003 인 이유 — 001·002 는 같은 레인의 Transcribe 제출·제공자 판정이 쓴다.
+     * 코드 중복은 컴파일을 통과하고 화면이 같은 코드로 두 뜻을 만나게 된다(PR #318 에서 실제로
+     * 그랬다).
+     */
+    VOCABULARY_BUILD_FAILED(HttpStatus.BAD_GATEWAY, "STT-003", "커스텀 어휘 생성에 실패했습니다."),
 
     /*
      * QLTY-01 — 같은 버전을 동시에 등록했다(UNIQUE(meeting_id, version) 충돌).
@@ -341,7 +387,25 @@ public enum CaptureErrorCode implements ErrorCode {
      * 계산하는 근거라 달이 어긋나면 결론이 통째로 바뀐다.
      */
     QUALITY_PERIOD_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_8",
-            "기간 형식이 올바르지 않습니다(YYYY-MM).");
+            "기간 형식이 올바르지 않습니다(YYYY-MM)."),
+
+    /*
+     * RVW-02 — 2026-08-11 추가. 담당자·기한·제목·내용을 한 번에 여러 개 고칠 수 있게 되면서,
+     * MODIFY인데 넷 다 null이면 "뭘 고쳤다는 건지" 알 수 없다. 예전엔 rejectReason 필수
+     * 검증(REVIEW_REASON_REQUIRED)이 이 자리를 대신 막았지만, MODIFY가 rejectReason을 더 이상
+     * 안 받게 되면서 값 자체의 존재를 직접 확인해야 한다.
+     */
+    REVIEW_MODIFY_VALUE_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_9",
+            "수정하려면 담당자·기한·제목·내용 중 하나 이상 채워야 합니다."),
+
+    /*
+     * RVW-02 — 2026-08-11 추가. WRONG_ASSIGNEE·WRONG_DUE·WRONG_TITLE·WRONG_DETAIL은 BE가
+     * 바뀐 필드로 자동으로 붙이는 값이라, REJECT 요청에 사람이 이 값들을 직접 골라 보내면
+     * 막는다 — 반려 사유(HALLUCINATION 등 5종)와 수정 사유(WRONG_* 4종)가 섞이면 review_log가
+     * "왜 반려했는지"를 더 이상 정확히 말하지 못한다(RejectReason.isHumanSelectable()).
+     */
+    REVIEW_REASON_NOT_SELECTABLE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_10",
+            "이 사유는 반려 사유로 고를 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

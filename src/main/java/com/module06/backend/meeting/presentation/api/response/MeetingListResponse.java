@@ -55,6 +55,7 @@ public record MeetingListResponse(
                 formatDateTime(meeting.startAt()),
                 formatDateTime(meeting.endAt()),
                 meeting.attendeeCount(),
+                meeting.actionCount(),
                 new MeetingRoomResponse(
                         meeting.meetingRoom().meetingRoomId(),
                         meeting.meetingRoom().name()
@@ -81,6 +82,7 @@ public record MeetingListResponse(
             String startAt,
             String endAt,
             int attendeeCount,
+            long actionCount,
             MeetingRoomResponse meetingRoom,
             ProjectResponse project
     ) {

@@ -32,6 +32,11 @@ public class CaptureUploadStatePersistenceAdapter implements CaptureUploadStateR
         return saved.toDomain();
     }
 
+    @Override
+    public void deleteByMeetingId(Long meetingId) {
+        springDataCaptureUploadStateRepository.deleteById(meetingId);
+    }
+
     // 조회~잠금~갱신을 한 트랜잭션으로 묶어야 쓰기 잠금이 실제로 경합을 막는다.
     @Override
     @Transactional

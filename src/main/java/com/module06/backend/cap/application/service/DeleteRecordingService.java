@@ -5,12 +5,17 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
+import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProcessingCompletionRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,25 +28,39 @@ import java.time.LocalDateTime;
 @Transactional
 public class DeleteRecordingService implements DeleteRecordingUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(DeleteRecordingService.class);
+
+    // metering report의 revision(삭제=2) — ManualRecordingService/RecordingAssemblyS3FfmpegAdapter의
+    // CREATE_REVISION(1)과 짝을 이루는 상수. recording.meeting_id가 UNIQUE(V4.2.1)라 삭제는 생성
+    // 이후에만 가능하므로 "생성=1, 삭제=2"만으로 항상 올바른 순서를 나타낸다 — 벽시계(clock.millis())를
+    // 쓰지 않아 같은 밀리초 충돌·시계 역행으로 최신 report가 오판되어 무시되는 문제가 없다(CodeRabbit 지적).
+    private static final long DELETE_REVISION = 2L;
+
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapMeetingAccessGuard accessGuard;
     private final RecordingRepository recordingRepository;
     private final RecordingPartRepository recordingPartRepository;
     private final ProcessingCompletionRepository processingCompletionRepository;
     private final CapObjectStoragePort capObjectStoragePort;
+    private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    private final CaptureUploadStateRepository captureUploadStateRepository;
 
     public DeleteRecordingService(MeetingReferenceRepository meetingReferenceRepository,
                                   CapMeetingAccessGuard accessGuard,
                                   RecordingRepository recordingRepository,
                                   RecordingPartRepository recordingPartRepository,
                                   ProcessingCompletionRepository processingCompletionRepository,
-                                  CapObjectStoragePort capObjectStoragePort) {
+                                  CapObjectStoragePort capObjectStoragePort,
+                                  ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
+                                  CaptureUploadStateRepository captureUploadStateRepository) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.recordingPartRepository = recordingPartRepository;
         this.processingCompletionRepository = processingCompletionRepository;
         this.capObjectStoragePort = capObjectStoragePort;
+        this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
+        this.captureUploadStateRepository = captureUploadStateRepository;
     }
 
     @Override
@@ -73,8 +92,21 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
         long freedBytes = recording.getSizeBytes();
         recordingPartRepository.deleteByMeetingId(meetingId);
         recordingRepository.deleteByMeetingId(meetingId);
+        captureUploadStateRepository.deleteByMeetingId(meetingId);
         capObjectStoragePort.deleteRecording(recording.getFileUrl());
+        reportStorageUsageBestEffort(companyId, meetingId);
 
         return new Result(LocalDateTime.now(), freedBytes);
+    }
+
+    // metering에 0바이트로 report한다 — 실패해도 삭제 자체를 되돌리지 않는다
+    // (CaptureUploadService.reportStorageUsageBestEffort와 동일 패턴).
+    private void reportStorageUsageBestEffort(Long companyId, Long meetingId) {
+        try {
+            reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
+                    companyId, meetingId, 0L, DELETE_REVISION));
+        } catch (RuntimeException e) {
+            log.error("저장 용량 미터링 기록 실패 — 삭제는 완료됨, 원장만 누락. meetingId={}", meetingId, e);
+        }
     }
 }

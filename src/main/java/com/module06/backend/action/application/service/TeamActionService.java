@@ -1,10 +1,12 @@
 package com.module06.backend.action.application.service;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,16 +14,19 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase;
 import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.AttachmentReference;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
+import com.module06.backend.action.domain.repository.ActionRepository.ChildActionProgress;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
@@ -50,7 +55,8 @@ public class TeamActionService implements
         GetTeamActionsUseCase,
         GetTeamActionDetailUseCase,
         GetTeamActionTimelineUseCase,
-        IssueTeamActionAttachmentDownloadUrlUseCase {
+        IssueTeamActionAttachmentDownloadUrlUseCase,
+        GetTeamDashboardSummaryUseCase {
 
     private final ActionRepository actionRepository;
     private final ActionReferenceRepository actionReferenceRepository;
@@ -60,21 +66,40 @@ public class TeamActionService implements
     // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
     @Transactional(readOnly = true)
-    public TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size) {
+    public TeamActionListResult getTeamActions(
+            Long teamId, Long companyId, ActionStatus status, String sort, String order, int page, int size) {
         long totalElements = actionRepository.countByTeamId(teamId, status);
         List<Action> actions = actionRepository.findAllByTeamId(teamId, status, sort, order, page, size);
         if (actions.isEmpty()) {
             return new TeamActionListResult(List.of(), totalElements);
         }
 
-        Map<Long, String> projectTagById = toDisplayMap(
-                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId)),
-                ProjectReference::projectId, ProjectReference::tag);
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
+        // 2026-08-11, 이슈 #355 — 하위 개인 액션 진척 배치 집계. 이 페이지의 팀 액션 id만 묶어
+        // countActionsByProjectIds와 동일한 이유로 N+1을 피한다. 하위가 없는 팀 액션은
+        // countChildActionProgressByParentActionIds의 group-by 결과에 아예 안 잡히므로
+        // getOrDefault로 0/0을 채운다. companyId는 CodeRabbit(#357) 지적 반영 — 다른 회사의
+        // PERSONAL 액션이 같은 parentActionId를 참조하는 경우를 걸러낸다.
+        Map<Long, ChildActionProgress> childProgressByActionId = actionRepository
+                .countChildActionProgressByParentActionIds(companyId, distinct(actions, Action::getId))
+                .stream()
+                .collect(Collectors.toMap(ChildActionProgress::parentActionId, progress -> progress));
+
         List<TeamActionListItem> items = actions.stream()
-                .map(action -> new TeamActionListItem(action, projectTagById.get(action.getProjectId()), teamName))
+                .map(action -> {
+                    ChildActionProgress progress = childProgressByActionId.get(action.getId());
+                    return new TeamActionListItem(
+                            action, projectTagById.get(action.getProjectId()),
+                            projectNameById.get(action.getProjectId()), teamName,
+                            progress == null ? 0 : progress.doneCount(),
+                            progress == null ? 0 : progress.totalCount());
+                })
                 .toList();
 
         return new TeamActionListResult(items, totalElements);
@@ -88,12 +113,36 @@ public class TeamActionService implements
 
         String projectTag = actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
                 .findFirst().map(ProjectReference::tag).orElse(null);
-        String teamName = actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
-                .findFirst().map(TeamReference::name).orElse(null);
+
+        TeamReference team = actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
+                .findFirst().orElse(null);
+        String teamName = team == null ? null : team.name();
+
+        // "담당자"는 저장된 값이 아니라 그 팀의 현재 팀장을 유도한다(홍길동(개발팀장) 표시용,
+        // 2026-08-11 이홍근 확인) — 팀장 공석이면 정상적으로 둘 다 null.
+        String assigneeName = null;
+        String assigneeRoleLabel = null;
+        if (team != null && team.leaderMemberId() != null) {
+            assigneeName = actionReferenceRepository.findMemberReferences(List.of(team.leaderMemberId())).stream()
+                    .findFirst().map(MemberReference::name).orElse(null);
+            if (assigneeName != null) {
+                assigneeRoleLabel = teamName + "장";
+            }
+        }
+
+        MeetingReference sourceMeeting = action.getSourceMeetingId() == null ? null
+                : actionReferenceRepository.findMeetingReferences(List.of(action.getSourceMeetingId())).stream()
+                        .findFirst().orElse(null);
+        String sourceMeetingTitle = sourceMeeting == null ? null : sourceMeeting.title();
+        LocalDateTime sourceMeetingScheduledAt = sourceMeeting == null ? null : sourceMeeting.scheduledAt();
+
         List<ActionReferenceRepository.AttachmentReference> attachments =
                 actionReferenceRepository.findProjectAttachments(action.getProjectId());
 
-        return new TeamActionDetail(action, projectTag, teamName, attachments);
+        return new TeamActionDetail(
+                action, projectTag, teamName, assigneeName, assigneeRoleLabel,
+                sourceMeetingTitle, sourceMeetingScheduledAt, attachments
+        );
     }
 
     // FR-AC-08 타임라인(?tab=timeline) — 상세와 같은 IDOR 방지 확인 후 하위 개인 액션을 담당자명과 함께 내려준다.
@@ -133,6 +182,24 @@ public class TeamActionService implements
                 .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_ATTACHMENT_NOT_FOUND));
 
         return projectAttachmentStoragePort.issueDownloadUrl(attachment.fileUrl());
+    }
+
+    // 2026-08-11, 이슈 #352 — 팀 대시보드 KPI 4종. 4개 다 단순 COUNT라 트랜잭션 하나로 묶는다.
+    @Override
+    @Transactional(readOnly = true)
+    public TeamDashboardSummary getTeamDashboardSummary(Long teamId, Long requesterId) {
+        long teamActionCount = actionRepository.countByTeamId(teamId, ActionStatus.IN_PROGRESS);
+        // CodeRabbit(#354) 지적 반영 — ActionTypeShapePolicy.checkTeamShape상 PERSONAL 액션은
+        // teamId를 가질 수 없다(항상 null). countByTeamIdAndActionType(teamId, PERSONAL, ...)로
+        // PERSONAL의 teamId를 직접 필터링하면 매치가 절대 안 생겨 카운트가 항상 0이었다 — 실버그.
+        // "팀 소속 개인 액션"은 이 팀의 TEAM 액션을 부모로 둔 PERSONAL 액션으로 다시 정의해
+        // countTeamMemberActionsByTeamId(parentActionId 경유 집계)로 교체한다.
+        long teamMemberActionCount = actionRepository.countTeamMemberActionsByTeamId(teamId);
+        long myTodoCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.TODO, null);
+        long myInProgressCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.IN_PROGRESS, null);
+        long completedActionCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.DONE, null);
+
+        return new TeamDashboardSummary(teamActionCount, teamMemberActionCount, myTodoCount + myInProgressCount, completedActionCount);
     }
 
     // 상세·타임라인 공용 — 다른 회사 팀 액션 id나 PERSONAL 액션 id를 넣으면 존재하지 않는 것과 같은 404로 덮는다(#100과 동일 판단).

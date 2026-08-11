@@ -42,7 +42,8 @@ import lombok.RequiredArgsConstructor;
 
     담당 엔드포인트
     - POST   /api/actions                                수동 추가 (예외 경로, MEMBER+)
-    - GET    /api/actions                                내 액션 목록 조회 (호출자 본인 소유분만)
+    - GET    /api/actions                                내 액션 목록 조회 (기본 호출자 본인, LEADER는
+                                                            assigneeMemberId로 같은 팀 팀원 조회 가능)
     - GET    /api/actions/{actionId}                     상세 조회 (전 구성원)
     - PATCH  /api/actions/complete/bulk                   보드 저장 시 일괄 완료/완료취소 (담당자 본인)
     응답은 ApiResponse, 예외는 BusinessException으로만 낸다 — 개별 try-catch 금지(0절 4항).
@@ -98,16 +99,26 @@ public class ActionController {
         return ApiResponse.created("액션을 추가했습니다.", ActionSummaryResponse.from(action));
     }
 
-    // 내 액션 목록 — 호출자 memberId는 토큰에서만 꺼낸다(헤더로 받으면 남의 목록을 조회할 수 있다).
+    // 내 액션 목록 — 호출자 memberId·authority·teamId는 전부 토큰에서만 꺼낸다(헤더로 받으면
+    // 남의 목록을 조회하거나 권한을 자기신고할 수 있다).
     // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
-    // "담당자" 필터는 없다 — 이 목록 자체가 이미 호출자 본인으로 스코프돼 있다.
-    @Operation(summary = "내 액션 목록 조회", description = "호출자 본인 소유 개인 액션만 반환한다. "
+    // 2026-08-11 — assigneeMemberId(선택) 추가(이홍근 요청, 팀원 관리 화면). 값이 있으면
+    // 팀장이 그 팀원의 목록을 대신 조회하는 것으로 전환 — LEADER 자격·같은 팀 소속 검증은
+    // ActionService가 한다(IDOR 방지, companyId처럼 클라이언트 자기신고 값이 아니라
+    // 매번 토큰의 teamId와 대조).
+    @Operation(summary = "내 액션 목록 조회", description = "기본은 호출자 본인 소유 개인 액션. "
+            + "assigneeMemberId를 주면 그 팀원의 목록을 대신 조회한다(LEADER 전용, 같은 팀 소속만). "
             + "페이지네이션(page/size), status 필터, overdue(지연) 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "authority") String authority,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            @RequestParam(required = false) Long assigneeMemberId,
             @RequestParam(required = false) ActionStatus status,
             @RequestParam(required = false) Boolean overdue,
             @RequestParam(required = false) String sort,
@@ -115,7 +126,8 @@ public class ActionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        var result = getMyActionsUseCase.getMyActions(memberId, status, overdue, sort, order, page, size);
+        var result = getMyActionsUseCase.getMyActions(
+                memberId, authority, teamId, assigneeMemberId, status, overdue, sort, order, page, size);
         List<ActionSummaryResponse> items = result.items().stream()
                 .map(ActionSummaryResponse::from)
                 .toList();

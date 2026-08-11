@@ -1,9 +1,11 @@
 package com.module06.backend.handover.presentation.api;
 
+import com.module06.backend.handover.application.command.AttributeHandoverToLeaderCommand;
 import com.module06.backend.handover.application.command.CreateHandoverCommand;
 import com.module06.backend.handover.application.command.ReassignItemCommand;
 import com.module06.backend.handover.application.command.RejectHandoverCommand;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
+import com.module06.backend.handover.application.usecase.AttributeHandoverToLeaderUseCase;
 import com.module06.backend.handover.application.usecase.CompleteHandoverUseCase;
 import com.module06.backend.handover.application.usecase.CreateHandoverUseCase;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase;
@@ -11,6 +13,7 @@ import com.module06.backend.handover.application.usecase.GetHandoverInsightsUseC
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverPackageUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverUseCase;
+import com.module06.backend.handover.application.usecase.GetPendingAttributionListUseCase;
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.handover.domain.model.Handover;
@@ -91,6 +94,12 @@ class HandoverControllerTest {
 
     @MockitoBean
     private GetHandoverInsightsUseCase getHandoverInsightsUseCase;
+
+    @MockitoBean
+    private GetPendingAttributionListUseCase getPendingAttributionListUseCase;
+
+    @MockitoBean
+    private AttributeHandoverToLeaderUseCase attributeHandoverToLeaderUseCase;
 
     @MockitoBean
     private OrgQueryPort orgQueryPort;
@@ -301,6 +310,41 @@ class HandoverControllerTest {
                 ArgumentCaptor.forClass(GetHandoverListUseCase.HandoverListQuery.class);
         verify(getHandoverListUseCase).list(captor.capture());
         return captor.getValue();
+    }
+
+    @Test
+    void pendingAttributionScopesToCompanyFromToken() throws Exception {
+        authenticateAs(APPROVER, COMPANY, "OWNER", false, null);
+        when(getPendingAttributionListUseCase.listPendingAttribution(COMPANY)).thenReturn(List.of(summary()));
+
+        mockMvc.perform(get("/api/handovers/pending-attribution"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(HANDOVER_ID));
+
+        verify(getPendingAttributionListUseCase).listPendingAttribution(COMPANY);
+    }
+
+    @Test
+    void attributeToLeaderMapsPathAndBodyToCommand() throws Exception {
+        authenticateAs(APPROVER, COMPANY, "OWNER", false, null);
+        when(attributeHandoverToLeaderUseCase.attributeToNewLeader(any(AttributeHandoverToLeaderCommand.class)))
+                .thenReturn(finalized());
+
+        mockMvc.perform(patch("/api/handovers/{id}/attribute-to-leader", HANDOVER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"newLeaderId": 2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FINALIZED"));
+
+        ArgumentCaptor<AttributeHandoverToLeaderCommand> captor =
+                ArgumentCaptor.forClass(AttributeHandoverToLeaderCommand.class);
+        verify(attributeHandoverToLeaderUseCase).attributeToNewLeader(captor.capture());
+        assertThat(captor.getValue().handoverId()).isEqualTo(HANDOVER_ID);
+        assertThat(captor.getValue().newLeaderId()).isEqualTo(TARGET);
+        assertThat(captor.getValue().requesterCompanyId()).isEqualTo(COMPANY);
+        assertThat(captor.getValue().attributedAt()).isNotNull();
     }
 
     @Test

@@ -12,14 +12,18 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
+import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
+import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProcessingCompletionRepository;
 import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 
 /*
  * CAP-15 녹음 삭제 서비스의 404·회사스코프(403)·STT/분석 완료 차단(409)·하드 삭제 규칙을 검증한다.
@@ -34,6 +38,8 @@ class DeleteRecordingServiceTest {
     private final boolean[] storageDeleted = new boolean[1];
     private final boolean[] partsDeleted = new boolean[1];
     private final boolean[] recordingDeleted = new boolean[1];
+    private final boolean[] captureStateDeleted = new boolean[1];
+    private final ReportMeetingStorageUsageCommand[] reportedUsage = new ReportMeetingStorageUsageCommand[1];
 
     /* 회의(녹음)가 없으면 CAP-016으로 거절하는지 검증한다. */
     @Test
@@ -126,12 +132,19 @@ class DeleteRecordingServiceTest {
         assertThat(storageDeleted[0]).isFalse();
         assertThat(partsDeleted[0]).isFalse();
         assertThat(recordingDeleted[0]).isFalse();
+        assertThat(captureStateDeleted[0]).isFalse();
     }
 
     private void assertAllDeleted() {
         assertThat(storageDeleted[0]).as("S3 삭제").isTrue();
         assertThat(partsDeleted[0]).as("recording_part 삭제").isTrue();
         assertThat(recordingDeleted[0]).as("recording 삭제").isTrue();
+        assertThat(captureStateDeleted[0]).as("capture_upload_state 삭제").isTrue();
+        // 삭제 후 저장 용량 미터링에 0바이트로 report됨.
+        assertThat(reportedUsage[0]).isNotNull();
+        assertThat(reportedUsage[0].usedBytes()).isZero();
+        // 삭제 report의 revision은 항상 2(DELETE_REVISION, 생성=1보다 항상 큼) — 벽시계를 쓰지 않는다.
+        assertThat(reportedUsage[0].revision()).isEqualTo(2L);
     }
 
     // 회의 companyId·녹음본·미완료여부를 지정해 서비스를 조립한다. 삭제 부수효과를 기록한다.
@@ -146,6 +159,8 @@ class DeleteRecordingServiceTest {
         storageDeleted[0] = false;
         partsDeleted[0] = false;
         recordingDeleted[0] = false;
+        captureStateDeleted[0] = false;
+        reportedUsage[0] = null;
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -248,7 +263,30 @@ class DeleteRecordingServiceTest {
         // 삭제 경로(회사 스코프만 씀)는 프로젝트 멤버 판정을 타지 않으므로 항상 false인 스텁으로 충분하다.
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
-        return new DeleteRecordingService(meetingRef, accessGuard, recordingRepo, partRepo, completion, storage);
+        ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
+        CaptureUploadStateRepository captureStateRepo = new CaptureUploadStateRepository() {
+            @Override
+            public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public CaptureUploadState save(CaptureUploadState state) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                captureStateDeleted[0] = true;
+            }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
+        return new DeleteRecordingService(meetingRef, accessGuard, recordingRepo, partRepo, completion, storage,
+                storagePort, captureStateRepo);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

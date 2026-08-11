@@ -9,6 +9,10 @@ import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,19 +23,31 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ManualRecordingService implements RegisterManualRecordingUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(ManualRecordingService.class);
+
+    // metering report의 revision(생성=1, 삭제=2 — DeleteRecordingService.DELETE_REVISION 참고).
+    // 벽시계(clock.millis())를 쓰지 않는다(CodeRabbit 지적) — 같은 밀리초에 겹치거나 시계가
+    // 뒤로 조정되면 진짜 최신 report가 "더 안 큼"으로 오판돼 무시될 수 있다. recording.meeting_id가
+    // UNIQUE(V4.2.1)라 이 회의의 recording 생성은 조립·수동등록 중 하나로 평생 단 한 번만 일어나고,
+    // 삭제는 그 뒤에만 가능하다 — 그래서 "생성=1, 삭제=2" 상수만으로 항상 올바른 순서를 나타낸다.
+    private static final long CREATE_REVISION = 1L;
+
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapMeetingAccessGuard accessGuard;
     private final RecordingRepository recordingRepository;
     private final MeetingRecordingSttPort meetingRecordingSttPort;
+    private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
 
     public ManualRecordingService(MeetingReferenceRepository meetingReferenceRepository,
                                   CapMeetingAccessGuard accessGuard,
                                   RecordingRepository recordingRepository,
-                                  MeetingRecordingSttPort meetingRecordingSttPort) {
+                                  MeetingRecordingSttPort meetingRecordingSttPort,
+                                  ReportMeetingStorageUsagePort reportMeetingStorageUsagePort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.meetingRecordingSttPort = meetingRecordingSttPort;
+        this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
     }
 
     @Override
@@ -67,8 +83,20 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
         // 이를 "완료"가 아니라 "진행 중"으로 읽게 한다.
         recordingRepository.save(Recording.register(command.meetingId(), fileName, s3Key, command.sizeBytes(), true));
         meetingRecordingSttPort.triggerWholeFileStt(command.meetingId(), s3Key);
+        reportStorageUsageBestEffort(companyId, command.meetingId(), command.sizeBytes());
 
         // durationMs=0(파이프라인이 채움), status="DONE"(제출=완료 리터럴, meeting.status는 D 소유라 쓰지 않음).
         return new Result(command.meetingId(), 0L, command.sizeBytes(), "DONE");
+    }
+
+    // metering에 현재 사용량을 report한다 — 실패해도 등록 자체를 되돌리지 않는다
+    // (CaptureUploadService.reportStorageUsageBestEffort와 동일 패턴).
+    private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long usedBytes) {
+        try {
+            reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
+                    companyId, meetingId, usedBytes, CREATE_REVISION));
+        } catch (RuntimeException e) {
+            log.error("저장 용량 미터링 기록 실패 — 녹음 등록은 완료됨, 원장만 누락. meetingId={}", meetingId, e);
+        }
     }
 }
