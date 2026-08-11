@@ -240,6 +240,12 @@ class SttBlockServiceTest {
             throw new UnsupportedOperationException("STT-03·04 는 미완 블록 수를 읽지 않는다");
         }
 
+        /* MEET-04 요약 상태 배치 조회가 쓰는 값이다 — 같은 이유로 부르지 않는다. */
+        @Override
+        public java.util.Set<Long> findMeetingsWithUnfinishedBlocks(List<Long> meetingIds) {
+            throw new UnsupportedOperationException("STT-03·04 는 배치 미완 조회를 쓰지 않는다");
+        }
+
         // ── 폴링 워커의 계약. STT-03·04 는 제출까지고 결과 반영은 워커가 한다 ────────────
         @Override
         public List<SttBlockRepository.PendingBlock> findUnfinished(int limit) {

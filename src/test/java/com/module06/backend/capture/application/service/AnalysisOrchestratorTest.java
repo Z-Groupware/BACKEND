@@ -1479,6 +1479,12 @@ class AnalysisOrchestratorTest {
             return unfinished;
         }
 
+        /* MEET-04 요약 상태 배치 조회가 쓰는 값이다 — 오케스트레이터는 부르지 않는다. */
+        @Override
+        public java.util.Set<Long> findMeetingsWithUnfinishedBlocks(List<Long> meetingIds) {
+            throw new UnsupportedOperationException("오케스트레이터는 배치 미완 조회를 쓰지 않는다");
+        }
+
         // ── 폴링 워커의 계약. 오케스트레이터는 블록 상태를 읽지도 바꾸지도 않는다 ──────────
         @Override
         public List<PendingBlock> findUnfinished(int limit) {
