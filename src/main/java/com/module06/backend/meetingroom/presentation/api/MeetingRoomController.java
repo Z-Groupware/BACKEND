@@ -95,7 +95,7 @@ public class MeetingRoomController {
             @Parameter(description = "조회 주의 기준일 (YYYY-MM-DD), 생략 시 KST 오늘", example = "2026-08-10")
             @RequestParam(name = "date", required = false) String date,
             @Parameter(description = "주간 현황을 조회할 회의실 식별자", required = true, example = "2")
-            @RequestParam(name = "meetingRoomId") String meetingRoomId
+            @RequestParam(name = "meetingRoomId", required = false) String meetingRoomId
     ) {
         /* Query Parameter를 요청 DTO에서 검증하고 파싱한다. */
         MeetingRoomAvailabilityRequest request = MeetingRoomAvailabilityRequest.of(date, meetingRoomId);
