@@ -227,7 +227,7 @@ class MeetingCompletedAssemblyTriggerTest {
     }
 
     private Optional<CaptureUploadState> state(int segmentSeq, int lastSeq) {
-        return Optional.of(CaptureUploadState.restore(MEETING, segmentSeq, 7L, lastSeq, 0, 0L, null, null));
+        return Optional.of(CaptureUploadState.restore(MEETING, segmentSeq, 7L, lastSeq, 0, 0L, 0L, null, null));
     }
 
     private MeetingCompletionRequestedEvent event() {

@@ -3,6 +3,9 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +30,11 @@ import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.capture.application.port.in.CreateSttBlockPort;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
+import com.module06.backend.metering.application.port.in.StorageQuotaPort;
+import com.module06.backend.metering.application.result.StorageQuotaStatusResult;
+import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 
 /*
  * presign(#4)+complete(#7) 실제 로직(CaptureUploadService)의 회의 존재·참석자 검증·녹음자
@@ -40,10 +48,13 @@ class CaptureUploadServiceTest {
     private static final long MEETING_ID = 500L;
     private static final long COMPANY_ID = 1L;
     private static final long CALLER_ID = 7L;
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     // presign이 발급한 URL 개수·complete가 저장한 청크·하트비트 refresh 호출 여부를 기록한다.
     private final List<RecordingPart> savedParts = new ArrayList<>();
     private final boolean[] heartbeatRefreshed = new boolean[1];
+    private final List<ReportMeetingStorageUsageCommand> reportedUsages = new ArrayList<>();
 
     // ── presign(issuePartUploadUrls) ──
 
@@ -113,6 +124,46 @@ class CaptureUploadServiceTest {
         IssuePartUploadUrlsUseCase.Result result = service.issuePartUploadUrls(issueCmd(1));
 
         assertThat(result.segmentSeq()).isEqualTo(1);
+    }
+
+    /* 새 회의(상태 없음)인데 회사 저장 용량이 이미 한도를 넘었으면 CAP-003으로 거절하는지 검증한다. */
+    @Test
+    @DisplayName("presign: 새 회의인데 저장 용량 한도를 넘었으면 CAP-003으로 거절한다")
+    void issue_rejectsNewRecordingWhenOverQuota() {
+        CaptureUploadService service = service(Optional.of(COMPANY_ID), true, null, true, true, false, true);
+
+        assertErrorCode(() -> service.issuePartUploadUrls(issueCmd(1)), "CAP-003");
+    }
+
+    /*
+     * 이미 진행 중인 회의(상태 있음)는 그 사이 회사가 한도를 넘겨도 끊지 않는지 검증한다 — presign은
+     * 15초마다 반복 호출되는데, 매번 확인하면 진행 중인 녹음이 중간에 끊길 수 있다.
+     */
+    @Test
+    @DisplayName("presign: 이미 진행 중인 회의는 한도를 넘어도 막지 않는다")
+    void issue_allowsExistingRecordingEvenWhenOverQuota() {
+        CaptureUploadState existing = CaptureUploadState.startWithRecorder(MEETING_ID, CALLER_ID);
+        CaptureUploadService service = service(Optional.of(COMPANY_ID), true, existing, true, true, false, true);
+
+        IssuePartUploadUrlsUseCase.Result result = service.issuePartUploadUrls(issueCmd(1));
+
+        assertThat(result.parts()).hasSize(1);
+    }
+
+    /*
+     * 회사가 아직 저장 용량 한도를 설정하지 않았으면(옵트인 기능이라 대부분 그렇다)
+     * StorageQuotaPort.getStatus가 MT_STORAGE_PLAN_NOT_FOUND를 던진다 — 이 조회 실패가
+     * 새 회의 녹음 시작 자체를 막으면 안 된다(fail-open, 실제 발견된 회귀 버그).
+     */
+    @Test
+    @DisplayName("presign: 저장 용량 한도 조회가 실패해도(플랜 미설정 등) 녹음을 막지 않는다")
+    void issue_allowsNewRecordingWhenQuotaLookupFails() {
+        CaptureUploadService service =
+                service(Optional.of(COMPANY_ID), true, null, true, true, false, false, true);
+
+        IssuePartUploadUrlsUseCase.Result result = service.issuePartUploadUrls(issueCmd(1));
+
+        assertThat(result.parts()).hasSize(1);
     }
 
     // ── complete(completePartUpload) ──
@@ -215,6 +266,12 @@ class CaptureUploadServiceTest {
         assertThat(saved.getUploaderMemberId()).isEqualTo(CALLER_ID);
         assertThat(existing.getLastSeq()).isEqualTo(1);
         assertThat(heartbeatRefreshed[0]).isTrue();
+
+        // 저장 용량 미터링에 이 회의의 누적 사용량이 report됨.
+        assertThat(reportedUsages).hasSize(1);
+        assertThat(reportedUsages.get(0).companyId()).isEqualTo(COMPANY_ID);
+        assertThat(reportedUsages.get(0).meetingId()).isEqualTo(MEETING_ID);
+        assertThat(reportedUsages.get(0).usedBytes()).isEqualTo(1_000_000L);
     }
 
     /*
@@ -255,13 +312,30 @@ class CaptureUploadServiceTest {
     // 캡처 세션 일시정지 여부는 지정하지 않으면 기본 false(일시정지 아님)로 조립한다.
     private CaptureUploadService service(Optional<Long> companyId, boolean attendee, CaptureUploadState state,
                                          boolean recorderAlive, boolean objectMatches) {
-        return service(companyId, attendee, state, recorderAlive, objectMatches, false);
+        return service(companyId, attendee, state, recorderAlive, objectMatches, false, false);
     }
 
     private CaptureUploadService service(Optional<Long> companyId, boolean attendee, CaptureUploadState state,
                                          boolean recorderAlive, boolean objectMatches, boolean sessionPaused) {
+        return service(companyId, attendee, state, recorderAlive, objectMatches, sessionPaused, false, false);
+    }
+
+    private CaptureUploadService service(Optional<Long> companyId, boolean attendee, CaptureUploadState state,
+                                         boolean recorderAlive, boolean objectMatches, boolean sessionPaused,
+                                         boolean overQuota) {
+        return service(companyId, attendee, state, recorderAlive, objectMatches, sessionPaused, overQuota, false);
+    }
+
+    // overQuota: 저장 용량 한도 초과 여부(StorageQuotaPort 스텁 결과) — 대부분의 시나리오는 상관없어
+    // false로 고정한 앞의 오버로드들을 쓰고, 한도 관련 테스트만 이 전체 오버로드를 직접 부른다.
+    // quotaLookupThrows: true면 StorageQuotaPort.getStatus가 예외를 던진다(예: 플랜 미설정) —
+    // 이때도 녹음이 막히면 안 된다(fail-open)는 걸 검증하는 테스트 전용.
+    private CaptureUploadService service(Optional<Long> companyId, boolean attendee, CaptureUploadState state,
+                                         boolean recorderAlive, boolean objectMatches, boolean sessionPaused,
+                                         boolean overQuota, boolean quotaLookupThrows) {
         savedParts.clear();
         heartbeatRefreshed[0] = false;
+        reportedUsages.clear();
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -396,8 +470,16 @@ class CaptureUploadServiceTest {
         SttBlockCutTrigger sttBlockCutTrigger = new SttBlockCutTrigger(
                 audioAssemblyPort, cutDetectionPort, createSttBlockPort, stateRepo, sttBlockFormedWriter);
 
+        StorageQuotaPort storageQuotaPort = quotaCompanyId -> {
+            if (quotaLookupThrows) {
+                throw new BusinessException(MeteringErrorCode.MT_STORAGE_PLAN_NOT_FOUND);
+            }
+            return new StorageQuotaStatusResult(quotaCompanyId, 0L, 1L, overQuota);
+        };
+        ReportMeetingStorageUsagePort reportPort = command -> reportedUsages.add(command);
+
         return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, sessionRef, writer,
-                sttBlockCutTrigger);
+                sttBlockCutTrigger, storageQuotaPort, reportPort, FIXED_CLOCK);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

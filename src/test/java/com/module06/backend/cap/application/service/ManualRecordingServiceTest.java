@@ -3,6 +3,9 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +21,8 @@ import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 
 /*
  * CAP-10 수동 녹음 업로드 서비스의 회의 존재·Host 검증·s3Key 검증·중복 제출·STT 트리거 규칙을 검증하는 단위 테스트다.
@@ -26,10 +31,13 @@ import com.module06.backend.global.exception.BusinessException;
 class ManualRecordingServiceTest {
 
     private static final String VALID_KEY = "recordings/org-1/meeting-500/recording.ogg";
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
-    // 저장된 녹음본과 STT 트리거 여부를 기록한다(테스트별로 새로 만든다).
+    // 저장된 녹음본·STT 트리거·저장 용량 report 여부를 기록한다(테스트별로 새로 만든다).
     private final Recording[] savedRecording = new Recording[1];
     private final boolean[] sttTriggered = new boolean[1];
+    private final ReportMeetingStorageUsageCommand[] reportedUsage = new ReportMeetingStorageUsageCommand[1];
 
     /* 회의가 없으면 CAP-002로 거절하는지 검증한다. */
     @Test
@@ -107,6 +115,12 @@ class ManualRecordingServiceTest {
 
         // STT 트리거됨.
         assertThat(sttTriggered[0]).isTrue();
+
+        // 저장 용량 미터링에 첨부 파일 크기로 report됨.
+        assertThat(reportedUsage[0]).isNotNull();
+        assertThat(reportedUsage[0].companyId()).isEqualTo(1L);
+        assertThat(reportedUsage[0].meetingId()).isEqualTo(500L);
+        assertThat(reportedUsage[0].usedBytes()).isEqualTo(15_000_000L);
     }
 
     /* 선검사(existsByMeetingId)를 통과한 뒤 저장 단계에서 UNIQUE 위반으로 CAP-014가 나는 경쟁 경로도
@@ -170,7 +184,9 @@ class ManualRecordingServiceTest {
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
-        ManualRecordingService service = new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort);
+        ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
+        ManualRecordingService service = new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort,
+                storagePort, FIXED_CLOCK);
 
         assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 100L)), "CAP-014");
         assertThat(sttTriggered[0]).isFalse();
@@ -185,6 +201,7 @@ class ManualRecordingServiceTest {
     private ManualRecordingService service(Optional<Long> companyId, boolean host, boolean alreadySubmitted) {
         savedRecording[0] = null;
         sttTriggered[0] = false;
+        reportedUsage[0] = null;
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
             public boolean existsById(Long meetingId) {
@@ -240,7 +257,8 @@ class ManualRecordingServiceTest {
         MeetingRecordingSttPort sttPort = (meetingId, s3Key) -> sttTriggered[0] = true;
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
-        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort);
+        ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
+        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort, storagePort, FIXED_CLOCK);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

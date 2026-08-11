@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +32,8 @@ import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.cap.infrastructure.storage.CapS3Properties;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 
 /*
  * RecordingAssemblyPort의 실제 구현 — 회의 전체의 청크(opus/aac, webm·mp4 혼재 가능)를 내려받아
@@ -82,18 +86,24 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private final RecordingRepository recordingRepository;
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapObjectStoragePort capObjectStoragePort;
+    private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    private final Clock clock;
     private final String bucket;
 
     public RecordingAssemblyS3FfmpegAdapter(S3Client s3Client, RecordingPartRepository recordingPartRepository,
                                             RecordingRepository recordingRepository,
                                             MeetingReferenceRepository meetingReferenceRepository,
                                             CapObjectStoragePort capObjectStoragePort,
+                                            ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
+                                            @Qualifier("meetingClock") Clock clock,
                                             CapS3Properties properties) {
         this.s3Client = s3Client;
         this.recordingPartRepository = recordingPartRepository;
         this.recordingRepository = recordingRepository;
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.capObjectStoragePort = capObjectStoragePort;
+        this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
+        this.clock = clock;
         this.bucket = properties.bucket();
     }
 
@@ -119,6 +129,11 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
 
                 recordingRepository.save(Recording.registerWithDuration(
                         meetingId, FILE_NAME, s3Key, sizeBytes, durationSec, false));
+
+                // metering에 최종 크기로 report — 원본 청크 총합보다 보통 작아진다(재인코딩).
+                // 이 어댑터는 이미 바깥 try/catch가 전체를 best-effort로 감싸므로 별도 try/catch 없음.
+                reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
+                        companyId, meetingId, sizeBytes, clock.millis()));
 
                 // 성공 후에만 parts 삭제(되돌릴 수 없음) — 위 등록이 실패하면 여기 도달하지 않아
                 // 원본 청크가 그대로 남고, 사람이 CAP-05로 재시도할 수 있다.

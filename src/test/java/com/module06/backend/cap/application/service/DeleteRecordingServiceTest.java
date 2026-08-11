@@ -3,6 +3,9 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +23,8 @@ import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 
 /*
  * CAP-15 녹음 삭제 서비스의 404·회사스코프(403)·STT/분석 완료 차단(409)·하드 삭제 규칙을 검증한다.
@@ -29,11 +34,14 @@ import com.module06.backend.global.exception.BusinessException;
 class DeleteRecordingServiceTest {
 
     private static final String KEY = "recordings/org-1/meeting-500/recording.ogg";
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     // 삭제 부수효과 기록(테스트별 새로).
     private final boolean[] storageDeleted = new boolean[1];
     private final boolean[] partsDeleted = new boolean[1];
     private final boolean[] recordingDeleted = new boolean[1];
+    private final ReportMeetingStorageUsageCommand[] reportedUsage = new ReportMeetingStorageUsageCommand[1];
 
     /* 회의(녹음)가 없으면 CAP-016으로 거절하는지 검증한다. */
     @Test
@@ -132,6 +140,9 @@ class DeleteRecordingServiceTest {
         assertThat(storageDeleted[0]).as("S3 삭제").isTrue();
         assertThat(partsDeleted[0]).as("recording_part 삭제").isTrue();
         assertThat(recordingDeleted[0]).as("recording 삭제").isTrue();
+        // 삭제 후 저장 용량 미터링에 0바이트로 report됨.
+        assertThat(reportedUsage[0]).isNotNull();
+        assertThat(reportedUsage[0].usedBytes()).isZero();
     }
 
     // 회의 companyId·녹음본·미완료여부를 지정해 서비스를 조립한다. 삭제 부수효과를 기록한다.
@@ -146,6 +157,7 @@ class DeleteRecordingServiceTest {
         storageDeleted[0] = false;
         partsDeleted[0] = false;
         recordingDeleted[0] = false;
+        reportedUsage[0] = null;
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -248,7 +260,9 @@ class DeleteRecordingServiceTest {
         // 삭제 경로(회사 스코프만 씀)는 프로젝트 멤버 판정을 타지 않으므로 항상 false인 스텁으로 충분하다.
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
-        return new DeleteRecordingService(meetingRef, accessGuard, recordingRepo, partRepo, completion, storage);
+        ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
+        return new DeleteRecordingService(meetingRef, accessGuard, recordingRepo, partRepo, completion, storage,
+                storagePort, FIXED_CLOCK);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

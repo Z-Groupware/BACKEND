@@ -11,9 +11,15 @@ import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
+import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 
 // 녹음 삭제(CAP-15): 회사 스코프 확인 → 녹음 존재 확인 → STT/분석 완료 차단 판정 → 오디오 하드 삭제.
@@ -23,25 +29,33 @@ import java.time.LocalDateTime;
 @Transactional
 public class DeleteRecordingService implements DeleteRecordingUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(DeleteRecordingService.class);
+
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapMeetingAccessGuard accessGuard;
     private final RecordingRepository recordingRepository;
     private final RecordingPartRepository recordingPartRepository;
     private final ProcessingCompletionRepository processingCompletionRepository;
     private final CapObjectStoragePort capObjectStoragePort;
+    private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    private final Clock clock;
 
     public DeleteRecordingService(MeetingReferenceRepository meetingReferenceRepository,
                                   CapMeetingAccessGuard accessGuard,
                                   RecordingRepository recordingRepository,
                                   RecordingPartRepository recordingPartRepository,
                                   ProcessingCompletionRepository processingCompletionRepository,
-                                  CapObjectStoragePort capObjectStoragePort) {
+                                  CapObjectStoragePort capObjectStoragePort,
+                                  ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
+                                  @Qualifier("meetingClock") Clock clock) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.recordingPartRepository = recordingPartRepository;
         this.processingCompletionRepository = processingCompletionRepository;
         this.capObjectStoragePort = capObjectStoragePort;
+        this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
+        this.clock = clock;
     }
 
     @Override
@@ -74,7 +88,19 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
         recordingPartRepository.deleteByMeetingId(meetingId);
         recordingRepository.deleteByMeetingId(meetingId);
         capObjectStoragePort.deleteRecording(recording.getFileUrl());
+        reportStorageUsageBestEffort(companyId, meetingId);
 
         return new Result(LocalDateTime.now(), freedBytes);
+    }
+
+    // metering에 0바이트로 report한다 — 실패해도 삭제 자체를 되돌리지 않는다
+    // (CaptureUploadService.reportStorageUsageBestEffort와 동일 패턴).
+    private void reportStorageUsageBestEffort(Long companyId, Long meetingId) {
+        try {
+            reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
+                    companyId, meetingId, 0L, clock.millis()));
+        } catch (RuntimeException e) {
+            log.error("저장 용량 미터링 기록 실패 — 삭제는 완료됨, 원장만 누락. meetingId={}", meetingId, e);
+        }
     }
 }
