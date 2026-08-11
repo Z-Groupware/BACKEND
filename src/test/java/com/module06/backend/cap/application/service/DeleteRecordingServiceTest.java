@@ -3,9 +3,6 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,8 +33,6 @@ import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsa
 class DeleteRecordingServiceTest {
 
     private static final String KEY = "recordings/org-1/meeting-500/recording.ogg";
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(Instant.parse("2026-08-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     // 삭제 부수효과 기록(테스트별 새로).
     private final boolean[] storageDeleted = new boolean[1];
@@ -148,6 +143,8 @@ class DeleteRecordingServiceTest {
         // 삭제 후 저장 용량 미터링에 0바이트로 report됨.
         assertThat(reportedUsage[0]).isNotNull();
         assertThat(reportedUsage[0].usedBytes()).isZero();
+        // 삭제 report의 revision은 항상 2(DELETE_REVISION, 생성=1보다 항상 큼) — 벽시계를 쓰지 않는다.
+        assertThat(reportedUsage[0].revision()).isEqualTo(2L);
     }
 
     // 회의 companyId·녹음본·미완료여부를 지정해 서비스를 조립한다. 삭제 부수효과를 기록한다.
@@ -289,7 +286,7 @@ class DeleteRecordingServiceTest {
             }
         };
         return new DeleteRecordingService(meetingRef, accessGuard, recordingRepo, partRepo, completion, storage,
-                storagePort, captureStateRepo, FIXED_CLOCK);
+                storagePort, captureStateRepo);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

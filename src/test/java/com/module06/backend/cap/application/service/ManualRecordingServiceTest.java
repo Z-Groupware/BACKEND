@@ -3,9 +3,6 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -31,8 +28,6 @@ import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsa
 class ManualRecordingServiceTest {
 
     private static final String VALID_KEY = "recordings/org-1/meeting-500/recording.ogg";
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(Instant.parse("2026-08-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     // 저장된 녹음본·STT 트리거·저장 용량 report 여부를 기록한다(테스트별로 새로 만든다).
     private final Recording[] savedRecording = new Recording[1];
@@ -121,6 +116,8 @@ class ManualRecordingServiceTest {
         assertThat(reportedUsage[0].companyId()).isEqualTo(1L);
         assertThat(reportedUsage[0].meetingId()).isEqualTo(500L);
         assertThat(reportedUsage[0].usedBytes()).isEqualTo(15_000_000L);
+        // 생성 report의 revision은 항상 1(CREATE_REVISION) — 벽시계를 쓰지 않는다.
+        assertThat(reportedUsage[0].revision()).isEqualTo(1L);
     }
 
     /* 선검사(existsByMeetingId)를 통과한 뒤 저장 단계에서 UNIQUE 위반으로 CAP-014가 나는 경쟁 경로도
@@ -186,7 +183,7 @@ class ManualRecordingServiceTest {
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
         ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
         ManualRecordingService service = new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort,
-                storagePort, FIXED_CLOCK);
+                storagePort);
 
         assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 100L)), "CAP-014");
         assertThat(sttTriggered[0]).isFalse();
@@ -258,7 +255,7 @@ class ManualRecordingServiceTest {
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
         ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
-        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort, storagePort, FIXED_CLOCK);
+        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort, storagePort);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

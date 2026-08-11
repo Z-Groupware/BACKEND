@@ -5,7 +5,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,7 +14,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -81,6 +79,11 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration FFPROBE_TIMEOUT = Duration.ofSeconds(30);
     private static final String FILE_NAME = "recording.ogg";
+    // metering report의 revision(생성=1) — ManualRecordingService.CREATE_REVISION과 동일한
+    // 상수 규약. recording.meeting_id가 UNIQUE(V4.2.1)라 이 회의의 recording 생성은 조립·수동등록
+    // 중 하나로 평생 단 한 번만 일어난다 — 벽시계(clock.millis()) 대신 이 상수를 쓰면 같은 밀리초
+    // 충돌·시계 역행으로 최신 report가 오판되어 무시되는 문제가 원천적으로 없다(CodeRabbit 지적).
+    private static final long CREATE_REVISION = 1L;
 
     private final S3Client s3Client;
     private final RecordingPartRepository recordingPartRepository;
@@ -92,7 +95,6 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     // presign이 다시 호출될 때(재조립·비정상 재시도 등) findByMeetingId가 여전히 값을 돌려줘
     // "새 회의 시작" 판정(CaptureUploadService의 저장 용량 한도 확인)을 건너뛴다.
     private final CaptureUploadStateRepository captureUploadStateRepository;
-    private final Clock clock;
     private final String bucket;
 
     public RecordingAssemblyS3FfmpegAdapter(S3Client s3Client, RecordingPartRepository recordingPartRepository,
@@ -101,7 +103,6 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                                             CapObjectStoragePort capObjectStoragePort,
                                             ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
                                             CaptureUploadStateRepository captureUploadStateRepository,
-                                            @Qualifier("meetingClock") Clock clock,
                                             CapS3Properties properties) {
         this.s3Client = s3Client;
         this.recordingPartRepository = recordingPartRepository;
@@ -110,7 +111,6 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         this.capObjectStoragePort = capObjectStoragePort;
         this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
         this.captureUploadStateRepository = captureUploadStateRepository;
-        this.clock = clock;
         this.bucket = properties.bucket();
     }
 
@@ -149,7 +149,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                 // 그 뒤 S3 삭제가 실패한 조각은 다시는 찾을 수 없는 고아 객체로 영영 남는다(CodeRabbit 지적).
                 deletePartObjectsBestEffort(parts);
                 recordingPartRepository.deleteByMeetingId(meetingId);
-                captureUploadStateRepository.deleteByMeetingId(meetingId);
+                deleteCaptureStateBestEffort(meetingId);
 
                 log.info("회의 녹음 조립 완료 — meetingId={} durationSec={} sizeBytes={}",
                         meetingId, durationSec, sizeBytes);
@@ -184,9 +184,23 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long sizeBytes) {
         try {
             reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                    companyId, meetingId, sizeBytes, clock.millis()));
+                    companyId, meetingId, sizeBytes, CREATE_REVISION));
         } catch (RuntimeException e) {
             log.warn("저장 용량 미터링 기록 실패 — 조립은 계속 진행. meetingId={}", meetingId, e);
+        }
+    }
+
+    // capture_upload_state 삭제 실패를 별도 try/catch로 격리한다(CodeRabbit 지적) — 바깥 catch에
+    // 맡기면 이미 끝난 recording·parts 정리가 성공했는데도 삭제 실패가 로그만 남기고 조용히 삼켜져
+    // "저장 용량 한도 확인 우회" 위험이 눈에 안 띈다. ERROR로 남겨 운영에서 놓치지 않게 한다 — 이
+    // 회의는 조립이 이미 끝나 재시도(CAP-05)해도 parts가 비어 있어(Line 124) 다시 여기로 오지 않으므로,
+    // 실패하면 사람이 직접 capture_upload_state 행을 지워야 한다.
+    private void deleteCaptureStateBestEffort(Long meetingId) {
+        try {
+            captureUploadStateRepository.deleteByMeetingId(meetingId);
+        } catch (RuntimeException e) {
+            log.error("캡처 상태 삭제 실패 — 조립은 완료됐으나 이 meetingId는 저장 용량 한도 확인을 "
+                    + "계속 건너뛴다. 수동으로 capture_upload_state 행을 지워야 한다. meetingId={}", meetingId, e);
         }
     }
 
