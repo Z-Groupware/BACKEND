@@ -73,7 +73,10 @@ public interface ActionReferenceRepository {
     record MemberReference(Long memberId, String name, Long subTeamId) {
     }
 
-    record TeamReference(Long teamId, String name) {
+    // leaderMemberId는 team.leader_member_id — 팀장 공석이면 null(정상 상태). 2026-08-11 —
+    // TEAM 액션 상세의 "담당자" 표시(그 팀의 현재 팀장)에 재사용(이홍근 확인, 인수인계
+    // 고아경보 기능이 쓰던 것과 같은 컬럼).
+    record TeamReference(Long teamId, String name, Long leaderMemberId) {
     }
 
     // 2026-08-11 — member.role_id(구 sub_team_id)가 가리키는 "역할" 태그 이름. team과 별개

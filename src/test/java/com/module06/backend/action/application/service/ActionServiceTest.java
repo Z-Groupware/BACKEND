@@ -183,7 +183,7 @@ class ActionServiceTest {
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
-                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
         when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
                 .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", null)));
         when(actionRepository.findAllByIds(List.of(300L)))
@@ -226,9 +226,9 @@ class ActionServiceTest {
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "연예인 굿즈 쇼핑몰 앱 구축")));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
-                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
         when(actionReferenceRepository.findTeamReferences(List.of(8L)))
-                .thenReturn(List.of(new TeamReference(8L, "마케팅팀")));
+                .thenReturn(List.of(new TeamReference(8L, "마케팅팀", null)));
         when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
                 .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", scheduledAt)));
 
@@ -392,7 +392,7 @@ class ActionServiceTest {
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
                 .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
-                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
 
         List<MeetingActionItem> result = service.getActionsByMeeting(COMPANY, 200L);
 

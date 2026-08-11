@@ -93,7 +93,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         }
 
         return springDataActionTeamReferenceRepository.findAllById(teamIds).stream()
-                .map(team -> new TeamReference(team.getId(), team.getName()))
+                .map(team -> new TeamReference(team.getId(), team.getName(), team.getLeaderMemberId()))
                 .toList();
     }
 

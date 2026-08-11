@@ -1,5 +1,6 @@
 package com.module06.backend.action.application.service;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,7 @@ import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.AttachmentReference;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
@@ -88,12 +90,36 @@ public class TeamActionService implements
 
         String projectTag = actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
                 .findFirst().map(ProjectReference::tag).orElse(null);
-        String teamName = actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
-                .findFirst().map(TeamReference::name).orElse(null);
+
+        TeamReference team = actionReferenceRepository.findTeamReferences(List.of(action.getTeamId())).stream()
+                .findFirst().orElse(null);
+        String teamName = team == null ? null : team.name();
+
+        // "담당자"는 저장된 값이 아니라 그 팀의 현재 팀장을 유도한다(홍길동(개발팀장) 표시용,
+        // 2026-08-11 이홍근 확인) — 팀장 공석이면 정상적으로 둘 다 null.
+        String assigneeName = null;
+        String assigneeRoleLabel = null;
+        if (team != null && team.leaderMemberId() != null) {
+            assigneeName = actionReferenceRepository.findMemberReferences(List.of(team.leaderMemberId())).stream()
+                    .findFirst().map(MemberReference::name).orElse(null);
+            if (assigneeName != null) {
+                assigneeRoleLabel = teamName + "장";
+            }
+        }
+
+        MeetingReference sourceMeeting = action.getSourceMeetingId() == null ? null
+                : actionReferenceRepository.findMeetingReferences(List.of(action.getSourceMeetingId())).stream()
+                        .findFirst().orElse(null);
+        String sourceMeetingTitle = sourceMeeting == null ? null : sourceMeeting.title();
+        LocalDateTime sourceMeetingScheduledAt = sourceMeeting == null ? null : sourceMeeting.scheduledAt();
+
         List<ActionReferenceRepository.AttachmentReference> attachments =
                 actionReferenceRepository.findProjectAttachments(action.getProjectId());
 
-        return new TeamActionDetail(action, projectTag, teamName, attachments);
+        return new TeamActionDetail(
+                action, projectTag, teamName, assigneeName, assigneeRoleLabel,
+                sourceMeetingTitle, sourceMeetingScheduledAt, attachments
+        );
     }
 
     // FR-AC-08 타임라인(?tab=timeline) — 상세와 같은 IDOR 방지 확인 후 하위 개인 액션을 담당자명과 함께 내려준다.
