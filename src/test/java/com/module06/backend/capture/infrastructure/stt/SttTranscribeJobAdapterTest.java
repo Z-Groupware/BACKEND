@@ -162,7 +162,7 @@ class SttTranscribeJobAdapterTest {
     @DisplayName("어휘가 PENDING 이면 붙이지 않고 그대로 제출한다 — READY 가 아니어도 녹음은 성립한다")
     void 어휘가_준비_전이면_없이_제출한다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.of(
-                new VocabularyView(1L, 500L, VocabularyStatus.PENDING, 0, "meeting-500-vocab", null)));
+                new VocabularyView(1L, 500L, VocabularyStatus.PENDING, 0, "meeting-500-vocab", null, null, false)));
 
         adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
 
@@ -237,6 +237,6 @@ class SttTranscribeJobAdapterTest {
 
     private static VocabularyView readyVocabulary() {
         return new VocabularyView(1L, 500L, VocabularyStatus.READY, 214,
-                "meeting-500-vocab", LocalDateTime.of(2026, 8, 4, 9, 12));
+                "meeting-500-vocab", LocalDateTime.of(2026, 8, 4, 9, 12), null, false);
     }
 }

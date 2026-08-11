@@ -116,6 +116,52 @@ public class MeetingVocabularyJpaEntity {
     }
 
     /*
+     * 제공자가 어휘를 다 만들었다 — **대기 이름을 활성으로 승격한다.**
+     *
+     * <h2>이전 활성 이름을 돌려준다</h2>
+     * 승격되면 이전 리소스는 아무도 참조하지 않는데 제공자 계정에는 남아 상한을 갉아먹는다.
+     * 지우는 것은 제공자 호출이라 엔티티가 할 수 없으므로, **지울 이름을 호출자에게 넘긴다.**
+     * 여기서 그냥 버리면 그 리소스는 이름이 사라져 영영 못 지운다(V5.19 주석이 경고한 누수다).
+     *
+     * <h2>phraseCount 를 여기서 채운다</h2>
+     * 이 컬럼은 지금까지 아무도 채우지 않아 늘 0 이었다 — 채우는 자리가 승격이었기 때문이다.
+     * 다만 **제출한 단어 수는 제출한 쪽만 안다**(제공자는 개수를 돌려주지 않는다). 그래서
+     * 제출 시점에 받아 둔 값을 그대로 쓴다.
+     *
+     * @param builtPhraseCount 이번에 만든 어휘의 단어 수
+     * @return 지워야 할 이전 활성 리소스 이름. 첫 생성이면 null
+     */
+    public String promoteToReady(int builtPhraseCount, LocalDateTime now) {
+        String previousActive = this.providerVocabularyName;
+        this.providerVocabularyName = this.pendingVocabularyName;
+        this.pendingVocabularyName = null;
+        this.status = VocabularyStatus.READY;
+        this.errorCode = null;
+        this.phraseCount = builtPhraseCount;
+        this.builtAt = now;
+        /*
+         * 새 리소스가 활성이 됐다. 아직 아무것도 지우지 않았으므로 정리 표시를 비운다 —
+         * 남아 있으면 정리 조회가 이 회의를 "이미 지웠다"로 보고 건너뛰어 상한이 누수된다.
+         */
+        this.deletedAt = null;
+        // 승격된 이름과 같으면 지울 것이 없다(같은 이름으로 다시 만든 경우).
+        return previousActive == null || previousActive.equals(this.providerVocabularyName)
+                ? null
+                : previousActive;
+    }
+
+    /*
+     * 제공자 리소스를 정리했다.
+     *
+     * 활성 이름은 **지우지 않는다.** 지운 뒤에도 "무엇을 지웠는지"가 남아야 하고, 그 이름이
+     * 사라지면 같은 회의를 재생성할 때 이전 리소스가 이미 정리됐는지 알 수 없다.
+     * 상한을 쓰고 있는지는 deleted_at 이 답한다(V5.19 주석).
+     */
+    public void markCleaned(LocalDateTime now) {
+        this.deletedAt = now;
+    }
+
+    /*
      * 제출이 실패했다. **PENDING 으로 두지 않는다** — 그러면 화면이 영원히 "만드는 중"으로
      * 보여주고 사람이 다시 누를 수도 없다(선점이 PENDING 을 막는다).
      */

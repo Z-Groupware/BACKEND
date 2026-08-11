@@ -64,7 +64,7 @@ public class MeetingVocabularyService implements GetMeetingVocabularyUseCase, Re
 
         return meetingVocabularyRepository.findByMeeting(meetingId)
                 .orElseGet(() -> new VocabularyView(
-                        0L, meetingId, VocabularyStatus.PENDING, 0, null, null));
+                        0L, meetingId, VocabularyStatus.PENDING, 0, null, null, null, false));
     }
 
     /*

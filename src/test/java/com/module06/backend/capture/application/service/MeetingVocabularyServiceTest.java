@@ -188,7 +188,7 @@ class MeetingVocabularyServiceTest {
                 return Optional.empty();
             }
             return Optional.of(new VocabularyView(1L, meetingId, VocabularyStatus.PENDING, 0, null,
-                    LocalDateTime.of(2026, 8, 4, 9, 12)));
+                    LocalDateTime.of(2026, 8, 4, 9, 12), null, false));
         }
 
         @Override
@@ -199,6 +199,27 @@ class MeetingVocabularyServiceTest {
         @Override
         public void assignPendingName(long vocabularyId, String pendingVocabularyName) {
             assignedName = pendingVocabularyName;
+        }
+
+        // ── 승격·정리는 생애주기 워커의 몫이다. 이 서비스(STT-01·02)는 접수까지다 ──────────
+        @Override
+        public Optional<String> promoteToReady(long vocabularyId, int builtPhraseCount) {
+            throw new UnsupportedOperationException("승격은 생애주기 워커가 한다");
+        }
+
+        @Override
+        public void markCleaned(long vocabularyId) {
+            throw new UnsupportedOperationException("정리는 생애주기 워커가 한다");
+        }
+
+        @Override
+        public List<VocabularyView> findPendingBuilds(int limit) {
+            throw new UnsupportedOperationException("폴링 대상 조회는 생애주기 워커가 한다");
+        }
+
+        @Override
+        public List<VocabularyView> findCleanupTargets(int limit) {
+            throw new UnsupportedOperationException("정리 대상 조회는 생애주기 워커가 한다");
         }
     }
 
@@ -220,6 +241,12 @@ class MeetingVocabularyServiceTest {
         @Override
         public void delete(String providerVocabularyName) {
             throw new UnsupportedOperationException();
+        }
+
+        /* 완료 확인은 생애주기 워커의 몫이다 — 이 서비스는 접수까지다. */
+        @Override
+        public VocabularyState stateOf(String providerVocabularyName) {
+            throw new UnsupportedOperationException("완료 확인은 생애주기 워커가 한다");
         }
     }
 }
