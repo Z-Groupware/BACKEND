@@ -102,8 +102,8 @@ class SecurityLockdownTest {
         assertUnauthorized(get("/api/projects"));
         assertUnauthorized(get("/api/handovers?teamId=1"));
         assertUnauthorized(patch("/api/handovers/1/finalize"));
-        assertUnauthorized(get("/api/v1/meeting-rooms"));
-        assertUnauthorized(get("/api/v1/meetings/upcoming"));
+        assertUnauthorized(get("/api/rooms"));
+        assertUnauthorized(get("/api/meetings/upcoming"));
     }
 
     @Test
