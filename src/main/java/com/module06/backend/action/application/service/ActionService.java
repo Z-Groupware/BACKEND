@@ -116,13 +116,28 @@ public class ActionService implements
         return actionRepository.save(action);
     }
 
-    // FR-AC-02 목록 — 호출자 본인 소유 PERSONAL 액션만, 표시값은 배치조회로 조인한다.
+    // FR-AC-02 목록 — 기본은 호출자 본인 소유 PERSONAL 액션, 표시값은 배치조회로 조인한다.
     // 2026-08-10 페이지네이션 도입(이홍근 요청) — totalElements는 요청한 page와 무관하게 항상
     // 전체 건수라 비어있는 페이지에서도 먼저 구해둔다.
+    // 2026-08-11 — targetMemberId가 있으면(팀원 관리 화면) 호출자가 LEADER인지, 대상이 같은 팀
+    // 소속인지 검증 후 그 팀원의 목록으로 스코프를 바꾼다. IDOR 방지 — 순서 중요(리더 자격 먼저,
+    // 그다음 팀 소속 확인).
     @Override
     @Transactional(readOnly = true)
     public GetMyActionsUseCase.ActionListResult getMyActions(
-            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+            Long requesterId, String requesterAuthority, Long requesterTeamId, Long targetMemberId,
+            ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+        Long assigneeMemberId = requesterId;
+        if (targetMemberId != null) {
+            if (!"LEADER".equals(requesterAuthority)) {
+                throw new BusinessException(ActionErrorCode.NOT_TEAM_LEADER);
+            }
+            if (!actionReferenceRepository.existsMemberInTeam(targetMemberId, requesterTeamId)) {
+                throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
+            }
+            assigneeMemberId = targetMemberId;
+        }
+
         long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
         List<Action> actions = actionRepository.findAllByAssigneeMemberId(
                 assigneeMemberId, status, overdue, sort, order, page, size);

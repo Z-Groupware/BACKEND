@@ -123,7 +123,7 @@ class ActionControllerTest {
         // totalElements·totalPages·hasNext) 전부가 요청값 기준으로 정확히 계산되는지 확인한다
         // (CodeRabbit 지적, PR #305) — totalElements=42, size=5면 totalPages=9, hasNext=true.
         authenticateAs(1L, 5L);
-        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 42L));
 
@@ -137,7 +137,7 @@ class ActionControllerTest {
                 .andExpect(jsonPath("$.data.totalPages").value(9))
                 .andExpect(jsonPath("$.data.hasNext").value(true));
 
-        verify(getMyActionsUseCase).getMyActions(5L, null, null, null, "desc", 2, 5);
+        verify(getMyActionsUseCase).getMyActions(5L, "MEMBER", null, null, null, null, null, "desc", 2, 5);
     }
 
     @Test
@@ -164,7 +164,7 @@ class ActionControllerTest {
                 com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
                 null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
 
-        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))

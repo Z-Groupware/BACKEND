@@ -46,4 +46,9 @@ public class MemberReferenceEntity {
     // 리더 없는 순수 분류 태그라 team_id와는 다른 개념이다(이홍근 확인).
     @Column(name = "role_id")
     private Long subTeamId;
+
+    // 2026-08-11 — 팀장이 팀원의 개인 액션 목록을 조회할 때 "같은 팀 소속인지" 스코프 확인용.
+    // team_id는 V1부터 개명 이력 없음(마이그레이션 전수 확인, sub_team_id 사고 재발 방지).
+    @Column(name = "team_id")
+    private Long teamId;
 }

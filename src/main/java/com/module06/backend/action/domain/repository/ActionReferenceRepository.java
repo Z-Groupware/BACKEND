@@ -40,6 +40,10 @@ public interface ActionReferenceRepository {
     // 수동 생성에서 PERSONAL 액션의 assigneeMemberId가 같은 회사 소속인지 검증한다.
     boolean existsMemberInCompany(Long memberId, Long companyId);
 
+    // 2026-08-11 — 팀장이 다른 팀원의 개인 액션 목록을 조회할 때(팀원 관리 화면), 그 팀원이
+    // 자기 팀 소속인지 확인한다. 아니면 팀장이 다른 팀 팀원의 액션까지 조회하는 IDOR이 된다.
+    boolean existsMemberInTeam(Long memberId, Long teamId);
+
     // FR-AC-02 — 개인 액션 목록·상세의 담당자 이름 표시용 배치 조회.
     List<MemberReference> findMemberReferences(List<Long> memberIds);
 
