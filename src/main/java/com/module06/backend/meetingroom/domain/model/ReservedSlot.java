@@ -26,12 +26,12 @@ public record ReservedSlot(
 ) {
 
     /*
-     * 슬롯 시작 일시에서 시간표 그리드의 열에 해당하는 시각만 얻는다.
+     * 슬롯 시작 일시에서 날짜별 시간표의 칸에 해당하는 시각만 얻는다.
      *
      * @return 슬롯 시작 시각
      */
     public LocalTime startTime() {
-        /* 현황 조회는 하루 단위이므로 날짜를 제외한 시각만 슬롯 위치를 식별하는 값으로 사용한다. */
+        /* 날짜는 상위 주간 색인의 첫 번째 키로 사용하고 이 메서드는 두 번째 시각 키만 반환한다. */
         return slotStart.toLocalTime();
     }
 
