@@ -241,6 +241,22 @@ class ActionServiceTest {
         verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
     }
 
+    // CodeRabbit 지적(2026-08-11) — requesterTeamId가 null이면 Spring Data JPA의
+    // "null 파라미터 → IS NULL" 변환 때문에 existsByIdAndTeamId(targetId, null)가 team_id가
+    // 똑같이 NULL인 팀 무소속 대상과 우연히 매치할 수 있다. existsMemberInTeam을 아예 호출하지
+    // 않고 막는지 검증한다.
+    @Test
+    void getMyActionsThrowsWhenRequesterHasNoTeamEvenIfTargetIsTeamless() {
+        ActionService service = actionService();
+
+        assertThatThrownBy(() -> service.getMyActions(5L, "LEADER", null, 9L, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
+
+        verify(actionReferenceRepository, never()).existsMemberInTeam(any(), any());
+        verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
+    }
+
     @Test
     void getMyActionsReturnsTargetMemberListWhenLeaderAndSameTeam() {
         ActionService service = actionService();

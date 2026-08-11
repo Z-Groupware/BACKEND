@@ -132,7 +132,11 @@ public class ActionService implements
             if (!"LEADER".equals(requesterAuthority)) {
                 throw new BusinessException(ActionErrorCode.NOT_TEAM_LEADER);
             }
-            if (!actionReferenceRepository.existsMemberInTeam(targetMemberId, requesterTeamId)) {
+            // requesterTeamId가 null이면 existsMemberInTeam(targetId, null)이 Spring Data JPA의
+            // "null 파라미터 → IS NULL" 변환 때문에 team_id가 똑같이 NULL인 팀 무소속 대상과
+            // 우연히 매치해버릴 수 있다(CodeRabbit 지적, 2026-08-11) — 스코프로 삼을 팀 자체가
+            // 없으니 매칭 여부와 무관하게 여기서 막는다.
+            if (requesterTeamId == null || !actionReferenceRepository.existsMemberInTeam(targetMemberId, requesterTeamId)) {
                 throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
             }
             assigneeMemberId = targetMemberId;
