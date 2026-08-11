@@ -180,7 +180,9 @@ class ManualRecordingServiceTest {
             public void deleteByMeetingId(Long meetingId) {
             }
         };
+        boolean[] sttPortCalled = new boolean[1];
         MeetingRecordingSttPort failingSttPort = (meetingId, s3Key) -> {
+            sttPortCalled[0] = true;
             throw new RuntimeException("AWS Transcribe 제출 실패(가정)");
         };
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
@@ -192,6 +194,9 @@ class ManualRecordingServiceTest {
         RegisterManualRecordingUseCase.Result result =
                 service.registerManualRecording(cmd(VALID_KEY, 15_000_000L));
 
+        // STT 포트가 실제로 호출됐는지부터 확인한다(CodeRabbit 지적 — 호출을 통째로 지워도
+        // 통과하던 허점).
+        assertThat(sttPortCalled[0]).isTrue();
         assertThat(result.status()).isEqualTo("DONE");
         assertThat(savedRecording[0]).isNotNull();
         // STT는 실패했지만 저장 용량 report는 여전히 이어져야 한다(STT 실패가 뒤 단계를 막지 않음).

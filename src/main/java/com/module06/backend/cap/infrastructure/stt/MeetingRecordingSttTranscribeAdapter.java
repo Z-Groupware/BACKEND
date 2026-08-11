@@ -5,6 +5,8 @@ import com.module06.backend.capture.application.port.in.CreateSttBlockPort;
 import com.module06.backend.capture.application.port.in.CreateSttBlockPort.CreateSttBlockCommand;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /* comment.
     MeetingRecordingSttPort의 실 어댑터 — capture의 인바운드 포트(CreateSttBlockPort)에 위임한다.
@@ -15,6 +17,15 @@ import org.springframework.stereotype.Component;
 
     cap은 capture의 아웃바운드 포트(SttJobPort 등)를 직접 부르지 않는다 — 항상 port.in만 본다
     (CreateSttBlockPort 자체의 클래스 주석 참고).
+
+    REQUIRES_NEW인 이유(CodeRabbit 지적, MeetingStorageUsageWriter와 동일 함정) — 호출자
+    ManualRecordingService는 클래스 레벨 @Transactional로 이미 트랜잭션을 열어둔 채 이 메서드를
+    부른다. CreateSttBlockPort의 실 구현(SttBlockCreationService.createAndSubmitBlock)도
+    @Transactional(기본 REQUIRED)이라, 기본 전파로 두면 그 트랜잭션이 호출자 트랜잭션에 합류한다.
+    sttJobPort.submit()이 던지면 호출자 트랜잭션 전체가 rollback-only로 마킹되고, 호출자가 여기서
+    예외를 잡아 넘어가려 해도(ManualRecordingService.triggerWholeFileSttBestEffort) 나중에
+    커밋할 때 UnexpectedRollbackException으로 죽는다 — best-effort 계약이 깨진다. REQUIRES_NEW로
+    독립된 트랜잭션에 격리해야 STT 실패가 녹음 등록 트랜잭션을 오염시키지 않는다.
 */
 @Component
 @Profile("prod")
@@ -27,6 +38,7 @@ public class MeetingRecordingSttTranscribeAdapter implements MeetingRecordingStt
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void triggerWholeFileStt(Long meetingId, String s3Key) {
         createSttBlockPort.createAndSubmitBlock(
                 new CreateSttBlockCommand(meetingId, 0, 0, 0, "WHOLE_FILE", s3Key));
