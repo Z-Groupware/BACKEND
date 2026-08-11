@@ -1,5 +1,7 @@
 package com.module06.backend.action.infrastructure.persistence;
 
+import java.time.LocalDateTime;
+
 import org.hibernate.annotations.Immutable;
 
 import jakarta.persistence.Column;
@@ -55,4 +57,8 @@ public class ActionMeetingReferenceEntity {
     // 이 회의가 다루는 상위 팀 액션(V3.1.1). 프로젝트 회의(팀 액션을 낳는 쪽)는 NULL.
     @Column(name = "related_action_id")
     private Long relatedActionId;
+
+    // 2026-08-11 — 개인 액션 상세의 "출처 회의 일시" 표시용.
+    @Column(name = "start_at")
+    private LocalDateTime startAt;
 }

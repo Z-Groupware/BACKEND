@@ -46,6 +46,11 @@ public interface ActionReferenceRepository {
     // FR-AC-02 — 개인 액션 목록·상세의 소속팀 이름 표시용 배치 조회.
     List<TeamReference> findTeamReferences(List<Long> teamIds);
 
+    // 2026-08-11 — 개인 액션 상세의 담당자 "역할" 라벨(예: "프론트엔드") 표시용 배치 조회.
+    // sub_team은 team과 달리 리더가 없는 순수 분류 태그다(이홍근 확인) — member.sub_team_id는
+    // null 허용(역할 미지정)이라 호출측에서 null 필터링 후 넘긴다.
+    List<SubTeamReference> findSubTeamReferences(List<Long> subTeamIds);
+
     // FR-AC-06 — 팀 액션 상세에 인라인으로 싣는 소속 프로젝트 첨부파일 목록. 단건 조회라 배치가 아니다.
     List<AttachmentReference> findProjectAttachments(Long projectId);
 
@@ -55,17 +60,24 @@ public interface ActionReferenceRepository {
 
     // teamId는 OWNER 개설 회의면 null, relatedActionId는 팀 액션을 낳는 프로젝트 회의면 null이다.
     // title은 FR-AC-02 상세·목록의 "출처 회의" 표시용(2026-08-07 추가).
-    record MeetingReference(Long meetingId, Long teamId, Long relatedActionId, String title) {
+    // scheduledAt(meeting.start_at)은 FE 상세 화면의 "출처 회의 일시" 표시용(2026-08-11 추가).
+    record MeetingReference(Long meetingId, Long teamId, Long relatedActionId, String title, LocalDateTime scheduledAt) {
     }
 
     // tag·name은 FR-AC-02 목록·상세의 프로젝트 표시용(2026-08-07 추가).
     record ProjectReference(Long projectId, LocalDate dueDate, String tag, String name) {
     }
 
-    record MemberReference(Long memberId, String name) {
+    // subTeamId는 FR-AC-02 상세의 담당자 "역할" 라벨 조회용(2026-08-11 추가) — 역할 미지정이면 null.
+    record MemberReference(Long memberId, String name, Long subTeamId) {
     }
 
     record TeamReference(Long teamId, String name) {
+    }
+
+    // 2026-08-11 — member.sub_team_id가 가리키는 "역할" 태그 이름. team과 별개 테이블(sub_team),
+    // 리더 없는 순수 분류용이라 TeamReference와 구분한다.
+    record SubTeamReference(Long subTeamId, String name) {
     }
 
     // project 도메인 AttachmentResponse와 같은 shape이지만 presentation DTO를 직접 참조하지 않으므로

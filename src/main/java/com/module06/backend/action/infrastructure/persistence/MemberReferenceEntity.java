@@ -40,4 +40,9 @@ public class MemberReferenceEntity {
 
     @Column(name = "name")
     private String name;
+
+    // 2026-08-11 — 담당자 "역할" 라벨(예: "프론트엔드") 조회용. sub_team은 리더 없는 순수 분류
+    // 태그라 team_id와는 다른 개념이다(이홍근 확인) — 역할 미지정 멤버는 null.
+    @Column(name = "sub_team_id")
+    private Long subTeamId;
 }

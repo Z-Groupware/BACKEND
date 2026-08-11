@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
     - ActionMeetingReferenceRepository      : meeting 배치조회 위임 대상
     - SpringDataProjectReferenceRepository  : project 배치조회 위임 대상
     - SpringDataProjectAttachmentReferenceRepository : 팀 액션 상세(FR-AC-06)의 첨부파일 조회 위임 대상
+    - SpringDataSubTeamReferenceRepository  : 담당자 역할 라벨 배치조회 위임 대상
 */
 @Component
 @RequiredArgsConstructor
@@ -32,6 +33,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
     private final SpringDataActionTeamReferenceRepository springDataActionTeamReferenceRepository;
     private final SpringDataMemberReferenceRepository springDataMemberReferenceRepository;
     private final SpringDataProjectAttachmentReferenceRepository springDataProjectAttachmentReferenceRepository;
+    private final SpringDataSubTeamReferenceRepository springDataSubTeamReferenceRepository;
 
     @Override
     public List<MeetingReference> findMeetingReferences(List<Long> meetingIds) {
@@ -44,7 +46,8 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
                         meeting.getId(),
                         meeting.getTeamId(),
                         meeting.getRelatedActionId(),
-                        meeting.getTitle()
+                        meeting.getTitle(),
+                        meeting.getStartAt()
                 ))
                 .toList();
     }
@@ -78,7 +81,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         }
 
         return springDataMemberReferenceRepository.findAllById(memberIds).stream()
-                .map(member -> new MemberReference(member.getId(), member.getName()))
+                .map(member -> new MemberReference(member.getId(), member.getName(), member.getSubTeamId()))
                 .toList();
     }
 
@@ -91,6 +94,18 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
 
         return springDataActionTeamReferenceRepository.findAllById(teamIds).stream()
                 .map(team -> new TeamReference(team.getId(), team.getName()))
+                .toList();
+    }
+
+    // 담당자 "역할" 라벨 배치 조회
+    @Override
+    public List<SubTeamReference> findSubTeamReferences(List<Long> subTeamIds) {
+        if (subTeamIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataSubTeamReferenceRepository.findAllById(subTeamIds).stream()
+                .map(subTeam -> new SubTeamReference(subTeam.getId(), subTeam.getName()))
                 .toList();
     }
 
