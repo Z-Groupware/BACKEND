@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import com.module06.backend.capture.application.port.out.MeetingAccessPort;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
+import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
 
 /*
@@ -71,16 +73,18 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
              * 계층 행이 없는 회의는 애초에 키로 나오지 않는다(findStatesByMeetings 계약).
              * 그래서 여기 오는 것은 최소 한 번 분석이 시작된 회의뿐이다.
              */
-            ProcessingStatus status = ProcessingStatus.of(states.stream()
-                    .map(state -> new LayerProgress(state.layer(), state.status(),
-                            state.tokensIn(), state.tokensOut(), state.stalled()))
-                    .toList());
-
-            if (status.status() != ProcessingStatus.OverallStatus.FAILED) {
-                // DONE(정상 요약) · RUNNING(아직 도는 중)은 카드에 올리지 않는다.
+            /*
+             * MEET-04 와 **같은 판정을 쓴다**(2026-08-11). 예전에는 여기서 ProcessingStatus 를
+             * 직접 접었는데, 그러면 계층 일부만 남은 회의가 카드에는 안 뜨고 회의 상세에서는
+             * 「중단」으로 뜬다 — 같은 회의를 두 화면이 다르게 말하는 상태를 이 클래스가 막으려고
+             * 있는데 정작 이 메서드가 만들고 있었다.
+             */
+            SummaryStatus status = summaryStatusOf(states);
+            if (status != SummaryStatus.STALLED && status != SummaryStatus.FAILED) {
+                // DONE(정상 요약) · PROCESSING(아직 도는 중)은 카드에 올리지 않는다.
                 continue;
             }
-            broken.add(new StalledMeetingSummary(entry.getKey(), isStalledRather(states)));
+            broken.add(new StalledMeetingSummary(entry.getKey(), status == SummaryStatus.STALLED));
         }
         return broken;
     }
@@ -163,7 +167,19 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
         return switch (status.status()) {
             case FAILED -> isStalledRather(states) ? SummaryStatus.STALLED : SummaryStatus.FAILED;
             case RUNNING -> SummaryStatus.PROCESSING;
-            case DONE -> SummaryStatus.DONE;
+            /*
+             * ⚠ ProcessingStatus 의 DONE 을 그대로 쓰면 안 된다(CodeRabbit PR #365 지적).
+             *
+             * 그쪽은 "실패도 없고 도는 것도 없다"까지만 본다. 그래서 **계층 일부만 남은 회의도
+             * DONE 이다** — 예전 실행이 markDone(L4) 을 커밋한 뒤 tryLock(L5) 전에 죽으면
+             * RUNNING 행이 없어 멈춘 것으로도 안 잡힌다(#177 은 RUNNING 행만 본다).
+             *
+             * 그 상태를 DONE 으로 답하면 이 계약이 약속한 것이 깨진다 — DIST 가 돌지 않았으므로
+             * **하달된 액션이 0건인데 화면은 「정상 완료」로 말한다.** CAP-06 은 계층 목록을 함께
+             * 주니 사람이 L5~DIST 가 빈 것을 볼 수 있지만, 이 계약은 값 하나로 접으므로 그
+             * 정보가 사라진다. 그래서 여기서 더 조인다.
+             */
+            case DONE -> isEveryLayerDone(states) ? SummaryStatus.DONE : SummaryStatus.STALLED;
             /*
              * 계층 목록이 비지 않았으므로 여기 오지 않는다(ProcessingStatus.of 는 비었을 때만
              * NOT_STARTED 를 낸다). 그래도 적어 두는 이유 — 나중에 그쪽 규칙이 바뀌어도
@@ -171,6 +187,25 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
              */
             case NOT_STARTED -> SummaryStatus.NONE;
         };
+    }
+
+    /*
+     * 파이프라인의 모든 계층이 DONE 인가.
+     *
+     * 판정 기준을 **오케스트레이터에서 가져온다**({@code pipelineLayers()}). 그쪽의
+     * {@code isFullyAnalyzed} 와 같은 정의여야 한다 — 거기서 "이미 완료된 회의"라 재실행을
+     * 생략하는데 이쪽이 다른 기준으로 완료를 말하면, 화면은 「정상 완료」인데 재실행은 그대로
+     * 도는(또는 그 반대) 회의가 생긴다. 목록을 여기 다시 적지 않는 이유가 그것이다.
+     *
+     * ⚠ 정상 경로에서는 열 계층 전부 행이 남는다. L7·DIST 의 "생략" 분기는 runLayer **안에**
+     * 있어서 대상이 0건이어도 DONE 으로 닫힌다 — 그래서 이 검사가 멀쩡한 회의를 걸지 않는다.
+     */
+    private static boolean isEveryLayerDone(List<LayerState> states) {
+        Set<LayerName> done = states.stream()
+                .filter(state -> state.status() == LayerStatus.DONE)
+                .map(LayerState::layer)
+                .collect(Collectors.toSet());
+        return done.containsAll(AnalysisOrchestrator.pipelineLayers());
     }
 
     /*

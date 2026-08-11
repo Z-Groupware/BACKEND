@@ -79,12 +79,31 @@ class MeetingSummaryQueryServiceTest {
     }
 
     @Test
-    @DisplayName("정상 요약된 회의는 담지 않는다")
+    @DisplayName("정상 요약된 회의는 담지 않는다 — 열 계층 전부 DONE 이어야 정상이다")
     void 정상_회의는_담지_않는다() {
         FakeLayerStates layers = new FakeLayerStates();
-        layers.put(103L, done(LayerName.L1), done(LayerName.L1_5), done(LayerName.DIST));
+        layers.put(103L, fullPipelineDone());
 
         assertThat(service(layers).findStalledSummaries(COMPANY, List.of(103L))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("⚠ 계층 일부만 남은 회의는 카드에도 오른다 — 상세 화면과 같은 판정이어야 한다")
+    void 부분_완료_회의도_카드에_오른다() {
+        /*
+         * 예전 실행이 markDone(L4) 을 커밋한 뒤 tryLock(L5) 전에 죽은 모양이다. RUNNING 행이
+         * 없어 #177 의 멈춤 판정에도 안 걸리고, 실패한 계층도 없다.
+         *
+         * 이 회의는 DIST 가 돌지 않았으므로 하달된 액션이 0건이다. 카드에 안 뜨면 아무도
+         * 모른 채 남는다 — 예전 구현이 정확히 그랬다(CodeRabbit PR #365 지적).
+         */
+        FakeLayerStates layers = new FakeLayerStates();
+        layers.put(106L, done(LayerName.L1), done(LayerName.L1_5), done(LayerName.L2),
+                done(LayerName.L3), done(LayerName.L3_5), done(LayerName.L4));
+
+        assertThat(service(layers).findStalledSummaries(COMPANY, List.of(106L)))
+                // 실패한 계층이 없으니 「중단」이다.
+                .containsExactly(new StalledMeetingSummary(106L, true));
     }
 
     @Test
@@ -126,7 +145,7 @@ class MeetingSummaryQueryServiceTest {
         FakeLayerStates layers = new FakeLayerStates();
         layers.put(300L, state(LayerName.L2, LayerStatus.FAILED, false));
         layers.put(301L, state(LayerName.L4, LayerStatus.RUNNING, true));
-        layers.put(302L, done(LayerName.DIST));
+        layers.put(302L, fullPipelineDone());
 
         List<StalledMeetingSummary> result =
                 service(layers).findStalledSummaries(COMPANY, List.of(300L, 301L, 302L));
@@ -155,7 +174,7 @@ class MeetingSummaryQueryServiceTest {
     @DisplayName("다섯 계층 상태를 화면 값으로 접는다")
     void 계층_상태를_화면_값으로_접는다() {
         FakeLayerStates layers = new FakeLayerStates();
-        layers.put(400L, done(LayerName.L1), done(LayerName.DIST));                      // 끝까지 갔다
+        layers.put(400L, fullPipelineDone());                                             // 끝까지 갔다
         layers.put(401L, done(LayerName.L1), state(LayerName.L2, LayerStatus.RUNNING, false));
         layers.put(402L, done(LayerName.L1), state(LayerName.L2, LayerStatus.RUNNING, true));
         layers.put(403L, state(LayerName.L2, LayerStatus.FAILED, false));
@@ -180,6 +199,25 @@ class MeetingSummaryQueryServiceTest {
 
         assertThat(service(layers).findSummaryStatuses(COMPANY, List.of(410L)))
                 .containsExactly(new MeetingSummaryStatus(410L, SummaryStatus.FAILED));
+    }
+
+    @Test
+    @DisplayName("⚠ 계층 일부만 DONE 인 회의는 완료가 아니다 — DIST 가 안 돌아 액션이 0건이다")
+    void 부분_완료는_DONE이_아니다() {
+        /*
+         * 실패도 없고 도는 것도 없지만 끝까지 가지 않은 회의다(계층 사이에서 죽음).
+         *
+         * 이걸 DONE 으로 답하면 이 계약의 약속이 깨진다 — 「DONE 이면 액션이 최소 1건」인데
+         * DIST 가 돌지 않았으므로 0건이다. D 화면은 pendingActionCount == 0 을 함께 보고
+         * 「정상 완료」로 그린다. 하달된 것이 아무것도 없는 회의가 완료로 보인다.
+         */
+        FakeLayerStates layers = new FakeLayerStates();
+        layers.put(470L, done(LayerName.L1), done(LayerName.L1_5), done(LayerName.L2),
+                done(LayerName.L3), done(LayerName.L3_5), done(LayerName.L4),
+                done(LayerName.L5), done(LayerName.L6), done(LayerName.L7));  // DIST 만 없다
+
+        assertThat(service(layers).findSummaryStatuses(COMPANY, List.of(470L)))
+                .containsExactly(new MeetingSummaryStatus(470L, SummaryStatus.STALLED));
     }
 
     @Test
@@ -217,7 +255,7 @@ class MeetingSummaryQueryServiceTest {
          * 없다. if 분기로 막으면 나중에 그 분기가 지워질 수 있다.
          */
         FakeLayerStates layers = new FakeLayerStates();
-        layers.put(430L, done(LayerName.L1), done(LayerName.DIST));
+        layers.put(430L, fullPipelineDone());
         SttBlockRepository blocks = blocksWaitingFor(430L);
 
         List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(
@@ -247,7 +285,7 @@ class MeetingSummaryQueryServiceTest {
     @DisplayName("남의 회사 회의는 항목이 아예 없다 — NONE 으로 채우면 「미시작」과 구분되지 않는다")
     void 남의_회사_회의는_항목이_없다() {
         FakeLayerStates layers = new FakeLayerStates();
-        layers.put(450L, done(LayerName.DIST));
+        layers.put(450L, fullPipelineDone());
 
         MeetingAccessPort access = (companyId, meetingId) -> companyId == COMPANY && meetingId == 450L;
 
@@ -261,7 +299,7 @@ class MeetingSummaryQueryServiceTest {
     @DisplayName("중복 id 는 접힌다")
     void 중복_id는_접힌다() {
         FakeLayerStates layers = new FakeLayerStates();
-        layers.put(460L, done(LayerName.DIST));
+        layers.put(460L, fullPipelineDone());
 
         assertThat(service(layers).findSummaryStatuses(COMPANY, List.of(460L, 460L)))
                 .containsExactly(new MeetingSummaryStatus(460L, SummaryStatus.DONE));
@@ -299,6 +337,19 @@ class MeetingSummaryQueryServiceTest {
 
     private static LayerState done(LayerName layer) {
         return state(layer, LayerStatus.DONE, false);
+    }
+
+    /*
+     * 열 계층 전부 DONE — 「정상 완료」의 유일한 모양이다.
+     *
+     * 목록을 손으로 적지 않는다. 계층이 하나 늘면 이 헬퍼가 자동으로 따라가고, 안 그러면
+     * "완료" 픽스처가 옛 파이프라인을 가리킨 채 테스트만 통과한다 — 그게 이 PR 에서 고친
+     * 버그의 모양이다(부분 완료를 DONE 으로 봤다).
+     */
+    private static LayerState[] fullPipelineDone() {
+        return AnalysisOrchestrator.pipelineLayers().stream()
+                .map(MeetingSummaryQueryServiceTest::done)
+                .toArray(LayerState[]::new);
     }
 
     private static LayerState state(LayerName layer, LayerStatus status, boolean stalled) {
