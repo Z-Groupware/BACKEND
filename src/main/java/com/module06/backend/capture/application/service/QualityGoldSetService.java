@@ -122,7 +122,13 @@ public class QualityGoldSetService implements RegisterGoldSetUseCase {
                 .map(action -> {
                     Map<String, Object> entry = new LinkedHashMap<>();
                     entry.put("actionId", action.actionId());
+                    // 2026-08-11 추가 — TEAM은 담당자가 항상 null인 게 정상이라, actionType
+                    // 없이는 채점 시 "담당자 없는 PERSONAL"과 구분이 안 된다(CodeRabbit 지적).
+                    entry.put("actionType", action.actionType() != null ? action.actionType().name() : null);
                     entry.put("title", action.title());
+                    // 2026-08-11 추가 — 제목만 담고 내용(detail)을 빼면, 사람이 내용을 고친
+                    // MODIFY 판정의 최종 정답이 정답지에 안 남는다(CodeRabbit 지적).
+                    entry.put("detail", action.detail());
                     entry.put("assigneeMemberId", action.assigneeMemberId());
                     entry.put("dueDate", action.dueDate() != null ? action.dueDate().toString() : null);
                     entry.put("evidenceTranscriptId",

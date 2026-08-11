@@ -213,7 +213,11 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
         if (STATUS_PENDING.equals(action.reviewStatus())) {
             return SKIP_STILL_PENDING;
         }
-        if (action.assigneeMemberId() == null) {
+        // TEAM 액션은 담당자 개념 자체가 없다(ActionTypeShapePolicy) — 이 검사를 actionType
+        // 구분 없이 걸면 확정된 TEAM 액션이 영원히 NO_ASSIGNEE로 스킵되어 보드로 못 나간다
+        // (2026-08-11, CodeRabbit 지적 — actionType이 이번 PR에서 ReviewAction에 추가되면서
+        // 드러난 기존 버그).
+        if (action.actionType() != ActionType.TEAM && action.assigneeMemberId() == null) {
             return SKIP_NO_ASSIGNEE;
         }
         return null;

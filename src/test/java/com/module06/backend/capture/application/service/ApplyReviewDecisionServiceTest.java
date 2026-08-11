@@ -21,6 +21,7 @@ import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.RejectReason;
 import com.module06.backend.capture.domain.model.ReviewDecision;
+import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -120,6 +121,58 @@ class ApplyReviewDecisionServiceTest {
     }
 
     @Test
+    @DisplayName("제목만 고치면 WRONG_TITLE 하나만 기록된다(2026-08-11 추가)")
+    void 제목만_고치면_WRONG_TITLE만_기록된다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        service(target(), applied, logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, "새 제목", null));
+
+        assertThat(applied.title).isEqualTo("새 제목");
+        assertThat(applied.detail).isNull();
+        assertThat(logs.entries).hasSize(1);
+        assertThat(logs.entries.get(0).rejectReason()).isEqualTo(RejectReason.WRONG_TITLE);
+        assertThat(logs.entries.get(0).layer()).isEqualTo(LayerName.L4);
+        assertThat(logs.entries.get(0).humanValue()).contains("\"title\":\"새 제목\"");
+    }
+
+    @Test
+    @DisplayName("내용만 고치면 WRONG_DETAIL 하나만 기록된다(2026-08-11 추가)")
+    void 내용만_고치면_WRONG_DETAIL만_기록된다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        service(target(), applied, logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, "새 내용"));
+
+        assertThat(applied.detail).isEqualTo("새 내용");
+        assertThat(applied.title).isNull();
+        assertThat(logs.entries).hasSize(1);
+        assertThat(logs.entries.get(0).rejectReason()).isEqualTo(RejectReason.WRONG_DETAIL);
+        assertThat(logs.entries.get(0).humanValue()).contains("\"detail\":\"새 내용\"");
+    }
+
+    @Test
+    @DisplayName("REJECT에 값이 실려 와도 무시한다 — human_value는 target의 현재 값만 담는다(2026-08-11, CodeRabbit 지적)")
+    void 반려에_실린_값은_라벨에_안_남는다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        // decision=REJECT인데도 title·detail·dueDate를 함께 보냈다 — apply()는 이 값들을
+        // action에 반영하지 않지만, 예전엔 humanValueJson이 이 값을 그대로 라벨에 적었다.
+        service(target(), logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.REJECT, RejectReason.HALLUCINATION, BOB,
+                        LocalDate.of(2026, 8, 20), "가짜 제목", "가짜 내용"));
+
+        String humanValue = logs.entries.get(0).humanValue();
+        // target()의 원래 값(로드맵 초안 작성, 담당자 42, 기한 2026-08-08)만 남아야 한다.
+        assertThat(humanValue).contains("\"title\":\"로드맵 초안 작성\"")
+                .contains("\"assigneeMemberId\":42")
+                .contains("\"dueDate\":\"2026-08-08\"")
+                .doesNotContain("가짜 제목").doesNotContain("가짜 내용");
+    }
+
+    @Test
     @DisplayName("고치지 않은 칸도 human_value 에 담는다 — 한 행만 보고 정답을 복원할 수 있어야 한다")
     void 고치지_않은_칸은_현재_값으로_채운다() {
         RecordingReviewLog logs = new RecordingReviewLog();
@@ -170,7 +223,8 @@ class ApplyReviewDecisionServiceTest {
     void 사유가_없는_반려는_거절한다() {
         assertThatThrownBy(() -> service(target(), new RecordingReviewLog(), new RecordingVectorRepository())
                 .apply(command(ReviewDecision.REJECT, null, null, null)))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_REASON_REQUIRED);
     }
 
     @Test
@@ -178,7 +232,8 @@ class ApplyReviewDecisionServiceTest {
     void 값이_없는_수정은_거절한다() {
         assertThatThrownBy(() -> service(target(), new RecordingReviewLog(), new RecordingVectorRepository())
                 .apply(command(ReviewDecision.MODIFY, null, null, null)))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_MODIFY_VALUE_REQUIRED);
     }
 
     @Test
@@ -186,7 +241,8 @@ class ApplyReviewDecisionServiceTest {
     void 반려에_수정_전용_사유는_거절한다() {
         assertThatThrownBy(() -> service(target(), new RecordingReviewLog(), new RecordingVectorRepository())
                 .apply(command(ReviewDecision.REJECT, RejectReason.WRONG_ASSIGNEE, null, null)))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_REASON_NOT_SELECTABLE);
     }
 
     @Test

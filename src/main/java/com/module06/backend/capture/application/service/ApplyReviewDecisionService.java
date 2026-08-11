@@ -348,13 +348,18 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
      * 고정이었는데, 이제는 command 값을 우선한다).
      */
     private String humanValueJson(ReviewDecisionCommand command, ReviewTarget target, Long assignee) {
+        // REJECT는 값을 고치지 않는다(apply()가 이미 title·detail·dueDate를 null로 덮어 포트에
+        // 넘긴다) — 그런데도 command에 값이 실려 오면(FE 실수든 악의든) 여기서 그 값을 그대로
+        // 받아 적으면 반영되지도 않은 값이 정답 라벨로 남는다. REJECT일 때는 command를 아예
+        // 안 보고 target의 현재 값만 쓴다(2026-08-11, CodeRabbit 지적).
+        boolean rejected = command.decision() == ReviewDecision.REJECT;
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("title", command.title() != null ? command.title() : target.title());
-        value.put("detail", command.detail() != null ? command.detail() : target.detail());
+        value.put("title", !rejected && command.title() != null ? command.title() : target.title());
+        value.put("detail", !rejected && command.detail() != null ? command.detail() : target.detail());
         value.put("assigneeMemberId", assignee != null ? assignee : target.assigneeMemberId());
-        LocalDate dueDate = command.dueDate() != null ? command.dueDate() : target.dueDate();
+        LocalDate dueDate = !rejected && command.dueDate() != null ? command.dueDate() : target.dueDate();
         value.put("dueDate", dueDate != null ? dueDate.toString() : null);
-        value.put("rejected", command.decision() == ReviewDecision.REJECT);
+        value.put("rejected", rejected);
         return toJson(value, "{}");
     }
 

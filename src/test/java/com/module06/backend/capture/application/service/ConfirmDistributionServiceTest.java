@@ -222,6 +222,18 @@ class ConfirmDistributionServiceTest {
         assertThat(confirmed.dispatchedCount()).isZero();
     }
 
+    @Test
+    @DisplayName("담당자 없는 TEAM 액션도 확정되면 나간다 — TEAM은 담당자 개념이 없다(2026-08-11, CodeRabbit 지적으로 발견한 기존 버그)")
+    void 담당자_없는_TEAM_액션도_확정되면_내보낸다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(teamAction(1L, "HUMAN_CONFIRMED"));
+
+        DistributionConfirmed confirmed = service(actions, dispatch, 0).confirm(command(HOST, false));
+
+        assertThat(dispatch.dispatched).containsExactly(1L);
+        assertThat(confirmed.skipped()).isEmpty();
+    }
+
     private ConfirmDistributionService service(List<ActionReviewQueryPort.ReviewAction> actions,
                                                RecordingDispatchPort dispatch,
                                                int unresolvedGaps) {
@@ -286,6 +298,14 @@ class ConfirmDistributionServiceTest {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.PERSONAL, assignee, assignee != null ? "김서준" : null, null,
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 8), false,
+                "로드맵", false, reviewStatus, null, null, null, null);
+    }
+
+    /* TEAM 액션은 담당자 개념이 없다 — assigneeMemberId가 항상 null인 게 정상이다. */
+    private ActionReviewQueryPort.ReviewAction teamAction(long actionId, String reviewStatus) {
+        return new ActionReviewQueryPort.ReviewAction(
+                actionId, ActionType.TEAM, null, null, null,
+                "팀 회고 준비", null, LocalDate.of(2026, 8, 8), false,
                 "로드맵", false, reviewStatus, null, null, null, null);
     }
 
