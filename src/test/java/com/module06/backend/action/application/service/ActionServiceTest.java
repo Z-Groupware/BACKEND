@@ -196,9 +196,12 @@ class ActionServiceTest {
         ActionListItem item = result.items().get(0);
         assertThat(item.assigneeName()).isEqualTo("이하윤");
         assertThat(item.projectTag()).isEqualTo("GOODS");
+        assertThat(item.projectName()).isEqualTo("굿즈");
         assertThat(item.teamName()).isEqualTo("개발팀");
         assertThat(item.sourceMeetingTitle()).isEqualTo("기획 회의");
         assertThat(item.parentActionTitle()).isNotBlank();
+        assertThat(item.action().getDescription()).isNotNull();
+        assertThat(item.action().getProjectId()).isEqualTo(PROJECT);
     }
 
     @Test

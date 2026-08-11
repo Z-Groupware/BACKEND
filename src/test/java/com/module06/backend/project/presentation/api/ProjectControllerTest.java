@@ -191,7 +191,8 @@ class ProjectControllerTest {
                         List.of(new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0, 0, List.of())), 1L));
 
         mockMvc.perform(get("/api/projects"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].description").value("설명"));
 
         verify(getProjectListUseCase).list(1L, null, null, "desc", 0, 20);
     }

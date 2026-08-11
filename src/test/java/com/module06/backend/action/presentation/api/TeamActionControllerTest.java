@@ -70,7 +70,7 @@ class TeamActionControllerTest {
         authenticateAs(1L, COMPANY, TEAM, "LEADER");
         when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
-                        List.of(new TeamActionListItem(teamAction(), "GOODS", "개발팀")), 1L));
+                        List.of(new TeamActionListItem(teamAction(), "GOODS", "굿즈", "개발팀")), 1L));
 
         mockMvc.perform(get("/api/team/actions"))
                 .andExpect(status().isOk())

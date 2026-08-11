@@ -29,10 +29,13 @@ public interface GetMyActionsUseCase {
             Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size);
 
     // parentActionTitle은 상위 팀 액션이 없으면(예외 없이 만들어진 경우는 없지만 방어적으로) null.
+    // projectName은 2026-08-11 추가(이홍근 요청, 목록 카드 프로젝트별 그룹핑용) — projectTag와
+    // 같은 ProjectReference 배치조회에서 이미 갖고 있던 값을 같이 옮기는 것뿐, 추가 쿼리 없음.
     record ActionListItem(
             Action action,
             String assigneeName,
             String projectTag,
+            String projectName,
             String teamName,
             String sourceMeetingTitle,
             String parentActionTitle

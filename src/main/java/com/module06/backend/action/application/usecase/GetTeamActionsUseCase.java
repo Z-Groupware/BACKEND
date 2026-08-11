@@ -26,7 +26,9 @@ public interface GetTeamActionsUseCase {
 
     TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size);
 
-    record TeamActionListItem(Action action, String projectTag, String teamName) {
+    // projectName은 2026-08-11 추가(이홍근 요청, 목록 카드 프로젝트별 그룹핑용) — projectTag와
+    // 같은 ProjectReference 배치조회에서 이미 갖고 있던 값이라 추가 쿼리 없음.
+    record TeamActionListItem(Action action, String projectTag, String projectName, String teamName) {
     }
 
     record TeamActionListResult(List<TeamActionListItem> items, long totalElements) {

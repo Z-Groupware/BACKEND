@@ -125,11 +125,12 @@ class ActionControllerTest {
         authenticateAs(1L, 5L);
         when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
-                        List.of(new ActionListItem(action(), "이하윤", "GOODS", "개발팀", "기획 회의", null)), 42L));
+                        List.of(new ActionListItem(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 42L));
 
         mockMvc.perform(get("/api/actions").param("page", "2").param("size", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].assigneeName").value("이하윤"))
+                .andExpect(jsonPath("$.data.content[0].projectName").value("굿즈"))
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.size").value(5))
                 .andExpect(jsonPath("$.data.totalElements").value(42))
@@ -165,7 +166,7 @@ class ActionControllerTest {
 
         when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
-                        List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "개발팀", "기획 회의", null)), 1L));
+                        List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
                 .thenReturn(new ActionDetail(inProgress, "이하윤", null, "GOODS", "굿즈", "개발팀", "기획 회의", null, null, null, null));
 
