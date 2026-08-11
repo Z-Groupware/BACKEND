@@ -2,6 +2,9 @@ package com.module06.backend.meetingroom.presentation.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -10,8 +13,11 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.exception.GlobalExceptionHandler;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.meetingroom.application.query.MeetingRoomAvailabilityQuery;
 import com.module06.backend.meetingroom.application.result.MeetingRoomAvailability;
@@ -249,6 +255,28 @@ class MeetingRoomControllerTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
                 .isEqualTo("Z-001");
+    }
+
+    /* 실제 HTTP 요청에서 필수 Query Parameter 누락이 500이 아닌 명세 오류로 변환되는지 검증한다. */
+    @Test
+    @DisplayName("ROOM-02 · HTTP 요청에서 meetingRoomId가 없으면 400 Z-001을 반환한다")
+    void returnsBadRequestWhenMeetingRoomIdRequestParameterIsMissing() throws Exception {
+        /* 검증 실패 요청이 UseCase에 도달하면 테스트를 실패시키는 대역을 준비한다. */
+        GetMeetingRoomAvailabilityUseCase useCase = query -> {
+            throw new AssertionError("회의실 식별자가 없는 HTTP 요청은 UseCase까지 도달하지 않아야 한다.");
+        };
+        MeetingRoomController controller = new MeetingRoomController(EMPTY_LIST_USE_CASE, useCase);
+
+        /* 전역 예외 처리기를 포함한 독립 MVC 환경으로 실제 파라미터 바인딩 경로를 재현한다. */
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        /* meetingRoomId를 생략한 요청은 DTO 검증을 거쳐 공통 입력값 오류로 응답돼야 한다. */
+        mockMvc.perform(get("/api/v1/meeting-rooms/availability"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("Z-001"));
     }
 
     /* 기준일 형식이 잘못되면 UseCase 호출 전에 입력값 오류로 끝나는지 검증한다. */
