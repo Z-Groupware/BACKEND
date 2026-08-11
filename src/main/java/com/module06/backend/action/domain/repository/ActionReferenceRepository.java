@@ -47,8 +47,9 @@ public interface ActionReferenceRepository {
     List<TeamReference> findTeamReferences(List<Long> teamIds);
 
     // 2026-08-11 — 개인 액션 상세의 담당자 "역할" 라벨(예: "프론트엔드") 표시용 배치 조회.
-    // sub_team은 team과 달리 리더가 없는 순수 분류 태그다(이홍근 확인) — member.sub_team_id는
-    // null 허용(역할 미지정)이라 호출측에서 null 필터링 후 넘긴다.
+    // DB 테이블명은 role(구 sub_team, V2.3.4로 개명) — team과 달리 리더가 없는 순수 분류
+    // 태그다(이홍근 확인). member.role_id(구 sub_team_id, V2.3.2로 개명)는 null 허용(역할
+    // 미지정)이라 호출측에서 null 필터링 후 넘긴다.
     List<SubTeamReference> findSubTeamReferences(List<Long> subTeamIds);
 
     // FR-AC-06 — 팀 액션 상세에 인라인으로 싣는 소속 프로젝트 첨부파일 목록. 단건 조회라 배치가 아니다.
@@ -75,8 +76,8 @@ public interface ActionReferenceRepository {
     record TeamReference(Long teamId, String name) {
     }
 
-    // 2026-08-11 — member.sub_team_id가 가리키는 "역할" 태그 이름. team과 별개 테이블(sub_team),
-    // 리더 없는 순수 분류용이라 TeamReference와 구분한다.
+    // 2026-08-11 — member.role_id(구 sub_team_id)가 가리키는 "역할" 태그 이름. team과 별개
+    // 테이블(role, 구 sub_team), 리더 없는 순수 분류용이라 TeamReference와 구분한다.
     record SubTeamReference(Long subTeamId, String name) {
     }
 
