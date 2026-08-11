@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -179,26 +180,29 @@ class ActionServiceTest {
         when(actionRepository.countByAssigneeMemberId(5L, null, null)).thenReturn(1L);
         when(actionRepository.findAllByAssigneeMemberId(5L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
-                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
         when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
-                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의")));
+                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", null)));
         when(actionRepository.findAllByIds(List.of(300L)))
                 .thenReturn(List.of(personalAction(300L, COMPANY, PROJECT, 7L, null, null, ActionStatus.TODO)));
 
-        var result = service.getMyActions(5L, null, null, null, "desc", 0, 20);
+        var result = service.getMyActions(5L, "MEMBER", null, null, null, null, null, "desc", 0, 20);
 
         assertThat(result.items()).hasSize(1);
         assertThat(result.totalElements()).isEqualTo(1L);
         ActionListItem item = result.items().get(0);
         assertThat(item.assigneeName()).isEqualTo("이하윤");
         assertThat(item.projectTag()).isEqualTo("GOODS");
+        assertThat(item.projectName()).isEqualTo("굿즈");
         assertThat(item.teamName()).isEqualTo("개발팀");
         assertThat(item.sourceMeetingTitle()).isEqualTo("기획 회의");
         assertThat(item.parentActionTitle()).isNotBlank();
+        assertThat(item.action().getDescription()).isNotNull();
+        assertThat(item.action().getProjectId()).isEqualTo(PROJECT);
     }
 
     @Test
@@ -207,30 +211,123 @@ class ActionServiceTest {
         when(actionRepository.countByAssigneeMemberId(5L, null, null)).thenReturn(0L);
         when(actionRepository.findAllByAssigneeMemberId(5L, null, null, null, "desc", 0, 20)).thenReturn(List.of());
 
-        assertThat(service.getMyActions(5L, null, null, null, "desc", 0, 20).items()).isEmpty();
+        assertThat(service.getMyActions(5L, "MEMBER", null, null, null, null, null, "desc", 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findMemberReferences(anyList());
+    }
+
+    // ── 2026-08-11 팀장의 팀원 목록 조회(assigneeMemberId) ──────────────
+
+    @Test
+    void getMyActionsThrowsWhenNonLeaderSpecifiesAssigneeMemberId() {
+        ActionService service = actionService();
+
+        assertThatThrownBy(() -> service.getMyActions(5L, "MEMBER", 7L, 9L, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.NOT_TEAM_LEADER);
+
+        verify(actionReferenceRepository, never()).existsMemberInTeam(anyLong(), anyLong());
+        verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
+    }
+
+    @Test
+    void getMyActionsThrowsWhenTargetMemberIsOutsideLeaderTeam() {
+        ActionService service = actionService();
+        when(actionReferenceRepository.existsMemberInTeam(9L, 7L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getMyActions(5L, "LEADER", 7L, 9L, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
+
+        verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
+    }
+
+    // CodeRabbit 지적(2026-08-11) — requesterTeamId가 null이면 Spring Data JPA의
+    // "null 파라미터 → IS NULL" 변환 때문에 existsByIdAndTeamId(targetId, null)가 team_id가
+    // 똑같이 NULL인 팀 무소속 대상과 우연히 매치할 수 있다. existsMemberInTeam을 아예 호출하지
+    // 않고 막는지 검증한다.
+    @Test
+    void getMyActionsThrowsWhenRequesterHasNoTeamEvenIfTargetIsTeamless() {
+        ActionService service = actionService();
+
+        assertThatThrownBy(() -> service.getMyActions(5L, "LEADER", null, 9L, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
+
+        verify(actionReferenceRepository, never()).existsMemberInTeam(any(), any());
+        verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
+    }
+
+    @Test
+    void getMyActionsReturnsTargetMemberListWhenLeaderAndSameTeam() {
+        ActionService service = actionService();
+        Action action = personalAction(20L, COMPANY, PROJECT, 7L, null, null, ActionStatus.TODO, 9L);
+        when(actionReferenceRepository.existsMemberInTeam(9L, 7L)).thenReturn(true);
+        when(actionRepository.countByAssigneeMemberId(9L, null, null)).thenReturn(1L);
+        when(actionRepository.findAllByAssigneeMemberId(9L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
+        when(actionReferenceRepository.findMemberReferences(List.of(9L)))
+                .thenReturn(List.of(new MemberReference(9L, "박도현", null)));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
+        when(actionReferenceRepository.findTeamReferences(List.of(7L)))
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
+
+        var result = service.getMyActions(5L, "LEADER", 7L, 9L, null, null, null, "desc", 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).assigneeName()).isEqualTo("박도현");
     }
 
     @Test
     void getActionDetailReturnsEnrichedDetailForOwnCompany() {
         ActionService service = actionService();
-        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, null, ActionStatus.IN_PROGRESS);
+        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 999L, ActionStatus.IN_PROGRESS);
+        java.time.LocalDateTime scheduledAt = java.time.LocalDateTime.of(2026, 8, 12, 14, 0);
         when(actionRepository.findById(10L)).thenReturn(java.util.Optional.of(action));
+        when(actionRepository.findById(999L))
+                .thenReturn(java.util.Optional.of(teamAction(999L, COMPANY, PROJECT, 8L, null, ActionStatus.TODO)));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", 50L)));
+        when(actionReferenceRepository.findSubTeamReferences(List.of(50L)))
+                .thenReturn(List.of(new com.module06.backend.action.domain.repository.ActionReferenceRepository.SubTeamReference(50L, "프론트엔드")));
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "연예인 굿즈 쇼핑몰 앱 구축")));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
-                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
+        when(actionReferenceRepository.findTeamReferences(List.of(8L)))
+                .thenReturn(List.of(new TeamReference(8L, "마케팅팀", null)));
         when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
-                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의")));
+                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", scheduledAt)));
 
         ActionDetail detail = service.getActionDetail(COMPANY, 10L);
 
         assertThat(detail.assigneeName()).isEqualTo("이하윤");
+        assertThat(detail.assigneeRoleLabel()).isEqualTo("프론트엔드");
         assertThat(detail.projectName()).isEqualTo("연예인 굿즈 쇼핑몰 앱 구축");
         assertThat(detail.teamName()).isEqualTo("개발팀");
         assertThat(detail.sourceMeetingTitle()).isEqualTo("기획 회의");
+        assertThat(detail.sourceMeetingScheduledAt()).isEqualTo(scheduledAt);
+        assertThat(detail.parentActionTeamName()).isEqualTo("마케팅팀");
+        assertThat(detail.parentActionDueDate()).isEqualTo(LocalDate.of(2026, 8, 20));
+        assertThat(detail.action().getProjectId()).isEqualTo(PROJECT);
+    }
+
+    @Test
+    void getActionDetailLeavesNewFieldsNullWhenNotApplicable() {
+        ActionService service = actionService();
+        Action action = personalAction(11L, COMPANY, PROJECT, null, null, null, ActionStatus.TODO);
+        when(actionRepository.findById(11L)).thenReturn(java.util.Optional.of(action));
+        when(actionReferenceRepository.findMemberReferences(List.of(5L)))
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "연예인 굿즈 쇼핑몰 앱 구축")));
+
+        ActionDetail detail = service.getActionDetail(COMPANY, 11L);
+
+        assertThat(detail.assigneeRoleLabel()).isNull();
+        assertThat(detail.sourceMeetingScheduledAt()).isNull();
+        assertThat(detail.parentActionTeamName()).isNull();
+        assertThat(detail.parentActionDueDate()).isNull();
+        verify(actionReferenceRepository, never()).findSubTeamReferences(anyList());
     }
 
     @Test
@@ -359,9 +456,9 @@ class ActionServiceTest {
         when(actionRepository.findAllByCompanyIdAndSourceMeetingId(COMPANY, 200L))
                 .thenReturn(List.of(teamAction, personalAction));
         when(actionReferenceRepository.findMemberReferences(List.of(5L)))
-                .thenReturn(List.of(new MemberReference(5L, "이하윤")));
+                .thenReturn(List.of(new MemberReference(5L, "이하윤", null)));
         when(actionReferenceRepository.findTeamReferences(List.of(7L)))
-                .thenReturn(List.of(new TeamReference(7L, "개발팀")));
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
 
         List<MeetingActionItem> result = service.getActionsByMeeting(COMPANY, 200L);
 

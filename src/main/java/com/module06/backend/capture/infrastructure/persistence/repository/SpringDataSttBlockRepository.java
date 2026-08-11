@@ -1,11 +1,13 @@
 package com.module06.backend.capture.infrastructure.persistence.repository;
 
 import java.util.Collection;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 
@@ -46,4 +48,22 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<SttBlockJpaEntity> findWithLockByIdAndStatusAndRetryCount(
             long id, SttBlockStatus status, int retryCount);
+
+    /*
+     * 폴링 워커가 볼 블록 — 아직 끝나지 않은 것만. id 순으로 오래된 잡이 먼저 온다.
+     *
+     * 상한을 Pageable 로 받는다. 밀린 잡이 많을 때 한 주기가 끝나지 않으면 fixedDelay 의 겹침
+     * 방어가 의미를 잃는다(TupleVectorSyncScheduler 주석과 같은 이유).
+     */
+    List<SttBlockJpaEntity> findByStatusInOrderByIdAsc(Collection<SttBlockStatus> statuses, Pageable pageable);
+
+    /*
+     * 상태 전이 전용 — **조건을 DB 가 판정하게 한다.**
+     *
+     * 폴링과 재처리(STT-04)가 같은 행을 동시에 만질 수 있다. id 로 읽어 자바에서 상태를
+     * 비교하면 그 사이 바뀐 값이 안 보이고(findWithLockByIdAndStatusAndRetryCount 주석과 같은
+     * 이유), 사람이 방금 QUEUED 로 되돌린 행을 워커가 옛 잡의 결과로 덮는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<SttBlockJpaEntity> findWithLockByIdAndStatusIn(long id, Collection<SttBlockStatus> statuses);
 }

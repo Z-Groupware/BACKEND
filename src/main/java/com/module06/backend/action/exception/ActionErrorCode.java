@@ -19,8 +19,9 @@ import lombok.Getter;
     - PersonalActionAssigneeOnlyPolicy : NOT_ACTION_ASSIGNEE를 던짐 (application.policy)
     - ActionTypeShapePolicy            : INVALID_ACTION_TYPE_SHAPE를 던짐 (domain.policy)
 
-    NOT_TEAM_LEADER(AC-003)는 FR-AC-07 폐기(2026-08-07)로 던지는 곳이 없다. 이미 문서화된
-    코드라 enum 값 자체는 남겨둔다 — 죽은 건 TeamActionLeaderOnlyPolicy 쪽이었다.
+    NOT_TEAM_LEADER(AC-003)는 FR-AC-07 폐기(2026-08-07)로 한동안 던지는 곳이 없었으나,
+    2026-08-11 팀장의 팀원 개인 액션 조회(assigneeMemberId 파라미터) 인가 검증에 재사용됨 —
+    코드 자체는 "리더만 가능"이라는 뜻이라 새 용도에도 그대로 맞는다.
 */
 @Getter
 @AllArgsConstructor
@@ -48,7 +49,12 @@ public enum ActionErrorCode implements ErrorCode {
 
     // 2026-08-10 — 팀 액션 첨부파일 다운로드 URL 발급에서, 그 팀 액션의 프로젝트 소속이 아닌
     // attachmentId를 넣으면 던진다(project 쪽 PJ-004와 같은 성격이지만 진입 경로가 달라 별도 코드).
-    ACTION_ATTACHMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-012", "존재하지 않는 첨부파일입니다.");
+    ACTION_ATTACHMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "AC-012", "존재하지 않는 첨부파일입니다."),
+
+    // 2026-08-11 — 팀장이 다른 팀 팀원의 개인 액션 목록을 조회하려 했다(팀원 관리 화면,
+    // GET /api/actions?assigneeMemberId= IDOR 방지). 대상 memberId 자체는 같은 회사 소속이라
+    // 존재를 숨길 이유가 없어 404가 아니라 403 — NOT_TEAM_LEADER·NOT_ACTION_ASSIGNEE와 같은 성격.
+    ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE(HttpStatus.FORBIDDEN, "AC-013", "같은 팀 소속 담당자만 조회할 수 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

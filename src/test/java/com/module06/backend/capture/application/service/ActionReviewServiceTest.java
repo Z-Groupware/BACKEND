@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.application.port.out.MeetingAccessPort;
 import com.module06.backend.capture.application.result.ActionReview;
@@ -171,7 +172,7 @@ class ActionReviewServiceTest {
     private static ActionReviewQueryPort.ReviewAction action(long actionId, Long assignee,
                                                              String assigneeName, boolean autoConfirmed) {
         return new ActionReviewQueryPort.ReviewAction(
-                actionId, assignee, assigneeName, AssigneeSource.EXPLICIT_CALL,
+                actionId, ActionType.PERSONAL, assignee, assigneeName, AssigneeSource.EXPLICIT_CALL,
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 7),
                 // 회의에서 나온 기한이다 — 프로젝트 마감일로 채운 것이 아니다.
                 false,
@@ -191,14 +192,15 @@ class ActionReviewServiceTest {
     /* 사람이 직접 추가한 액션(RVW-03) — 게이트도 근거도 없다. */
     private static ActionReviewQueryPort.ReviewAction manualAction(long actionId) {
         return new ActionReviewQueryPort.ReviewAction(
-                actionId, ALICE, "김서준", null, "직접 추가한 일", null, null, false, null, true,
-                "HUMAN_CONFIRMED", null, null, null, null);
+                actionId, ActionType.PERSONAL, ALICE, "김서준", null, "직접 추가한 일", null, null,
+                false, null, true, "HUMAN_CONFIRMED", null, null, null, null);
     }
 
     /* 사람이 반려한 액션 — 화면의 「반려됨 · 이미 있는 것과 중복」이 이 모양이다. */
     private static ActionReviewQueryPort.ReviewAction rejectedAction(long actionId) {
         return new ActionReviewQueryPort.ReviewAction(
-                actionId, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL, "온보딩 플로우 검토", null,
+                actionId, ActionType.PERSONAL, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL,
+                "온보딩 플로우 검토", null,
                 LocalDate.of(2026, 8, 7), false, "온보딩", false, "REJECTED",
                 RejectReason.DUPLICATE,
                 new ActionReviewQueryPort.Evidence(8812L, "박대표", "먼저 검토합시다.", 1_122_000),
@@ -208,7 +210,8 @@ class ActionReviewServiceTest {
     /* 회의에서 기한을 말하지 않아 프로젝트 마감일로 채워진 액션. */
     private static ActionReviewQueryPort.ReviewAction defaultedDueAction(long actionId) {
         return new ActionReviewQueryPort.ReviewAction(
-                actionId, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL, "API 문서 최신화", null,
+                actionId, ActionType.PERSONAL, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL,
+                "API 문서 최신화", null,
                 LocalDate.of(2026, 8, 31), true, "인증 개편", false, "PENDING", null,
                 new ActionReviewQueryPort.Evidence(8813L, "박도현", "API 문서에도 반영이 필요합니다.", 24_000),
                 new GateSignals(true, true, true, true), true);

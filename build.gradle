@@ -29,6 +29,10 @@ dependencies {
 	// S3 presigned URL 발급(PUT/GET) + 삭제. S3Presigner도 이 안에 포함돼 있다.
 	implementation "software.amazon.awssdk:s3:${awsSdkVersion}"
 
+	// AWS Transcribe — STT 잡 제출(STT-03·04). 제출만 이 모듈이고, 결과 JSON은 S3에서 읽으므로
+	// 위 s3 모듈이 함께 필요하다. IAM 롤은 Spring EC2에 있다(AI 서버로 넘기지 않는다).
+	implementation "software.amazon.awssdk:transcribe:${awsSdkVersion}"
+
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'

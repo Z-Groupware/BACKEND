@@ -147,6 +147,45 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
     }
 
     /*
+     * 블록 하나의 정본을 갈아 끼운다.
+     *
+     * 지우고 넣는 것이 **한 트랜잭션**이어야 한다. 나뉘면 지운 뒤 넣기 전에 분석이 끼어들어
+     * 그 구간이 통째로 빈 정본을 읽는다 — 앞뒤가 이어지지 않는 요약이 나오고, 그게 완료로
+     * 기록된다.
+     *
+     * flush 를 명시한다. delete 와 insert 가 같은 (meeting_id, stt_block_seq) 를 건드리므로
+     * Hibernate 의 쓰기 순서에 맡기면 insert 가 먼저 나가 같은 구간이 두 벌 존재하는 순간이
+     * 생길 수 있다.
+     */
+    @Override
+    @Transactional
+    public int replaceBlockTranscript(long meetingId, int sttBlockSeq, List<NewUtterance> utterances) {
+        repository.deleteByMeetingIdAndSttBlockSeq(meetingId, sttBlockSeq);
+        repository.flush();
+
+        if (utterances == null || utterances.isEmpty()) {
+            /*
+             * 인식 결과가 비었다. 지우기만 하고 끝낸다 — 침묵 구간이거나 인식이 아무것도 못
+             * 건진 블록이고, 둘 다 "그 구간에 발화가 없다"가 맞다. 예외로 올리면 블록 하나가
+             * 회의 전체의 적재를 막는다.
+             */
+            return 0;
+        }
+
+        int seq = repository.findTopByMeetingIdOrderBySeqDesc(meetingId)
+                .map(TranscriptChunkJpaEntity::getSeq)
+                .orElse(0);
+
+        List<TranscriptChunkJpaEntity> rows = new ArrayList<>(utterances.size());
+        for (NewUtterance utterance : utterances) {
+            rows.add(TranscriptChunkJpaEntity.fromStt(meetingId, ++seq, utterance.text(),
+                    utterance.startOffsetMs(), utterance.endOffsetMs(), sttBlockSeq));
+        }
+        repository.saveAll(rows);
+        return rows.size();
+    }
+
+    /*
      * L1 판정을 이식한다. 조회한 엔티티를 고치고 트랜잭션 종료 시 더티 체킹으로 반영한다 —
      * 벌크 UPDATE 로 하면 신규 @Query 가 필요하고(QUERY_002 금지), 이식 건수를 세려면 어차피
      * 행을 읽어야 한다.

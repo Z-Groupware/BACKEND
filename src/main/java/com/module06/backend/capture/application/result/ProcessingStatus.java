@@ -4,19 +4,27 @@ import java.util.List;
 
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.SttProgress;
 
 /*
  * CAP-06 응답의 재료다.
  *
- * 명세의 blocks·gaps·estimatedRemainingSec 는 이 슬라이스에 아직 없다 — STT 블록과
- * stt_gap 을 채우는 쪽(조립·Transcribe)이 붙지 않았다. **빈 값으로 채워 내려주지 않는다.**
- * gaps 를 빈 배열로 내려주면 화면이 "구멍 없음"으로 읽고 배너를 띄우지 않는데, 실제로는
- * 아직 아무도 확인하지 않은 상태다. 구멍을 숨기면 담당자가 누락을 모른 채 분배하고
- * 그 액션은 영구히 사라진다(V5.5 주석).
+ * <h2>gaps 가 실제 값으로 채워진다</h2>
+ * 예전 주석이 "채우는 쪽이 붙지 않았다"고 적어 둔 자리다. 이제 폴링이 블록을 FAILED 로 닫을 때
+ * 그 구간을 stt_gap 에 남기므로, 이 목록에 실제 구간이 담긴다.
+ *
+ * 빈 배열이라고 "구멍 없음"이 아니다 — 그 판단은 gapsChecked 가 한다. 구멍을 숨기면 담당자가
+ * 누락을 모른 채 분배하고 그 액션은 영구히 사라진다(V5.5 주석).
+ *
+ * 명세의 blocks·estimatedRemainingSec 는 여전히 넣지 않는다. 블록 목록은 STT-03 이 이미
+ * 주는 값이고, 남은 시간은 제공자가 알려주지 않아 지어낼 방법이 없다.
  */
 public record ProcessingStatus(
         OverallStatus status,
-        List<LayerProgress> layers
+        List<LayerProgress> layers,
+        List<Gap> gaps,
+        boolean gapsChecked,
+        SttProgress blocks
 ) {
 
     public enum OverallStatus {
@@ -54,15 +62,44 @@ public record ProcessingStatus(
      * 아니다. 멈춘 것은 실패로 접어야 재개(ANLZ-02)와 재실행이 둘 다 열린다.
      */
     public static ProcessingStatus of(List<LayerProgress> layers) {
+        return of(layers, List.of(), false, SttProgress.of(List.of(), null));
+    }
+
+    /*
+     * 구멍과 블록 진행도까지 함께 담는다(CAP-06).
+     *
+     * @param gaps        받아쓰기 구멍. 비어 있다는 것이 곧 "구멍 없음"은 아니다 — 그 판단은
+     *                    gapsChecked 가 한다
+     * @param gapsChecked 그 빈 배열이 **확인 결과인가.** false 면 아직 확인하지 않은 것이다
+     * @param blocks      받아쓰기 진행도와 남은 시간. 남은 시간은 못 재면 null 이다 —
+     *                    지어내지 않는다(SttProgress 주석)
+     */
+    public static ProcessingStatus of(List<LayerProgress> layers, List<Gap> gaps, boolean gapsChecked,
+                                      SttProgress blocks) {
         if (layers.isEmpty()) {
-            return new ProcessingStatus(OverallStatus.NOT_STARTED, List.of());
+            return new ProcessingStatus(OverallStatus.NOT_STARTED, layers, gaps, gapsChecked, blocks);
         }
         if (layers.stream().anyMatch(l -> l.status() == LayerStatus.FAILED || l.stalled())) {
-            return new ProcessingStatus(OverallStatus.FAILED, layers);
+            return new ProcessingStatus(OverallStatus.FAILED, layers, gaps, gapsChecked, blocks);
         }
         if (layers.stream().anyMatch(LayerProgress::live)) {
-            return new ProcessingStatus(OverallStatus.RUNNING, layers);
+            return new ProcessingStatus(OverallStatus.RUNNING, layers, gaps, gapsChecked, blocks);
         }
-        return new ProcessingStatus(OverallStatus.DONE, layers);
+        return new ProcessingStatus(OverallStatus.DONE, layers, gaps, gapsChecked, blocks);
+    }
+
+    /*
+     * 구멍 한 구간.
+     *
+     * mentionedNames·keywords 는 그 구간 자막 **본문**에서 뽑는 값이고, 우리 자막 읽기 포트가
+     * 본문을 주지 않아 지금은 항상 비어 있다(SttGapRepository.GapView 주석). 지어내지 않는다.
+     */
+    public record Gap(
+            int startMs,
+            int endMs,
+            String reason,
+            List<String> mentionedNames,
+            List<String> keywords
+    ) {
     }
 }

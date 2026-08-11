@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.MeetingActionCount;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
@@ -31,7 +33,7 @@ import com.module06.backend.project.exception.ProjectErrorCode;
 /*
  * MEET-02 회의 목록 필터 조회를 조율하는 애플리케이션 서비스다.
  *
- * 인증 열람 범위와 필터를 저장소에 전달하고, 회의실·프로젝트 표시 정보는 각 Port로
+ * 인증 열람 범위와 필터를 저장소에 전달하고, 회의실·프로젝트·액션 표시 정보는 각 Port로
  * 일괄 조회해 회의별 반복 호출 없이 페이지 결과를 완성한다.
  */
 @Service
@@ -58,6 +60,9 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
 
     /* 회의 목록에 표시할 프로젝트 태그·이름과 필터 소속을 조회하는 C 연동 Port다. */
     private final ProjectQueryPort projectQueryPort;
+
+    /* 회의 목록 카드에 표시할 회의별 전체 액션 수를 조회하는 C 연동 Port다. */
+    private final ActionQueryPort actionQueryPort;
 
     /* 생략된 조회 기간을 동일한 KST 현재 날짜에서 계산하는 시계다. */
     private final Clock clock;
@@ -119,12 +124,22 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 projectQueryPort.findProjects(resolved.companyId(), projectIds)
         );
 
+        /* 현재 페이지의 회의 식별자만 C에 한 번 전달해 전체 액션 수를 배치 조회한다. */
+        List<Long> meetingIds = page.meetings().stream()
+                .map(MeetingListSnapshot::meetingId)
+                .toList();
+        Map<Long, Long> actionCounts = indexActionCounts(
+                meetingIds,
+                actionQueryPort.countActionsByMeetings(resolved.companyId(), meetingIds)
+        );
+
         /* 저장소가 보장한 내림차순을 유지하며 표시 정보가 완성된 응답 행으로 변환한다. */
         List<MeetingListResult.MeetingItem> meetings = page.meetings().stream()
                 .map(meeting -> toResultItem(
                         meeting,
                         meetingRooms.get(meeting.meetingRoomId()),
-                        projects.get(meeting.projectId())
+                        projects.get(meeting.projectId()),
+                        actionCounts.getOrDefault(meeting.meetingId(), 0L)
                 ))
                 .toList();
 
@@ -253,11 +268,29 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         return Map.copyOf(indexed);
     }
 
+    /* C가 반환한 액션이 존재하는 회의만 현재 페이지 범위의 식별자 맵으로 만든다. */
+    private Map<Long, Long> indexActionCounts(
+            List<Long> requestedIds,
+            List<MeetingActionCount> actionCounts
+    ) {
+        /* C 계약상 빠진 회의는 액션 0건이며 요청 페이지 밖 식별자는 응답에 반영하지 않는다. */
+        Map<Long, Long> indexed = new LinkedHashMap<>();
+        for (MeetingActionCount actionCount : actionCounts) {
+            if (requestedIds.contains(actionCount.meetingId())) {
+                indexed.put(actionCount.meetingId(), actionCount.actionCount());
+            }
+        }
+
+        /* 응답 조립 중 집계값이 변경되지 않도록 불변 맵으로 반환한다. */
+        return Map.copyOf(indexed);
+    }
+
     /* 회의 조회 모델과 각 도메인의 표시값을 MEET-02 결과 한 건으로 변환한다. */
     private MeetingListResult.MeetingItem toResultItem(
             MeetingListSnapshot meeting,
             MeetingRoomSnapshot meetingRoom,
-            ProjectSnapshot project
+            ProjectSnapshot project,
+            long actionCount
     ) {
         /* 명세에 필요한 값만 엔티티 참조 없이 중첩 결과로 조립한다. */
         return new MeetingListResult.MeetingItem(
@@ -267,6 +300,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meeting.startAt(),
                 meeting.endAt(),
                 meeting.attendeeCount(),
+                actionCount,
                 new MeetingListResult.MeetingRoom(meetingRoom.meetingRoomId(), meetingRoom.name()),
                 new MeetingListResult.Project(project.projectId(), project.tag(), project.name())
         );

@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
     - ActionMeetingReferenceRepository      : meeting 배치조회 위임 대상
     - SpringDataProjectReferenceRepository  : project 배치조회 위임 대상
     - SpringDataProjectAttachmentReferenceRepository : 팀 액션 상세(FR-AC-06)의 첨부파일 조회 위임 대상
+    - SpringDataSubTeamReferenceRepository  : 담당자 역할 라벨 배치조회 위임 대상
 */
 @Component
 @RequiredArgsConstructor
@@ -32,6 +33,8 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
     private final SpringDataActionTeamReferenceRepository springDataActionTeamReferenceRepository;
     private final SpringDataMemberReferenceRepository springDataMemberReferenceRepository;
     private final SpringDataProjectAttachmentReferenceRepository springDataProjectAttachmentReferenceRepository;
+    private final SpringDataSubTeamReferenceRepository springDataSubTeamReferenceRepository;
+    private final SpringDataPositionReferenceRepository springDataPositionReferenceRepository;
 
     @Override
     public List<MeetingReference> findMeetingReferences(List<Long> meetingIds) {
@@ -44,7 +47,8 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
                         meeting.getId(),
                         meeting.getTeamId(),
                         meeting.getRelatedActionId(),
-                        meeting.getTitle()
+                        meeting.getTitle(),
+                        meeting.getStartAt()
                 ))
                 .toList();
     }
@@ -70,6 +74,11 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         return springDataMemberReferenceRepository.existsByIdAndCompanyId(memberId, companyId);
     }
 
+    @Override
+    public boolean existsMemberInTeam(Long memberId, Long teamId) {
+        return springDataMemberReferenceRepository.existsByIdAndTeamId(memberId, teamId);
+    }
+
     // 담당자 이름 배치 조회
     @Override
     public List<MemberReference> findMemberReferences(List<Long> memberIds) {
@@ -78,7 +87,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         }
 
         return springDataMemberReferenceRepository.findAllById(memberIds).stream()
-                .map(member -> new MemberReference(member.getId(), member.getName()))
+                .map(member -> new MemberReference(member.getId(), member.getName(), member.getSubTeamId()))
                 .toList();
     }
 
@@ -90,7 +99,40 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         }
 
         return springDataActionTeamReferenceRepository.findAllById(teamIds).stream()
-                .map(team -> new TeamReference(team.getId(), team.getName()))
+                .map(team -> new TeamReference(team.getId(), team.getName(), team.getLeaderMemberId()))
+                .toList();
+    }
+
+    // 담당자 "역할" 라벨 배치 조회
+    @Override
+    public List<SubTeamReference> findSubTeamReferences(List<Long> subTeamIds) {
+        if (subTeamIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataSubTeamReferenceRepository.findAllById(subTeamIds).stream()
+                .map(subTeam -> new SubTeamReference(subTeam.getId(), subTeam.getName()))
+                .toList();
+    }
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 직급 라벨 배치 조회.
+    @Override
+    public List<PositionReference> findPositionReferences(List<Long> positionIds) {
+        if (positionIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataPositionReferenceRepository.findAllById(positionIds).stream()
+                .map(position -> new PositionReference(position.getId(), position.getName()))
+                .toList();
+    }
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 로스터. 퇴사자(deleted_at 있음)는 조회 조건에서 제외한다.
+    @Override
+    public List<TeamMemberReference> findTeamMemberReferences(Long teamId) {
+        return springDataMemberReferenceRepository.findAllByTeamIdAndDeletedAtIsNull(teamId).stream()
+                .map(member -> new TeamMemberReference(
+                        member.getId(), member.getName(), member.getSubTeamId(), member.getPositionId(), member.getStatus()))
                 .toList();
     }
 

@@ -19,6 +19,12 @@ public interface ActionQueryPort {
             List<Long> meetingIds
     );
 
+    /* MEET-02 현재 페이지 회의별 전체 액션 수를 한 번에 조회한다. */
+    List<MeetingActionCount> countActionsByMeetings(
+            Long companyId,
+            List<Long> meetingIds
+    );
+
     /*
      * MEET-10 목록에 필요한 회의별 분배 대기 액션 집계다.
      *
@@ -26,5 +32,9 @@ public interface ActionQueryPort {
      * 바꿔도 회의 서비스와 응답 조립이 함께 깨지지 않게 한다.
      */
     record UndispatchedActionMeeting(Long meetingId, long undispatchedCount) {
+    }
+
+    /* MEET-02 목록 카드에 표시할 회의 식별자와 전체 액션 수다. */
+    record MeetingActionCount(Long meetingId, long actionCount) {
     }
 }

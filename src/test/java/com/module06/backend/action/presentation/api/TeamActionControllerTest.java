@@ -21,6 +21,8 @@ import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseC
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase.TeamDashboardSummary;
 import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
@@ -59,6 +61,9 @@ class TeamActionControllerTest {
     @MockitoBean
     private IssueTeamActionAttachmentDownloadUrlUseCase issueTeamActionAttachmentDownloadUrlUseCase;
 
+    @MockitoBean
+    private GetTeamDashboardSummaryUseCase getTeamDashboardSummaryUseCase;
+
     @AfterEach
     void clearAuthentication() {
         SecurityContextHolder.clearContext();
@@ -68,14 +73,16 @@ class TeamActionControllerTest {
     @DisplayName("목록은 LEADER 권한이면 토큰의 teamId로 조회한다")
     void listUsesTeamIdFromTokenWhenLeader() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "LEADER");
-        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), anyInt(), anyInt()))
+        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
-                        List.of(new TeamActionListItem(teamAction(), "GOODS", "개발팀")), 1L));
+                        List.of(new TeamActionListItem(teamAction(), "GOODS", "굿즈", "개발팀", 2, 5)), 1L));
 
         mockMvc.perform(get("/api/team/actions"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].projectTag").value("GOODS"))
-                .andExpect(jsonPath("$.data.content[0].teamName").value("개발팀"));
+                .andExpect(jsonPath("$.data.content[0].teamName").value("개발팀"))
+                .andExpect(jsonPath("$.data.content[0].childDoneCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].childTotalCount").value(5));
     }
 
     // LEADER 외 접근 차단(@PreAuthorize)은 @WebMvcTest 슬라이스에 SecurityConfig(@EnableMethodSecurity)가
@@ -87,7 +94,7 @@ class TeamActionControllerTest {
     void detailIsAccessibleByAnyMemberAndUsesCompanyIdFromToken() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "MEMBER");
         when(getTeamActionDetailUseCase.getTeamActionDetail(eq(COMPANY), eq(10L)))
-                .thenReturn(new TeamActionDetail(teamAction(), "GOODS", "개발팀", List.of()));
+                .thenReturn(new TeamActionDetail(teamAction(), "GOODS", "개발팀", null, null, null, null, List.of()));
 
         mockMvc.perform(get("/api/team/actions/10"))
                 .andExpect(status().isOk())
@@ -118,6 +125,21 @@ class TeamActionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.downloadUrl").value("https://s3/get"))
                 .andExpect(jsonPath("$.data.expiresInSeconds").value(300));
+    }
+
+    @Test
+    @DisplayName("팀 대시보드 요약은 토큰의 teamId·memberId로 조회한다 — 이슈 #352")
+    void getTeamDashboardSummaryTakesTeamAndMemberFromToken() throws Exception {
+        authenticateAs(55L, COMPANY, TEAM, "LEADER");
+        when(getTeamDashboardSummaryUseCase.getTeamDashboardSummary(TEAM, 55L))
+                .thenReturn(new TeamDashboardSummary(3L, 6L, 1L, 0L));
+
+        mockMvc.perform(get("/api/team/actions/dashboard-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.teamActionCount").value(3))
+                .andExpect(jsonPath("$.data.teamMemberActionCount").value(6))
+                .andExpect(jsonPath("$.data.myActionCount").value(1))
+                .andExpect(jsonPath("$.data.completedActionCount").value(0));
     }
 
     private void authenticateAs(Long memberId, Long companyId, Long teamId, String authority) {

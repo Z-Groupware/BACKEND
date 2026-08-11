@@ -16,6 +16,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.notice.application.command.CreateNoticeCommand;
 import com.module06.backend.notice.application.command.DeleteNoticeCommand;
 import com.module06.backend.notice.application.command.UpdateNoticeCommand;
+import com.module06.backend.notice.application.event.NoticeCreatedEvent;
 import com.module06.backend.notice.domain.model.Notice;
 import com.module06.backend.notice.domain.repository.NoticeCommandRepository;
 
@@ -38,7 +39,12 @@ class NoticeCommandServiceTest {
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.generatedId = 31L;
         repository.savedNoticeConsumer = notice -> capturedNotice[0] = notice;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCreatedEvent[] capturedEvent = new NoticeCreatedEvent[1];
+        NoticeCommandService service = new NoticeCommandService(
+                repository,
+                FIXED_CLOCK,
+                event -> capturedEvent[0] = event
+        );
 
         /* 회사 10의 OWNER 3이 제목 가장자리 공백과 개행 본문을 가진 공지를 작성한다. */
         var result = service.createNotice(new CreateNoticeCommand(
@@ -57,6 +63,13 @@ class NoticeCommandServiceTest {
 
         /* 저장소에서 생성된 공지 식별자만 작성 결과로 반환돼야 한다. */
         assertThat(result.noticeId()).isEqualTo(31L);
+
+        /* 저장된 식별자·회사·정규화된 제목으로 공지 등록 이벤트를 발행해야 한다. */
+        assertThat(capturedEvent[0]).isEqualTo(new NoticeCreatedEvent(
+                31L,
+                10L,
+                "회의실 예약과 참석 안내"
+        ));
     }
 
     /* ADMIN도 OWNER와 동일하게 공지를 작성할 수 있는지 검증한다. */
@@ -66,7 +79,7 @@ class NoticeCommandServiceTest {
         /* 저장된 공지에 식별자 32를 반영하는 단순 저장소 대역을 만든다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.generatedId = 32L;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 회사 10의 ADMIN 4가 정상 제목과 본문으로 공지를 작성한다. */
         var result = service.createNotice(new CreateNoticeCommand(
@@ -88,7 +101,7 @@ class NoticeCommandServiceTest {
         /* 권한 거절 전에 저장소가 호출되면 실패하도록 서비스 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
         assertErrorCode(() -> service.createNotice(command("LEADER", "제목", "본문")), "NT-002");
@@ -102,7 +115,7 @@ class NoticeCommandServiceTest {
         /* 입력 검증 전에 저장소가 호출되면 실패하도록 서비스 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* null Command와 공백·길이 초과 제목 및 공백 본문을 모두 공지 입력 오류로 처리한다. */
         assertErrorCode(() -> service.createNotice(null), "NT-003");
@@ -128,7 +141,7 @@ class NoticeCommandServiceTest {
                 createdAt,
                 null
         ));
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 회사 10의 OWNER 3이 제목 가장자리 공백과 개행 본문으로 공지 41을 수정한다. */
         var result = service.updateNotice(new UpdateNoticeCommand(
@@ -166,7 +179,7 @@ class NoticeCommandServiceTest {
         /* 회사 10의 활성 공지를 반환하는 저장소와 공지 명령 서비스를 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.noticeToFind = Optional.of(activeNotice());
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* ADMIN 역할로 공지 수정 유스케이스를 호출한다. */
         var result = service.updateNotice(updateCommand("ADMIN", "관리자 개정", "관리자 개정 본문"));
@@ -182,7 +195,7 @@ class NoticeCommandServiceTest {
         /* 권한 검증 뒤 저장소에 접근하면 실패하도록 저장소 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
         assertErrorCode(() -> service.updateNotice(updateCommand("LEADER", "제목", "본문")), "NT-002");
@@ -195,7 +208,7 @@ class NoticeCommandServiceTest {
     void rejectsMissingInactiveOrOtherCompanyNotice() {
         /* 수정 대상 조회가 빈 결과를 반환하는 저장소로 서비스를 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 존재 이유를 구분하지 않는 공지 없음 오류로 처리해야 한다. */
         assertErrorCode(() -> service.updateNotice(updateCommand("OWNER", "제목", "본문")), "NT-001");
@@ -209,7 +222,7 @@ class NoticeCommandServiceTest {
         /* 입력 오류가 저장소에 도달하면 실패하도록 저장소 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* null Command와 잘못된 경로 식별자·제목·본문을 모두 NT-003으로 처리한다. */
         assertErrorCode(() -> service.updateNotice(null), "NT-003");
@@ -229,7 +242,7 @@ class NoticeCommandServiceTest {
         Notice current = activeNotice();
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.noticeToFind = Optional.of(current);
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 회사 10의 OWNER 3이 공지 41을 삭제한다. */
         service.deleteNotice(deleteCommand("OWNER"));
@@ -255,7 +268,7 @@ class NoticeCommandServiceTest {
         /* 회사 10의 활성 공지를 반환하는 저장소와 공지 명령 서비스를 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.noticeToFind = Optional.of(activeNotice());
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* ADMIN 역할로 공지 삭제 유스케이스를 호출한다. */
         service.deleteNotice(deleteCommand("ADMIN"));
@@ -271,7 +284,7 @@ class NoticeCommandServiceTest {
         /* 권한 검증 뒤 저장소에 접근하면 실패하도록 저장소 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
         assertErrorCode(() -> service.deleteNotice(deleteCommand("LEADER")), "NT-002");
@@ -284,7 +297,7 @@ class NoticeCommandServiceTest {
     void rejectsMissingDeletedOrOtherCompanyNoticeForDelete() {
         /* 삭제 대상 조회가 빈 결과를 반환하는 저장소로 서비스를 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* 존재하지 않는 이유를 구분하지 않는 공지 없음 오류로 처리해야 한다. */
         assertErrorCode(() -> service.deleteNotice(deleteCommand("OWNER")), "NT-001");
@@ -298,7 +311,7 @@ class NoticeCommandServiceTest {
         /* 입력 오류가 저장소에 도달하면 실패하도록 저장소 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
-        NoticeCommandService service = new NoticeCommandService(repository, FIXED_CLOCK);
+        NoticeCommandService service = service(repository);
 
         /* null Command와 유효하지 않은 회사·공지·요청자 식별자를 모두 NT-003으로 처리한다. */
         assertErrorCode(() -> service.deleteNotice(null), "NT-003");
@@ -329,6 +342,12 @@ class NoticeCommandServiceTest {
     private DeleteNoticeCommand deleteCommand(String role) {
         /* 회사 10의 구성원 3이 공지 41을 삭제하는 공통 인증 값을 사용한다. */
         return new DeleteNoticeCommand(10L, 41L, 3L, role);
+    }
+
+    /* 이벤트 발행 자체를 검증하지 않는 테스트에서 사용하는 no-op 발행기와 서비스를 조립한다. */
+    private NoticeCommandService service(NoticeCommandRepository repository) {
+        /* 공지 수정·삭제 및 오류 검증은 등록 이벤트를 소비하지 않도록 빈 발행기를 주입한다. */
+        return new NoticeCommandService(repository, FIXED_CLOCK, event -> { });
     }
 
     /* 수정 서비스 테스트에서 공통으로 사용하는 회사 10의 활성 공지를 만든다. */
