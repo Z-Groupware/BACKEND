@@ -41,6 +41,7 @@ import com.module06.backend.capture.application.port.out.MeetingSummaryRepositor
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
+import com.module06.backend.capture.application.port.out.SummarizeMeetingResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.port.out.VerifyTupleResult;
@@ -138,6 +139,29 @@ public class AnalysisOrchestrator {
      * 빠뜨리면 "전부 완료" 판정이 새 계층을 안 보고 생략을 결정한다. */
     private static final Set<LayerName> RUN_LAYERS = Set.of(
             LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
+            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST,
+            LayerName.OVERVIEW);
+
+    /*
+     * 「분석 완료」로 보려면 DONE 이어야 하는 계층.
+     *
+     * <h2>RUN_LAYERS 와 갈라 두는 이유 — 개요는 없어도 회의가 완성이다</h2>
+     * 예전에는 두 집합이 같았고 그게 맞았다(계층 전부가 필수였다). OVERVIEW 가 붙으면서
+     * 처음으로 **돌리지만 없어도 되는 계층**이 생겼다.
+     *
+     * 개요를 필수로 두면 개요 생성 실패가 회의를 「미완」으로 만들고, 그러면 두 가지가 함께
+     * 망가진다 — 화면이 그 회의를 「분석 중단」으로 보여주고(사람이 다시 누른다), ANLZ-01
+     * 재실행이 "이미 완료" 생략을 지나지 않아 **열 계층의 토큰을 전부 다시 태운다.** 표시용
+     * 문장 하나 때문에.
+     *
+     * 그래서 개요만 뺀다. 실패해도 개요 칸은 비지 않는다 — L3 가 이어 붙인 값이 남아 있다.
+     *
+     * ⚠ 계층을 추가할 때 **기본은 이쪽에도 넣는 것**이다. 여기서 빼는 것은 "없어도 회의가
+     * 쓸 만한가"에 그렇다고 답할 수 있을 때뿐이다. 뺀 계층의 실패는 아무 화면에도 안 뜬다
+     * (CAP-06 의 계층 목록에만 남는다).
+     */
+    private static final Set<LayerName> REQUIRED_FOR_DONE = Set.of(
+            LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
             LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
 
     /*
@@ -151,12 +175,20 @@ public class AnalysisOrchestrator {
      */
     private static final List<LayerName> PIPELINE = List.of(
             LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
-            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
+            LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST,
+            LayerName.OVERVIEW);
 
     static {
-        // 둘이 갈리면 "전부 완료" 판정과 재개 순서가 서로 다른 계층 목록을 보게 된다.
+        // 둘이 갈리면 재개 순서와 실제 도는 계층이 서로 다른 목록을 보게 된다.
         if (!Set.copyOf(PIPELINE).equals(RUN_LAYERS) || PIPELINE.size() != RUN_LAYERS.size()) {
             throw new IllegalStateException("PIPELINE 과 RUN_LAYERS 가 다릅니다.");
+        }
+        /*
+         * 필수 집합은 도는 계층의 부분집합이어야 한다. 안 도는 계층을 필수로 두면 그 회의는
+         * **영원히 완료가 되지 않는다** — 아무도 그 행을 만들지 않으므로 DONE 이 될 방법이 없다.
+         */
+        if (!RUN_LAYERS.containsAll(REQUIRED_FOR_DONE)) {
+            throw new IllegalStateException("REQUIRED_FOR_DONE 에 돌지 않는 계층이 있습니다.");
         }
     }
 
@@ -827,11 +859,84 @@ public class AnalysisOrchestrator {
             return distributed.toAnalysisOutcome(LayerName.DIST);
         }
 
-        // 분석이 끝까지 성공했다. 이 실행이 쓴 토큰을 미터링 원장에 1회 기록한다.
+        // ── OVERVIEW · 회의 개요 ─────────────────────────────────────────────────
+        /*
+         * 개요 문장을 짧게 다시 쓴다. **맨 끝이고, 실패해도 회의는 완료다.**
+         *
+         * <h2>지금 개요 칸에는 무엇이 있나</h2>
+         * L3 가 주제 요약을 이어 붙여 넣어 뒀다("· 주제이름\n요약" × 주제 수). 틀린 값은 아니지만
+         * 「개요」가 아니라 목차와 본문이다 — 주제가 8개면 문단 8개가 개요 자리에 들어간다.
+         *
+         * <h2>왜 DIST 뒤인가</h2>
+         * 이 파이프라인 산출물 중 가장 덜 중요하다. 앞에 두면 개요 실패가 액션 분배까지 막는다 —
+         * 읽을 문장 하나 때문에 사람 보드에 할 일이 안 꽂히는 것이다.
+         *
+         * <h2>실패를 outcome 으로 올리지 않는다</h2>
+         * 다른 계층과 유일하게 다른 점이다. 실패하면 개요 칸에 위 이어 붙인 값이 그대로 남으므로
+         * 잃는 것이 없고, 회의를 실패시키면 사람이 「분석 중단」을 보고 다시 눌러 **열 계층의
+         * 토큰을 전부 다시 태운다.** 계층 행은 FAILED 로 남아 CAP-06 에 보이고 재개로 이 계층만
+         * 다시 돌릴 수 있다 — 정보를 숨기는 것이 아니라 회의 결과에 반영하지 않는 것이다.
+         *
+         * ⚠ Python 엔드포인트가 아직 없다. 404 가 AiLayerException 이 되어 이 계층만 FAILED 로
+         * 남고 파이프라인은 끝까지 돈다 — 그게 위 설계가 의도한 동작이다.
+         */
+        LayerOutcome<String> overviewed = runLayer(meetingId, runSeq, LayerName.OVERVIEW, sink -> {
+            /*
+             * 입력을 **DB 에서 다시 읽는다.** 방금 L3 가 만든 산문을 넘기지 않는 이유가 둘이다.
+             *   ① 재개(ANLZ-02)로 이 계층만 돌리면 L3 결과가 메모리에 없다
+             *   ② 개요 칸은 이 계층이 덮는 자리다. 그 값을 다음 실행이 입력으로 읽으면
+             *      **요약의 요약**이 되고, 돌릴수록 내용이 사라진다
+             * 주제 이름과 확정 항목은 meeting_decision 에 있어 몇 번 돌려도 같다.
+             */
+            List<AiLayerPort.MeetingTopicDigest> digests = topicDigestsOf(companyId, meetingId);
+            if (digests.isEmpty()) {
+                // 요약할 것이 없다. 부르면 빈 입력에 돈만 쓰고 빈 개요가 돌아온다.
+                log.info("개요 생략 — 요약할 주제가 없다. meetingId={}", meetingId);
+                return new Accumulated<>(null, LayerRun.empty());
+            }
+
+            SummarizeMeetingResult result = aiLayerPort.summarizeMeeting(tenantId, meetingId, digests, participants);
+            sink.add(result.run());
+
+            if (!result.hasOverview()) {
+                /*
+                 * 빈 응답으로 덮지 않는다. 이어 붙인 값보다 나쁘다 — 개요 칸이 통째로 비고,
+                 * 화면은 요약이 없는 회의처럼 보인다. 던지지도 않는다(개요 하나로 회의를
+                 * 실패시키지 않는다). 계층은 DONE 이고 값만 그대로 둔다.
+                 */
+                log.warn("개요가 비어 돌아왔다 — 이어 붙인 값을 유지한다. meetingId={}", meetingId);
+                return new Accumulated<>(null, sink.spent());
+            }
+
+            boolean replaced = meetingSummaryRepository.replaceOverview(
+                    companyId, meetingId, result.overview().strip(),
+                    result.run().modelName(), result.run().promptVersion());
+            if (!replaced) {
+                // L3 뒤라 요약 행이 반드시 있다. 없으면 그 사이에 회의가 지워진 것이다.
+                log.warn("개요를 덮을 요약 행이 없다 — meetingId={}", meetingId);
+            }
+            return new Accumulated<>(result.overview(), sink.spent());
+        });
+        /*
+         * succeeded() 를 보지 않는다. 위 주석대로 이 계층의 실패는 회의 결과를 바꾸지 않는다.
+         * 실패 사실은 analysis_layer 에 남아 CAP-06 이 보여준다.
+         */
+        if (!overviewed.succeeded()) {
+            log.warn("개요 계층 실패 — 회의는 완료로 둔다. 개요는 주제 요약을 이어 붙인 값이다. meetingId={}",
+                    meetingId);
+        }
+
+        /*
+         * 필수 계층이 전부 끝났다. 이 실행이 쓴 토큰을 미터링 원장에 1회 기록한다.
+         *
+         * 개요가 실패했어도 여기까지 온다. 그때 overviewed.run() 은 LayerRun.empty() 라
+         * (LayerOutcome#failure) 원장에 0 이 더해진다 — 실패한 호출의 토큰이 빠지는 것은
+         * 다른 계층의 실패에서도 같다(그쪽은 이 줄에 오지도 못한다).
+         */
         recordTokenUsage(companyId, meetingId, runSeq, java.util.Arrays.asList(
                 attributed.run(), resolved.run(), segmented.run(), summarized.run(),
                 gated.run(), extracted.run(), verified.run(), checked.run(),
-                gated7.run(), distributed.run()));
+                gated7.run(), distributed.run(), overviewed.run()));
 
         long autoConfirmed = gated7.value().values().stream()
                 .filter(AutoConfirmGate.Verdict::autoConfirmed).count();
@@ -1046,7 +1151,19 @@ public class AnalysisOrchestrator {
                 .filter(state -> state.status() == LayerStatus.DONE)
                 .map(AnalysisLayerRepository.LayerState::layer)
                 .collect(Collectors.toSet());
-        return done.containsAll(RUN_LAYERS);
+        // 개요(OVERVIEW)는 보지 않는다 — 없어도 완료다(REQUIRED_FOR_DONE 주석).
+        return done.containsAll(REQUIRED_FOR_DONE);
+    }
+
+    /*
+     * 「완료」로 보려면 DONE 이어야 하는 계층. 화면에 상태를 접어 보여주는 쪽이 쓴다
+     * (MeetingSummaryQueryService).
+     *
+     * pipelineLayers() 를 쓰면 안 되는 자리다 — 그건 순서를 뜻하는 목록이고 개요까지 들어 있다.
+     * 완료 판정에 그걸 쓰면 개요가 실패한 회의가 「분석 중단」으로 보인다.
+     */
+    public static Set<LayerName> requiredLayersForDone() {
+        return REQUIRED_FOR_DONE;
     }
 
     /*
@@ -1248,7 +1365,40 @@ public class AnalysisOrchestrator {
                 .toList();
     }
 
-    /* 회의 전체 개요는 주제 요약을 이어 붙여 만든다. 회의 단위 요약 계층은 아직 없다. */
+    /*
+     * 개요 계층에 넘길 주제 묶음을 DB 에서 만든다.
+     *
+     * <h2>확정된 항목만 담는다</h2>
+     * 논의 중(DISCUSSED)·미판정(null)인 항목을 개요에 넣으면 **합의되지 않은 것이 합의된 것처럼
+     * 읽힌다.** 개요는 회의를 대표하는 문장이라 그 오해가 가장 크게 남는다. L4 가 CONFIRMED 만
+     * 받는 것과 같은 규칙이다.
+     *
+     * 그래서 확정 항목이 하나도 없는 회의는 주제가 있어도 빈 목록이 되고, 호출자가 계층을
+     * 건너뛴다 — 요약할 결론이 없는 회의에 돈을 쓰지 않는다.
+     */
+    private List<AiLayerPort.MeetingTopicDigest> topicDigestsOf(long companyId, long meetingId) {
+        return meetingSummaryRepository.findByMeeting(companyId, meetingId)
+                .map(view -> view.topics().stream()
+                        .map(topic -> new AiLayerPort.MeetingTopicDigest(
+                                topic.topicSeq(),
+                                topic.topic(),
+                                topic.items().stream()
+                                        .filter(item -> GateStatus.CONFIRMED.name().equals(item.gateStatus()))
+                                        .map(item -> new AiLayerPort.DigestItem(item.itemType(), item.content()))
+                                        .toList()))
+                        // 확정 항목이 없는 주제는 아예 넘기지 않는다. 이름만 넘기면 모델이
+                        // 내용을 지어낼 여지가 생긴다.
+                        .filter(digest -> !digest.items().isEmpty())
+                        .toList())
+                .orElseGet(List::of);
+    }
+
+    /*
+     * 회의 전체 개요의 **초깃값**을 주제 요약을 이어 붙여 만든다.
+     *
+     * OVERVIEW 계층이 성공하면 이 값을 짧은 개요로 덮는다. 실패하면 이 값이 그대로 남는다 —
+     * 그래서 이 이어 붙이기는 없애면 안 되는 폴백이다(LayerName.OVERVIEW 주석).
+     */
     private void appendOverview(StringBuilder overview, TopicSegment topic, String summary) {
         if (summary == null || summary.isBlank()) {
             return;

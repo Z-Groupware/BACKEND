@@ -25,6 +25,7 @@ import com.module06.backend.capture.application.port.out.GateResult;
 import com.module06.backend.capture.application.port.out.LayerRun;
 import com.module06.backend.capture.application.port.out.ResolveReferenceResult;
 import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
+import com.module06.backend.capture.application.port.out.SummarizeMeetingResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.VerifyTupleResult;
 import com.module06.backend.capture.application.service.AiLayerException;
@@ -41,7 +42,11 @@ import com.module06.backend.capture.domain.model.Utterance;
 import com.module06.backend.capture.domain.model.VerifyVerdict;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.AssignmentTupleDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.ConfirmedItemDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.DigestItemDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.ExtractTuplesRequestDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.MeetingTopicDigestDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.SummarizeMeetingRequestDto;
+import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.SummarizeMeetingResponseDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.ExtractTuplesResponseDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.GateCandidateDto;
 import com.module06.backend.capture.infrastructure.ai.dto.AiLayerDtos.GateRequestDto;
@@ -127,6 +132,28 @@ public class AiLayerHttpAdapter implements AiLayerPort {
 
         return new SegmentTopicsResult(
                 toTopicSegments(response.topics()),
+                toLayerRun(response.usage(), response.model(), response.promptVersion()));
+    }
+
+    /*
+     * 회의 개요. Python 쪽 엔드포인트가 **아직 없다.**
+     *
+     * 붙이기 전까지 404 가 오고 그건 AiLayerException(재시도 불가)이 된다. 오케스트레이터가
+     * 이 계층의 실패를 회의 실패로 올리지 않으므로(LayerName.OVERVIEW 주석) 파이프라인은 끝까지
+     * 돌고 개요 칸에는 주제 요약을 이어 붙인 값이 남는다 — Spring 을 먼저 올려도 안전한 이유다.
+     */
+    @Override
+    public SummarizeMeetingResult summarizeMeeting(long tenantId, long meetingId,
+                                                   List<MeetingTopicDigest> topics,
+                                                   List<Participant> participants) {
+        SummarizeMeetingResponseDto response = post(
+                "/internal/layers/overview/summarize-meeting",
+                new SummarizeMeetingRequestDto(tenantId, meetingId,
+                        toTopicDigestDtos(topics), toParticipantDtos(participants), null),
+                SummarizeMeetingResponseDto.class);
+
+        return new SummarizeMeetingResult(
+                response.overview(),
                 toLayerRun(response.usage(), response.model(), response.promptVersion()));
     }
 
@@ -333,6 +360,21 @@ public class AiLayerHttpAdapter implements AiLayerPort {
     private List<ParticipantDto> toParticipantDtos(List<Participant> participants) {
         return participants.stream()
                 .map(p -> new ParticipantDto(p.personId(), p.name()))
+                .toList();
+    }
+
+    /*
+     * itemType 을 name() 으로 보낸다 — TopicItemDto 와 같은 규약이다. Python 쪽이 문자열
+     * Literal 로 받으므로 값이 갈리면 422 가 된다.
+     */
+    private List<MeetingTopicDigestDto> toTopicDigestDtos(List<MeetingTopicDigest> topics) {
+        return topics.stream()
+                .map(topic -> new MeetingTopicDigestDto(
+                        topic.topicSeq(),
+                        topic.topic(),
+                        topic.items().stream()
+                                .map(item -> new DigestItemDto(item.itemType().name(), item.content()))
+                                .toList()))
                 .toList();
     }
 
