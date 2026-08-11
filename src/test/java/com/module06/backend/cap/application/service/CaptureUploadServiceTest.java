@@ -47,6 +47,7 @@ class CaptureUploadServiceTest {
     // presign이 발급한 URL 개수·complete가 저장한 청크·하트비트 refresh 호출 여부를 기록한다.
     private final List<RecordingPart> savedParts = new ArrayList<>();
     private final boolean[] heartbeatRefreshed = new boolean[1];
+    private final int[] quotaLookupCount = new int[1];
 
     // ── presign(issuePartUploadUrls) ──
 
@@ -140,6 +141,8 @@ class CaptureUploadServiceTest {
         IssuePartUploadUrlsUseCase.Result result = service.issuePartUploadUrls(issueCmd(1));
 
         assertThat(result.parts()).hasSize(1);
+        // 진행 중인 회의는 매 15초 재호출마다 불필요한 한도 조회를 하면 안 된다(CodeRabbit 지적).
+        assertThat(quotaLookupCount[0]).isZero();
     }
 
     /*
@@ -321,6 +324,7 @@ class CaptureUploadServiceTest {
                                          boolean overQuota, boolean quotaLookupThrows) {
         savedParts.clear();
         heartbeatRefreshed[0] = false;
+        quotaLookupCount[0] = 0;
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -365,6 +369,11 @@ class CaptureUploadServiceTest {
             @Override
             public CaptureUploadState save(CaptureUploadState toSave) {
                 return toSave;
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
 
             @Override
@@ -456,6 +465,7 @@ class CaptureUploadServiceTest {
                 audioAssemblyPort, cutDetectionPort, createSttBlockPort, stateRepo, sttBlockFormedWriter);
 
         StorageQuotaPort storageQuotaPort = quotaCompanyId -> {
+            quotaLookupCount[0]++;
             if (quotaLookupThrows) {
                 throw new BusinessException(MeteringErrorCode.MT_STORAGE_PLAN_NOT_FOUND);
             }

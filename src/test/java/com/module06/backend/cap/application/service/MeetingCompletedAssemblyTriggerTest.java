@@ -194,6 +194,11 @@ class MeetingCompletedAssemblyTriggerTest {
             }
 
             @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
             public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }

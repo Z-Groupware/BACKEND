@@ -28,6 +28,7 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
+import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
@@ -87,6 +88,10 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    // 조립 완료 후 이 회의의 캡처 상태 행을 지운다(CodeRabbit 지적) — 안 지우면 같은 meetingId로
+    // presign이 다시 호출될 때(재조립·비정상 재시도 등) findByMeetingId가 여전히 값을 돌려줘
+    // "새 회의 시작" 판정(CaptureUploadService의 저장 용량 한도 확인)을 건너뛴다.
+    private final CaptureUploadStateRepository captureUploadStateRepository;
     private final Clock clock;
     private final String bucket;
 
@@ -95,6 +100,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                                             MeetingReferenceRepository meetingReferenceRepository,
                                             CapObjectStoragePort capObjectStoragePort,
                                             ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
+                                            CaptureUploadStateRepository captureUploadStateRepository,
                                             @Qualifier("meetingClock") Clock clock,
                                             CapS3Properties properties) {
         this.s3Client = s3Client;
@@ -103,6 +109,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.capObjectStoragePort = capObjectStoragePort;
         this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
+        this.captureUploadStateRepository = captureUploadStateRepository;
         this.clock = clock;
         this.bucket = properties.bucket();
     }
@@ -142,6 +149,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                 // 그 뒤 S3 삭제가 실패한 조각은 다시는 찾을 수 없는 고아 객체로 영영 남는다(CodeRabbit 지적).
                 deletePartObjectsBestEffort(parts);
                 recordingPartRepository.deleteByMeetingId(meetingId);
+                captureUploadStateRepository.deleteByMeetingId(meetingId);
 
                 log.info("회의 녹음 조립 완료 — meetingId={} durationSec={} sizeBytes={}",
                         meetingId, durationSec, sizeBytes);

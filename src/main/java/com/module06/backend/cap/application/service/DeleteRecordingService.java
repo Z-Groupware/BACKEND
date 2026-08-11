@@ -5,6 +5,7 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
+import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProcessingCompletionRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
@@ -38,6 +39,7 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
     private final ProcessingCompletionRepository processingCompletionRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    private final CaptureUploadStateRepository captureUploadStateRepository;
     private final Clock clock;
 
     public DeleteRecordingService(MeetingReferenceRepository meetingReferenceRepository,
@@ -47,6 +49,7 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
                                   ProcessingCompletionRepository processingCompletionRepository,
                                   CapObjectStoragePort capObjectStoragePort,
                                   ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
+                                  CaptureUploadStateRepository captureUploadStateRepository,
                                   @Qualifier("meetingClock") Clock clock) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
@@ -55,6 +58,7 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
         this.processingCompletionRepository = processingCompletionRepository;
         this.capObjectStoragePort = capObjectStoragePort;
         this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
+        this.captureUploadStateRepository = captureUploadStateRepository;
         this.clock = clock;
     }
 
@@ -87,6 +91,7 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
         long freedBytes = recording.getSizeBytes();
         recordingPartRepository.deleteByMeetingId(meetingId);
         recordingRepository.deleteByMeetingId(meetingId);
+        captureUploadStateRepository.deleteByMeetingId(meetingId);
         capObjectStoragePort.deleteRecording(recording.getFileUrl());
         reportStorageUsageBestEffort(companyId, meetingId);
 
