@@ -44,8 +44,9 @@ public class Action {
     private final Long teamId;
     private Long assigneeMemberId;
     private final ActionType actionType;
-    private final String title;
-    private final String description;
+    // 2026-08-11 — RVW-02 인라인 제목·내용 수정(applyHumanReview) 지원을 위해 final을 내린다.
+    private String title;
+    private String description;
     /*
      * status는 더 이상 독립적으로 쓰이는 값이 아니다 — isDone·startDate로부터 매번 다시
      * 계산해 채우는 거울(mirror)이다(2026-08-07, 이홍근·isDone 재설계). DB 컬럼은
@@ -230,8 +231,14 @@ public class Action {
      *
      * 기한을 고치면 dueDateDefaulted 를 내린다. 프로젝트 마감일로 채운 값이 아니게 되므로,
      * 그대로 두면 WRONG_DUE 집계가 "AI 가 정한 기한"과 "기본값"을 계속 섞어 본다(V2.6.4).
+     *
+     * 2026-08-11 — newTitle·newDescription 추가(이홍근 요청, 검토 화면 인라인 제목·내용 수정
+     * 지원). 담당자·기한과 같은 규칙 — null이면 안 바꾼다, 빈 문자열로 지우는 동작은 없다.
      */
-    public void applyHumanReview(Long newAssigneeMemberId, LocalDate newDueDate, ActionReviewStatus newReviewStatus) {
+    public void applyHumanReview(
+            Long newAssigneeMemberId, LocalDate newDueDate, ActionReviewStatus newReviewStatus,
+            String newTitle, String newDescription
+    ) {
         if (newReviewStatus == null) {
             throw new IllegalArgumentException("newReviewStatus는 null일 수 없습니다.");
         }
@@ -241,6 +248,12 @@ public class Action {
         if (newDueDate != null) {
             this.dueDate = newDueDate;
             this.dueDateDefaulted = false;
+        }
+        if (newTitle != null) {
+            this.title = newTitle;
+        }
+        if (newDescription != null) {
+            this.description = newDescription;
         }
         this.reviewStatus = newReviewStatus;
         /*
