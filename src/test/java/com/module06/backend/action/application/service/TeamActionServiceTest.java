@@ -19,6 +19,7 @@ import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.AttachmentReference;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository.MeetingReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.MemberReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
@@ -66,7 +67,7 @@ class TeamActionServiceTest {
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
-                .thenReturn(List.of(new TeamReference(TEAM, "개발팀")));
+                .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
 
         var result = service.getTeamActions(TEAM, null, null, "desc", 0, 20);
 
@@ -99,7 +100,7 @@ class TeamActionServiceTest {
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
-                .thenReturn(List.of(new TeamReference(TEAM, "개발팀")));
+                .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
         when(actionReferenceRepository.findProjectAttachments(PROJECT))
                 .thenReturn(List.of(new AttachmentReference(1L, "기획서.pdf", "https://s3/x", 1024L, LocalDateTime.now())));
 
@@ -109,6 +110,55 @@ class TeamActionServiceTest {
         assertThat(detail.teamName()).isEqualTo("개발팀");
         assertThat(detail.attachments()).hasSize(1);
         assertThat(detail.attachments().get(0).fileName()).isEqualTo("기획서.pdf");
+    }
+
+    @Test
+    void getTeamActionDetailDerivesAssigneeFromTeamLeaderAndIncludesSourceMeeting() {
+        TeamActionService service = teamActionService();
+        Action action = Action.reconstitute(
+                10L, COMPANY, PROJECT, null, 200L, TEAM, null,
+                ActionType.TEAM, "팀 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
+                ActionReviewStatus.PENDING, null, null, null, false,
+                null, null, null
+        );
+        LocalDateTime scheduledAt = LocalDateTime.of(2026, 8, 12, 14, 0);
+        when(actionRepository.findById(10L)).thenReturn(Optional.of(action));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
+        when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
+                .thenReturn(List.of(new TeamReference(TEAM, "개발팀", 5L)));
+        when(actionReferenceRepository.findMemberReferences(List.of(5L)))
+                .thenReturn(List.of(new MemberReference(5L, "홍길동", null)));
+        when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
+                .thenReturn(List.of(new MeetingReference(200L, TEAM, null, "기획 회의", scheduledAt)));
+        when(actionReferenceRepository.findProjectAttachments(PROJECT)).thenReturn(List.of());
+
+        TeamActionDetail detail = service.getTeamActionDetail(COMPANY, 10L);
+
+        assertThat(detail.assigneeName()).isEqualTo("홍길동");
+        assertThat(detail.assigneeRoleLabel()).isEqualTo("개발팀장");
+        assertThat(detail.sourceMeetingTitle()).isEqualTo("기획 회의");
+        assertThat(detail.sourceMeetingScheduledAt()).isEqualTo(scheduledAt);
+    }
+
+    @Test
+    void getTeamActionDetailLeavesAssigneeNullWhenTeamLeaderIsVacant() {
+        TeamActionService service = teamActionService();
+        Action action = teamAction(10L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findById(10L)).thenReturn(Optional.of(action));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
+        when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
+                .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
+        when(actionReferenceRepository.findProjectAttachments(PROJECT)).thenReturn(List.of());
+
+        TeamActionDetail detail = service.getTeamActionDetail(COMPANY, 10L);
+
+        assertThat(detail.assigneeName()).isNull();
+        assertThat(detail.assigneeRoleLabel()).isNull();
+        assertThat(detail.sourceMeetingTitle()).isNull();
+        assertThat(detail.sourceMeetingScheduledAt()).isNull();
+        verify(actionReferenceRepository, never()).findMemberReferences(anyList());
     }
 
     @Test

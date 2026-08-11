@@ -87,7 +87,7 @@ class TeamActionControllerTest {
     void detailIsAccessibleByAnyMemberAndUsesCompanyIdFromToken() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "MEMBER");
         when(getTeamActionDetailUseCase.getTeamActionDetail(eq(COMPANY), eq(10L)))
-                .thenReturn(new TeamActionDetail(teamAction(), "GOODS", "개발팀", List.of()));
+                .thenReturn(new TeamActionDetail(teamAction(), "GOODS", "개발팀", null, null, null, null, List.of()));
 
         mockMvc.perform(get("/api/team/actions/10"))
                 .andExpect(status().isOk())
