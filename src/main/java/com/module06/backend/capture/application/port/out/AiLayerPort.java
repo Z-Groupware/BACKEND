@@ -34,8 +34,13 @@ public interface AiLayerPort {
      * 그래서 L2 **앞에** 돈다. 해소 결과가 L2·L3·L4 가 보는 발화에 반영되어야 하고, 순서를
      * 뒤집으면 L4 가 이미 담당자를 정한 뒤에 대명사가 풀린다.
      *
-     * @param targetUtteranceIds 해소 대상. 비워 보내면 전체 발화를 대상으로 본다 —
-     *                           지시어 후보를 추리는 코드가 아직 없어 지금은 항상 비운다.
+     * @param targetUtteranceIds 해소 대상. 비워 보내면 전체 발화를 대상으로 본다.
+     *                           ReferenceCandidateSelector 가 고른다 — 하나도 안 걸리면 비어서
+     *                           오고, 그때는 전체가 대상이 된다.
+     *                           ⚠ **utterances 는 좁히지 않는다.** 이 값이 바꾸는 것은 응답
+     *                           스키마의 utteranceId 범위와 프롬프트의 대상 표시뿐이고, 문맥은
+     *                           통째로 실려야 경계를 넘는 선행사를 풀 수 있다. 입력 토큰은
+     *                           줄지 않는다.
      */
     ResolveReferenceResult resolveReference(
             long tenantId,
