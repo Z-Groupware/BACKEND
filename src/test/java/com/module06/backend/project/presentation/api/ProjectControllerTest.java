@@ -25,6 +25,8 @@ import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
+import com.module06.backend.project.application.usecase.GetOwnerDashboardSummaryUseCase;
+import com.module06.backend.project.application.usecase.GetOwnerDashboardSummaryUseCase.OwnerDashboardSummary;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase.ProjectDetailResult;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
@@ -95,6 +97,9 @@ class ProjectControllerTest {
 
     @MockitoBean
     private GetProjectTimelineUseCase getProjectTimelineUseCase;
+
+    @MockitoBean
+    private GetOwnerDashboardSummaryUseCase getOwnerDashboardSummaryUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -348,6 +353,21 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.data[0].isDelayed").value(true));
 
         verify(getProjectTimelineUseCase).getTimeline(1L, 100L);
+    }
+
+    @Test
+    @DisplayName("오너 대시보드 요약은 토큰의 회사로 조회한다 — 이슈 #352")
+    void getOwnerDashboardSummaryTakesCompanyFromToken() throws Exception {
+        authenticateAs(1L, 3L);
+        when(getOwnerDashboardSummaryUseCase.getOwnerDashboardSummary(1L))
+                .thenReturn(new OwnerDashboardSummary(3L, 1L));
+
+        mockMvc.perform(get("/api/projects/dashboard-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalProjectCount").value(3))
+                .andExpect(jsonPath("$.data.dueSoonProjectCount").value(1));
+
+        verify(getOwnerDashboardSummaryUseCase).getOwnerDashboardSummary(1L);
     }
 
     /*
