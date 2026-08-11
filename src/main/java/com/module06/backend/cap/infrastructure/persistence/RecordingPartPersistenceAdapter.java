@@ -6,6 +6,7 @@ import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.global.exception.BusinessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -43,7 +44,17 @@ public class RecordingPartPersistenceAdapter implements RecordingPartRepository 
     }
 
     // 이 회의의 잔여 청크 조각을 모두 삭제(하드 삭제).
+    //
+    // @Transactional이 필요하다(CodeRabbit 지적, 실제로 재현·확인됨) — Spring Data는 save()·
+    // deleteById() 같은 내장 CRUD 메서드는 SimpleJpaRepository 안에서 자체적으로 @Transactional을
+    // 이미 갖고 있어 트랜잭션 없이 불러도 동작하지만, deleteByMeetingId 같은 파생 쿼리 메서드는
+    // 그 대상이 아니다. RecordingAssemblyS3FfmpegAdapter.startAssembly()가 이 메서드를
+    // 트랜잭션 없는 컨텍스트(@Async 디스패처 뒤, 그 어디에도 @Transactional 없음)에서 부르는데,
+    // 여기 트랜잭션이 없으면 jakarta.persistence.TransactionRequiredException이 나고 바깥
+    // catch(RuntimeException)에 조용히 삼켜져 "조립 실패" 로그만 남긴다 — 이 세션 코드가 아니라
+    // 원래 있던 잠재 버그였다(직접 재현 테스트로 확인).
     @Override
+    @Transactional
     public void deleteByMeetingId(Long meetingId) {
         springDataRecordingPartRepository.deleteByMeetingId(meetingId);
     }

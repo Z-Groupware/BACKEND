@@ -32,7 +32,12 @@ public class CaptureUploadStatePersistenceAdapter implements CaptureUploadStateR
         return saved.toDomain();
     }
 
+    // @Transactional이 필요하다(CodeRabbit 지적, 실제로 재현·확인됨 — RecordingPartPersistenceAdapter.
+    // deleteByMeetingId의 동일한 이유 참고). 파생 삭제 쿼리는 save()와 달리 자체 트랜잭션이 없어,
+    // RecordingAssemblyS3FfmpegAdapter처럼 트랜잭션 없는 컨텍스트에서 부르면
+    // TransactionRequiredException이 난다.
     @Override
+    @Transactional
     public void deleteByMeetingId(Long meetingId) {
         springDataCaptureUploadStateRepository.deleteByMeetingId(meetingId);
     }
