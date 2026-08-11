@@ -13,6 +13,14 @@ public interface CaptureUploadStateRepository {
     /** 상태 저장(신규/갱신 둘 다) */
     CaptureUploadState save(CaptureUploadState state);
 
+    /**
+     * 이 회의의 상태 행을 지운다 — 조립 완료(RecordingAssemblyS3FfmpegAdapter)·녹음 삭제
+     * (DeleteRecordingService) 시점에 호출한다. 안 지우면 이미 끝난 회의의 meetingId로 presign을
+     * 다시 부를 때 findByMeetingId가 여전히 값을 돌려줘 "새 회의 시작" 판정(저장 용량 한도 확인)을
+     * 건너뛴다(CodeRabbit 지적).
+     */
+    void deleteByMeetingId(Long meetingId);
+
     /*
      * 다음 STT 블록 순번을 원자적으로 예약한다(CAS) — SttBlockCutTrigger가 ffmpeg·AI-01 같은
      * 무거운 작업을 시작하기 **전에** 부른다(CodeRabbit 지적: 두 트리거가 동시에 같은 블록을
