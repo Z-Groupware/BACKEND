@@ -19,15 +19,18 @@ import com.module06.backend.cap.domain.repository.RecordingPartRepository;
  * TransactionRequiredException이 날 수 있다고 지적(RecordingAssemblyS3FfmpegAdapter가 비-트랜잭션
  * 컨텍스트에서 이 메서드를 부른다는 근거)했다 — 그 실제 호출 조건을 그대로 재현해 검증한다.
  *
- * 클래스 레벨 @Transactional을 의도적으로 안 붙인다. Spring Data JPA 리포지토리는 기본적으로
- * 프록시 자체가 파생 쿼리 메서드에도 자체 트랜잭션을 감싸므로(enableDefaultTransactions,
- * 기본값 true — 이 프로젝트는 그 값을 끈 적 없음, application.yaml/설정 어디에도
- * enableDefaultTransactions=false가 없다), 호출자 쪽에 트랜잭션이 전혀 없어도 예외가 나면 안 된다.
- * 실제로 RecordingPartPersistenceAdapter.deleteByMeetingId도 동일 패턴(무-@Transactional)으로
- * 같은 비-트랜잭션 어댑터(RecordingAssemblyS3FfmpegAdapter)에서 이미 문제없이 쓰이고 있다.
+ * 클래스 레벨 @Transactional을 의도적으로 안 붙인다 — RecordingAssemblyS3FfmpegAdapter가 실제로
+ * 이 어댑터들을 부르는 조건(호출자 쪽에 트랜잭션이 전혀 없음)을 그대로 재현해야 하기 때문이다.
+ *
+ * 처음엔 "Spring Data가 파생 쿼리도 기본적으로 트랜잭션을 감싸준다"고 가정하고 이 테스트를
+ * 작성했는데, 실제로 돌려보니 그 가정이 틀렸다(TransactionRequiredException 발생) — CodeRabbit
+ * 지적이 맞았다. CaptureUploadStatePersistenceAdapter.deleteByMeetingId·
+ * RecordingPartPersistenceAdapter.deleteByMeetingId 둘 다 어댑터 자체에 @Transactional을
+ * 추가해서 고쳤고, 이 테스트는 이제 그 수정이 실제로 트랜잭션 없는 호출 조건에서도 동작하는지
+ * 검증하는 회귀 테스트다.
  */
 @SpringBootTest
-@DisplayName("capture_upload_state 삭제 — 비-트랜잭션 호출 컨텍스트 재현(CodeRabbit 지적 검증)")
+@DisplayName("capture_upload_state·recording_part 삭제 — 비-트랜잭션 호출자 조건에서 어댑터의 @Transactional 검증")
 class CaptureUploadStateDeleteNonTransactionalTest {
 
     @Autowired
@@ -44,26 +47,28 @@ class CaptureUploadStateDeleteNonTransactionalTest {
 
     /*
      * RecordingAssemblyS3FfmpegAdapter.startAssembly()는 비-트랜잭션 컨텍스트에서
-     * recordingPartRepository.deleteByMeetingId도 부른다(우리가 새로 추가한 캡처 상태 삭제
-     * 바로 위 줄) — 같은 문제가 이미 있던 코드에도 있는지 같이 확인한다.
+     * recordingPartRepository.deleteByMeetingId도 부른다(캡처 상태 삭제 바로 위 줄) — 같은
+     * 조건에서 어댑터의 @Transactional이 실제로 동작하는지 대조군으로 같이 확인한다.
      */
     @Test
-    @DisplayName("[대조군] recording_part 삭제도 트랜잭션 없이 부르면 마찬가지로 실패하는지 확인한다")
-    void recordingPartDeleteAlsoRequiresTransaction() {
+    @DisplayName("[대조군] recording_part 삭제도 호출자에 트랜잭션이 없어도 정상 삭제된다")
+    void recordingPartDeleteSucceedsWithoutSurroundingTransaction() {
         recordingPartRepository.save(
                 RecordingPart.create(700L, 0, 1, "stt-temp/org-1/meeting-700/segments/0/parts/0001.webm",
                         "audio/webm", 1_000L, 7L));
+        assertThat(recordingPartRepository.findSeqsInSegment(700L, 0)).containsExactly(1);
 
         assertThatCode(() -> recordingPartRepository.deleteByMeetingId(700L))
                 .as("RecordingAssemblyS3FfmpegAdapter가 실제로 호출하는 것과 동일한 무-트랜잭션 조건")
                 .doesNotThrowAnyException();
+
+        assertThat(recordingPartRepository.findSeqsInSegment(700L, 0)).isEmpty();
     }
 
     /*
      * 저장도, 삭제도 전부 테스트 메서드 바깥에 아무 트랜잭션 없이(클래스 레벨 @Transactional
      * 없음) 그대로 호출한다 — RecordingAssemblyS3FfmpegAdapter.startAssembly()가 부르는 상황과
-     * 동일하다. TransactionRequiredException 없이 정상 삭제되면 CodeRabbit 지적은 이 코드베이스의
-     * 실제 설정(기본 Spring Data 트랜잭션)에서는 해당하지 않는 것으로 확인된다.
+     * 동일하다. 어댑터의 @Transactional 덕분에 TransactionRequiredException 없이 정상 삭제된다.
      */
     @Test
     @DisplayName("호출자에 트랜잭션이 전혀 없어도 예외 없이 삭제된다")
