@@ -128,7 +128,7 @@ class ActiveCaptureQueryRepositoryAdapterTest {
 
     /* 회의의 캡처 상태 한 행을 저장한다(녹음자·세그먼트·마지막 청크 지정). */
     private void saveCapture(Long meetingId, int segmentSeq, Long recorderId, int lastSeq) {
-        CaptureUploadState state = CaptureUploadState.restore(meetingId, segmentSeq, recorderId, lastSeq, 0, 0L, 0L, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(meetingId, segmentSeq, recorderId, lastSeq, 0, 0L, null, null);
         springDataCaptureUploadStateRepository.save(CaptureUploadStateJpaEntity.fromDomain(state));
     }
 }

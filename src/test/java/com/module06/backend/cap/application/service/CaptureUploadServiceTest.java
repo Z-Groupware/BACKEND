@@ -3,9 +3,6 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -30,8 +27,6 @@ import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.capture.application.port.in.CreateSttBlockPort;
 import com.module06.backend.global.exception.BusinessException;
-import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
-import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 import com.module06.backend.metering.application.port.in.StorageQuotaPort;
 import com.module06.backend.metering.application.result.StorageQuotaStatusResult;
 import com.module06.backend.metering.domain.exception.MeteringErrorCode;
@@ -48,13 +43,10 @@ class CaptureUploadServiceTest {
     private static final long MEETING_ID = 500L;
     private static final long COMPANY_ID = 1L;
     private static final long CALLER_ID = 7L;
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(Instant.parse("2026-08-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     // presign이 발급한 URL 개수·complete가 저장한 청크·하트비트 refresh 호출 여부를 기록한다.
     private final List<RecordingPart> savedParts = new ArrayList<>();
     private final boolean[] heartbeatRefreshed = new boolean[1];
-    private final List<ReportMeetingStorageUsageCommand> reportedUsages = new ArrayList<>();
 
     // ── presign(issuePartUploadUrls) ──
 
@@ -266,12 +258,6 @@ class CaptureUploadServiceTest {
         assertThat(saved.getUploaderMemberId()).isEqualTo(CALLER_ID);
         assertThat(existing.getLastSeq()).isEqualTo(1);
         assertThat(heartbeatRefreshed[0]).isTrue();
-
-        // 저장 용량 미터링에 이 회의의 누적 사용량이 report됨.
-        assertThat(reportedUsages).hasSize(1);
-        assertThat(reportedUsages.get(0).companyId()).isEqualTo(COMPANY_ID);
-        assertThat(reportedUsages.get(0).meetingId()).isEqualTo(MEETING_ID);
-        assertThat(reportedUsages.get(0).usedBytes()).isEqualTo(1_000_000L);
     }
 
     /*
@@ -335,7 +321,6 @@ class CaptureUploadServiceTest {
                                          boolean overQuota, boolean quotaLookupThrows) {
         savedParts.clear();
         heartbeatRefreshed[0] = false;
-        reportedUsages.clear();
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -476,10 +461,9 @@ class CaptureUploadServiceTest {
             }
             return new StorageQuotaStatusResult(quotaCompanyId, 0L, 1L, overQuota);
         };
-        ReportMeetingStorageUsagePort reportPort = command -> reportedUsages.add(command);
 
         return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, sessionRef, writer,
-                sttBlockCutTrigger, storageQuotaPort, reportPort, FIXED_CLOCK);
+                sttBlockCutTrigger, storageQuotaPort);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

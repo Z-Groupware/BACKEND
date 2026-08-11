@@ -13,18 +13,14 @@ import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepo
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
-import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
-import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 import com.module06.backend.metering.application.port.in.StorageQuotaPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -51,13 +47,11 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     // 10분/40청크 자동 블록 트리거(비동기, best-effort) — 이 호출은 즉시 반환하고 실제 파이프라인은
     // 별도 스레드 풀에서 돈다.
     private final SttBlockCutTrigger sttBlockCutTrigger;
-    // 새 회의 녹음을 시작하기 전 회사 저장 용량 한도를 확인한다(metering 도메인 in-포트).
+    // 새 회의 녹음을 시작하기 전 회사 저장 용량 한도를 확인한다(metering 도메인 in-포트). 실제
+    // 사용량 report는 여기서 하지 않는다 — recording_part.size_bytes 컬럼 주석("용량 집계는
+    // 조립본만 센다. 조각은 청구 제외")이 원래 설계 의도라, 청크 단위가 아니라 조립·수동 업로드·
+    // 삭제(최종 산출물이 확정되는 지점)에서만 report한다.
     private final StorageQuotaPort storageQuotaPort;
-    // 청크 완료마다 이 회의의 누적 사용량을 report한다(metering 도메인 in-포트).
-    private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
-    // report의 revision(단조 증가 순번)을 KST epoch millis로 채운다 — 다른 미터링 report 지점과
-    // 동일한 Clock을 재사용한다.
-    private final Clock clock;
 
     public CaptureUploadService(MeetingReferenceRepository meetingReferenceRepository,
                                 CapMeetingAccessGuard accessGuard,
@@ -67,9 +61,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
                                 CapCaptureSessionReferenceRepository captureSessionReferenceRepository,
                                 CompletePartUploadWriter completePartUploadWriter,
                                 SttBlockCutTrigger sttBlockCutTrigger,
-                                StorageQuotaPort storageQuotaPort,
-                                ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
-                                @Qualifier("meetingClock") Clock clock) {
+                                StorageQuotaPort storageQuotaPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
@@ -79,8 +71,6 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         this.completePartUploadWriter = completePartUploadWriter;
         this.sttBlockCutTrigger = sttBlockCutTrigger;
         this.storageQuotaPort = storageQuotaPort;
-        this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
-        this.clock = clock;
     }
 
     // 회의 존재 확인 → 참석자 확인 → 녹음자 배정/검증 → 하트비트 갱신 → presigned URL count개 발급
@@ -175,7 +165,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         // 녹음자 검증(아니면 여기서 CAP_NOT_CURRENT_RECORDER) 먼저, 그 다음에야 저장을 시도한다.
         // (아직 DB에 반영 안 된 순수 인메모리 변경 — 아래서 실패하면 저장 자체가 안 되니 그냥 버려진다.)
-        state.recordUpload(command.callerId(), command.seq(), command.sizeBytes());
+        state.recordUpload(command.callerId(), command.seq());
 
         // 요청 본문의 segmentSeq/s3Key를 그대로 믿지 않는다(IDOR 방지) — 현재 세그먼트와 일치해야 하고,
         // 키는 서버가 (companyId, meetingId, segmentSeq, seq)로 재구성한 값과 정확히 같아야 한다.
@@ -201,9 +191,8 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         // recording_part.content_type(NOT NULL)을 채운다 — 확장자에서 역산(webm→audio/webm, mp4→audio/mp4).
         completePartUploadWriter.write(state, expectedKey, contentTypeForExtension(extension), command);
 
-        // DB 커밋(writer 자신의 트랜잭션) 이후 — metering 기록 실패가 청크 저장 자체를 실패시키지
-        // 않는다(AnalysisOrchestrator의 토큰 미터링 기록과 동일 원칙, best-effort).
-        reportStorageUsageBestEffort(companyId, command.meetingId(), state.getTotalBytesUploaded());
+        // 여기서는 저장 용량을 report하지 않는다 — 청크(조각)는 용량 집계 대상이 아니다
+        // (recording_part.size_bytes 컬럼 주석 참고). report는 조립·수동 업로드·삭제에서만 한다.
 
         // 10분(40청크) 누적 시 블록 자동 트리거(비동기, best-effort) — 이 메서드는 여기서 즉시 반환한다.
         sttBlockCutTrigger.triggerIfThresholdReached(companyId, command.meetingId());
@@ -237,19 +226,6 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         } catch (RuntimeException e) {
             log.warn("저장 용량 한도 조회 실패 — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}", companyId, e);
             return false;
-        }
-    }
-
-    // metering(저장 용량 미터링)에 현재 누적 사용량을 report한다 — 실패해도 청크는 이미 저장됐으니
-    // 여기서 예외가 새어나가면 안 된다(AnalysisOrchestrator.recordTokenUsage와 동일 패턴).
-    // revision은 서버 수신 시각이 아니라 cap이 계산한 시점(KST epoch millis)이다 — 네트워크 지연으로
-    // report가 뒤바뀐 순서로 도착해도 metering이 올바른 최신값을 유지한다.
-    private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long totalBytesUploaded) {
-        try {
-            reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                    companyId, meetingId, totalBytesUploaded, clock.millis()));
-        } catch (RuntimeException e) {
-            log.error("저장 용량 미터링 기록 실패 — 청크는 이미 저장됨, 원장만 누락. meetingId={}", meetingId, e);
         }
     }
 

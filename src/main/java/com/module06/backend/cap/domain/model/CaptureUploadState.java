@@ -24,16 +24,12 @@ public class CaptureUploadState {
     private int blocksFormed;
     // 마지막으로 형성된 STT 블록의 끝 지점(ms) — 다음 블록이 빈틈·겹침 없이 여기서부터 시작한다.
     private long lastBlockEndOffsetMs;
-    // 이 회의가 지금까지 업로드한 청크 총 바이트 — metering(저장 용량 미터링)에 그대로 report된다.
-    // 세그먼트가 바뀌어도(이어받기) 리셋하지 않는다 — 이전 세그먼트 청크도 지워지기 전까지는
-    // 여전히 스토리지를 차지하고 있어서, lastSeq/lastBlockEndOffsetMs와 달리 회의 전체 누적값이다.
-    private long totalBytesUploaded;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     private CaptureUploadState(Long meetingId, int segmentSeq, Long recorderPersonId, int lastSeq,
-                               int blocksFormed, long lastBlockEndOffsetMs, long totalBytesUploaded,
-                               LocalDateTime createdAt, LocalDateTime updatedAt) {
+                               int blocksFormed, long lastBlockEndOffsetMs, LocalDateTime createdAt,
+                               LocalDateTime updatedAt) {
         if (meetingId == null) {
             throw new BusinessException(CapErrorCode.CAP_REQUIRED_ID);
         }
@@ -43,22 +39,21 @@ public class CaptureUploadState {
         this.lastSeq = lastSeq;
         this.blocksFormed = blocksFormed;
         this.lastBlockEndOffsetMs = lastBlockEndOffsetMs;
-        this.totalBytesUploaded = totalBytesUploaded;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
     // 신규 생성 — 이 회의에 처음 presign을 호출한 사람을 녹음자로 삼아 세그먼트 0부터 시작
     public static CaptureUploadState startWithRecorder(Long meetingId, Long recorderPersonId) {
-        return new CaptureUploadState(meetingId, 0, recorderPersonId, 0, 0, 0L, 0L, null, null);
+        return new CaptureUploadState(meetingId, 0, recorderPersonId, 0, 0, 0L, null, null);
     }
 
     // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델)
     public static CaptureUploadState restore(Long meetingId, int segmentSeq, Long recorderPersonId, int lastSeq,
-                                             int blocksFormed, long lastBlockEndOffsetMs, long totalBytesUploaded,
+                                             int blocksFormed, long lastBlockEndOffsetMs,
                                              LocalDateTime createdAt, LocalDateTime updatedAt) {
         return new CaptureUploadState(meetingId, segmentSeq, recorderPersonId, lastSeq, blocksFormed,
-                lastBlockEndOffsetMs, totalBytesUploaded, createdAt, updatedAt);
+                lastBlockEndOffsetMs, createdAt, updatedAt);
     }
 
     /**
@@ -107,13 +102,8 @@ public class CaptureUploadState {
         }
     }
 
-    /**
-     * 청크 업로드 완료 통보 반영 — 현재 녹음자만 가능, seq는 1..MAX_SEQ 범위, lastSeq는 단조 증가만 허용.
-     * sizeBytes는 항상 누적한다 — 이 메서드가 실제로 커밋되는 경로는 recording_part의
-     * UNIQUE(meeting_id, segment_seq, seq) 위반이 없을 때뿐이라(CompletePartUploadWriter), 같은
-     * 트랜잭션에서 중복 seq는 이미 걸러진다.
-     */
-    public void recordUpload(Long callerId, int seq, long sizeBytes) {
+    /** 청크 업로드 완료 통보 반영 — 현재 녹음자만 가능, seq는 1..MAX_SEQ 범위, lastSeq는 단조 증가만 허용. */
+    public void recordUpload(Long callerId, int seq) {
         verifyRecorder(callerId);
         // 범위 밖 seq를 거부해 lastSeq 오염을 막는다(상태 조회의 무한 리스트·int 오버플로 방지).
         if (seq < 1 || seq > MAX_SEQ) {
@@ -122,7 +112,6 @@ public class CaptureUploadState {
         if (seq > lastSeq) {
             lastSeq = seq;
         }
-        totalBytesUploaded += sizeBytes;
     }
 
     /*
@@ -179,7 +168,6 @@ public class CaptureUploadState {
     public int getLastSeq() { return lastSeq; }
     public int getBlocksFormed() { return blocksFormed; }
     public long getLastBlockEndOffsetMs() { return lastBlockEndOffsetMs; }
-    public long getTotalBytesUploaded() { return totalBytesUploaded; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

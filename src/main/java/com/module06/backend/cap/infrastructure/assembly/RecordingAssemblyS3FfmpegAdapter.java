@@ -130,10 +130,11 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                 recordingRepository.save(Recording.registerWithDuration(
                         meetingId, FILE_NAME, s3Key, sizeBytes, durationSec, false));
 
-                // metering에 최종 크기로 report — 원본 청크 총합보다 보통 작아진다(재인코딩).
-                // 이 어댑터는 이미 바깥 try/catch가 전체를 best-effort로 감싸므로 별도 try/catch 없음.
-                reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                        companyId, meetingId, sizeBytes, clock.millis()));
+                // metering에 최종 크기로 report — 원본 청크 총합보다 보통 작아진다(재인코딩). 별도
+                // try/catch로 감싼다(CodeRabbit 지적) — 바깥 try/catch에 맡기면 report 실패가 곧바로
+                // 아래 parts 정리를 건너뛰게 만든다. recording은 이미 저장됐는데 원본 청크가 영영
+                // 안 지워지는 쪽보다, metering 원장 하나 누락되는 쪽이 훨씬 덜 해롭다.
+                reportStorageUsageBestEffort(companyId, meetingId, sizeBytes);
 
                 // 성공 후에만 parts 삭제(되돌릴 수 없음) — 위 등록이 실패하면 여기 도달하지 않아
                 // 원본 청크가 그대로 남고, 사람이 CAP-05로 재시도할 수 있다.
@@ -169,6 +170,16 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
             all.addAll(recordingPartRepository.findInSegmentBetweenSeqs(meetingId, segment, 1, target));
         }
         return all;
+    }
+
+    // metering에 최종 크기로 report한다 — 실패해도 조립 자체(recording 등록·parts 정리)는 계속한다.
+    private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long sizeBytes) {
+        try {
+            reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
+                    companyId, meetingId, sizeBytes, clock.millis()));
+        } catch (RuntimeException e) {
+            log.warn("저장 용량 미터링 기록 실패 — 조립은 계속 진행. meetingId={}", meetingId, e);
+        }
     }
 
     // 청크 S3 객체를 하나씩 지운다 — 한둘이 실패해도 나머지는 계속 지운다(부분 실패로 전체 조립을

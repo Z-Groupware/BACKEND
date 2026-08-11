@@ -35,7 +35,7 @@ class SttBlockCutTriggerTest {
     @DisplayName("40개 미만이면 아무 포트도 부르지 않는다")
     void doesNothingBelowThreshold() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 39, 1_000L);
+        state.recordUpload(7L, 39);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RefusingAudioAssemblyPort audioPort = new RefusingAudioAssemblyPort();
         RefusingCutDetectionPort cutPort = new RefusingCutDetectionPort();
@@ -51,7 +51,7 @@ class SttBlockCutTriggerTest {
     @DisplayName("40개 누적이면(여유분 없어도) 예약→윈도우 추출→절단 탐지→블록 조립→블록 생성 순서로 돈다")
     void runsFullPipelineExactlyAtFortyChunks() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 40, 1_000L);
+        state.recordUpload(7L, 40);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
@@ -85,7 +85,7 @@ class SttBlockCutTriggerTest {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
         // 42개(=target 뒤 20초 분량 포함)가 이미 올라온 상황 — 트리거는 여전히 40개 지점에서
         // 이미 발화 조건을 만족하지만, availableUpToMs는 실제 업로드분(42개=630,000ms)을 반영한다.
-        state.recordUpload(7L, 42, 1_000L);
+        state.recordUpload(7L, 42);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
@@ -101,7 +101,7 @@ class SttBlockCutTriggerTest {
     @DisplayName("예약에서 경합에 지면(blocksFormed가 기대와 다르면) 아무 포트도 안 부르고 조용히 넘어간다")
     void skipsWhenReservationLosesRace() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 40, 1_000L);
+        state.recordUpload(7L, 40);
         // 이미 누가 먼저 예약해간 상황을 흉내낸다 — FakeStateRepo가 기대값 불일치로 항상 empty를 준다.
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         stateRepo.forceReservationConflict = true;
@@ -117,7 +117,7 @@ class SttBlockCutTriggerTest {
     @DisplayName("파이프라인 도중 실패하면 예외를 던지지 않는다(카운터는 예약 시점에 이미 전진해 있다)")
     void swallowsFailureAfterReservation() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.recordUpload(7L, 40, 1_000L);
+        state.recordUpload(7L, 40);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         SttBlockAudioAssemblyPort failingAudioPort = new SttBlockAudioAssemblyPort() {
             @Override
@@ -161,7 +161,7 @@ class SttBlockCutTriggerTest {
         assertThat(state.getLastSeq()).isZero();
 
         // 새 세그먼트에서 정확히 40개만 올라왔다 — blocksFormed(2)와 무관하게 트리거돼야 한다.
-        state.recordUpload(9L, 40, 1_000L);
+        state.recordUpload(9L, 40);
         FakeStateRepo stateRepo = new FakeStateRepo(state);
         RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
         RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();

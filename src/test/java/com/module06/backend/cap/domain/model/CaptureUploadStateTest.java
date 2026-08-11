@@ -31,33 +31,12 @@ class CaptureUploadStateTest {
     void recordUploadAdvancesLastSeq() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
 
-        state.recordUpload(7L, 5, 1_000L);
+        state.recordUpload(7L, 5);
         assertThat(state.getLastSeq()).isEqualTo(5);
 
         // 더 작은 seq(재전송 등)는 lastSeq를 되돌리지 않는다.
-        state.recordUpload(7L, 3, 1_000L);
+        state.recordUpload(7L, 3);
         assertThat(state.getLastSeq()).isEqualTo(5);
-    }
-
-    /*
-     * totalBytesUploaded는 lastSeq와 달리 항상 누적된다(metering report용) — 세그먼트 이어받기에도
-     * 리셋되지 않는다(이전 세그먼트 청크도 지워지기 전까진 스토리지를 차지하므로).
-     */
-    @Test
-    @DisplayName("recordUpload는 sizeBytes를 항상 누적하고, 세그먼트가 바뀌어도 리셋되지 않는다")
-    void recordUploadAccumulatesTotalBytesAcrossSegments() {
-        CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
-
-        state.recordUpload(7L, 1, 1_000L);
-        state.recordUpload(7L, 2, 2_000L);
-        assertThat(state.getTotalBytesUploaded()).isEqualTo(3_000L);
-
-        state.assignOrVerifyRecorder(9L, true); // 세그먼트 전환 — lastSeq는 리셋되지만
-        assertThat(state.getLastSeq()).isZero();
-        assertThat(state.getTotalBytesUploaded()).isEqualTo(3_000L); // 누적 바이트는 그대로
-
-        state.recordUpload(9L, 1, 500L);
-        assertThat(state.getTotalBytesUploaded()).isEqualTo(3_500L);
     }
 
     /* 녹음자가 아니면 seq 검증 전에 CAP-004로 막히는지 검증한다. */
@@ -66,7 +45,7 @@ class CaptureUploadStateTest {
     void recordUploadRejectsNonRecorder() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
 
-        assertErrorCode(() -> state.recordUpload(9L, 1, 1_000L), "CAP-004");
+        assertErrorCode(() -> state.recordUpload(9L, 1), "CAP-004");
     }
 
     /* 범위 밖(0 이하, MAX_SEQ 초과) seq는 CAP-011로 거부해 lastSeq 오염을 막는지 검증한다. */
@@ -75,16 +54,16 @@ class CaptureUploadStateTest {
     void recordUploadRejectsOutOfRangeSeq() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
 
-        assertErrorCode(() -> state.recordUpload(7L, 0, 1_000L), "CAP-011");
-        assertErrorCode(() -> state.recordUpload(7L, -1, 1_000L), "CAP-011");
-        assertErrorCode(() -> state.recordUpload(7L, CaptureUploadState.MAX_SEQ + 1, 1_000L), "CAP-011");
-        assertErrorCode(() -> state.recordUpload(7L, Integer.MAX_VALUE, 1_000L), "CAP-011");
+        assertErrorCode(() -> state.recordUpload(7L, 0), "CAP-011");
+        assertErrorCode(() -> state.recordUpload(7L, -1), "CAP-011");
+        assertErrorCode(() -> state.recordUpload(7L, CaptureUploadState.MAX_SEQ + 1), "CAP-011");
+        assertErrorCode(() -> state.recordUpload(7L, Integer.MAX_VALUE), "CAP-011");
 
         // 거부됐으므로 lastSeq가 오염되지 않아야 한다.
         assertThat(state.getLastSeq()).isZero();
 
         // 상한 경계값은 허용된다.
-        assertThatCode(() -> state.recordUpload(7L, CaptureUploadState.MAX_SEQ, 1_000L)).doesNotThrowAnyException();
+        assertThatCode(() -> state.recordUpload(7L, CaptureUploadState.MAX_SEQ)).doesNotThrowAnyException();
     }
 
     /* 블록 순번 예약 시 blocksFormed가 오르고, 예약 전 값을 반환하는지 검증한다. */
@@ -168,7 +147,7 @@ class CaptureUploadStateTest {
     @DisplayName("이어받기로 세그먼트가 바뀌면 lastSeq와 블록 끝 지점이 0으로 리셋된다")
     void takeoverResetsSeqAndBlockOffsetForNewSegment() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
-        state.recordUpload(7L, 25, 1_000L);
+        state.recordUpload(7L, 25);
         state.finalizeBlockOffsetIfSegmentMatches(0, 150_000L);
 
         state.assignOrVerifyRecorder(9L, true);

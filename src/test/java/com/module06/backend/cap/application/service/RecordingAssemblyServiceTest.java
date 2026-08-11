@@ -145,7 +145,7 @@ class RecordingAssemblyServiceTest {
 
     // 세그먼트/녹음자 지정한 캡처 상태.
     private CaptureUploadState state(int segmentSeq, Long recorderId) {
-        return CaptureUploadState.restore(500L, segmentSeq, recorderId, 0, 0, 0L, 0L, null, null);
+        return CaptureUploadState.restore(500L, segmentSeq, recorderId, 0, 0, 0L, null, null);
     }
 
     // 지정한 회의 존재/참석 여부·상태·세그먼트별 순번으로 서비스를 조립한다. 조립 포트는 호출 여부를 기록한다.
