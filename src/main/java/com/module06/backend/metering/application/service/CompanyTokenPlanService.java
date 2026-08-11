@@ -44,13 +44,18 @@ public class CompanyTokenPlanService implements ManageCompanyTokenPlanUseCase {
                 ? command.effectiveFrom()
                 : LocalDate.now(clock);
 
+        int inputPrice = command.resolvedInputPricePer1k();
+        int outputPrice = command.resolvedOutputPricePer1k();
+
         // company_id 는 UNIQUE 다. 기존 요금제가 있으면 그 id 를 유지해 UPDATE, 없으면 새로 INSERT 한다.
         // (create 는 id=null 이라 그대로 저장하면 UNIQUE 위반이 난다.)
         CompanyTokenPlan plan = companyTokenPlanRepository.findByCompanyId(companyId)
                 .map(existing -> CompanyTokenPlan.restore(existing.getId(), companyId, planCode,
-                        command.monthlyTokenPool(), command.baseFee(), command.tokenOveragePricePer1k(), effectiveFrom))
+                        command.monthlyTokenPool(), command.baseFee(), command.tokenOveragePricePer1k(),
+                        inputPrice, outputPrice, effectiveFrom))
                 .orElseGet(() -> CompanyTokenPlan.create(companyId, planCode,
-                        command.monthlyTokenPool(), command.baseFee(), command.tokenOveragePricePer1k(), effectiveFrom));
+                        command.monthlyTokenPool(), command.baseFee(), command.tokenOveragePricePer1k(),
+                        inputPrice, outputPrice, effectiveFrom));
 
         return CompanyTokenPlanResult.from(companyTokenPlanRepository.save(plan));
     }

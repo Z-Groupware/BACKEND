@@ -7,9 +7,13 @@ import com.module06.backend.metering.application.usecase.RecordTokenUsageUseCase
 import com.module06.backend.metering.application.port.in.TokenQuotaPort;
 import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import com.module06.backend.metering.domain.model.CompanyTokenPlan;
+import com.module06.backend.metering.domain.model.TokenUsageOutbox;
 import com.module06.backend.metering.domain.model.TokenUsageRecord;
 import com.module06.backend.metering.domain.repository.CompanyTokenPlanRepository;
+import com.module06.backend.metering.domain.repository.TokenUsageOutboxRepository;
 import com.module06.backend.metering.domain.repository.TokenUsageRecordRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -22,34 +26,39 @@ import java.time.YearMonth;
 @Service
 public class TokenMeteringService implements RecordTokenUsageUseCase, TokenQuotaPort {
 
+    private static final Logger log = LoggerFactory.getLogger(TokenMeteringService.class);
+
     private final TokenUsageRecordRepository tokenUsageRecordRepository;
+    private final TokenUsageOutboxRepository tokenUsageOutboxRepository;
+    private final TokenUsageLedgerAppender ledgerAppender;
     private final CompanyTokenPlanRepository companyTokenPlanRepository;
     // 청구·과금 귀속은 KST 기준이어야 한다. meeting 모듈이 이미 KST Clock(meetingClock)을 노출하므로
     // 새 Clock 빈을 만들면 by-type 주입이 모호해진다 — 같은 KST 빈을 재사용해 모듈 간 시각을 일치시킨다.
     private final Clock clock;
 
     public TokenMeteringService(TokenUsageRecordRepository tokenUsageRecordRepository,
+                                TokenUsageOutboxRepository tokenUsageOutboxRepository,
+                                TokenUsageLedgerAppender ledgerAppender,
                                 CompanyTokenPlanRepository companyTokenPlanRepository,
                                 @Qualifier("meetingClock") Clock clock) {
         this.tokenUsageRecordRepository = tokenUsageRecordRepository;
+        this.tokenUsageOutboxRepository = tokenUsageOutboxRepository;
+        this.ledgerAppender = ledgerAppender;
         this.companyTokenPlanRepository = companyTokenPlanRepository;
         this.clock = clock;
     }
 
     /*
-     * @Transactional 을 두지 않는다. record 는 단일 INSERT 뿐이고, 멱등 보장은 job_id UNIQUE 제약이 한다.
+     * 정상 경로는 원장에 바로 기록한다(동기·멱등). 이 호출은 @Transactional 이 아니다 —
+     * 멱등 규칙과 그 이유는 TokenUsageLedgerAppender 에 모여 있다.
      *
-     * 만약 @Transactional 이면, 동시 중복(같은 job_id 2요청)에서 save 의 제약 위반이 트랜잭션을
-     * rollback-only 로 마킹해, 예외를 잡아도 커밋 시점에 UnexpectedRollbackException 이 터진다.
-     * 트랜잭션 없이 두면 save 는 자기 트랜잭션에서 돌고, 위반 시 그 트랜잭션만 롤백하며 예외를
-     * 여기로 던지므로 깔끔히 no-op 으로 삼킬 수 있다(바깥 트랜잭션 오염 없음).
+     * <h2>실패해도 잃지 않는다</h2>
+     * 원장 반영이 실패하면(DB 순단·데드락·타임아웃, 또는 job_id 중복이 아닌 무결성 위반) 예외를
+     * 삼키고 끝내지 않고 durable outbox 에 적재한다. 릴레이가 백오프로 재시도하고, 한계 초과분은
+     * dead-letter 로 남긴다. 멱등 원장(중복 차단) + at-least-once 릴레이(재시도) = 효과적 exactly-once.
      */
     @Override
     public void record(RecordTokenUsageCommand command) {
-        if (tokenUsageRecordRepository.existsByJobId(command.jobId())) {
-            return;
-        }
-
         TokenUsageRecord record = TokenUsageRecord.create(
                 command.companyId(),
                 command.teamId(),
@@ -62,15 +71,33 @@ public class TokenMeteringService implements RecordTokenUsageUseCase, TokenQuota
         );
 
         try {
-            tokenUsageRecordRepository.save(record);
-        } catch (DataIntegrityViolationException e) {
-            // job_id UNIQUE 동시 중복이면 이미 기록됐다는 뜻 → 멱등 no-op.
-            // 그 외 무결성 위반(NOT NULL 등)까지 삼키면 원장이 조용히 누락되므로, 해당 job_id 가
-            // 실제로 존재할 때만 no-op 하고 나머지는 다시 던져 크게 터뜨린다.
-            if (tokenUsageRecordRepository.existsByJobId(command.jobId())) {
+            ledgerAppender.append(record);
+        } catch (RuntimeException e) {
+            // 원장 반영 실패 → 유실 대신 durable 재시도로 넘긴다.
+            enqueueForRetry(command, e);
+        }
+    }
+
+    /*
+     * 실패한 기록을 outbox 에 적재한다. outbox 도 job_id UNIQUE 라 중복 적재되지 않는다.
+     * outbox 적재까지 실패하면 그제야 유실이므로 크게 로깅한다(잔여 위험, 관측 가능).
+     */
+    private void enqueueForRetry(RecordTokenUsageCommand command, RuntimeException cause) {
+        if (tokenUsageOutboxRepository.existsByJobId(command.jobId())) {
+            return;
+        }
+        TokenUsageOutbox outbox = TokenUsageOutbox.enqueue(
+                command.companyId(), command.teamId(), command.meetingId(), command.jobId(),
+                command.inputTokens(), command.outputTokens(), command.model(), LocalDateTime.now(clock));
+        try {
+            tokenUsageOutboxRepository.save(outbox);
+            log.warn("토큰 원장 반영 실패 — outbox 적재해 재시도로 넘긴다. jobId={}", command.jobId(), cause);
+        } catch (DataIntegrityViolationException dup) {
+            // outbox job_id 동시 중복이면 이미 적재됨 → no-op.
+            if (tokenUsageOutboxRepository.existsByJobId(command.jobId())) {
                 return;
             }
-            throw e;
+            log.error("토큰 원장·outbox 모두 반영 실패 — 사용량 한 건이 유실될 수 있다. jobId={}", command.jobId(), dup);
         }
     }
 
