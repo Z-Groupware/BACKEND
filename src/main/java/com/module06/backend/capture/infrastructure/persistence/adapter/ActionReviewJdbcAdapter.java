@@ -76,6 +76,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
      */
     private static final String SQL = """
             SELECT a.id                          AS action_id,
+                   a.action_type                 AS action_type,
                    a.assignee_member_id          AS assignee_member_id,
                    am.name                       AS assignee_name,
                    a.assignee_source             AS assignee_source,
@@ -125,6 +126,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                    a.assignee_member_id          AS assignee_member_id,
                    a.due_date                    AS due_date,
                    a.title                       AS title,
+                   a.description                 AS detail,
                    a.is_manual                   AS is_manual,
                    a.review_status               AS review_status,
                    a.evidence_transcript_id      AS evidence_transcript_id,
@@ -180,6 +182,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
     private ReviewAction toReviewAction(ResultSet rs, int rowNum) throws SQLException {
         return new ReviewAction(
                 rs.getLong("action_id"),
+                actionTypeOf(rs),
                 nullableLong(rs, "assignee_member_id"),
                 rs.getString("assignee_name"),
                 AssigneeSource.fromNullable(rs.getString("assignee_source")),
@@ -226,6 +229,7 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                 nullableLong(rs, "assignee_member_id"),
                 rs.getObject("due_date", java.time.LocalDate.class),
                 rs.getString("title"),
+                rs.getString("detail"),
                 rs.getBoolean("is_manual"),
                 rs.getString("review_status"),
                 nullableLong(rs, "evidence_transcript_id"),
@@ -248,6 +252,8 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
         }
         return new AiValue(
                 aiTitle,
+                // meeting_assignment_tuple에 대응 컬럼이 없음(ActionReviewQueryPort.AiValue 주석 참고).
+                null,
                 nullableLong(rs, "ai_assignee_member_id"),
                 AssigneeSource.fromNullable(rs.getString("ai_assignee_source")),
                 rs.getObject("ai_due_date", java.time.LocalDate.class),

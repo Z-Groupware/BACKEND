@@ -1,6 +1,7 @@
 package com.module06.backend.capture.application.service;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -98,23 +99,25 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
                 : STATUS_HUMAN_CONFIRMED;
 
         /*
-         * 반려는 값을 고치지 않는다. 담당자·기한을 함께 보내와도 무시한다 — 반려된 액션의
-         * 값을 바꾸면 라벨의 llm_output 과 action 이 갈리고, "AI 가 무엇을 냈는지"를 화면에서
-         * 되짚을 수 없다. 반려는 상태만 바뀐다.
+         * 반려는 값을 고치지 않는다. 담당자·기한·제목·내용을 함께 보내와도 무시한다 — 반려된
+         * 액션의 값을 바꾸면 라벨의 llm_output 과 action 이 갈리고, "AI 가 무엇을 냈는지"를
+         * 화면에서 되짚을 수 없다. 반려는 상태만 바뀐다.
          */
         if (command.decision() == ReviewDecision.REJECT) {
-            actionReviewApplyPort.apply(command.companyId(), target.actionId(), null, null, reviewStatus);
+            actionReviewApplyPort.apply(command.companyId(), target.actionId(), null, null, null, null, reviewStatus);
         } else {
-            actionReviewApplyPort.apply(
-                    command.companyId(), target.actionId(), assignee, command.dueDate(), reviewStatus);
+            actionReviewApplyPort.apply(command.companyId(), target.actionId(), assignee, command.dueDate(),
+                    command.title(), command.detail(), reviewStatus);
         }
 
-        long reviewLogId = reviewLogRepository.append(logEntryOf(command, target, assignee, roster));
-        boolean vectorQueued = enqueueVector(command, target, assignee, reviewLogId);
+        List<Long> reviewLogIds = appendReviewLogs(command, target, assignee, roster);
+        // 대표 review_log는 첫 번째 것을 쓴다 — 벡터는 순수 추적용 컬럼이라(코드 전수 확인,
+        // 어디서도 JOIN하지 않음) 여러 review_log 중 어느 것을 가리켜도 정확도에 영향 없다.
+        boolean vectorQueued = enqueueVector(command, target, assignee, reviewLogIds.get(0));
 
-        log.info("검토 판정 — meetingId={} actionId={} decision={} reason={} 라벨={} 벡터예약={}",
+        log.info("검토 판정 — meetingId={} actionId={} decision={} reason={} 라벨={}건 벡터예약={}",
                 command.meetingId(), target.actionId(), command.decision(), command.rejectReason(),
-                reviewLogId, vectorQueued);
+                reviewLogIds.size(), vectorQueued);
 
         return new ReviewDecisionOutcome(target.actionId(), reviewStatus, true, vectorQueued);
     }
@@ -122,24 +125,31 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
     /*
      * 판정과 나머지 칸의 조합이 성립하는지 본다.
      *
-     * <b>사유</b> — MODIFY·REJECT 에는 필수이고, CONFIRM 에는 붙을 수 없다. 양쪽을 다 막는다.
-     * 사유 없는 반려는 어느 계층을 고쳐야 할지 가리키지 못하고, 사유 붙은 CONFIRM 은 "맞혔는데
-     * 틀렸다"는 모순이다. DB CHECK 가 같은 규칙을 강제하지만 여기서 먼저 막아야 사용자에게
-     * 이유가 보인다 — DB 까지 내려가면 500 이 된다.
+     * <b>사유(2026-08-11 갱신)</b> — REJECT 에는 필수이고, CONFIRM·MODIFY 에는 붙을 수 없다.
+     * MODIFY가 더 이상 rejectReason을 받지 않는 이유는 appendReviewLogs 주석 참고 — 여러 필드를
+     * 동시에 고치면 사유 하나로 담을 수 없어서, 바뀐 필드로 BE가 자동 유도한다.
+     * REJECT 사유는 사람이 직접 고른 5종만 허용한다(WRONG_* 는 MODIFY 전용이라 거절).
      *
-     * <b>값</b> — CONFIRM 에는 담당자·기한을 함께 보낼 수 없다. CONFIRM 의 human_value 는
-     * null(= llm_output 과 같다)인데 값을 반영하면 **액션은 바뀌고 라벨에는 그 변경이 남지
-     * 않는다.** 그 행은 나중에 "AI 가 맞혔다"로 읽히지만 정답은 사람이 고친 다른 값이다 —
-     * 틀린 값을 정답으로 가르치고 정확도 숫자도 부풀린다. 값을 고쳤으면 MODIFY 로 와야 한다.
+     * <b>값</b> — CONFIRM 에는 담당자·기한·제목·내용을 함께 보낼 수 없다(이유는 기존과 동일).
+     * <b>MODIFY 값</b> — 넷 다 null이면 "뭘 고쳤다는 건지" 알 수 없어 거절한다(2026-08-11 추가).
      */
     private void requireDecisionShape(ReviewDecisionCommand command) {
-        boolean needsReason = command.decision() != ReviewDecision.CONFIRM;
+        boolean needsReason = command.decision() == ReviewDecision.REJECT;
         if (needsReason == (command.rejectReason() == null)) {
             throw new BusinessException(CaptureErrorCode.REVIEW_REASON_REQUIRED);
         }
+        if (command.decision() == ReviewDecision.REJECT && !command.rejectReason().isHumanSelectable()) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_REASON_NOT_SELECTABLE);
+        }
         if (command.decision() == ReviewDecision.CONFIRM
-                && (command.assignee() != null || command.dueDate() != null)) {
+                && (command.assignee() != null || command.dueDate() != null
+                    || command.title() != null || command.detail() != null)) {
             throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_WITH_VALUE);
+        }
+        if (command.decision() == ReviewDecision.MODIFY
+                && command.assignee() == null && command.dueDate() == null
+                && command.title() == null && command.detail() == null) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_MODIFY_VALUE_REQUIRED);
         }
     }
 
@@ -196,18 +206,63 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
     }
 
     /*
-     * 남길 라벨을 만든다.
+     * MODIFY는 고친 필드 개수만큼 review_log를 나눠 append한다(2026-08-11, 이홍근이 발견한
+     * 설계 공백 해소).
      *
-     * layer 는 사유가 정한다(RejectReason.layer). CONFIRM 은 사유가 없으므로 **액션을 만든
+     * <h2>왜 나누나</h2>
+     * review_log.reject_reason은 한 값만 담을 수 있는데, 화면은 담당자·기한·제목·내용을
+     * 한 번의 PATCH로 동시에 고칠 수 있다. 하나만 골라 담으면 실제로는 여러 계층이 틀렸는데
+     * 하나만 틀린 것으로 집계돼 정확도 측정이 왜곡된다.
+     *
+     * <h2>왜 스키마 변경이 없어도 되나</h2>
+     * review_log는 원래 append-only 로그다(수정·삭제 메서드 자체가 없다, V5.9 주석 —
+     * "같은 액션을 두 번 판정하면 행이 둘 남는 게 맞다"). append를 여러 번 부르는 것은 이
+     * 원칙을 벗어나지 않는다.
+     *
+     * CONFIRM·REJECT는 기존처럼 항상 1건이다 — CONFIRM은 사유 없이(null), REJECT는 사람이
+     * 고른 사유 그대로.
+     */
+    private List<Long> appendReviewLogs(ReviewDecisionCommand command, ReviewTarget target,
+                                         Long assignee, List<AiLayerPort.Participant> roster) {
+        if (command.decision() != ReviewDecision.MODIFY) {
+            RejectReason reason = command.decision() == ReviewDecision.REJECT ? command.rejectReason() : null;
+            return List.of(reviewLogRepository.append(logEntryOf(command, target, assignee, roster, reason)));
+        }
+
+        List<RejectReason> changedFieldReasons = new ArrayList<>();
+        if (assignee != null) {
+            changedFieldReasons.add(RejectReason.WRONG_ASSIGNEE);
+        }
+        if (command.dueDate() != null) {
+            changedFieldReasons.add(RejectReason.WRONG_DUE);
+        }
+        if (command.title() != null) {
+            changedFieldReasons.add(RejectReason.WRONG_TITLE);
+        }
+        if (command.detail() != null) {
+            changedFieldReasons.add(RejectReason.WRONG_DETAIL);
+        }
+        // requireDecisionShape가 MODIFY에 값 하나도 없는 요청을 이미 막아서 changedFieldReasons는
+        // 여기 도달한 시점엔 절대 비어 있지 않다.
+
+        List<Long> ids = new ArrayList<>();
+        for (RejectReason reason : changedFieldReasons) {
+            ids.add(reviewLogRepository.append(logEntryOf(command, target, assignee, roster, reason)));
+        }
+        return ids;
+    }
+
+    /*
+     * 남길 라벨 하나를 만든다.
+     *
+     * layer 는 사유가 정한다(RejectReason.layer). 사유가 없으면(CONFIRM) **액션을 만든
      * 계층(L4)** 으로 적는다 — 정답 라벨이 어느 계층의 정답인지 없으면 few-shot 조회가
      * 그 행을 못 찾는다(AI-09 가 layer 를 필수 필터로 요구한다).
      */
     private ReviewLogEntry logEntryOf(ReviewDecisionCommand command, ReviewTarget target,
-                                      Long assignee, List<AiLayerPort.Participant> roster) {
+                                      Long assignee, List<AiLayerPort.Participant> roster, RejectReason reason) {
         AiValue ai = target.aiValue();
-        LayerName layer = command.rejectReason() != null
-                ? command.rejectReason().layer()
-                : LayerName.L4;
+        LayerName layer = reason != null ? reason.layer() : LayerName.L4;
 
         return new ReviewLogEntry(
                 command.companyId(),
@@ -216,7 +271,7 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
                 target.actionId(),
                 layer,
                 command.decision(),
-                command.rejectReason(),
+                reason,
                 inputContextJson(target, roster),
                 llmOutputJson(target),
                 // CONFIRM 은 null 이다 — llm_output 과 같다는 뜻이고, 같은 값을 두 번 적으면
@@ -275,6 +330,9 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         }
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("title", ai.title());
+        // detail은 항상 null이다 — meeting_assignment_tuple에 대응 컬럼이 없어 AI가 애초에
+        // 내지 않는다(ActionReviewQueryPort.AiValue 주석 참고). 대칭성을 위해 키는 남긴다.
+        output.put("detail", ai.detail());
         output.put("assigneeMemberId", ai.assigneeMemberId());
         output.put("assigneeSource", ai.assigneeSource() != null ? ai.assigneeSource().name() : null);
         output.put("dueDate", ai.dueDate() != null ? ai.dueDate().toString() : null);
@@ -286,10 +344,13 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
      *
      * 고치지 않은 칸은 **액션의 현재 값**을 담는다. 바뀐 칸만 담으면 이 라벨 한 행만 보고
      * 정답을 복원할 수 없고, few-shot payload 를 만들 때 다른 표를 다시 읽어야 한다.
+     * 2026-08-11 — title·detail도 같은 규칙으로 추가(예전엔 title이 수정 불가라 target 값
+     * 고정이었는데, 이제는 command 값을 우선한다).
      */
     private String humanValueJson(ReviewDecisionCommand command, ReviewTarget target, Long assignee) {
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("title", target.title());
+        value.put("title", command.title() != null ? command.title() : target.title());
+        value.put("detail", command.detail() != null ? command.detail() : target.detail());
         value.put("assigneeMemberId", assignee != null ? assignee : target.assigneeMemberId());
         LocalDate dueDate = command.dueDate() != null ? command.dueDate() : target.dueDate();
         value.put("dueDate", dueDate != null ? dueDate.toString() : null);

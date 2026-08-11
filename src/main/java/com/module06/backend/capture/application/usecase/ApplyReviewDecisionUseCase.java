@@ -19,12 +19,20 @@ public interface ApplyReviewDecisionUseCase {
     /*
      * 판정 하나.
      *
+     * 2026-08-11 — title·detail 추가(제목·내용 인라인 수정), rejectReason 용도 변경.
+     * 이제 rejectReason은 **REJECT 전용**이다(사람이 5종 중 직접 고름, RejectReason.
+     * isHumanSelectable()=true인 값만 허용). MODIFY는 이 필드를 아예 안 받는다 — 담당자·
+     * 기한·제목·내용 중 어떤 필드가 바뀌었는지는 assignee·dueDate·title·detail의 null
+     * 여부로 판단하고, 그 개수만큼 review_log를 나눠 기록한다(ApplyReviewDecisionService).
+     *
      * @param confirmedBy  판정한 사람. 라벨에 남는다 — 누가 정답이라고 했는지 모르면
      *                     라벨의 신뢰도를 나중에 되짚을 수 없다
-     * @param rejectReason MODIFY·REJECT 에는 필수다(422). CONFIRM 에 붙어 오면 거절한다 —
-     *                     "맞혔는데 틀렸다"는 모순이고 DB CHECK 도 막는다
+     * @param rejectReason REJECT에는 필수다(422), 사람이 직접 고른 5종만 허용한다.
+     *                     CONFIRM·MODIFY에 붙어 오면 거절한다
      * @param assignee     MODIFY 에서 바꾼 담당자. 안 바꿨으면 null
      * @param dueDate      MODIFY 에서 바꾼 기한. 안 바꿨으면 null
+     * @param title        MODIFY 에서 바꾼 제목. 안 바꿨으면 null
+     * @param detail       MODIFY 에서 바꾼 내용. 안 바꿨으면 null
      */
     record ReviewDecisionCommand(
             long companyId,
@@ -34,7 +42,9 @@ public interface ApplyReviewDecisionUseCase {
             ReviewDecision decision,
             RejectReason rejectReason,
             Long assignee,
-            LocalDate dueDate
+            LocalDate dueDate,
+            String title,
+            String detail
     ) {
     }
 }

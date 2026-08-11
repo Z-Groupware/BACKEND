@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionDispatchPort;
 import com.module06.backend.capture.application.port.out.ActionDispatchPort.DispatchOutcome;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
@@ -18,7 +19,10 @@ import com.module06.backend.capture.application.port.out.ActionReviewQueryPort.R
 import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.result.DistributionConfirmed;
 import com.module06.backend.capture.application.result.DistributionConfirmed.SkippedAction;
+import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
+import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase.ReviewDecisionCommand;
 import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase;
+import com.module06.backend.capture.domain.model.ReviewDecision;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -35,6 +39,18 @@ import com.module06.backend.global.exception.BusinessException;
  * <h2>강행(?confirm=true)은 관문을 여는 것이지 판정을 바꾸는 것이 아니다</h2>
  * 구멍이나 미검토가 남아 있어도 진행하겠다는 뜻일 뿐, **미검토 액션이 함께 나가지는 않는다.**
  * 강행이 "검토 안 한 것을 확정한다"가 되면 검토 화면 자체가 무의미해진다.
+ *
+ * <h2>2026-08-11 — [액션 분배 확정] 버튼이 API 호출 한 번으로 끝난다(이홍근 요청)</h2>
+ * 예전엔 FE가 손 안 댄(PENDING) 항목마다 미리 CONFIRM PATCH를 쏘고 나서야 이 엔드포인트를
+ * 불러야 했다. 이제 확정 시도 직전에, 담당자가 있는(또는 TEAM인) PENDING 항목을
+ * ApplyReviewDecisionUseCase(RVW-02)의 검증된 CONFIRM 경로로 여기서 대신 호출한다 — 새
+ * 규칙을 추가하는 게 아니라 이미 있는 단건 경로를 반복 호출하는 것뿐이라 review_log·
+ * few-shot 벡터도 손으로 눌렀을 때와 똑같이 남는다.
+ * 담당자 없는 PERSONAL 액션은 여전히 CONFIRM할 수 없다(ApplyReviewDecisionService의
+ * requireAssigneeForConfirm) — 그런 항목은 그대로 PENDING으로 남아 아래 skipReasonOf에서
+ * STILL_PENDING으로 스킵된다. 그래서 여기서 미리 걸러 apply()를 아예 안 부른다 — apply()가
+ * @Transactional 로 이 트랜잭션에 합류한 채로 예외를 던지면, 여기서 catch 해도 트랜잭션은
+ * 이미 rollback-only로 표시돼 confirm() 전체가 실패한다.
  *
  * <h2>담당자 없는 액션을 여기서 막는다</h2>
  * C 도메인은 AI 분배 경로에서 담당자 미정을 허용한다(2026-08-07 합의) — 회의에서 담당자가
@@ -59,6 +75,7 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
     private final SttGapRepository sttGapRepository;
     private final MeetingAccessGuard meetingAccessGuard;
     private final MeetingHostProvider meetingHostProvider;
+    private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
 
     /*
      * ⚠ 프로젝트 전체에 Clock 빈이 하나뿐이라(MeetingTimeConfiguration#meetingClock, KST)
@@ -71,6 +88,12 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
     public DistributionConfirmed confirm(ConfirmDistributionCommand command) {
         meetingAccessGuard.requireAccessible(command.companyId(), command.meetingId());
         requireHost(command);
+
+        int implicitlyConfirmed = confirmReviewablePendingActions(command);
+        if (implicitlyConfirmed > 0) {
+            log.info("확정 버튼 단일 호출로 암묵 확정 — meetingId={} 건수={}",
+                    command.meetingId(), implicitlyConfirmed);
+        }
 
         List<ReviewAction> actions = actionReviewQueryPort
                 .findByMeeting(command.companyId(), command.meetingId(), null);
@@ -146,6 +169,34 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
         if (host != command.requestedBy()) {
             throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_HOST_ONLY);
         }
+    }
+
+    /*
+     * 2026-08-11 — 아직 PENDING인데 CONFIRM할 수 있는(담당자가 있거나 TEAM인) 항목을 암묵
+     * 확정한다. ApplyReviewDecisionUseCase(RVW-02)의 검증된 CONFIRM 경로를 그대로 재사용 —
+     * review_log·few-shot 벡터가 손으로 CONFIRM을 눌렀을 때와 동일하게 남는다.
+     *
+     * 담당자 없는 PERSONAL 액션은 미리 걸러서 apply()를 아예 안 부른다. apply()가 던지는
+     * REVIEW_ASSIGNEE_REQUIRED를 여기서 catch 해도 소용없다 — apply()도 @Transactional이라
+     * 이 메서드와 같은 트랜잭션에 합류하고, 예외가 나가는 순간 그 트랜잭션은 rollback-only로
+     * 표시된다. catch로 무시해도 마지막에 커밋이 막혀 확정 전체가 실패한다.
+     */
+    private int confirmReviewablePendingActions(ConfirmDistributionCommand command) {
+        List<ReviewAction> pending = actionReviewQueryPort
+                .findByMeeting(command.companyId(), command.meetingId(), STATUS_PENDING);
+
+        int confirmed = 0;
+        for (ReviewAction action : pending) {
+            boolean reviewable = action.assigneeMemberId() != null || action.actionType() == ActionType.TEAM;
+            if (!reviewable) {
+                continue;
+            }
+            applyReviewDecisionUseCase.apply(new ReviewDecisionCommand(
+                    command.companyId(), command.meetingId(), action.actionId(), command.requestedBy(),
+                    ReviewDecision.CONFIRM, null, null, null, null, null));
+            confirmed++;
+        }
+        return confirmed;
     }
 
     /*

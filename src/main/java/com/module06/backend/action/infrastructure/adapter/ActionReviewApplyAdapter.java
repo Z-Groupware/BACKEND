@@ -40,7 +40,8 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
 
     @Override
     @Transactional
-    public void apply(long companyId, long actionId, Long assigneeMemberId, LocalDate dueDate, String reviewStatus) {
+    public void apply(long companyId, long actionId, Long assigneeMemberId, LocalDate dueDate,
+                       String title, String detail, String reviewStatus) {
         /*
          * 둘 다 ACTION_NOT_FOUND(404)다. 자바 기본 예외를 던지면 회사 불일치가 500 으로,
          * 액션 미존재가 400 으로 나가 둘 다 명세와 갈린다(GlobalExceptionHandler 의 매핑).
@@ -54,7 +55,8 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
             throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
         }
 
-        action.applyHumanReview(assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus));
+        // detail → Action.description. 파라미터명이 갈리는 이유는 ActionReviewApplyPort 주석 참고.
+        action.applyHumanReview(assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail);
         actionRepository.save(action);
     }
 }

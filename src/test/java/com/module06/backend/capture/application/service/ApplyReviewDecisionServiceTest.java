@@ -85,15 +85,38 @@ class ApplyReviewDecisionServiceTest {
         RecordingApplyPort applied = new RecordingApplyPort();
         RecordingReviewLog logs = new RecordingReviewLog();
 
+        // 2026-08-11 — MODIFY는 rejectReason을 안 받는다. 바뀐 필드(담당자)로 BE가 자동 유도한다.
         service(target(), applied, logs, new RecordingVectorRepository())
-                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_ASSIGNEE, BOB, null));
+                .apply(command(ReviewDecision.MODIFY, null, BOB, null));
 
         assertThat(applied.assigneeMemberId).isEqualTo(BOB);
         assertThat(applied.reviewStatus).isEqualTo("HUMAN_CONFIRMED");
-        // WRONG_ASSIGNEE 는 지시어 해소(L1.5)가 사람을 잘못 짚은 것이다.
+        assertThat(logs.entries).hasSize(1);
+        // WRONG_ASSIGNEE 는 지시어 해소(L1.5)가 사람을 잘못 짚은 것이다 — BE가 자동으로 붙인다.
+        assertThat(logs.entries.get(0).rejectReason()).isEqualTo(RejectReason.WRONG_ASSIGNEE);
         assertThat(logs.entries.get(0).layer()).isEqualTo(LayerName.L1_5);
         // 고친 값이 라벨의 정답이다.
         assertThat(logs.entries.get(0).humanValue()).contains("\"assigneeMemberId\":43");
+    }
+
+    @Test
+    @DisplayName("담당자·기한을 동시에 고치면 review_log가 필드 개수만큼 나뉜다 — 하나로 합치면 정확도 집계가 왜곡된다")
+    void 여러_필드_동시_수정은_review_log를_나눈다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        service(target(), logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, BOB, LocalDate.of(2026, 8, 20)));
+
+        assertThat(logs.entries).hasSize(2);
+        assertThat(logs.entries.get(0).rejectReason()).isEqualTo(RejectReason.WRONG_ASSIGNEE);
+        assertThat(logs.entries.get(0).layer()).isEqualTo(LayerName.L1_5);
+        assertThat(logs.entries.get(1).rejectReason()).isEqualTo(RejectReason.WRONG_DUE);
+        assertThat(logs.entries.get(1).layer()).isEqualTo(LayerName.L4);
+        // 두 행 다 같은 최종 스냅샷(담당자+기한 둘 다)을 담아야 한 행만 보고도 정답을 복원할 수 있다.
+        assertThat(logs.entries.get(0).humanValue())
+                .contains("\"assigneeMemberId\":43").contains("\"dueDate\":\"2026-08-20\"");
+        assertThat(logs.entries.get(1).humanValue())
+                .contains("\"assigneeMemberId\":43").contains("\"dueDate\":\"2026-08-20\"");
     }
 
     @Test
@@ -103,7 +126,7 @@ class ApplyReviewDecisionServiceTest {
 
         // 기한만 고쳤다. 담당자는 그대로다.
         service(target(), logs, new RecordingVectorRepository())
-                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_DUE, null,
+                .apply(command(ReviewDecision.MODIFY, null, null,
                         LocalDate.of(2026, 8, 20)));
 
         String humanValue = logs.entries.get(0).humanValue();
@@ -143,10 +166,26 @@ class ApplyReviewDecisionServiceTest {
     }
 
     @Test
-    @DisplayName("수정·반려에 사유가 없으면 422 — 사유 없는 라벨은 어느 계층을 고칠지 못 가리킨다")
-    void 사유가_없는_수정은_거절한다() {
+    @DisplayName("반려에 사유가 없으면 422 — 사유 없는 라벨은 어느 계층을 고칠지 못 가리킨다")
+    void 사유가_없는_반려는_거절한다() {
         assertThatThrownBy(() -> service(target(), new RecordingReviewLog(), new RecordingVectorRepository())
-                .apply(command(ReviewDecision.MODIFY, null, BOB, null)))
+                .apply(command(ReviewDecision.REJECT, null, null, null)))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("MODIFY인데 고친 값이 하나도 없으면 422 — 뭘 고쳤다는 건지 알 수 없다(2026-08-11 추가)")
+    void 값이_없는_수정은_거절한다() {
+        assertThatThrownBy(() -> service(target(), new RecordingReviewLog(), new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null)))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("REJECT에 MODIFY 전용 사유(WRONG_*)를 보내면 422 — 반려 사유와 수정 사유는 섞이면 안 된다(2026-08-11 추가)")
+    void 반려에_수정_전용_사유는_거절한다() {
+        assertThatThrownBy(() -> service(target(), new RecordingReviewLog(), new RecordingVectorRepository())
+                .apply(command(ReviewDecision.REJECT, RejectReason.WRONG_ASSIGNEE, null, null)))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -194,7 +233,7 @@ class ApplyReviewDecisionServiceTest {
 
         assertThatThrownBy(() -> service(target(), applied, new RecordingReviewLog(),
                 new RecordingVectorRepository())
-                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_ASSIGNEE, 999L, null)))
+                .apply(command(ReviewDecision.MODIFY, null, 999L, null)))
                 .isInstanceOf(BusinessException.class);
 
         // action 을 건드리기 전에 막는다.
@@ -225,7 +264,7 @@ class ApplyReviewDecisionServiceTest {
 
         assertThatThrownBy(() -> service(unassignedTarget(), applied, new RecordingReviewLog(),
                 new RecordingVectorRepository())
-                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_DUE, null,
+                .apply(command(ReviewDecision.MODIFY, null, null,
                         LocalDate.of(2026, 8, 20))))
                 .isInstanceOf(BusinessException.class);
 
@@ -239,7 +278,7 @@ class ApplyReviewDecisionServiceTest {
         RecordingReviewLog logs = new RecordingReviewLog();
 
         service(unassignedTarget(), applied, logs, new RecordingVectorRepository())
-                .apply(command(ReviewDecision.MODIFY, RejectReason.WRONG_ASSIGNEE, BOB, null));
+                .apply(command(ReviewDecision.MODIFY, null, BOB, null));
 
         assertThat(applied.assigneeMemberId).isEqualTo(BOB);
         assertThat(applied.reviewStatus).isEqualTo("HUMAN_CONFIRMED");
@@ -303,7 +342,7 @@ class ApplyReviewDecisionServiceTest {
     void 수동_추가_액션은_벡터로_예약하지_않는다() {
         ActionReviewQueryPort.ReviewTarget manual = new ActionReviewQueryPort.ReviewTarget(
                 ACTION, ActionType.PERSONAL, ALICE, LocalDate.of(2026, 8, 8), "직접 추가한 일",
-                true, "PENDING", 8812L, "서준님이 정리해주세요.", null, null);
+                "직접 추가한 내용", true, "PENDING", 8812L, "서준님이 정리해주세요.", null, null);
         RecordingReviewLog logs = new RecordingReviewLog();
         RecordingVectorRepository vectors = new RecordingVectorRepository();
 
@@ -324,7 +363,7 @@ class ApplyReviewDecisionServiceTest {
     void 근거가_없으면_벡터로_예약하지_않는다() {
         ActionReviewQueryPort.ReviewTarget noEvidence = new ActionReviewQueryPort.ReviewTarget(
                 ACTION, ActionType.PERSONAL, ALICE, LocalDate.of(2026, 8, 8), "로드맵 초안 작성",
-                false, "PENDING", null, null, "제품 로드맵", aiValue());
+                "초안을 작성한다", false, "PENDING", null, null, "제품 로드맵", aiValue());
 
         ReviewDecisionOutcome outcome = service(noEvidence, new RecordingReviewLog(),
                 new RecordingVectorRepository())
@@ -385,32 +424,38 @@ class ApplyReviewDecisionServiceTest {
 
     private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
                                                  Long assignee, LocalDate dueDate) {
-        return new ReviewDecisionCommand(COMPANY, MEETING, ACTION, ME, decision, reason, assignee, dueDate);
+        return command(decision, reason, assignee, dueDate, null, null);
+    }
+
+    private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
+                                                 Long assignee, LocalDate dueDate, String title, String detail) {
+        return new ReviewDecisionCommand(
+                COMPANY, MEETING, ACTION, ME, decision, reason, assignee, dueDate, title, detail);
     }
 
     private static ActionReviewQueryPort.ReviewTarget target() {
         return new ActionReviewQueryPort.ReviewTarget(
                 ACTION, ActionType.PERSONAL, ALICE, LocalDate.of(2026, 8, 8), "로드맵 초안 작성",
-                false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
+                "초안을 작성한다", false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
     }
 
     /* AI 가 담당자를 못 정한 액션. 분배는 이 상태를 허용하고, 채우는 자리가 검토 화면이다. */
     private static ActionReviewQueryPort.ReviewTarget unassignedTarget() {
         return new ActionReviewQueryPort.ReviewTarget(
                 ACTION, ActionType.PERSONAL, null, LocalDate.of(2026, 8, 8), "로드맵 초안 작성",
-                false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
+                "초안을 작성한다", false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
     }
 
     /* TEAM 액션은 담당자 개념이 없다 — 팀 전체가 대상이다(ActionTypeShapePolicy). */
     private static ActionReviewQueryPort.ReviewTarget teamTarget() {
         return new ActionReviewQueryPort.ReviewTarget(
                 ACTION, ActionType.TEAM, null, LocalDate.of(2026, 8, 8), "팀 회고 준비",
-                false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
+                "회고 준비", false, "PENDING", 8812L, "서준님이 정리해주세요.", "제품 로드맵", aiValue());
     }
 
     private static ActionReviewQueryPort.AiValue aiValue() {
         return new ActionReviewQueryPort.AiValue(
-                "로드맵 초안 작성", ALICE, AssigneeSource.EXPLICIT_CALL,
+                "로드맵 초안 작성", null, ALICE, AssigneeSource.EXPLICIT_CALL,
                 LocalDate.of(2026, 8, 8), "gemini-2.5-flash", "v1");
     }
 
@@ -448,14 +493,18 @@ class ApplyReviewDecisionServiceTest {
         private boolean called;
         private Long assigneeMemberId;
         private LocalDate dueDate;
+        private String title;
+        private String detail;
         private String reviewStatus;
 
         @Override
         public void apply(long companyId, long actionId, Long assigneeMemberId,
-                          LocalDate dueDate, String reviewStatus) {
+                          LocalDate dueDate, String title, String detail, String reviewStatus) {
             this.called = true;
             this.assigneeMemberId = assigneeMemberId;
             this.dueDate = dueDate;
+            this.title = title;
+            this.detail = detail;
             this.reviewStatus = reviewStatus;
         }
     }

@@ -5,18 +5,25 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.capture.application.port.out.ActionDispatchPort;
 import com.module06.backend.capture.application.port.out.ActionReviewQueryPort;
 import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.result.DistributionConfirmed;
 import com.module06.backend.capture.application.result.DistributionConfirmed.SkippedAction;
+import com.module06.backend.capture.application.result.ReviewDecisionOutcome;
+import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase;
+import com.module06.backend.capture.application.usecase.ApplyReviewDecisionUseCase.ReviewDecisionCommand;
 import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCase.ConfirmDistributionCommand;
+import com.module06.backend.capture.domain.model.ReviewDecision;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 
@@ -65,9 +72,11 @@ class ConfirmDistributionServiceTest {
     @DisplayName("미검토가 남아 있으면 409 로 막는다 — 분배는 되돌릴 수 없다")
     void 미검토가_남으면_막는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        // 담당자 없는 PENDING만 진짜 "미검토"로 남는다 — 담당자 있는 PENDING은 2026-08-11부터
+        // 확정 호출 자체가 암묵 CONFIRM 처리하므로 여기서 막히지 않는다(아래 새 테스트 참고).
         List<ActionReviewQueryPort.ReviewAction> actions = List.of(
                 action(1L, "AUTO_CONFIRMED", HOST),
-                action(2L, "PENDING", HOST));
+                action(2L, "PENDING", null));
 
         assertThatThrownBy(() -> service(actions, dispatch, 0).confirm(command(HOST, false)))
                 .isInstanceOf(BusinessException.class)
@@ -75,6 +84,26 @@ class ConfirmDistributionServiceTest {
 
         // 하나도 안 나갔다 — 막혔으면 전부 막힌다.
         assertThat(dispatch.dispatched).isEmpty();
+    }
+
+    @Test
+    @DisplayName("2026-08-11 — 담당자 있는 PENDING은 확정 버튼 한 번으로 암묵 CONFIRM되어 함께 나간다")
+    void 담당자_있는_미검토는_확정_버튼_한번으로_함께_나간다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        RecordingApplyReviewDecisionUseCase applyUseCase = new RecordingApplyReviewDecisionUseCase();
+        StubQueryPort query = new StubQueryPort(List.of(
+                action(1L, "AUTO_CONFIRMED", HOST),
+                action(2L, "PENDING", HOST)));
+        applyUseCase.attach(query);
+        ConfirmDistributionService service = new ConfirmDistributionService(
+                query, dispatch, gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
+                meetingId -> Optional.of(HOST), applyUseCase, fixedClock());
+
+        DistributionConfirmed confirmed = service.confirm(command(HOST, false));
+
+        assertThat(applyUseCase.confirmedActionIds).containsExactly(2L);
+        assertThat(dispatch.dispatched).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(confirmed.skipped()).isEmpty();
     }
 
     @Test
@@ -93,9 +122,10 @@ class ConfirmDistributionServiceTest {
     @DisplayName("강행해도 미검토는 나가지 않는다 — 관문을 여는 것이지 판정을 바꾸는 게 아니다")
     void 강행해도_미검토는_내보내지_않는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        // 담당자 없어 암묵 CONFIRM 대상이 아닌 진짜 미검토 항목.
         List<ActionReviewQueryPort.ReviewAction> actions = List.of(
                 action(1L, "AUTO_CONFIRMED", HOST),
-                action(2L, "PENDING", HOST));
+                action(2L, "PENDING", null));
 
         /*
          * 강행이 "검토 안 한 것을 확정한다"가 되면 검토 화면 자체가 무의미해진다.
@@ -146,7 +176,7 @@ class ConfirmDistributionServiceTest {
         ConfirmDistributionService service = new ConfirmDistributionService(
                 new StubQueryPort(List.of(action(1L, "AUTO_CONFIRMED", HOST))), dispatch,
                 gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
-                meetingId -> Optional.empty(), fixedClock());
+                meetingId -> Optional.empty(), new RecordingApplyReviewDecisionUseCase(), fixedClock());
 
         assertThatThrownBy(() -> service.confirm(command(HOST, false)))
                 .isInstanceOf(BusinessException.class)
@@ -201,6 +231,7 @@ class ConfirmDistributionServiceTest {
                 gaps(unresolvedGaps),
                 new MeetingAccessGuard((companyId, meetingId) -> true),
                 meetingId -> Optional.of(HOST),
+                new RecordingApplyReviewDecisionUseCase(),
                 fixedClock());
     }
 
@@ -253,17 +284,42 @@ class ConfirmDistributionServiceTest {
 
     private ActionReviewQueryPort.ReviewAction action(long actionId, String reviewStatus, Long assignee) {
         return new ActionReviewQueryPort.ReviewAction(
-                actionId, assignee, assignee != null ? "김서준" : null, null,
+                actionId, ActionType.PERSONAL, assignee, assignee != null ? "김서준" : null, null,
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 8), false,
                 "로드맵", false, reviewStatus, null, null, null, null);
     }
 
-    private record StubQueryPort(List<ActionReviewQueryPort.ReviewAction> actions)
-            implements ActionReviewQueryPort {
+    /*
+     * 2026-08-11 — 이제 findByMeeting(reviewStatus)이 실제로 필터링해야 한다
+     * (confirmReviewablePendingActions가 PENDING만 따로 조회한 뒤 암묵 CONFIRM 처리한다).
+     * markConfirmed는 그 암묵 확정을 흉내 내 이 스텁의 내부 상태를 갱신한다 — 실제 어댑터가
+     * DB를 갱신하는 것과 같은 자리다.
+     */
+    private static final class StubQueryPort implements ActionReviewQueryPort {
+
+        private final Map<Long, ReviewAction> actionsById = new LinkedHashMap<>();
+
+        private StubQueryPort(List<ActionReviewQueryPort.ReviewAction> actions) {
+            for (ReviewAction action : actions) {
+                actionsById.put(action.actionId(), action);
+            }
+        }
+
+        void markConfirmed(long actionId) {
+            ReviewAction current = actionsById.get(actionId);
+            actionsById.put(actionId, new ReviewAction(
+                    current.actionId(), current.actionType(), current.assigneeMemberId(),
+                    current.assigneeName(), current.assigneeSource(), current.title(), current.detail(),
+                    current.dueDate(), current.dueDateDefaulted(), current.topic(), current.manual(),
+                    "HUMAN_CONFIRMED", current.rejectReason(), current.evidence(), current.signals(),
+                    current.autoConfirmed()));
+        }
 
         @Override
         public List<ReviewAction> findByMeeting(long companyId, long meetingId, String reviewStatus) {
-            return actions;
+            return actionsById.values().stream()
+                    .filter(a -> reviewStatus == null || reviewStatus.equals(a.reviewStatus()))
+                    .toList();
         }
 
         @Override
@@ -274,6 +330,30 @@ class ConfirmDistributionServiceTest {
         @Override
         public Optional<LocalDateTime> dispatchedAtOf(long companyId, long meetingId) {
             throw new UnsupportedOperationException();
+        }
+    }
+
+    /*
+     * RVW-02 CONFIRM 경로를 흉내 낸다 — ConfirmDistributionService가 담당자 있는 PENDING을
+     * 확정 버튼 한 번으로 암묵 처리할 때 부르는 자리다(2026-08-11 추가).
+     */
+    private static final class RecordingApplyReviewDecisionUseCase implements ApplyReviewDecisionUseCase {
+
+        private final List<Long> confirmedActionIds = new ArrayList<>();
+        private StubQueryPort query;
+
+        void attach(StubQueryPort query) {
+            this.query = query;
+        }
+
+        @Override
+        public ReviewDecisionOutcome apply(ReviewDecisionCommand command) {
+            assertThat(command.decision()).isEqualTo(ReviewDecision.CONFIRM);
+            confirmedActionIds.add(command.actionId());
+            if (query != null) {
+                query.markConfirmed(command.actionId());
+            }
+            return new ReviewDecisionOutcome(command.actionId(), "HUMAN_CONFIRMED", true, false);
         }
     }
 
