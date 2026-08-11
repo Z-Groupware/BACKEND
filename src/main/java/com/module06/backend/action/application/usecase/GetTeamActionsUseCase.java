@@ -28,7 +28,12 @@ public interface GetTeamActionsUseCase {
 
     // projectName은 2026-08-11 추가(이홍근 요청, 목록 카드 프로젝트별 그룹핑용) — projectTag와
     // 같은 ProjectReference 배치조회에서 이미 갖고 있던 값이라 추가 쿼리 없음.
-    record TeamActionListItem(Action action, String projectTag, String projectName, String teamName) {
+    // childDoneCount·childTotalCount는 2026-08-11 추가(이슈 #355, 이홍근 요청) — 하위 개인
+    // 액션 진척 게이지("3/5")용. 하위가 아직 없는 팀 액션도 0/0으로 채워진다(null 아님 —
+    // "하위 없음"이 아니라 "진행률 0%"라 FE가 게이지를 그대로 그릴 수 있어야 한다).
+    record TeamActionListItem(
+            Action action, String projectTag, String projectName, String teamName,
+            int childDoneCount, int childTotalCount) {
     }
 
     record TeamActionListResult(List<TeamActionListItem> items, long totalElements) {

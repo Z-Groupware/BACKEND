@@ -89,6 +89,57 @@ class ActionPersistenceAdapterListFilterTest {
         assertThat(actionRepository.countByTeamId(TEAM, ActionStatus.IN_PROGRESS)).isEqualTo(1L);
     }
 
+    // ---------- countChildActionProgressByParentActionIds (이슈 #355) ----------
+
+    @Test
+    void countChildActionProgressGroupsDoneAndTotalPerParentTeamAction() {
+        Action parentA = actionRepository.save(team(ActionStatus.IN_PROGRESS));
+        Action parentB = actionRepository.save(team(ActionStatus.IN_PROGRESS));
+        actionRepository.save(childUnderParent(parentA.getId(), ActionStatus.DONE));
+        actionRepository.save(childUnderParent(parentA.getId(), ActionStatus.TODO));
+        actionRepository.save(childUnderParent(parentB.getId(), ActionStatus.DONE));
+
+        var result = actionRepository.countChildActionProgressByParentActionIds(
+                List.of(parentA.getId(), parentB.getId()));
+
+        assertThat(result).hasSize(2);
+        assertThat(result).anySatisfy(progress -> {
+            assertThat(progress.parentActionId()).isEqualTo(parentA.getId());
+            assertThat(progress.totalCount()).isEqualTo(2);
+            assertThat(progress.doneCount()).isEqualTo(1);
+        });
+        assertThat(result).anySatisfy(progress -> {
+            assertThat(progress.parentActionId()).isEqualTo(parentB.getId());
+            assertThat(progress.totalCount()).isEqualTo(1);
+            assertThat(progress.doneCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void countChildActionProgressOmitsParentWithNoChildrenYet() {
+        Action parent = actionRepository.save(team(ActionStatus.TODO));
+
+        var result = actionRepository.countChildActionProgressByParentActionIds(List.of(parent.getId()));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void countChildActionProgressReturnsEmptyWithoutQueryingWhenIdsIsEmpty() {
+        assertThat(actionRepository.countChildActionProgressByParentActionIds(List.of())).isEmpty();
+    }
+
+    // Action.createManual은 parentActionId를 받지 않는다(항상 null 고정) — 하위 개인 액션은
+    // team()처럼 reconstitute로 직접 만든다.
+    private Action childUnderParent(Long parentActionId, ActionStatus status) {
+        LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
+        boolean isDone = status == ActionStatus.DONE;
+        return Action.reconstitute(
+                null, COMPANY, 1L, parentActionId, null, TEAM, ASSIGNEE, ActionType.PERSONAL, "하위 개인 액션", "설명",
+                isDone, startDate, LocalDate.of(2026, 12, 31), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
+    }
+
     private Action personal(ActionStatus status, LocalDate dueDate) {
         Action action = Action.createManual(
                 COMPANY, 1L, null, ASSIGNEE, ActionType.PERSONAL, "제목", "설명", dueDate);

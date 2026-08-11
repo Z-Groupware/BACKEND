@@ -70,4 +70,13 @@ public interface ActionRepository {
 
     // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL이 actionType으로 섞여 나온다(회의 상세 화면 전용).
     List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
+
+    // 2026-08-11, 이슈 #355(이홍근 요청) — 팀 액션 목록의 하위 개인 액션 진척 게이지
+    // ("3/5")용 배치 집계. 팀 액션 하나당 하위 PERSONAL 액션의 전체 건수·완료 건수.
+    // findAllByParentActionId(단건, FR-AC-08 타임라인용)와 달리 목록 페이지의 여러 팀 액션
+    // id를 한 번에 묶어 N+1을 피한다.
+    List<ChildActionProgress> countChildActionProgressByParentActionIds(List<Long> parentActionIds);
+
+    record ChildActionProgress(Long parentActionId, int totalCount, int doneCount) {
+    }
 }

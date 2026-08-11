@@ -68,6 +68,8 @@ class TeamActionServiceTest {
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
                 .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
+        when(actionRepository.countChildActionProgressByParentActionIds(List.of(10L)))
+                .thenReturn(List.of(new ActionRepository.ChildActionProgress(10L, 5, 2)));
 
         var result = service.getTeamActions(TEAM, null, null, "desc", 0, 20);
 
@@ -78,6 +80,27 @@ class TeamActionServiceTest {
         assertThat(item.projectTag()).isEqualTo("GOODS");
         assertThat(item.projectName()).isEqualTo("굿즈");
         assertThat(item.teamName()).isEqualTo("개발팀");
+        assertThat(item.childTotalCount()).isEqualTo(5);
+        assertThat(item.childDoneCount()).isEqualTo(2);
+    }
+
+    @Test
+    void getTeamActionsFillsZeroWhenTeamActionHasNoChildActionsYet() {
+        TeamActionService service = teamActionService();
+        Action action = teamAction(10L, ActionStatus.TODO);
+        when(actionRepository.countByTeamId(TEAM, null)).thenReturn(1L);
+        when(actionRepository.findAllByTeamId(TEAM, null, null, "desc", 0, 20)).thenReturn(List.of(action));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
+        when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
+                .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
+        when(actionRepository.countChildActionProgressByParentActionIds(List.of(10L))).thenReturn(List.of());
+
+        var result = service.getTeamActions(TEAM, null, null, "desc", 0, 20);
+
+        TeamActionListItem item = result.items().get(0);
+        assertThat(item.childTotalCount()).isZero();
+        assertThat(item.childDoneCount()).isZero();
     }
 
     @Test
@@ -89,6 +112,7 @@ class TeamActionServiceTest {
         assertThat(service.getTeamActions(TEAM, null, null, "desc", 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findProjectReferences(anyList());
         verify(actionReferenceRepository, never()).findTeamReferences(anyList());
+        verify(actionRepository, never()).countChildActionProgressByParentActionIds(anyList());
     }
 
     // ── FR-AC-06 상세 ──────────────────────────────────────────────

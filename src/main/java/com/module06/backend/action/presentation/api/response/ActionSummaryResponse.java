@@ -32,6 +32,12 @@ import com.module06.backend.action.domain.model.ActionType;
     "회의/타임라인 화면 안이라 중복" 이유로 projectTag를 비우던 두 경로(타임라인·회의별 조회)는
     projectName도 같은 이유로 비운다.
 
+    2026-08-11 — childDoneCount·childTotalCount 추가(이슈 #355, 이홍근 요청). GET /api/team/actions
+    (TeamActionListItem 경로)에서만 채워진다 — 하위 개인 액션 진척 게이지("3/5")용. 나머지 경로는
+    Integer(boxed) null이다 — "하위 개념 자체가 없음"과 "하위가 0/0으로 비어있음"을 구분해야
+    해서 int 0으로 defaulting하지 않는다(PERSONAL 액션·타임라인·회의별 조회는 애초에 하위 개념이
+    없다). TeamActionListItem 경로는 서비스가 항상 0/0 이상의 실값을 채워 보낸다.
+
     연결된 클래스
     - ActionController · TeamActionController : 이 DTO를 내보내는 진입점
     - ActionService · TeamActionService        : 이 DTO를 만드는 구현체
@@ -54,7 +60,9 @@ public record ActionSummaryResponse(
         String teamName,
         String sourceMeetingTitle,
         Long parentActionId,
-        String parentActionTitle
+        String parentActionTitle,
+        Integer childDoneCount,
+        Integer childTotalCount
 ) {
 
     // 조인 없이 액션 하나만 있을 때(수동 추가 직후 응답 등) — 나머지 표시값은 null.
@@ -70,8 +78,10 @@ public record ActionSummaryResponse(
     }
 
     // FR-AC-06 목록 조회 — TEAM 액션은 담당자·출처회의·상위액션 개념이 없어 전부 null로 내려간다.
+    // childDoneCount·childTotalCount는 유일하게 이 경로에서만 실값이다(이슈 #355).
     public static ActionSummaryResponse from(TeamActionListItem item) {
-        return from(item.action(), null, item.projectTag(), item.projectName(), item.teamName(), null, null);
+        return from(item.action(), null, item.projectTag(), item.projectName(), item.teamName(), null, null,
+                item.childDoneCount(), item.childTotalCount());
     }
 
     // FR-AC-08 타임라인 조회 — 이미 팀 액션 상세 화면 안(같은 프로젝트·같은 팀)이라 projectTag·
@@ -97,6 +107,13 @@ public record ActionSummaryResponse(
             Action action, String assigneeName, String projectTag, String projectName, String teamName,
             String sourceMeetingTitle, String parentActionTitle
     ) {
+        return from(action, assigneeName, projectTag, projectName, teamName, sourceMeetingTitle, parentActionTitle, null, null);
+    }
+
+    private static ActionSummaryResponse from(
+            Action action, String assigneeName, String projectTag, String projectName, String teamName,
+            String sourceMeetingTitle, String parentActionTitle, Integer childDoneCount, Integer childTotalCount
+    ) {
         // 지연은 "진행중" 한정 배지다(2026-08-07 재설계) — 할일은 아직 안 늦은 것, 완료는 지연이 아니다.
         LocalDate today = LocalDate.now();
         boolean delayed = action.getStatus() == ActionStatus.IN_PROGRESS
@@ -119,7 +136,9 @@ public record ActionSummaryResponse(
                 teamName,
                 sourceMeetingTitle,
                 action.getParentActionId(),
-                parentActionTitle
+                parentActionTitle,
+                childDoneCount,
+                childTotalCount
         );
     }
 }

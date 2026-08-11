@@ -80,6 +80,11 @@ public interface SpringDataActionRepository
     // 딸려온다). COUNT GROUP BY는 Semgrep QUERY_002가 신규 @Query를 막아 못 쓰고, 자바에서 집계한다.
     List<ProjectActionProjection> findAllByProjectIdIn(List<Long> projectIds);
 
+    // 2026-08-11, 이슈 #355 — 팀 액션 목록 하위 개인 액션 진척 배치 집계. ProjectActionProjection과
+    // 같은 이유로 프로젝션이다(parentActionId·status 두 컬럼만 필요).
+    List<ChildActionProgressProjection> findAllByActionTypeAndParentActionIdIn(
+            ActionType actionType, List<Long> parentActionIds);
+
     // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다. 이름은 미분배 조회에서 왔지만 컬럼
     // shape이 같아 조건 없는 전체 건수 집계(findAllByCompanyIdAndSourceMeetingIdIn)도 재사용한다.
     interface UndispatchedProjection {
@@ -89,6 +94,13 @@ public interface SpringDataActionRepository
     // 닫힌 프로젝션 — projectId·status 두 컬럼만 읽는다.
     interface ProjectActionProjection {
         Long getProjectId();
+
+        ActionStatus getStatus();
+    }
+
+    // 닫힌 프로젝션 — parentActionId·status 두 컬럼만 읽는다.
+    interface ChildActionProgressProjection {
+        Long getParentActionId();
 
         ActionStatus getStatus();
     }

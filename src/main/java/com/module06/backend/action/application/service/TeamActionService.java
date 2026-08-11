@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,7 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository.M
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
+import com.module06.backend.action.domain.repository.ActionRepository.ChildActionProgress;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
@@ -76,10 +78,24 @@ public class TeamActionService implements
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
+        // 2026-08-11, 이슈 #355 — 하위 개인 액션 진척 배치 집계. 이 페이지의 팀 액션 id만 묶어
+        // countActionsByProjectIds와 동일한 이유로 N+1을 피한다. 하위가 없는 팀 액션은
+        // countChildActionProgressByParentActionIds의 group-by 결과에 아예 안 잡히므로
+        // getOrDefault로 0/0을 채운다.
+        Map<Long, ChildActionProgress> childProgressByActionId = actionRepository
+                .countChildActionProgressByParentActionIds(distinct(actions, Action::getId))
+                .stream()
+                .collect(Collectors.toMap(ChildActionProgress::parentActionId, progress -> progress));
+
         List<TeamActionListItem> items = actions.stream()
-                .map(action -> new TeamActionListItem(
-                        action, projectTagById.get(action.getProjectId()),
-                        projectNameById.get(action.getProjectId()), teamName))
+                .map(action -> {
+                    ChildActionProgress progress = childProgressByActionId.get(action.getId());
+                    return new TeamActionListItem(
+                            action, projectTagById.get(action.getProjectId()),
+                            projectNameById.get(action.getProjectId()), teamName,
+                            progress == null ? 0 : progress.doneCount(),
+                            progress == null ? 0 : progress.totalCount());
+                })
                 .toList();
 
         return new TeamActionListResult(items, totalElements);
