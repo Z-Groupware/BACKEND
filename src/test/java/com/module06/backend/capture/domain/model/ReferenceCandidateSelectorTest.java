@@ -52,6 +52,40 @@ class ReferenceCandidateSelectorTest {
     }
 
     @Test
+    @DisplayName("1인칭의 격을 빠짐없이 고른다 — 여격·목적격을 빼면 담당자가 조용히 미정이 된다")
+    void 일인칭의_모든_격을_고른다() {
+        List<Long> targets = ReferenceCandidateSelector.select(List.of(
+                utterance(1L, "저한테 주세요"),
+                utterance(2L, "저에게 넘겨주시면 됩니다"),
+                utterance(3L, "제게 공유해 주세요"),
+                utterance(4L, "저를 넣어주세요"),
+                utterance(5L, "저랑 같이 보죠"),
+                utterance(6L, "저의 담당은 배포입니다"),
+                utterance(7L, "내가 할게"),
+                utterance(8L, "나한테 주면 돼")));
+
+        assertThat(targets).containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L);
+    }
+
+    @Test
+    @DisplayName("놓친 발화는 폴백이 구해주지 않는다 — 다른 발화가 걸리면 그대로 사라진다")
+    void 다른_후보가_있으면_폴백이_없다() {
+        /*
+         * 이 테스트가 왜 있나 — Python 은 targets 가 **완전히 비었을 때만** 전체로 되돌린다
+         * (`return narrowed or request.utterances`). 그래서 "회의에 지시어가 많으면 어차피
+         * 폴백이 돌 것"이라는 기대가 성립하지 않는다. 어간 목록의 빈칸은 그 발화 하나를
+         * 영구히 잃는다.
+         *
+         * 아래에서 2번이 목록에 들어가야 한다. 1번이 이미 걸려 targets 가 비지 않기 때문이다.
+         */
+        List<Long> targets = ReferenceCandidateSelector.select(List.of(
+                utterance(1L, "그거 확인해 주세요"),
+                utterance(2L, "저한테 주시면 정리하겠습니다")));
+
+        assertThat(targets).containsExactly(1L, 2L);
+    }
+
+    @Test
     @DisplayName("맨 '저'로는 걸리지 않는다 — '저장'·'저번'까지 걸면 좁히는 의미가 사라진다")
     void 저장은_후보가_아니다() {
         List<Long> targets = ReferenceCandidateSelector.select(List.of(
@@ -124,9 +158,24 @@ class ReferenceCandidateSelectorTest {
     void 호칭을_고른다() {
         List<Long> targets = ReferenceCandidateSelector.select(List.of(
                 utterance(1L, "김대리님이 봐주시겠어요"),
-                utterance(2L, "담당자 정해야 합니다")));
+                // 조사를 나열하는 대신 맨 "님"으로 잡으므로 "님도"·"님을"·"님하고"도 걸린다.
+                utterance(2L, "박팀장님도 참석하시나요"),
+                utterance(3L, "이사님을 모셔야 합니다"),
+                utterance(4L, "담당자 정해야 합니다")));
 
-        assertThat(targets).containsExactly(1L, 2L);
+        assertThat(targets).containsExactly(1L, 2L, 3L, 4L);
+    }
+
+    @Test
+    @DisplayName("'날씨'는 후보가 아니다 — '씨'를 맨으로 잡을 수 없어 조사 형태로 나열했다")
+    void 날씨는_후보가_아니다() {
+        List<Long> targets = ReferenceCandidateSelector.select(List.of(
+                utterance(1L, "날씨 때문에 행사를 미뤘습니다"),
+                // "내 "를 넣지 않은 이유 — 업무 회의에서 자주 나오는 말들이다.
+                utterance(2L, "사내 규정을 먼저 봐야 합니다"),
+                utterance(3L, "국내 영업 실적입니다")));
+
+        assertThat(targets).isEmpty();
     }
 
     private static Utterance utterance(long id, String text) {
