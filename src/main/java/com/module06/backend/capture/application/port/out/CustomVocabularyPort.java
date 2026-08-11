@@ -24,6 +24,38 @@ public interface CustomVocabularyPort {
     String requestBuild(BuildRequest request);
 
     /*
+     * 제공자 쪽 어휘가 다 만들어졌는지 묻는다.
+     *
+     * <h2>왜 폴링인가 — 콜백이 없다</h2>
+     * Transcribe 는 어휘 생성 완료를 알려주지 않는다. STT 잡 결과와 같은 사정이고, 그래서
+     * 주기 워커가 물어본다.
+     *
+     * <h2>못 읽은 것과 실패한 것을 구분한다</h2>
+     * 네트워크가 흔들린 것을 실패로 접으면 정상적으로 만들어지던 어휘가 FAILED 로 닫히고,
+     * 사람이 재생성을 눌러 **어휘 리소스가 하나 더 만들어진다** — 계정 상한을 그만큼 갉아먹는다.
+     *
+     * @return 그 이름의 어휘가 없으면 {@link VocabularyState#UNKNOWN}. 예외를 던지지 않는다 —
+     *         워커가 어휘 하나 때문에 멈추면 나머지도 함께 밀린다
+     */
+    VocabularyState stateOf(String providerVocabularyName);
+
+    enum VocabularyState {
+        /* 만드는 중이다. 다음 주기에 다시 본다. */
+        PENDING,
+        /* 다 만들어졌다. 승격해도 된다. */
+        READY,
+        /* 제공자가 실패로 닫았다. */
+        FAILED,
+        /*
+         * 그 이름의 어휘가 없다. 제출이 실제로 안 됐거나 누가 콘솔에서 지운 것이다.
+         * 실패로 접는다 — 그대로 두면 영원히 PENDING 이고 사람이 다시 누를 수도 없다.
+         */
+        UNKNOWN,
+        /* 제공자를 못 읽었다. 상태를 바꾸지 않고 다음 주기에 다시 본다. */
+        UNAVAILABLE
+    }
+
+    /*
      * 어휘 리소스를 지운다. 계정 상한을 되돌리는 유일한 방법이다.
      *
      * 없는 이름을 지우려 해도 실패로 보지 않는다 — 이미 지워진 것과 애초에 없던 것을 구분해도

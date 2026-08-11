@@ -1,5 +1,6 @@
 package com.module06.backend.capture.infrastructure.stt;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +20,25 @@ import com.module06.backend.capture.application.port.out.CustomVocabularyPort;
  */
 @Slf4j
 @Component
+@Profile("!prod")
 public class CustomVocabularyStubAdapter implements CustomVocabularyPort {
+
+    /*
+     * PENDING 을 돌려준다 — **READY 를 흉내내지 않는다.**
+     *
+     * READY 로 답하면 로컬에서 만들어지지도 않은 어휘 이름이 활성으로 승격되고, 그 이름이 STT
+     * 제출에 실려 나간다. 제공자는 없는 어휘를 거절하므로 **받아쓰기 전체가 실패한다** —
+     * 어휘가 없어도 녹음은 성립해야 한다는 계약을 스텁이 깨는 셈이다.
+     *
+     * PENDING 이면 승격이 일어나지 않고 화면은 "만드는 중"에 머문다. 실 어댑터가 붙기 전과
+     * 같은 상태이고, 그게 정직하다.
+     */
+    @Override
+    public VocabularyState stateOf(String providerVocabularyName) {
+        log.debug("커스텀 어휘 상태 조회(stub) — resource={}. 실 어댑터 전까지 PENDING 으로 답한다.",
+                providerVocabularyName);
+        return VocabularyState.PENDING;
+    }
 
     @Override
     public String requestBuild(BuildRequest request) {
