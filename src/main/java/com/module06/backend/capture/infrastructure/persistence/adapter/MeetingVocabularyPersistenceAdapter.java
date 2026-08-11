@@ -66,10 +66,12 @@ public class MeetingVocabularyPersistenceAdapter implements MeetingVocabularyRep
 
     @Override
     @Transactional
-    public void assignPendingName(long vocabularyId, String pendingVocabularyName) {
+    public void assignPendingName(long vocabularyId, String pendingVocabularyName,
+                                  int pendingPhraseCount) {
         vocabularyRepository.findById(vocabularyId)
                 .ifPresent(entity -> {
-                    entity.assignPendingName(pendingVocabularyName);
+                    entity.assignPendingName(pendingVocabularyName, pendingPhraseCount,
+                            LocalDateTime.now(clock));
                     vocabularyRepository.save(entity);
                 });
     }
@@ -85,19 +87,39 @@ public class MeetingVocabularyPersistenceAdapter implements MeetingVocabularyRep
     }
 
     /*
-     * 승격은 **쓰기 잠금 안에서** 한다. 폴링과 재생성(STT-02)이 같은 행을 동시에 만질 수 있고,
-     * 사람이 방금 재생성을 눌러 대기 이름이 새 것으로 바뀐 뒤에 옛 폴링이 승격하면 **만들어지지도
-     * 않은 리소스가 활성이 된다.**
+     * 승격은 **쓰기 잠금을 걸고** 대기 이름을 다시 확인한 뒤에 한다.
+     *
+     * findById 로 읽어 자바에서 비교하면 안 된다 — 조회와 갱신 사이에 재생성이 새 빌드를
+     * 접수할 수 있고, 잠금이 없으면 두 폴링이 같은 스냅샷을 보고 둘 다 승격한다.
+     * markQueuedForRetry 가 같은 이유로 같은 방식을 쓴다(CodeRabbit PR #353 지적).
      */
     @Override
     @Transactional
-    public Optional<String> promoteToReady(long vocabularyId, int builtPhraseCount) {
-        return vocabularyRepository.findById(vocabularyId)
-                .flatMap(entity -> {
-                    String previousActive = entity.promoteToReady(builtPhraseCount, LocalDateTime.now(clock));
+    public boolean promoteToReady(long vocabularyId, String expectedPendingName) {
+        return vocabularyRepository.findWithLockById(vocabularyId)
+                .map(entity -> {
+                    if (!entity.promoteToReady(expectedPendingName, LocalDateTime.now(clock))) {
+                        return false;
+                    }
                     vocabularyRepository.save(entity);
-                    return Optional.ofNullable(previousActive);
-                });
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public boolean markBuildFailedIfPending(long vocabularyId, String expectedPendingName,
+                                            String errorCode) {
+        return vocabularyRepository.findWithLockById(vocabularyId)
+                .map(entity -> {
+                    if (!entity.markBuildFailed(expectedPendingName, errorCode)) {
+                        return false;
+                    }
+                    vocabularyRepository.save(entity);
+                    return true;
+                })
+                .orElse(false);
     }
 
     @Override
@@ -108,6 +130,37 @@ public class MeetingVocabularyPersistenceAdapter implements MeetingVocabularyRep
                     entity.markCleaned(LocalDateTime.now(clock));
                     vocabularyRepository.save(entity);
                 });
+    }
+
+    @Override
+    @Transactional
+    public void clearStaleName(long vocabularyId) {
+        vocabularyRepository.findById(vocabularyId)
+                .ifPresent(entity -> {
+                    entity.clearStaleName();
+                    vocabularyRepository.save(entity);
+                });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<VocabularyView> findStaleTargets(int limit) {
+        return vocabularyRepository
+                .findByStaleVocabularyNameIsNotNullOrderByIdAsc(PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(MeetingVocabularyPersistenceAdapter::toView)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<VocabularyView> findStuckBuilds(LocalDateTime startedBefore, int limit) {
+        return vocabularyRepository
+                .findByStatusAndBuildStartedAtBeforeOrderByIdAsc(
+                        VocabularyStatus.PENDING, startedBefore, PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(MeetingVocabularyPersistenceAdapter::toView)
+                .toList();
     }
 
     @Override
@@ -148,6 +201,7 @@ public class MeetingVocabularyPersistenceAdapter implements MeetingVocabularyRep
                 entity.getProviderVocabularyName(),
                 entity.getBuiltAt(),
                 entity.getPendingVocabularyName(),
-                entity.getDeletedAt() != null);
+                entity.getDeletedAt() != null,
+                entity.getStaleVocabularyName());
     }
 }

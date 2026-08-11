@@ -172,6 +172,7 @@ class MeetingVocabularyServiceTest {
 
         private boolean queried;
         private String assignedName;
+        private int assignedPhraseCount;
         private String failedCode;
         /* 이미 재생성 중인 상태를 흉내낸다 — 선점에 실패하는 쪽. */
         private boolean alreadyRebuilding;
@@ -188,7 +189,7 @@ class MeetingVocabularyServiceTest {
                 return Optional.empty();
             }
             return Optional.of(new VocabularyView(1L, meetingId, VocabularyStatus.PENDING, 0, null,
-                    LocalDateTime.of(2026, 8, 4, 9, 12), null, false));
+                    LocalDateTime.of(2026, 8, 4, 9, 12), null, false, null));
         }
 
         @Override
@@ -197,14 +198,37 @@ class MeetingVocabularyServiceTest {
         }
 
         @Override
-        public void assignPendingName(long vocabularyId, String pendingVocabularyName) {
+        public void assignPendingName(long vocabularyId, String pendingVocabularyName,
+                                      int pendingPhraseCount) {
             assignedName = pendingVocabularyName;
+            assignedPhraseCount = pendingPhraseCount;
         }
 
         // ── 승격·정리는 생애주기 워커의 몫이다. 이 서비스(STT-01·02)는 접수까지다 ──────────
         @Override
-        public Optional<String> promoteToReady(long vocabularyId, int builtPhraseCount) {
+        public boolean promoteToReady(long vocabularyId, String expectedPendingName) {
             throw new UnsupportedOperationException("승격은 생애주기 워커가 한다");
+        }
+
+        @Override
+        public boolean markBuildFailedIfPending(long vocabularyId, String expectedPendingName,
+                                                String errorCode) {
+            throw new UnsupportedOperationException("폴링이 확인한 실패는 생애주기 워커가 기록한다");
+        }
+
+        @Override
+        public void clearStaleName(long vocabularyId) {
+            throw new UnsupportedOperationException("밀려난 이름 정리는 생애주기 워커가 한다");
+        }
+
+        @Override
+        public List<VocabularyView> findStaleTargets(int limit) {
+            throw new UnsupportedOperationException("정리 대상 조회는 생애주기 워커가 한다");
+        }
+
+        @Override
+        public List<VocabularyView> findStuckBuilds(java.time.LocalDateTime startedBefore, int limit) {
+            throw new UnsupportedOperationException("포기 대상 조회는 생애주기 워커가 한다");
         }
 
         @Override

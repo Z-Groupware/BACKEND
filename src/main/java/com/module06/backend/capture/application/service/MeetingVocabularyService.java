@@ -64,7 +64,7 @@ public class MeetingVocabularyService implements GetMeetingVocabularyUseCase, Re
 
         return meetingVocabularyRepository.findByMeeting(meetingId)
                 .orElseGet(() -> new VocabularyView(
-                        0L, meetingId, VocabularyStatus.PENDING, 0, null, null, null, false));
+                        0L, meetingId, VocabularyStatus.PENDING, 0, null, null, null, false, null));
     }
 
     /*
@@ -116,9 +116,15 @@ public class MeetingVocabularyService implements GetMeetingVocabularyUseCase, Re
             throw e;
         }
 
-        // 제출이 성공한 뒤에 적는다. **대기 칸에** 적는다 — 활성 이름을 덮으면 아직 쓰이고 있는
-        // 이전 리소스를 영영 못 지운다.
-        meetingVocabularyRepository.assignPendingName(view.id(), providerName);
+        /*
+         * 제출이 성공한 뒤에 적는다. **대기 칸에** 적는다 — 활성 이름을 덮으면 아직 쓰이고 있는
+         * 이전 리소스를 영영 못 지운다.
+         *
+         * 단어 수를 함께 넘긴다. **제공자는 개수를 돌려주지 않으므로 그 값을 아는 시점이 여기뿐**
+         * 이고, 승격이 그것을 phrase_count 로 옮긴다(V5.21). 안 넘기면 첫 생성은 0 으로 승격되고
+         * 재생성은 이전 개수로 갱신된다 — 둘 다 화면에 틀린 숫자가 나간다.
+         */
+        meetingVocabularyRepository.assignPendingName(view.id(), providerName, phrases.size());
 
         log.info("커스텀 어휘 재생성 접수 — meetingId={} 단어={}개 resource={}",
                 command.meetingId(), phrases.size(), providerName);

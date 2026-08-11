@@ -62,6 +62,19 @@ public class VocabularyLifecycleScheduler {
             log.error("어휘 완료 확인 워커에서 예상치 못한 오류 — 다음 주기에 다시 돈다", e);
         }
 
+        /*
+         * 멈춘 빌드를 포기한다. 승격 **뒤**에 하는 이유 — 이번 주기에 막 READY 가 된 빌드를
+         * 시각만 보고 포기하면 방금 만들어진 어휘를 버린다.
+         */
+        try {
+            int abandoned = vocabularyLifecycleService.abandonStuckOnce();
+            if (abandoned > 0) {
+                log.warn("커스텀 어휘 포기 — {}건. 제공자가 응답하지 않았다", abandoned);
+            }
+        } catch (RuntimeException e) {
+            log.error("어휘 포기 워커에서 예상치 못한 오류 — 다음 주기에 다시 돈다", e);
+        }
+
         try {
             int cleaned = vocabularyLifecycleService.cleanupOnce();
             if (cleaned > 0) {
@@ -69,6 +82,19 @@ public class VocabularyLifecycleScheduler {
             }
         } catch (RuntimeException e) {
             log.error("어휘 정리 워커에서 예상치 못한 오류 — 다음 주기에 다시 돈다", e);
+        }
+
+        /*
+         * 밀려난 리소스를 지운다. 활성 정리와 나눠 부르는 이유 — 밀려난 것은 회의가 끝나기
+         * 전에도 나오므로(재생성) 대상이 되는 시점이 다르다.
+         */
+        try {
+            int cleanedStale = vocabularyLifecycleService.cleanupStaleOnce();
+            if (cleanedStale > 0) {
+                log.info("밀려난 어휘 정리 — {}건 삭제", cleanedStale);
+            }
+        } catch (RuntimeException e) {
+            log.error("밀려난 어휘 정리 워커에서 예상치 못한 오류 — 다음 주기에 다시 돈다", e);
         }
     }
 }

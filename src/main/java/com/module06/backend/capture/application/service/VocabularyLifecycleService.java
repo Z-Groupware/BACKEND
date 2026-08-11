@@ -1,7 +1,9 @@
 package com.module06.backend.capture.application.service;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
@@ -47,11 +49,20 @@ public class VocabularyLifecycleService {
     private static final String ERROR_PROVIDER_FAILED = "PROVIDER_FAILED";
     private static final String ERROR_NOT_FOUND = "VOCABULARY_NOT_FOUND";
 
+    /* 응답 없이 이만큼 지나면 포기한다. 명세가 "몇 분 걸린다"고 적은 작업이라 넉넉히 잡는다. */
+    private static final Duration BUILD_TIMEOUT = Duration.ofMinutes(30);
+
+    /* 화면이 이 코드로 문구를 고른다. */
+    private static final String ERROR_TIMEOUT = "BUILD_TIMEOUT";
+
     private final MeetingVocabularyRepository meetingVocabularyRepository;
     private final CustomVocabularyPort customVocabularyPort;
 
     /* 정리 시점을 가르는 값 — 받아쓰기가 아직 도는 중이면 어휘를 지우면 안 된다. */
     private final SttBlockRepository sttBlockRepository;
+
+    /* 포기 판정의 기준 시각. 프로젝트 전체에 Clock 빈이 하나뿐이라 타입으로 주입된다. */
+    private final Clock clock;
 
     /*
      * 만들어지는 중인 어휘를 확인해 승격하거나 실패로 닫는다.
@@ -76,17 +87,19 @@ public class VocabularyLifecycleService {
     }
 
     private boolean settle(VocabularyView vocabulary) {
-        VocabularyState state = customVocabularyPort.stateOf(vocabulary.pendingVocabularyName());
+        String pendingName = vocabulary.pendingVocabularyName();
+        VocabularyState state = customVocabularyPort.stateOf(pendingName);
         return switch (state) {
-            case READY -> {
-                promote(vocabulary);
-                yield true;
-            }
+            /*
+             * 전이는 전부 **폴링한 이름을 함께 넘긴다.** 그 사이 재생성이 새 빌드를 접수했으면
+             * 저장소가 물러난다 — 옛 결과로 승격하면 만들어지지도 않은 리소스가 활성이 되고,
+             * 옛 결과로 닫으면 방금 접수된 빌드가 버려진다(CodeRabbit PR #353 지적).
+             */
+            case READY -> promote(vocabulary, pendingName);
             case FAILED -> {
-                log.warn("어휘 생성 실패 — meetingId={} resource={}",
-                        vocabulary.meetingId(), vocabulary.pendingVocabularyName());
-                meetingVocabularyRepository.markBuildFailed(vocabulary.id(), ERROR_PROVIDER_FAILED);
-                yield true;
+                log.warn("어휘 생성 실패 — meetingId={} resource={}", vocabulary.meetingId(), pendingName);
+                yield meetingVocabularyRepository.markBuildFailedIfPending(
+                        vocabulary.id(), pendingName, ERROR_PROVIDER_FAILED);
             }
             /*
              * 제공자가 그 이름을 모른다. **실패로 닫는다** — 그대로 두면 영원히 PENDING 이고,
@@ -94,9 +107,9 @@ public class VocabularyLifecycleService {
              */
             case UNKNOWN -> {
                 log.warn("어휘를 제공자가 모른다 — 우리 상태와 어긋났다. meetingId={} resource={}",
-                        vocabulary.meetingId(), vocabulary.pendingVocabularyName());
-                meetingVocabularyRepository.markBuildFailed(vocabulary.id(), ERROR_NOT_FOUND);
-                yield true;
+                        vocabulary.meetingId(), pendingName);
+                yield meetingVocabularyRepository.markBuildFailedIfPending(
+                        vocabulary.id(), pendingName, ERROR_NOT_FOUND);
             }
             // 아직 만드는 중이거나 못 읽었다. 상태를 바꾸지 않고 다음 주기에 다시 본다.
             case PENDING, UNAVAILABLE -> false;
@@ -104,30 +117,62 @@ public class VocabularyLifecycleService {
     }
 
     /*
-     * 승격하고 **이전 활성 리소스를 지운다.**
+     * 응답 없이 오래 걸린 빌드를 포기한다.
      *
-     * 순서가 이렇다 — 먼저 승격해 새 이름이 활성이 되고, 그 뒤에 이전 것을 지운다. 반대로 하면
-     * 지우는 데 성공하고 승격이 실패했을 때 **활성 어휘가 없는 채로 이름만 남는다**(STT 제출이
-     * 없는 어휘를 참조한다).
+     * <h2>왜 필요한가 — 두 가지가 함께 막힌다</h2>
+     * 제공자가 계속 PENDING 을 답하면 그 회의는 영원히 "만드는 중"이고, 선점이 PENDING 을
+     * 막으므로 **사람이 다시 누를 수도 없다.** 게다가 폴링 배치가 id 순 선두 몇 건만 보므로
+     * 멈춘 빌드가 뒤 항목의 승격을 계속 미룬다(CodeRabbit PR #353 지적).
      *
-     * 삭제가 실패해도 승격은 유지한다. 어댑터가 삼키고 크게 로깅하므로(계정 상한을 계속 쓴다)
-     * 여기서 되돌릴 이유가 없다 — 되돌리면 방금 만든 어휘를 못 쓰게 된다.
+     * 상한을 넉넉히 잡는다 — 명세가 "몇 분 걸린다"고 적은 작업이고, 짧게 잡으면 정상적으로
+     * 만들어지는 중인 어휘를 포기해 사람이 다시 눌러 **리소스가 하나 더 만들어진다.**
+     * 오탐의 대가가 더 크므로 한쪽으로만 틀리게 한다(LayerLiveness 와 같은 판단).
      *
-     * phraseCount 는 **제출 시점에 알던 값**이다. 제공자가 개수를 돌려주지 않아 그것 말고 쓸
-     * 값이 없다. 지금은 승격 시점에 그 값을 다시 알 방법이 없어 기존 값을 유지한다 —
-     * 재생성으로 참석자가 바뀌면 이 숫자가 한 주기 늦게 맞는다.
+     * @return 포기한 건수
      */
-    private void promote(VocabularyView vocabulary) {
-        Optional<String> previousActive =
-                meetingVocabularyRepository.promoteToReady(vocabulary.id(), vocabulary.phraseCount());
+    public int abandonStuckOnce() {
+        List<VocabularyView> stuck = meetingVocabularyRepository.findStuckBuilds(
+                LocalDateTime.now(clock).minus(BUILD_TIMEOUT), BATCH_LIMIT);
 
-        log.info("커스텀 어휘 준비 완료 — meetingId={} resource={}",
-                vocabulary.meetingId(), vocabulary.pendingVocabularyName());
+        int abandoned = 0;
+        for (VocabularyView vocabulary : stuck) {
+            try {
+                if (meetingVocabularyRepository.markBuildFailedIfPending(
+                        vocabulary.id(), vocabulary.pendingVocabularyName(), ERROR_TIMEOUT)) {
+                    log.warn("어휘 생성 포기 — {}분을 넘겼다. meetingId={} resource={}",
+                            BUILD_TIMEOUT.toMinutes(), vocabulary.meetingId(),
+                            vocabulary.pendingVocabularyName());
+                    abandoned++;
+                }
+            } catch (RuntimeException e) {
+                log.error("어휘 포기 처리 실패 — meetingId={}", vocabulary.meetingId(), e);
+            }
+        }
+        return abandoned;
+    }
 
-        previousActive.ifPresent(name -> {
-            log.info("이전 어휘 정리 — meetingId={} resource={}", vocabulary.meetingId(), name);
-            customVocabularyPort.delete(name);
-        });
+    /*
+     * 승격한다 — **여기서 지우지 않는다.**
+     *
+     * 처음에는 밀려난 이전 리소스를 이 자리에서 곧바로 지웠는데, 두 가지가 깨졌다
+     * (CodeRabbit PR #353 지적):
+     *   · 삭제가 실패하면 다시 시도할 이름이 없다. 승격이 활성 칸을 덮었으므로 그 이름은
+     *     어디에도 남지 않는다 — V5.19 가 경고한 계정 상한 누수가 정확히 이 모양이다.
+     *   · **아직 도는 STT 잡이 그 이름을 참조할 수 있다.** 정리 경로는 "받아쓰기가 끝났나"를
+     *     보고 지우는데, 승격 경로만 그 검사를 건너뛰면 규칙이 두 갈래가 된다.
+     *
+     * 그래서 저장소가 밀려난 이름을 stale 칸에 적어 두고(V5.21), 정리 워커가 같은 검사를
+     * 지나 지운다. 단어 수도 저장소가 옮긴다 — 제출 시점에 적어 둔 값이 유일한 출처다.
+     */
+    private boolean promote(VocabularyView vocabulary, String pendingName) {
+        if (!meetingVocabularyRepository.promoteToReady(vocabulary.id(), pendingName)) {
+            // 그 사이 재생성이 새 빌드를 접수했다. 이 결과는 옛 것이므로 물러난다.
+            log.info("어휘 승격 물러남 — 그 사이 새 빌드가 접수됐다. meetingId={} resource={}",
+                    vocabulary.meetingId(), pendingName);
+            return false;
+        }
+        log.info("커스텀 어휘 준비 완료 — meetingId={} resource={}", vocabulary.meetingId(), pendingName);
+        return true;
     }
 
     /*
@@ -175,5 +220,46 @@ public class VocabularyLifecycleService {
          */
         meetingVocabularyRepository.markCleaned(vocabulary.id());
         return true;
+    }
+
+    /*
+     * 승격으로 밀려난 리소스를 지운다.
+     *
+     * <h2>활성 정리와 나눈 이유</h2>
+     * 밀려난 것은 **회의가 끝나기 전에도 나온다**(재생성). 그래서 대상이 되는 시점이 다르고,
+     * 한 조회로 합치면 행마다 "무엇을 지워야 하는가"가 달라진다.
+     *
+     * <h2>같은 검사를 지난다</h2>
+     * 받아쓰기가 도는 중이면 미룬다 — 제출된 잡이 **밀려난 이름을 참조할 수 있다.** 재생성
+     * 전에 제출된 잡이 정확히 그것이다. 승격 자리에서 곧바로 지우면 이 검사를 건너뛰게 되고,
+     * 그게 이 메서드가 존재하는 이유다.
+     *
+     * @return 이번에 지운 건수
+     */
+    public int cleanupStaleOnce() {
+        List<VocabularyView> targets = meetingVocabularyRepository.findStaleTargets(BATCH_LIMIT);
+        int cleaned = 0;
+        for (VocabularyView vocabulary : targets) {
+            try {
+                if (sttBlockRepository.countUnfinished(vocabulary.meetingId()) > 0) {
+                    // 재생성 전에 제출된 잡이 아직 이 이름을 참조할 수 있다.
+                    continue;
+                }
+                customVocabularyPort.delete(vocabulary.staleVocabularyName());
+                /*
+                 * 이름 칸을 비운다. 활성 정리와 달리 deleted_at 을 쓰지 않는 이유 — 그 값은
+                 * "이 회의의 활성 리소스를 지웠는가"이고, 밀려난 것은 별개다. 이름을 비우지
+                 * 않으면 매 주기 같은 대상을 다시 집어 제공자 호출만 늘어난다.
+                 */
+                meetingVocabularyRepository.clearStaleName(vocabulary.id());
+                log.info("밀려난 어휘 정리 — meetingId={} resource={}",
+                        vocabulary.meetingId(), vocabulary.staleVocabularyName());
+                cleaned++;
+            } catch (RuntimeException e) {
+                log.error("밀려난 어휘 정리 실패 — meetingId={} resource={}",
+                        vocabulary.meetingId(), vocabulary.staleVocabularyName(), e);
+            }
+        }
+        return cleaned;
     }
 }

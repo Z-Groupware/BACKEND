@@ -1,5 +1,6 @@
 package com.module06.backend.capture.infrastructure.persistence.repository;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +35,27 @@ public interface SpringDataMeetingVocabularyRepository
      */
     List<MeetingVocabularyJpaEntity> findByStatusAndPendingVocabularyNameIsNotNullOrderByIdAsc(
             VocabularyStatus status, Pageable pageable);
+
+    /*
+     * 승격·실패 전이 전용 — **쓰기 잠금을 걸고 읽는다.**
+     *
+     * 대기 이름 비교를 자바에서 하는데, 잠금이 없으면 두 폴링이 같은 스냅샷을 보고 둘 다
+     * 통과한다. 잠금이 그 구간을 직렬화한다(markQueuedForRetry 와 같은 관용구).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<MeetingVocabularyJpaEntity> findWithLockById(long id);
+
+    /* 밀려난 리소스가 남은 어휘(정리 대상). IX_MEETING_VOCABULARY_STALE 이 받는다. */
+    List<MeetingVocabularyJpaEntity> findByStaleVocabularyNameIsNotNullOrderByIdAsc(Pageable pageable);
+
+    /*
+     * 응답 없이 오래 걸린 빌드(포기 대상).
+     *
+     * 접수 시각으로 판정한다 — created_at 은 행이 처음 생긴 시각이고(재생성이면 한참 전),
+     * updated_at 은 ON UPDATE 가 없어 움직이지 않는다(V5.21).
+     */
+    List<MeetingVocabularyJpaEntity> findByStatusAndBuildStartedAtBeforeOrderByIdAsc(
+            VocabularyStatus status, LocalDateTime startedBefore, Pageable pageable);
 
     /*
      * 정리 대상 — 아직 안 지웠고(deleted_at IS NULL) 끝난 어휘 중 지울 이름이 있는 것.

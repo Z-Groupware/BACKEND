@@ -41,7 +41,7 @@ public interface MeetingVocabularyRepository {
      * 쓰인다. 덮으면 이전 리소스 이름이 사라져 그것만 영영 못 지우고, 재생성을 반복할수록
      * 지울 수 없는 리소스가 쌓인다. 승격(READY 확인 후 활성으로)은 후속이다.
      */
-    void assignPendingName(long vocabularyId, String pendingVocabularyName);
+    void assignPendingName(long vocabularyId, String pendingVocabularyName, int pendingPhraseCount);
 
     /*
      * 제출이 실패했다.
@@ -54,16 +54,63 @@ public interface MeetingVocabularyRepository {
     /*
      * 대기 이름을 활성으로 승격한다(제공자가 다 만들었을 때).
      *
-     * @param builtPhraseCount 이번에 만든 어휘의 단어 수. 제공자는 개수를 돌려주지 않으므로
-     *                         제출한 쪽이 남겨 둔 값을 쓴다
-     * @return 지워야 할 **이전 활성 리소스 이름.** 첫 생성이면 비어 있다 — 승격되면 이전
-     *         리소스는 아무도 참조하지 않는데 계정 상한은 계속 쓰므로, 호출자가 그것을 지운다.
-     *         여기서 버리면 이름이 사라져 영영 못 지운다(V5.19 가 경고한 누수다)
+     * <h2>폴링한 이름과 지금 대기 이름이 같을 때만 바꾼다 (compare-and-set)</h2>
+     * 조회와 갱신 사이에 재생성(STT-02)이 새 빌드를 접수할 수 있다. 옛 폴링 결과로 승격하면
+     * **만들어지지도 않은 리소스가 활성이 되고**, 그 이름이 STT 제출에 실려 나가 제공자가
+     * 거절한다 — 받아쓰기 전체가 실패한다(CodeRabbit PR #353 지적). markQueuedForRetry 가
+     * 같은 자리를 같은 방식으로 막는다.
+     *
+     * 단어 수는 인자로 받지 않는다 — **제출 시점에 적어 둔 값**을 저장소가 옮긴다(V5.21).
+     * 제공자가 개수를 돌려주지 않아 그것 말고 쓸 값이 없고, 호출자가 넘기면 폴링이 모르는
+     * 값을 지어내게 된다.
+     *
+     * 밀려난 이전 활성 리소스는 **저장소가 stale 칸에 적어 둔다.** 호출자가 곧바로 지우면
+     * 삭제 실패 시 다시 시도할 이름이 없고, 아직 도는 STT 잡이 그 이름을 참조할 수 있다 —
+     * 정리는 "받아쓰기가 끝났나"를 보는 경로가 해야 한다.
+     *
+     * @param expectedPendingName 폴링이 상태를 물어본 그 이름
+     * @return 내가 승격시켰으면 true. false 면 그 사이 다른 빌드가 접수됐다
      */
-    Optional<String> promoteToReady(long vocabularyId, int builtPhraseCount);
+    boolean promoteToReady(long vocabularyId, String expectedPendingName);
 
-    /* 제공자 리소스를 정리했다고 표시한다(deleted_at). 이름은 지우지 않는다. */
+    /*
+     * 폴링이 확인한 실패를 기록한다 — **그 빌드가 아직 대기 중일 때만.**
+     *
+     * 승격과 같은 이유다. 옛 폴링 결과로 닫으면 방금 접수된 새 빌드가 FAILED 가 되고,
+     * 그 리소스는 계정 상한을 쓰면서 아무도 참조하지 않는다.
+     *
+     * 실패한 대기 리소스도 stale 칸에 적힌다 — 제공자가 FAILED 로 닫은 어휘도 상한을
+     * 차지하므로, 지우지 않으면 실패할수록 상한이 줄어든다.
+     *
+     * @return 내가 닫았으면 true
+     */
+    boolean markBuildFailedIfPending(long vocabularyId, String expectedPendingName, String errorCode);
+
+    /* 제공자 리소스를 정리했다고 표시한다(deleted_at). 활성 이름은 지우지 않는다. */
     void markCleaned(long vocabularyId);
+
+    /* 밀려난 리소스를 지웠다 — 그 이름 칸을 비운다(참조할 곳이 없는 값이다). */
+    void clearStaleName(long vocabularyId);
+
+    /*
+     * 밀려난 리소스가 남은 어휘(정리 대상 2종 중 하나).
+     *
+     * 활성 정리(findCleanupTargets)와 나눠 두는 이유 — **밀려난 것은 회의가 끝나기 전에도
+     * 나온다**(재생성). 두 대상을 한 조회로 합치면 "무엇을 지워야 하는가"가 행마다 달라져
+     * 호출자가 다시 갈라야 한다.
+     */
+    List<VocabularyView> findStaleTargets(int limit);
+
+    /*
+     * 응답 없이 오래 걸린 빌드(포기 대상).
+     *
+     * 제공자가 계속 PENDING 을 답하면 그 회의는 영원히 "만드는 중"이고, 선점이 PENDING 을
+     * 막으므로 **사람이 다시 누를 수도 없다.** 게다가 폴링 배치가 선두 몇 건만 보므로 멈춘
+     * 빌드가 뒤 항목의 승격을 계속 미룬다(CodeRabbit PR #353 지적).
+     *
+     * @param startedBefore 이 시각보다 먼저 접수된 것만
+     */
+    List<VocabularyView> findStuckBuilds(java.time.LocalDateTime startedBefore, int limit);
 
     /*
      * 아직 만들어지는 중인 어휘(폴링 대상).
@@ -94,6 +141,8 @@ public interface MeetingVocabularyRepository {
      *                               어휘가 살아 있기 때문이다(V5.19 주석)
      * @param cleaned                제공자 리소스를 이미 지웠는가(deleted_at). false 면 아직
      *                               계정 상한을 쓰고 있다
+     * @param staleVocabularyName    승격으로 밀려난 이전 리소스. 아무도 참조하지 않지만 계정
+     *                               상한은 계속 쓴다 — 정리 워커가 지운다(V5.21)
      */
     record VocabularyView(
             long id,
@@ -103,7 +152,8 @@ public interface MeetingVocabularyRepository {
             String providerVocabularyName,
             LocalDateTime builtAt,
             String pendingVocabularyName,
-            boolean cleaned
+            boolean cleaned,
+            String staleVocabularyName
     ) {
     }
 }
