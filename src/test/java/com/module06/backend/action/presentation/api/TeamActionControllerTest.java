@@ -73,14 +73,16 @@ class TeamActionControllerTest {
     @DisplayName("목록은 LEADER 권한이면 토큰의 teamId로 조회한다")
     void listUsesTeamIdFromTokenWhenLeader() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "LEADER");
-        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), anyInt(), anyInt()))
+        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
-                        List.of(new TeamActionListItem(teamAction(), "GOODS", "굿즈", "개발팀")), 1L));
+                        List.of(new TeamActionListItem(teamAction(), "GOODS", "굿즈", "개발팀", 2, 5)), 1L));
 
         mockMvc.perform(get("/api/team/actions"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].projectTag").value("GOODS"))
-                .andExpect(jsonPath("$.data.content[0].teamName").value("개발팀"));
+                .andExpect(jsonPath("$.data.content[0].teamName").value("개발팀"))
+                .andExpect(jsonPath("$.data.content[0].childDoneCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].childTotalCount").value(5));
     }
 
     // LEADER 외 접근 차단(@PreAuthorize)은 @WebMvcTest 슬라이스에 SecurityConfig(@EnableMethodSecurity)가
