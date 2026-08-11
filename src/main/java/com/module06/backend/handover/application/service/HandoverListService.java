@@ -4,6 +4,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.GetHandoverListUseCase;
 import com.module06.backend.handover.application.usecase.GetHandoverUseCase;
+import com.module06.backend.handover.application.usecase.GetPendingAttributionListUseCase;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
@@ -15,7 +16,8 @@ import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
-public class HandoverListService implements GetHandoverListUseCase, GetHandoverUseCase {
+public class HandoverListService implements GetHandoverListUseCase, GetHandoverUseCase,
+        GetPendingAttributionListUseCase {
 
     private final HandoverRepository handoverRepository;
     private final OrgQueryPort orgQueryPort;
@@ -50,6 +52,21 @@ public class HandoverListService implements GetHandoverListUseCase, GetHandoverU
 
         return handovers.stream()
                 .filter(handover -> query.status() == null || handover.getStatus() == query.status())
+                .map(this::toSummary)
+                .toList();
+    }
+
+    @Override
+    public List<HandoverSummary> listPendingAttribution(Long companyId) {
+        if (companyId == null) {
+            throw new BusinessException(HandoverErrorCode.HO_COMPANY_CONTEXT_REQUIRED);
+        }
+        List<Long> memberIds = orgQueryPort.findMemberIdsByCompany(companyId);
+        if (memberIds.isEmpty()) {
+            return List.of();
+        }
+        return handoverRepository.findByWriterMemberIdIn(memberIds).stream()
+                .filter(Handover::isPendingAttribution)
                 .map(this::toSummary)
                 .toList();
     }
