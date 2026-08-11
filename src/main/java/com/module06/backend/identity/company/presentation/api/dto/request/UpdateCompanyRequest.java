@@ -46,8 +46,16 @@ public record UpdateCompanyRequest(
         String phone
 ) {
 
-    /** 공백 아닌 문자가 최소 하나. {@code @Pattern} 이 {@code null} 은 통과시키므로 "보냈으면"만 걸린다. */
-    private static final String NOT_BLANK_IF_PRESENT = ".*\\S.*";
+    /**
+     * 공백 아닌 문자가 최소 하나. {@code @Pattern} 이 {@code null} 은 통과시키므로 "보냈으면"만 걸린다.
+     *
+     * <p>{@code (?s)} 가 필요하다. {@code @Pattern} 은 문자열 전체를 검사하는데 Java 의 {@code .} 는
+     * 기본적으로 줄 종결 문자를 매칭하지 않아서, 이게 없으면 {@code "서울시\n강남구"} 처럼 줄바꿈이 든
+     * 값이 "빈 값"으로 튕긴다 — 비어 있지도 않은데 "빈 값으로 보낼 수 없습니다"가 나간다.
+     * 등록 신청 쪽은 {@code String.isBlank()} 로 접어서 줄바꿈이 든 주소를 그대로 받으므로, 여기서
+     * 막으면 이 PR 이 없애려던 "같은 값인데 경로마다 결과가 다르다"가 다시 생긴다(코드래빗 지적).
+     */
+    private static final String NOT_BLANK_IF_PRESENT = "(?s).*\\S.*";
 
     public UpdateCompanyCommand toCommand(Long companyId) {
         return new UpdateCompanyCommand(companyId, name, businessNumber, representativeName, address, phone);

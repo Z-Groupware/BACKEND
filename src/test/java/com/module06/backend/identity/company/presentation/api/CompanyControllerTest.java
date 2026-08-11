@@ -334,7 +334,24 @@ class CompanyControllerTest {
                 Arguments.of("representativeName 빈 문자열", "{\"representativeName\":\"\"}"),
                 Arguments.of("address 빈 문자열", "{\"address\":\"\"}"),
                 Arguments.of("address 탭만", "{\"address\":\"\\t\"}"),
+                /* (?s) 를 붙여도 줄바꿈만 있는 값은 여전히 빈 값이다 — \S 가 하나도 없다. */
+                Arguments.of("address 줄바꿈만", "{\"address\":\"\\n\"}"),
+                Arguments.of("address 줄바꿈+공백만", "{\"address\":\" \\n \"}"),
                 Arguments.of("phone 빈 문자열", "{\"phone\":\"\"}"));
+    }
+
+    @Test
+    @DisplayName("줄바꿈이 든 값은 빈 값이 아니다 — 400 이 되면 안 된다")
+    void newlineInsideValueIsNotBlank() throws Exception {
+        authenticateAs(1L);
+        when(updateCompanyProfileUseCase.updateProfile(any())).thenReturn(company());
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"address":"서울시\\n강남구 테헤란로 123"}
+                                """))
+                .andExpect(status().isOk());
     }
 
     @Test
