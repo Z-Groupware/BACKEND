@@ -5,7 +5,6 @@ import java.util.Optional;
 
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
-import com.module06.backend.action.domain.model.ActionType;
 
 /* comment.
     action 저장소 계약. 착수한 슬라이스에 필요한 메서드만 채워 나간다 —
@@ -72,9 +71,12 @@ public interface ActionRepository {
     // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL이 actionType으로 섞여 나온다(회의 상세 화면 전용).
     List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
 
-    // 2026-08-11 — 팀 대시보드 KPI "팀원 액션" 카드. countByTeamId는 actionType=TEAM으로 고정돼
-    // 있어 재사용할 수 없다 — actionType을 파라미터로 받는 이 메서드를 별도로 둔다.
-    long countByTeamIdAndActionType(Long teamId, ActionType actionType, ActionStatus status);
+    // 2026-08-11 — 팀 대시보드 KPI "팀원 액션" 카드. CodeRabbit(#354) 지적 반영 —
+    // ActionTypeShapePolicy.checkTeamShape상 PERSONAL 액션은 teamId를 가질 수 없어(항상 null)
+    // countByTeamIdAndActionType(teamId, PERSONAL, ...)식으로 PERSONAL의 teamId를 직접
+    // 필터링하는 이전 시도는 항상 0을 반환하는 실버그였다. "팀 소속 개인 액션"은 이 팀의
+    // TEAM 액션을 부모로 둔 PERSONAL 액션으로 정의하고 parentActionId 경유로 집계한다.
+    long countTeamMemberActionsByTeamId(Long teamId);
 
     // 2026-08-11 — 팀 대시보드 "팀원 현황"의 "담당 액션 수" 배치 집계. PERSONAL 액션만 대상
     // (TEAM은 담당자 개념이 없다). 상태 무관 전체 건수 — 완료 여부 구분은 이번 스코프 밖

@@ -98,7 +98,7 @@ class TeamActionServiceTest {
         TeamActionService service = teamActionService();
         Long requester = 55L;
         when(actionRepository.countByTeamId(TEAM, ActionStatus.IN_PROGRESS)).thenReturn(3L);
-        when(actionRepository.countByTeamIdAndActionType(TEAM, ActionType.PERSONAL, null)).thenReturn(6L);
+        when(actionRepository.countTeamMemberActionsByTeamId(TEAM)).thenReturn(6L);
         when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.TODO, null)).thenReturn(1L);
         when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.IN_PROGRESS, null)).thenReturn(0L);
         when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.DONE, null)).thenReturn(4L);
@@ -116,7 +116,7 @@ class TeamActionServiceTest {
         TeamActionService service = teamActionService();
         Long requester = 55L;
         when(actionRepository.countByTeamId(TEAM, ActionStatus.IN_PROGRESS)).thenReturn(0L);
-        when(actionRepository.countByTeamIdAndActionType(TEAM, ActionType.PERSONAL, null)).thenReturn(0L);
+        when(actionRepository.countTeamMemberActionsByTeamId(TEAM)).thenReturn(0L);
         when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.TODO, null)).thenReturn(2L);
         when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.IN_PROGRESS, null)).thenReturn(3L);
         when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.DONE, null)).thenReturn(0L);

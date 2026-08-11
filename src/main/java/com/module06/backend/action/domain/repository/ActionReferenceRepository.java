@@ -60,7 +60,8 @@ public interface ActionReferenceRepository {
     // (identity MemberJpaEntity 주석 확인) 호출측에서 null 필터링 후 넘긴다.
     List<PositionReference> findPositionReferences(List<Long> positionIds);
 
-    // 2026-08-11 — 팀 대시보드 "팀원 현황" 로스터. 퇴사자는 제외하고 재직·휴직 중인 멤버만 낸다.
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 로스터. 퇴사자는 제외하고 재직·휴직·대기 멤버만 낸다
+    // (CodeRabbit 지적 반영 — deleted_at만 걸러서 WAITING도 포함된다는 사실을 주석에 명시).
     List<TeamMemberReference> findTeamMemberReferences(Long teamId);
 
     // FR-AC-06 — 팀 액션 상세에 인라인으로 싣는 소속 프로젝트 첨부파일 목록. 단건 조회라 배치가 아니다.

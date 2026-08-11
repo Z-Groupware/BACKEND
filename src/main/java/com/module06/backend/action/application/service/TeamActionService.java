@@ -171,7 +171,12 @@ public class TeamActionService implements
     @Transactional(readOnly = true)
     public TeamDashboardSummary getTeamDashboardSummary(Long teamId, Long requesterId) {
         long teamActionCount = actionRepository.countByTeamId(teamId, ActionStatus.IN_PROGRESS);
-        long teamMemberActionCount = actionRepository.countByTeamIdAndActionType(teamId, ActionType.PERSONAL, null);
+        // CodeRabbit(#354) 지적 반영 — ActionTypeShapePolicy.checkTeamShape상 PERSONAL 액션은
+        // teamId를 가질 수 없다(항상 null). countByTeamIdAndActionType(teamId, PERSONAL, ...)로
+        // PERSONAL의 teamId를 직접 필터링하면 매치가 절대 안 생겨 카운트가 항상 0이었다 — 실버그.
+        // "팀 소속 개인 액션"은 이 팀의 TEAM 액션을 부모로 둔 PERSONAL 액션으로 다시 정의해
+        // countTeamMemberActionsByTeamId(parentActionId 경유 집계)로 교체한다.
+        long teamMemberActionCount = actionRepository.countTeamMemberActionsByTeamId(teamId);
         long myTodoCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.TODO, null);
         long myInProgressCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.IN_PROGRESS, null);
         long completedActionCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.DONE, null);
