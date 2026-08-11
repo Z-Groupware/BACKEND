@@ -46,4 +46,18 @@ public class ActionQueryAdapter implements ActionQueryPort {
                 ))
                 .toList();
     }
+
+    /* MEET-02 현재 페이지의 회의별 전체 액션 수를 C의 배치 계약으로 조회한다. */
+    @Override
+    public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> meetingIds) {
+        /* C의 sourceMeetingId 기반 결과를 D 목록 조립용 읽기 모델로 변환한다. */
+        return meetingActionQueryPort
+                .countActionsByMeetings(companyId, meetingIds)
+                .stream()
+                .map(meeting -> new MeetingActionCount(
+                        meeting.sourceMeetingId(),
+                        meeting.actionCount()
+                ))
+                .toList();
+    }
 }

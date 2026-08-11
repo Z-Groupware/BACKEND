@@ -13,6 +13,9 @@ import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepo
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.port.in.StorageQuotaPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -20,11 +23,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 // presign(#4)+complete(#7)의 실제 로직을 담당하는 서비스. UseCase 인터페이스의 진짜 구현체 —
 // 회의 존재 확인, 녹음자 배정/검증, 청크 저장, S3 키 조립, 하트비트 갱신을 전부 여기서 조율한다.
 @Service
 public class CaptureUploadService implements IssuePartUploadUrlsUseCase, CompletePartUploadUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(CaptureUploadService.class);
 
     private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapMeetingAccessGuard accessGuard;
@@ -41,6 +47,11 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     // 10분/40청크 자동 블록 트리거(비동기, best-effort) — 이 호출은 즉시 반환하고 실제 파이프라인은
     // 별도 스레드 풀에서 돈다.
     private final SttBlockCutTrigger sttBlockCutTrigger;
+    // 새 회의 녹음을 시작하기 전 회사 저장 용량 한도를 확인한다(metering 도메인 in-포트). 실제
+    // 사용량 report는 여기서 하지 않는다 — recording_part.size_bytes 컬럼 주석("용량 집계는
+    // 조립본만 센다. 조각은 청구 제외")이 원래 설계 의도라, 청크 단위가 아니라 조립·수동 업로드·
+    // 삭제(최종 산출물이 확정되는 지점)에서만 report한다.
+    private final StorageQuotaPort storageQuotaPort;
 
     public CaptureUploadService(MeetingReferenceRepository meetingReferenceRepository,
                                 CapMeetingAccessGuard accessGuard,
@@ -49,7 +60,8 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
                                 CaptureHeartbeatPort captureHeartbeatPort,
                                 CapCaptureSessionReferenceRepository captureSessionReferenceRepository,
                                 CompletePartUploadWriter completePartUploadWriter,
-                                SttBlockCutTrigger sttBlockCutTrigger) {
+                                SttBlockCutTrigger sttBlockCutTrigger,
+                                StorageQuotaPort storageQuotaPort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
@@ -58,6 +70,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         this.captureSessionReferenceRepository = captureSessionReferenceRepository;
         this.completePartUploadWriter = completePartUploadWriter;
         this.sttBlockCutTrigger = sttBlockCutTrigger;
+        this.storageQuotaPort = storageQuotaPort;
     }
 
     // 회의 존재 확인 → 참석자 확인 → 녹음자 배정/검증 → 하트비트 갱신 → presigned URL count개 발급
@@ -72,7 +85,17 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         // TEMP 헤더 브리지 구간에서도 회의 참석자 명단은 이미 검증 가능(V1 테이블 존재).
         requireAttendee(command.meetingId(), command.callerId());
 
-        CaptureUploadState state = captureUploadStateRepository.findByMeetingId(command.meetingId())
+        Optional<CaptureUploadState> existing = captureUploadStateRepository.findByMeetingId(command.meetingId());
+
+        // 저장 용량 한도는 "새로 녹음을 시작하는" 첫 presign 호출에만 확인한다 — 이미 녹음 중인
+        // 회의는 끊지 않는다(진행 중 회의가 한도를 넘어도 끝까지 허용, 다음 새 회의부터 막는다).
+        // presign은 15초 간격으로 반복 호출되는 API라, 매번 확인하면 진행 중인 녹음이 중간에
+        // 끊길 수 있다.
+        if (existing.isEmpty() && isOverStorageQuota(companyId)) {
+            throw new BusinessException(CapErrorCode.CAP_STORAGE_QUOTA_EXCEEDED);
+        }
+
+        CaptureUploadState state = existing
                 .orElseGet(() -> CaptureUploadState.startWithRecorder(command.meetingId(), command.callerId()));
 
         // 이미 녹음자가 있는 상태에서 다른 사람이 호출하면, 하트비트가 끊긴 경우(canTakeover)에만 교체 허용.
@@ -168,6 +191,9 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         // recording_part.content_type(NOT NULL)을 채운다 — 확장자에서 역산(webm→audio/webm, mp4→audio/mp4).
         completePartUploadWriter.write(state, expectedKey, contentTypeForExtension(extension), command);
 
+        // 여기서는 저장 용량을 report하지 않는다 — 청크(조각)는 용량 집계 대상이 아니다
+        // (recording_part.size_bytes 컬럼 주석 참고). report는 조립·수동 업로드·삭제에서만 한다.
+
         // 10분(40청크) 누적 시 블록 자동 트리거(비동기, best-effort) — 이 메서드는 여기서 즉시 반환한다.
         sttBlockCutTrigger.triggerIfThresholdReached(companyId, command.meetingId());
     }
@@ -188,6 +214,19 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
                         oldBlocksFormed, oldLastBlockEndOffsetMs);
             }
         });
+    }
+
+    // 저장 용량 한도 초과 여부를 확인한다 — 회사가 아직 한도를 설정하지 않았으면(옵트인 기능이라
+    // 대부분의 회사가 그렇다) MT_STORAGE_PLAN_NOT_FOUND가 던져진다. 이걸 그대로 흘리면 한도를
+    // 설정한 적 없는 모든 회사의 새 녹음이 즉시 막히므로, 조회 실패는 "한도 없음"으로 간주한다
+    // (fail-open — 미터링 쪽 문제로 실제 녹음 기능을 막지 않는다).
+    private boolean isOverStorageQuota(Long companyId) {
+        try {
+            return storageQuotaPort.getStatus(companyId).overQuota();
+        } catch (RuntimeException e) {
+            log.warn("저장 용량 한도 조회 실패 — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}", companyId, e);
+            return false;
+        }
     }
 
     // 회의 참석자 명단에 없으면 CAP_NOT_ATTENDEE(403). presign/complete는 참석자만 호출 가능.

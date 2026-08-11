@@ -276,6 +276,12 @@ class PendingActionMeetingQueryServiceTest {
             ) {
                 return fail("후보 회의가 없으면 액션 배치 조회를 호출하면 안 된다.");
             }
+
+            /* MEET-02 액션 수 조회도 MEET-10 단축 경로에서 사용하지 않는다. */
+            @Override
+            public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> meetingIds) {
+                return fail("MEET-10 단축 경로에서 액션 수 배치 조회를 호출하면 안 된다.");
+            }
         };
     }
 
@@ -361,6 +367,13 @@ class PendingActionMeetingQueryServiceTest {
             this.invocationCount++;
             this.capturedMeetingIds.addAll(meetingIds);
             return undispatchedMeetings;
+        }
+
+        /* MEET-02 액션 수 조회는 MEET-10 테스트에서 사용하지 않는다. */
+        @Override
+        public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> meetingIds) {
+            /* 호출되지 않는 별도 계약을 빈 결과로 만족시킨다. */
+            return List.of();
         }
     }
 }

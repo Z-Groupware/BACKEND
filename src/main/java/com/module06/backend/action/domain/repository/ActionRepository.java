@@ -82,4 +82,20 @@ public interface ActionRepository {
 
     record ChildActionProgress(Long parentActionId, int totalCount, int doneCount) {
     }
+
+    // 2026-08-11 — 팀 대시보드 KPI "팀원 액션" 카드. CodeRabbit(#354) 지적 반영 —
+    // ActionTypeShapePolicy.checkTeamShape상 PERSONAL 액션은 teamId를 가질 수 없어(항상 null)
+    // countByTeamIdAndActionType(teamId, PERSONAL, ...)식으로 PERSONAL의 teamId를 직접
+    // 필터링하는 이전 시도는 항상 0을 반환하는 실버그였다. "팀 소속 개인 액션"은 이 팀의
+    // TEAM 액션을 부모로 둔 PERSONAL 액션으로 정의하고 parentActionId 경유로 집계한다.
+    long countTeamMemberActionsByTeamId(Long teamId);
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황"의 "담당 액션 수" 배치 집계. PERSONAL 액션만 대상
+    // (TEAM은 담당자 개념이 없다). 상태 무관 전체 건수 — 완료 여부 구분은 이번 스코프 밖
+    // (홍근님 childDoneCount/childTotalCount 요청은 팀 액션 하위 개인 액션 진척 건으로 별도
+    // 이슈, 이 메서드와 용도가 다르다).
+    List<AssigneeActionCount> countActionsByAssigneeMemberIds(List<Long> assigneeMemberIds);
+
+    record AssigneeActionCount(Long assigneeMemberId, long actionCount) {
+    }
 }

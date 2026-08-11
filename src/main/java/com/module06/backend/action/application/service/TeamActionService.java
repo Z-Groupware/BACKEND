@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase;
 import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
@@ -54,7 +55,8 @@ public class TeamActionService implements
         GetTeamActionsUseCase,
         GetTeamActionDetailUseCase,
         GetTeamActionTimelineUseCase,
-        IssueTeamActionAttachmentDownloadUrlUseCase {
+        IssueTeamActionAttachmentDownloadUrlUseCase,
+        GetTeamDashboardSummaryUseCase {
 
     private final ActionRepository actionRepository;
     private final ActionReferenceRepository actionReferenceRepository;
@@ -180,6 +182,24 @@ public class TeamActionService implements
                 .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_ATTACHMENT_NOT_FOUND));
 
         return projectAttachmentStoragePort.issueDownloadUrl(attachment.fileUrl());
+    }
+
+    // 2026-08-11, 이슈 #352 — 팀 대시보드 KPI 4종. 4개 다 단순 COUNT라 트랜잭션 하나로 묶는다.
+    @Override
+    @Transactional(readOnly = true)
+    public TeamDashboardSummary getTeamDashboardSummary(Long teamId, Long requesterId) {
+        long teamActionCount = actionRepository.countByTeamId(teamId, ActionStatus.IN_PROGRESS);
+        // CodeRabbit(#354) 지적 반영 — ActionTypeShapePolicy.checkTeamShape상 PERSONAL 액션은
+        // teamId를 가질 수 없다(항상 null). countByTeamIdAndActionType(teamId, PERSONAL, ...)로
+        // PERSONAL의 teamId를 직접 필터링하면 매치가 절대 안 생겨 카운트가 항상 0이었다 — 실버그.
+        // "팀 소속 개인 액션"은 이 팀의 TEAM 액션을 부모로 둔 PERSONAL 액션으로 다시 정의해
+        // countTeamMemberActionsByTeamId(parentActionId 경유 집계)로 교체한다.
+        long teamMemberActionCount = actionRepository.countTeamMemberActionsByTeamId(teamId);
+        long myTodoCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.TODO, null);
+        long myInProgressCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.IN_PROGRESS, null);
+        long completedActionCount = actionRepository.countByAssigneeMemberId(requesterId, ActionStatus.DONE, null);
+
+        return new TeamDashboardSummary(teamActionCount, teamMemberActionCount, myTodoCount + myInProgressCount, completedActionCount);
     }
 
     // 상세·타임라인 공용 — 다른 회사 팀 액션 id나 PERSONAL 액션 id를 넣으면 존재하지 않는 것과 같은 404로 덮는다(#100과 동일 판단).

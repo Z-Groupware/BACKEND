@@ -17,10 +17,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.module06.backend.action.application.usecase.GetTeamActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase;
 import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.action.presentation.api.response.ActionSummaryResponse;
 import com.module06.backend.action.presentation.api.response.TeamActionDetailResponse;
+import com.module06.backend.action.presentation.api.response.TeamDashboardSummaryResponse;
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.response.PageResponse;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort.IssuedDownloadUrl;
@@ -60,6 +62,7 @@ public class TeamActionController {
     private final GetTeamActionDetailUseCase getTeamActionDetailUseCase;
     private final GetTeamActionTimelineUseCase getTeamActionTimelineUseCase;
     private final IssueTeamActionAttachmentDownloadUrlUseCase issueTeamActionAttachmentDownloadUrlUseCase;
+    private final GetTeamDashboardSummaryUseCase getTeamDashboardSummaryUseCase;
 
     // 팀 액션 목록 — teamId는 토큰에서만 꺼낸다(헤더로 받으면 남의 팀을 조회할 수 있다).
     // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
@@ -137,5 +140,22 @@ public class TeamActionController {
                 issueTeamActionAttachmentDownloadUrlUseCase.issueAttachmentDownloadUrl(companyId, teamActionId, attachmentId);
 
         return ApiResponse.success("다운로드 URL이 발급되었습니다.", issuedDownloadUrl);
+    }
+
+    // 2026-08-11, 이슈 #352 — 팀 대시보드 KPI 4종. teamId·memberId 둘 다 JWT에서만 꺼낸다
+    // (다른 팀·다른 사람 집계를 헤더로 요청할 수 없게).
+    @Operation(summary = "팀 대시보드 요약 조회", description = "JWT teamId로 스코프된 LEADER 전용. "
+            + "팀 액션(진행중)·팀원 액션(팀 소속 개인 액션 전체)·내 액션(처리예정)·완료 액션(내 누적).")
+    @GetMapping("/dashboard-summary")
+    @PreAuthorize("hasRole('LEADER')")
+    public ApiResponse<TeamDashboardSummaryResponse> getTeamDashboardSummary(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId
+    ) {
+        var result = getTeamDashboardSummaryUseCase.getTeamDashboardSummary(teamId, memberId);
+
+        return ApiResponse.success("팀 대시보드 요약을 조회했습니다.", TeamDashboardSummaryResponse.from(result));
     }
 }

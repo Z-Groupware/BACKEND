@@ -87,6 +87,12 @@ public interface SpringDataActionRepository
     List<ChildActionProgressProjection> findAllByActionTypeAndCompanyIdAndParentActionIdIn(
             ActionType actionType, Long companyId, List<Long> parentActionIds);
 
+    // 2026-08-11 — 팀원 현황 "담당 액션 수" 배치 집계. assigneeMemberId 한 컬럼만 필요해
+    // ProjectActionProjection과 같은 이유로 프로젝션이다. COUNT GROUP BY는 Gate 1이 막아
+    // 행을 읽어 자바에서 집계한다.
+    List<AssigneeActionProjection> findAllByActionTypeAndAssigneeMemberIdIn(
+            ActionType actionType, List<Long> assigneeMemberIds);
+
     // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다. 이름은 미분배 조회에서 왔지만 컬럼
     // shape이 같아 조건 없는 전체 건수 집계(findAllByCompanyIdAndSourceMeetingIdIn)도 재사용한다.
     interface UndispatchedProjection {
@@ -105,5 +111,10 @@ public interface SpringDataActionRepository
         Long getParentActionId();
 
         ActionStatus getStatus();
+    }
+
+    // 닫힌 프로젝션 — assigneeMemberId 한 컬럼만 읽는다.
+    interface AssigneeActionProjection {
+        Long getAssigneeMemberId();
     }
 }

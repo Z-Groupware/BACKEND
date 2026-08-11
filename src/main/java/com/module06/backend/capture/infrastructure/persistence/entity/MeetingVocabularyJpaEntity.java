@@ -77,6 +77,21 @@ public class MeetingVocabularyJpaEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    /*
+     * 승격으로 밀려난 이전 활성 리소스(V5.21). 아무도 참조하지 않지만 계정 상한은 계속 쓴다 —
+     * 정리 워커가 받아쓰기 종료를 확인한 뒤 지운다.
+     */
+    @Column(name = "stale_vocabulary_name", length = 200)
+    private String staleVocabularyName;
+
+    /* 대기 빌드의 단어 수. 제공자가 개수를 안 주므로 제출 시점에 적어 두고 승격이 옮긴다. */
+    @Column(name = "pending_phrase_count")
+    private Integer pendingPhraseCount;
+
+    /* 제공자에 접수한 시각. 응답 없이 오래 걸린 빌드를 포기하는 기준이다. */
+    @Column(name = "build_started_at")
+    private LocalDateTime buildStartedAt;
+
     public static MeetingVocabularyJpaEntity pending(long meetingId) {
         MeetingVocabularyJpaEntity entity = new MeetingVocabularyJpaEntity();
         entity.meetingId = meetingId;
@@ -111,8 +126,101 @@ public class MeetingVocabularyJpaEntity {
      * 제출한 리소스 이름을 **대기 칸에** 적는다. 활성 이름은 건드리지 않는다 — 그 리소스가
      * 아직 쓰이고 있고, 덮으면 지울 방법이 사라진다.
      */
-    public void assignPendingName(String pendingVocabularyName) {
+    public void assignPendingName(String pendingVocabularyName, int pendingPhraseCount,
+                                  LocalDateTime now) {
         this.pendingVocabularyName = pendingVocabularyName;
+        /*
+         * 단어 수를 **여기서** 적는다. 제공자는 개수를 돌려주지 않으므로 그 값을 아는 유일한
+         * 시점이 제출이다(V5.21). phrase_count 에 바로 쓰지 않는 이유 — 그건 "마지막으로
+         * 성공한" 값이고 재생성이 도는 동안에도 화면이 그 값을 보여줘야 한다.
+         */
+        this.pendingPhraseCount = pendingPhraseCount;
+        // 응답 없이 오래 걸린 빌드를 포기하는 기준이 된다.
+        this.buildStartedAt = now;
+    }
+
+    /* 제출한 지 얼마나 됐나(포기 판정). 접수 시각이 없으면 판단할 수 없다. */
+    public boolean buildStartedBefore(LocalDateTime threshold) {
+        return this.buildStartedAt != null && this.buildStartedAt.isBefore(threshold);
+    }
+
+    /*
+     * 제공자가 어휘를 다 만들었다 — **대기 이름을 활성으로 승격한다.**
+     *
+     * <h2>이전 활성 이름을 돌려준다</h2>
+     * 승격되면 이전 리소스는 아무도 참조하지 않는데 제공자 계정에는 남아 상한을 갉아먹는다.
+     * 지우는 것은 제공자 호출이라 엔티티가 할 수 없으므로, **지울 이름을 호출자에게 넘긴다.**
+     * 여기서 그냥 버리면 그 리소스는 이름이 사라져 영영 못 지운다(V5.19 주석이 경고한 누수다).
+     *
+     * <h2>phraseCount 를 여기서 채운다</h2>
+     * 이 컬럼은 지금까지 아무도 채우지 않아 늘 0 이었다 — 채우는 자리가 승격이었기 때문이다.
+     * 다만 **제출한 단어 수는 제출한 쪽만 안다**(제공자는 개수를 돌려주지 않는다). 그래서
+     * 제출 시점에 받아 둔 값을 그대로 쓴다.
+     *
+     * @param builtPhraseCount 이번에 만든 어휘의 단어 수
+     * @return 지워야 할 이전 활성 리소스 이름. 첫 생성이면 null
+     */
+    public boolean promoteToReady(String expectedPendingName, LocalDateTime now) {
+        /*
+         * 폴링한 이름과 지금 대기 이름이 같을 때만 승격한다.
+         *
+         * 다르면 **그 사이에 재생성이 새 빌드를 접수한 것**이다. 옛 폴링 결과로 승격하면
+         * 만들어지지도 않은 리소스가 활성이 되고, 그 이름이 STT 제출에 실려 나가 제공자가
+         * 거절한다 — 받아쓰기 전체가 실패한다(CodeRabbit PR #353 지적).
+         *
+         * 이 저장소의 다른 전이가 쓰는 방식과 같다(markQueuedForRetry 의 compare-and-set).
+         */
+        if (this.pendingVocabularyName == null
+                || !this.pendingVocabularyName.equals(expectedPendingName)) {
+            return false;
+        }
+
+        /*
+         * 밀려난 이전 활성 리소스를 **적어 둔다.** 여기서 버리고 호출자가 곧바로 지우면,
+         * 삭제가 실패했을 때 다시 시도할 이름이 없고(V5.19 가 경고한 누수) 아직 도는 STT 잡이
+         * 그 이름을 참조할 수 있다 — 정리 경로만 "받아쓰기가 끝났나"를 보므로 그 검사를
+         * 건너뛰게 된다.
+         *
+         * 승격된 이름과 같으면 밀려난 것이 없다(같은 이름으로 다시 만든 경우).
+         */
+        if (this.providerVocabularyName != null
+                && !this.providerVocabularyName.equals(this.pendingVocabularyName)) {
+            this.staleVocabularyName = this.providerVocabularyName;
+        }
+
+        this.providerVocabularyName = this.pendingVocabularyName;
+        this.pendingVocabularyName = null;
+        this.status = VocabularyStatus.READY;
+        this.errorCode = null;
+        // 제출 시점에 적어 둔 값을 옮긴다. 제공자는 개수를 돌려주지 않는다(V5.21).
+        if (this.pendingPhraseCount != null) {
+            this.phraseCount = this.pendingPhraseCount;
+        }
+        this.pendingPhraseCount = null;
+        this.buildStartedAt = null;
+        this.builtAt = now;
+        /*
+         * 새 리소스가 활성이 됐다. 아직 아무것도 지우지 않았으므로 정리 표시를 비운다 —
+         * 남아 있으면 정리 조회가 이 회의를 "이미 지웠다"로 보고 건너뛰어 상한이 누수된다.
+         */
+        this.deletedAt = null;
+        return true;
+    }
+
+    /* 밀려난 리소스를 지웠다. 활성 정리와 달리 이름 자체를 비운다 — 참조할 곳이 없는 값이다. */
+    public void clearStaleName() {
+        this.staleVocabularyName = null;
+    }
+
+    /*
+     * 제공자 리소스를 정리했다.
+     *
+     * 활성 이름은 **지우지 않는다.** 지운 뒤에도 "무엇을 지웠는지"가 남아야 하고, 그 이름이
+     * 사라지면 같은 회의를 재생성할 때 이전 리소스가 이미 정리됐는지 알 수 없다.
+     * 상한을 쓰고 있는지는 deleted_at 이 답한다(V5.19 주석).
+     */
+    public void markCleaned(LocalDateTime now) {
+        this.deletedAt = now;
     }
 
     /*
@@ -123,5 +231,30 @@ public class MeetingVocabularyJpaEntity {
         this.status = VocabularyStatus.FAILED;
         this.errorCode = errorCode;
         this.pendingVocabularyName = null;
+        this.pendingPhraseCount = null;
+        this.buildStartedAt = null;
+    }
+
+    /*
+     * 폴링이 확인한 실패다 — **그 빌드가 아직 대기 중일 때만** 닫는다.
+     *
+     * 승격과 같은 이유다(promoteToReady 주석). 옛 폴링 결과로 닫으면 방금 접수된 새 빌드가
+     * FAILED 가 되고, 선점이 PENDING 을 막던 것과 반대로 이번엔 **아직 만들어지는 중인
+     * 리소스가 버려진다** — 그 리소스는 계정 상한을 쓰면서 아무도 참조하지 않는다.
+     *
+     * @return 내가 닫았으면 true
+     */
+    public boolean markBuildFailed(String expectedPendingName, String errorCode) {
+        if (this.pendingVocabularyName == null
+                || !this.pendingVocabularyName.equals(expectedPendingName)) {
+            return false;
+        }
+        /*
+         * 실패한 대기 리소스도 **밀려난 것으로 적어 둔다.** 제공자가 FAILED 로 닫은 어휘도
+         * 계정 상한을 차지한다 — 지우지 않으면 실패할수록 상한이 줄어든다.
+         */
+        this.staleVocabularyName = this.pendingVocabularyName;
+        markBuildFailed(errorCode);
+        return true;
     }
 }

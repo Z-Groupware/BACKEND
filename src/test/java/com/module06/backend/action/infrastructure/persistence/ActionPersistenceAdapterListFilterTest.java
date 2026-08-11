@@ -161,6 +161,82 @@ class ActionPersistenceAdapterListFilterTest {
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
     }
 
+    // ---------- countTeamMemberActionsByTeamId / countActionsByAssigneeMemberIds (이슈 #352) ----------
+
+    // CodeRabbit 지적으로 발견 — 이전 fixture(personalUnderTeam)가 PERSONAL 액션에 teamId를
+    // 직접 채워 넣었는데, 실제로는 ActionTypeShapePolicy.checkTeamShape가 "PERSONAL은 팀을 가질
+    // 수 없다"고 막는 조합이라 프로덕션에 나올 수 없는 상태였다. reconstitute는 정책을 안 거쳐서
+    // 그 비현실적인 fixture로도 테스트가 통과해버렸고, 그 뒤에 실제 카운트 쿼리가 항상 0을
+    // 반환하는 버그가 숨어 있었다. 이제 실제 shape(PERSONAL은 teamId=null, parentActionId로만
+    // 팀 액션과 연결)대로 만든다 — 저장된 TEAM 액션의 진짜 id를 부모로 쓴다.
+    @Test
+    void countTeamMemberActionsByTeamIdCountsPersonalActionsUnderThisTeamsTeamActions() {
+        Action teamAction = actionRepository.save(team(ActionStatus.IN_PROGRESS));
+        actionRepository.save(personalUnderTeamAction(teamAction.getId(), ActionStatus.TODO));
+        actionRepository.save(personalUnderTeamAction(teamAction.getId(), ActionStatus.DONE));
+
+        long result = actionRepository.countTeamMemberActionsByTeamId(TEAM);
+
+        assertThat(result).isEqualTo(2L);
+    }
+
+    @Test
+    void countTeamMemberActionsByTeamIdExcludesPersonalActionsUnderOtherTeams() {
+        Long otherTeam = 99L;
+        Action ourTeamAction = actionRepository.save(team(ActionStatus.IN_PROGRESS));
+        Action otherTeamAction = Action.reconstitute(
+                null, COMPANY, 1L, null, null, otherTeam, null, ActionType.TEAM, "다른 팀 액션", "설명",
+                true, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
+        otherTeamAction = actionRepository.save(otherTeamAction);
+        actionRepository.save(personalUnderTeamAction(ourTeamAction.getId(), ActionStatus.TODO));
+        actionRepository.save(personalUnderTeamAction(otherTeamAction.getId(), ActionStatus.TODO));
+
+        assertThat(actionRepository.countTeamMemberActionsByTeamId(TEAM)).isEqualTo(1L);
+    }
+
+    @Test
+    void countTeamMemberActionsByTeamIdReturnsZeroWhenTeamHasNoTeamActions() {
+        assertThat(actionRepository.countTeamMemberActionsByTeamId(TEAM)).isZero();
+    }
+
+    @Test
+    void countActionsByAssigneeMemberIdsGroupsByAssignee() {
+        Long other = 51L;
+        actionRepository.save(personal(ActionStatus.TODO, LocalDate.of(2026, 12, 31))); // ASSIGNEE
+        actionRepository.save(personal(ActionStatus.DONE, LocalDate.of(2026, 12, 31))); // ASSIGNEE
+        actionRepository.save(Action.createManual(
+                COMPANY, 1L, null, other, ActionType.PERSONAL, "제목", "설명", LocalDate.of(2026, 12, 31)));
+
+        var result = actionRepository.countActionsByAssigneeMemberIds(List.of(ASSIGNEE, other));
+
+        assertThat(result).hasSize(2);
+        assertThat(result).anySatisfy(count -> {
+            assertThat(count.assigneeMemberId()).isEqualTo(ASSIGNEE);
+            assertThat(count.actionCount()).isEqualTo(2L);
+        });
+        assertThat(result).anySatisfy(count -> {
+            assertThat(count.assigneeMemberId()).isEqualTo(other);
+            assertThat(count.actionCount()).isEqualTo(1L);
+        });
+    }
+
+    @Test
+    void countActionsByAssigneeMemberIdsReturnsEmptyWithoutQueryingWhenIdsIsEmpty() {
+        assertThat(actionRepository.countActionsByAssigneeMemberIds(List.of())).isEmpty();
+    }
+
+    // PERSONAL 액션은 teamId를 못 가진다(ActionTypeShapePolicy.checkTeamShape) — 실제 shape대로
+    // teamId=null, parentActionId만 부모 TEAM 액션의 진짜 id로 채운다.
+    private Action personalUnderTeamAction(Long parentActionId, ActionStatus status) {
+        LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
+        boolean isDone = status == ActionStatus.DONE;
+        return Action.reconstitute(
+                null, COMPANY, 1L, parentActionId, null, null, ASSIGNEE, ActionType.PERSONAL, "개인 액션", "설명",
+                isDone, startDate, LocalDate.of(2026, 12, 31), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
+    }
+
     private Action personal(ActionStatus status, LocalDate dueDate) {
         Action action = Action.createManual(
                 COMPANY, 1L, null, ASSIGNEE, ActionType.PERSONAL, "제목", "설명", dueDate);

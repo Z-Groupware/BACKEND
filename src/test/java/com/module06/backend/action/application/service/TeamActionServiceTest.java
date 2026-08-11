@@ -116,6 +116,41 @@ class TeamActionServiceTest {
         verify(actionRepository, never()).countChildActionProgressByParentActionIds(any(), anyList());
     }
 
+    // ── 팀 대시보드 KPI(이슈 #352) ──────────────────────────────────────
+
+    @Test
+    void getTeamDashboardSummaryAggregatesAllFourCards() {
+        TeamActionService service = teamActionService();
+        Long requester = 55L;
+        when(actionRepository.countByTeamId(TEAM, ActionStatus.IN_PROGRESS)).thenReturn(3L);
+        when(actionRepository.countTeamMemberActionsByTeamId(TEAM)).thenReturn(6L);
+        when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.TODO, null)).thenReturn(1L);
+        when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.IN_PROGRESS, null)).thenReturn(0L);
+        when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.DONE, null)).thenReturn(4L);
+
+        var result = service.getTeamDashboardSummary(TEAM, requester);
+
+        assertThat(result.teamActionCount()).isEqualTo(3L);
+        assertThat(result.teamMemberActionCount()).isEqualTo(6L);
+        assertThat(result.myActionCount()).isEqualTo(1L);
+        assertThat(result.completedActionCount()).isEqualTo(4L);
+    }
+
+    @Test
+    void getTeamDashboardSummarySumsTodoAndInProgressForMyActionCount() {
+        TeamActionService service = teamActionService();
+        Long requester = 55L;
+        when(actionRepository.countByTeamId(TEAM, ActionStatus.IN_PROGRESS)).thenReturn(0L);
+        when(actionRepository.countTeamMemberActionsByTeamId(TEAM)).thenReturn(0L);
+        when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.TODO, null)).thenReturn(2L);
+        when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.IN_PROGRESS, null)).thenReturn(3L);
+        when(actionRepository.countByAssigneeMemberId(requester, ActionStatus.DONE, null)).thenReturn(0L);
+
+        var result = service.getTeamDashboardSummary(TEAM, requester);
+
+        assertThat(result.myActionCount()).isEqualTo(5L);
+    }
+
     // ── FR-AC-06 상세 ──────────────────────────────────────────────
 
     @Test
