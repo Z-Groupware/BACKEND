@@ -116,13 +116,32 @@ public class ActionService implements
         return actionRepository.save(action);
     }
 
-    // FR-AC-02 목록 — 호출자 본인 소유 PERSONAL 액션만, 표시값은 배치조회로 조인한다.
+    // FR-AC-02 목록 — 기본은 호출자 본인 소유 PERSONAL 액션, 표시값은 배치조회로 조인한다.
     // 2026-08-10 페이지네이션 도입(이홍근 요청) — totalElements는 요청한 page와 무관하게 항상
     // 전체 건수라 비어있는 페이지에서도 먼저 구해둔다.
+    // 2026-08-11 — targetMemberId가 있으면(팀원 관리 화면) 호출자가 LEADER인지, 대상이 같은 팀
+    // 소속인지 검증 후 그 팀원의 목록으로 스코프를 바꾼다. IDOR 방지 — 순서 중요(리더 자격 먼저,
+    // 그다음 팀 소속 확인).
     @Override
     @Transactional(readOnly = true)
     public GetMyActionsUseCase.ActionListResult getMyActions(
-            Long assigneeMemberId, ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+            Long requesterId, String requesterAuthority, Long requesterTeamId, Long targetMemberId,
+            ActionStatus status, Boolean overdue, String sort, String order, int page, int size) {
+        Long assigneeMemberId = requesterId;
+        if (targetMemberId != null) {
+            if (!"LEADER".equals(requesterAuthority)) {
+                throw new BusinessException(ActionErrorCode.NOT_TEAM_LEADER);
+            }
+            // requesterTeamId가 null이면 existsMemberInTeam(targetId, null)이 Spring Data JPA의
+            // "null 파라미터 → IS NULL" 변환 때문에 team_id가 똑같이 NULL인 팀 무소속 대상과
+            // 우연히 매치해버릴 수 있다(CodeRabbit 지적, 2026-08-11) — 스코프로 삼을 팀 자체가
+            // 없으니 매칭 여부와 무관하게 여기서 막는다.
+            if (requesterTeamId == null || !actionReferenceRepository.existsMemberInTeam(targetMemberId, requesterTeamId)) {
+                throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE);
+            }
+            assigneeMemberId = targetMemberId;
+        }
+
         long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
         List<Action> actions = actionRepository.findAllByAssigneeMemberId(
                 assigneeMemberId, status, overdue, sort, order, page, size);

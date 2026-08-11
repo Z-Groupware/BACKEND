@@ -123,7 +123,7 @@ class ActionControllerTest {
         // totalElements·totalPages·hasNext) 전부가 요청값 기준으로 정확히 계산되는지 확인한다
         // (CodeRabbit 지적, PR #305) — totalElements=42, size=5면 totalPages=9, hasNext=true.
         authenticateAs(1L, 5L);
-        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(action(), "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 42L));
 
@@ -137,7 +137,25 @@ class ActionControllerTest {
                 .andExpect(jsonPath("$.data.totalPages").value(9))
                 .andExpect(jsonPath("$.data.hasNext").value(true));
 
-        verify(getMyActionsUseCase).getMyActions(5L, null, null, null, "desc", 2, 5);
+        verify(getMyActionsUseCase).getMyActions(5L, "MEMBER", null, null, null, null, null, "desc", 2, 5);
+    }
+
+    // CodeRabbit 지적(2026-08-11) — assigneeMemberId를 실제로 전달하는 위임 조회 경로가
+    // 컨트롤러 계약 테스트에 없었다. LEADER principal(teamId 포함)로 요청해 유스케이스가
+    // 요청자 id·authority·teamId·대상 id를 그대로 넘기는지 확인한다.
+    @Test
+    @DisplayName("assigneeMemberId를 주면 LEADER의 요청자 정보·팀 id와 함께 위임 조회한다")
+    void listDelegatesToTargetMemberWhenAssigneeMemberIdGiven() throws Exception {
+        authenticateAsLeader(1L, 5L, 7L);
+        when(getMyActionsUseCase.getMyActions(eq(5L), eq("LEADER"), eq(7L), eq(9L), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(new GetMyActionsUseCase.ActionListResult(
+                        List.of(new ActionListItem(action(), "박도현", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 1L));
+
+        mockMvc.perform(get("/api/actions").param("assigneeMemberId", "9"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].assigneeName").value("박도현"));
+
+        verify(getMyActionsUseCase).getMyActions(5L, "LEADER", 7L, 9L, null, null, null, "desc", 0, 20);
     }
 
     @Test
@@ -164,7 +182,7 @@ class ActionControllerTest {
                 com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
                 null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
 
-        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getMyActionsUseCase.getMyActions(eq(5L), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetMyActionsUseCase.ActionListResult(
                         List.of(new ActionListItem(inProgress, "이하윤", "GOODS", "굿즈", "개발팀", "기획 회의", null)), 1L));
         when(getActionDetailUseCase.getActionDetail(eq(1L), eq(10L)))
@@ -229,6 +247,12 @@ class ActionControllerTest {
 
     private void authenticateAs(Long companyId, Long memberId) {
         AuthPrincipal principal = new AuthPrincipal(memberId, companyId, "MEMBER", false, null);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, List.of()));
+    }
+
+    private void authenticateAsLeader(Long companyId, Long memberId, Long teamId) {
+        AuthPrincipal principal = new AuthPrincipal(memberId, companyId, "LEADER", false, teamId);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }

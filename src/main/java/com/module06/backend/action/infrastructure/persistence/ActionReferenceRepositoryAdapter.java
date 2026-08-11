@@ -73,6 +73,11 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
         return springDataMemberReferenceRepository.existsByIdAndCompanyId(memberId, companyId);
     }
 
+    @Override
+    public boolean existsMemberInTeam(Long memberId, Long teamId) {
+        return springDataMemberReferenceRepository.existsByIdAndTeamId(memberId, teamId);
+    }
+
     // 담당자 이름 배치 조회
     @Override
     public List<MemberReference> findMemberReferences(List<Long> memberIds) {
