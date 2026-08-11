@@ -81,9 +81,11 @@ public interface SpringDataActionRepository
     List<ProjectActionProjection> findAllByProjectIdIn(List<Long> projectIds);
 
     // 2026-08-11, 이슈 #355 — 팀 액션 목록 하위 개인 액션 진척 배치 집계. ProjectActionProjection과
-    // 같은 이유로 프로젝션이다(parentActionId·status 두 컬럼만 필요).
-    List<ChildActionProgressProjection> findAllByActionTypeAndParentActionIdIn(
-            ActionType actionType, List<Long> parentActionIds);
+    // 같은 이유로 프로젝션이다(parentActionId·status 두 컬럼만 필요). companyId는 CodeRabbit(#357)
+    // 지적 반영 — findAllByActionTypeAndCompanyIdAndParentActionId(FR-AC-08)와 동일하게 다른
+    // 회사 행이 섞이지 않게 조회 자체에서 막는다.
+    List<ChildActionProgressProjection> findAllByActionTypeAndCompanyIdAndParentActionIdIn(
+            ActionType actionType, Long companyId, List<Long> parentActionIds);
 
     // 닫힌 프로젝션 — sourceMeetingId 한 컬럼만 읽는다. 이름은 미분배 조회에서 왔지만 컬럼
     // shape이 같아 조건 없는 전체 건수 집계(findAllByCompanyIdAndSourceMeetingIdIn)도 재사용한다.

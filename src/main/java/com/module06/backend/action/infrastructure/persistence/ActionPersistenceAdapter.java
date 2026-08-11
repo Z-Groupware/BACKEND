@@ -301,13 +301,14 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
     // 2026-08-11, 이슈 #355 — 팀 액션 목록 하위 개인 액션 진척 배치 집계. countActionsByProjectIds와
     // 동일 패턴(프로젝션+자바 집계).
     @Override
-    public List<ChildActionProgress> countChildActionProgressByParentActionIds(List<Long> parentActionIds) {
+    public List<ChildActionProgress> countChildActionProgressByParentActionIds(Long companyId, List<Long> parentActionIds) {
         if (parentActionIds.isEmpty()) {
             return List.of();
         }
 
         Map<Long, List<SpringDataActionRepository.ChildActionProgressProjection>> byParentActionId =
-                springDataActionRepository.findAllByActionTypeAndParentActionIdIn(ActionType.PERSONAL, parentActionIds)
+                springDataActionRepository
+                        .findAllByActionTypeAndCompanyIdAndParentActionIdIn(ActionType.PERSONAL, companyId, parentActionIds)
                         .stream()
                         .collect(Collectors.groupingBy(SpringDataActionRepository.ChildActionProgressProjection::getParentActionId));
 

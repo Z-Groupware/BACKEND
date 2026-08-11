@@ -100,7 +100,7 @@ class ActionPersistenceAdapterListFilterTest {
         actionRepository.save(childUnderParent(parentB.getId(), ActionStatus.DONE));
 
         var result = actionRepository.countChildActionProgressByParentActionIds(
-                List.of(parentA.getId(), parentB.getId()));
+                COMPANY, List.of(parentA.getId(), parentB.getId()));
 
         assertThat(result).hasSize(2);
         assertThat(result).anySatisfy(progress -> {
@@ -115,18 +115,39 @@ class ActionPersistenceAdapterListFilterTest {
         });
     }
 
+    // CodeRabbit(#357) 지적 반영 — 다른 회사의 PERSONAL 액션이 우리 회사 팀 액션과 같은
+    // parentActionId를 참조해도(같은 물리 테이블의 auto-increment id라 값 자체는 겹칠 수 있다)
+    // companyId로 걸러져 집계에 안 잡히는지 확인한다.
+    @Test
+    void countChildActionProgressExcludesOtherCompanyChildActions() {
+        Long otherCompany = 2L;
+        Action parent = actionRepository.save(team(ActionStatus.IN_PROGRESS));
+        actionRepository.save(childUnderParent(parent.getId(), ActionStatus.DONE));
+        Action otherCompanyChild = Action.reconstitute(
+                null, otherCompany, 1L, parent.getId(), null, null, ASSIGNEE, ActionType.PERSONAL,
+                "다른 회사 개인 액션", "설명", true, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
+        actionRepository.save(otherCompanyChild);
+
+        var result = actionRepository.countChildActionProgressByParentActionIds(COMPANY, List.of(parent.getId()));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).totalCount()).isEqualTo(1);
+        assertThat(result.get(0).doneCount()).isEqualTo(1);
+    }
+
     @Test
     void countChildActionProgressOmitsParentWithNoChildrenYet() {
         Action parent = actionRepository.save(team(ActionStatus.TODO));
 
-        var result = actionRepository.countChildActionProgressByParentActionIds(List.of(parent.getId()));
+        var result = actionRepository.countChildActionProgressByParentActionIds(COMPANY, List.of(parent.getId()));
 
         assertThat(result).isEmpty();
     }
 
     @Test
     void countChildActionProgressReturnsEmptyWithoutQueryingWhenIdsIsEmpty() {
-        assertThat(actionRepository.countChildActionProgressByParentActionIds(List.of())).isEmpty();
+        assertThat(actionRepository.countChildActionProgressByParentActionIds(COMPANY, List.of())).isEmpty();
     }
 
     // Action.createManual은 parentActionId를 받지 않는다(항상 null 고정) — 하위 개인 액션은

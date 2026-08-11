@@ -64,7 +64,8 @@ public class TeamActionService implements
     // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
     @Transactional(readOnly = true)
-    public TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size) {
+    public TeamActionListResult getTeamActions(
+            Long teamId, Long companyId, ActionStatus status, String sort, String order, int page, int size) {
         long totalElements = actionRepository.countByTeamId(teamId, status);
         List<Action> actions = actionRepository.findAllByTeamId(teamId, status, sort, order, page, size);
         if (actions.isEmpty()) {
@@ -81,9 +82,10 @@ public class TeamActionService implements
         // 2026-08-11, 이슈 #355 — 하위 개인 액션 진척 배치 집계. 이 페이지의 팀 액션 id만 묶어
         // countActionsByProjectIds와 동일한 이유로 N+1을 피한다. 하위가 없는 팀 액션은
         // countChildActionProgressByParentActionIds의 group-by 결과에 아예 안 잡히므로
-        // getOrDefault로 0/0을 채운다.
+        // getOrDefault로 0/0을 채운다. companyId는 CodeRabbit(#357) 지적 반영 — 다른 회사의
+        // PERSONAL 액션이 같은 parentActionId를 참조하는 경우를 걸러낸다.
         Map<Long, ChildActionProgress> childProgressByActionId = actionRepository
-                .countChildActionProgressByParentActionIds(distinct(actions, Action::getId))
+                .countChildActionProgressByParentActionIds(companyId, distinct(actions, Action::getId))
                 .stream()
                 .collect(Collectors.toMap(ChildActionProgress::parentActionId, progress -> progress));
 

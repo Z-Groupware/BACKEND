@@ -68,7 +68,7 @@ class TeamActionControllerTest {
     @DisplayName("목록은 LEADER 권한이면 토큰의 teamId로 조회한다")
     void listUsesTeamIdFromTokenWhenLeader() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "LEADER");
-        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), anyInt(), anyInt()))
+        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
                         List.of(new TeamActionListItem(teamAction(), "GOODS", "굿즈", "개발팀", 2, 5)), 1L));
 

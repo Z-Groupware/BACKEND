@@ -70,13 +70,16 @@ public class TeamActionController {
     public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            // 2026-08-11 추가(CodeRabbit #357 지적 반영) — 하위 개인 액션 진척 집계의 회사 스코프용.
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
             @RequestParam(required = false) ActionStatus status,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "desc") String order,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        var result = getTeamActionsUseCase.getTeamActions(teamId, status, sort, order, page, size);
+        var result = getTeamActionsUseCase.getTeamActions(teamId, companyId, status, sort, order, page, size);
         List<ActionSummaryResponse> items = result.items().stream()
                 .map(ActionSummaryResponse::from)
                 .toList();

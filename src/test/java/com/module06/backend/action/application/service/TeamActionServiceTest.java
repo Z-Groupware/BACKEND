@@ -31,6 +31,7 @@ import com.module06.backend.project.application.port.ProjectAttachmentStoragePor
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -68,10 +69,10 @@ class TeamActionServiceTest {
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
                 .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
-        when(actionRepository.countChildActionProgressByParentActionIds(List.of(10L)))
+        when(actionRepository.countChildActionProgressByParentActionIds(COMPANY, List.of(10L)))
                 .thenReturn(List.of(new ActionRepository.ChildActionProgress(10L, 5, 2)));
 
-        var result = service.getTeamActions(TEAM, null, null, "desc", 0, 20);
+        var result = service.getTeamActions(TEAM, COMPANY, null, null, "desc", 0, 20);
 
         assertThat(result.items()).hasSize(1);
         assertThat(result.totalElements()).isEqualTo(1L);
@@ -94,9 +95,9 @@ class TeamActionServiceTest {
                 .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
         when(actionReferenceRepository.findTeamReferences(List.of(TEAM)))
                 .thenReturn(List.of(new TeamReference(TEAM, "개발팀", null)));
-        when(actionRepository.countChildActionProgressByParentActionIds(List.of(10L))).thenReturn(List.of());
+        when(actionRepository.countChildActionProgressByParentActionIds(COMPANY, List.of(10L))).thenReturn(List.of());
 
-        var result = service.getTeamActions(TEAM, null, null, "desc", 0, 20);
+        var result = service.getTeamActions(TEAM, COMPANY, null, null, "desc", 0, 20);
 
         TeamActionListItem item = result.items().get(0);
         assertThat(item.childTotalCount()).isZero();
@@ -109,10 +110,10 @@ class TeamActionServiceTest {
         when(actionRepository.countByTeamId(TEAM, null)).thenReturn(0L);
         when(actionRepository.findAllByTeamId(TEAM, null, null, "desc", 0, 20)).thenReturn(List.of());
 
-        assertThat(service.getTeamActions(TEAM, null, null, "desc", 0, 20).items()).isEmpty();
+        assertThat(service.getTeamActions(TEAM, COMPANY, null, null, "desc", 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findProjectReferences(anyList());
         verify(actionReferenceRepository, never()).findTeamReferences(anyList());
-        verify(actionRepository, never()).countChildActionProgressByParentActionIds(anyList());
+        verify(actionRepository, never()).countChildActionProgressByParentActionIds(any(), anyList());
     }
 
     // ── FR-AC-06 상세 ──────────────────────────────────────────────

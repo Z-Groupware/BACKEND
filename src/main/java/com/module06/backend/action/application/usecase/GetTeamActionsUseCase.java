@@ -24,7 +24,13 @@ import com.module06.backend.action.domain.model.ActionStatus;
 */
 public interface GetTeamActionsUseCase {
 
-    TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size);
+    // companyId는 2026-08-11 추가(CodeRabbit #357 지적 반영) — 하위 개인 액션 진척 집계가
+    // parentActionId만으로 조회되면 다른 회사의 PERSONAL 액션이 같은 parentActionId를 참조할 때
+    // (같은 물리 테이블의 auto-increment id라 우연히 겹칠 수 있다) 그 회사 경계 밖 데이터가
+    // 진척 카운트에 섞여 들어간다 — findAllByParentActionId(FR-AC-08)가 이미 companyId를
+    // 필수로 받는 것과 동일한 이유.
+    TeamActionListResult getTeamActions(
+            Long teamId, Long companyId, ActionStatus status, String sort, String order, int page, int size);
 
     // projectName은 2026-08-11 추가(이홍근 요청, 목록 카드 프로젝트별 그룹핑용) — projectTag와
     // 같은 ProjectReference 배치조회에서 이미 갖고 있던 값이라 추가 쿼리 없음.
