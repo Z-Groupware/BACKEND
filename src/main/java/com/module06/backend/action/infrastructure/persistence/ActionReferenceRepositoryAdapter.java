@@ -34,6 +34,7 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
     private final SpringDataMemberReferenceRepository springDataMemberReferenceRepository;
     private final SpringDataProjectAttachmentReferenceRepository springDataProjectAttachmentReferenceRepository;
     private final SpringDataSubTeamReferenceRepository springDataSubTeamReferenceRepository;
+    private final SpringDataPositionReferenceRepository springDataPositionReferenceRepository;
 
     @Override
     public List<MeetingReference> findMeetingReferences(List<Long> meetingIds) {
@@ -111,6 +112,27 @@ public class ActionReferenceRepositoryAdapter implements ActionReferenceReposito
 
         return springDataSubTeamReferenceRepository.findAllById(subTeamIds).stream()
                 .map(subTeam -> new SubTeamReference(subTeam.getId(), subTeam.getName()))
+                .toList();
+    }
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 직급 라벨 배치 조회.
+    @Override
+    public List<PositionReference> findPositionReferences(List<Long> positionIds) {
+        if (positionIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataPositionReferenceRepository.findAllById(positionIds).stream()
+                .map(position -> new PositionReference(position.getId(), position.getName()))
+                .toList();
+    }
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 로스터. 퇴사자(deleted_at 있음)는 조회 조건에서 제외한다.
+    @Override
+    public List<TeamMemberReference> findTeamMemberReferences(Long teamId) {
+        return springDataMemberReferenceRepository.findAllByTeamIdAndDeletedAtIsNull(teamId).stream()
+                .map(member -> new TeamMemberReference(
+                        member.getId(), member.getName(), member.getSubTeamId(), member.getPositionId(), member.getStatus()))
                 .toList();
     }
 

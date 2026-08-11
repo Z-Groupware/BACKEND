@@ -117,6 +117,34 @@ class ProjectServiceTest {
         verify(projectRepository, never()).save(any(Project.class));
     }
 
+    // ---------- getOwnerDashboardSummary (이슈 #352) ----------
+
+    @Test
+    void getOwnerDashboardSummaryReturnsTotalAndDueSoonProjectCounts() {
+        projectService = service();
+        LocalDate today = LocalDate.now();
+        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(3L);
+        when(projectRepository.countDueSoonByCompanyId(COMPANY, today, today.plusDays(7))).thenReturn(1L);
+
+        var result = projectService.getOwnerDashboardSummary(COMPANY);
+
+        assertThat(result.totalProjectCount()).isEqualTo(3L);
+        assertThat(result.dueSoonProjectCount()).isEqualTo(1L);
+    }
+
+    @Test
+    void getOwnerDashboardSummaryReturnsZerosWhenCompanyHasNoProjects() {
+        projectService = service();
+        LocalDate today = LocalDate.now();
+        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(0L);
+        when(projectRepository.countDueSoonByCompanyId(COMPANY, today, today.plusDays(7))).thenReturn(0L);
+
+        var result = projectService.getOwnerDashboardSummary(COMPANY);
+
+        assertThat(result.totalProjectCount()).isZero();
+        assertThat(result.dueSoonProjectCount()).isZero();
+    }
+
     // ---------- list ----------
 
     @Test

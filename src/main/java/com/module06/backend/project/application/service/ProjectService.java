@@ -20,6 +20,7 @@ import com.module06.backend.project.application.port.MeetingQueryPort;
 import com.module06.backend.project.application.port.ProjectQueryPort;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
+import com.module06.backend.project.application.usecase.GetOwnerDashboardSummaryUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
@@ -48,6 +49,7 @@ public class ProjectService implements
         GetProjectDetailUseCase,
         BulkUpdateProjectStatusUseCase,
         GetProjectTimelineUseCase,
+        GetOwnerDashboardSummaryUseCase,
         ProjectQueryPort {
 
     private final ProjectRepository projectRepository;
@@ -195,5 +197,17 @@ public class ProjectService implements
         return projectRepository.findAllByCompanyIdAndIdIn(companyId, projectIds).stream()
                 .map(project -> new ProjectSummary(project.getId(), project.getTag(), project.getName(), project.getColor()))
                 .toList();
+    }
+
+    // 2026-08-11 — 오너 대시보드 KPI. "마감 D-7"은 오늘부터 7일 뒤(포함)까지를 창으로 잡는다
+    // (이슈 #352 — 화면 라벨 "마감 D-7"과 동일한 의미로 이홍근 확인 전 임시 정의, PR 리뷰에서 확정).
+    @Override
+    @Transactional(readOnly = true)
+    public OwnerDashboardSummary getOwnerDashboardSummary(Long companyId) {
+        LocalDate today = LocalDate.now();
+        long totalProjectCount = projectRepository.countByCompanyId(companyId, null);
+        long dueSoonProjectCount = projectRepository.countDueSoonByCompanyId(companyId, today, today.plusDays(7));
+
+        return new OwnerDashboardSummary(totalProjectCount, dueSoonProjectCount);
     }
 }

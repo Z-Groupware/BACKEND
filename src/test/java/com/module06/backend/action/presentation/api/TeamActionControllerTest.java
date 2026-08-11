@@ -21,6 +21,8 @@ import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseC
 import com.module06.backend.action.application.usecase.GetTeamActionTimelineUseCase.TimelineItem;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase;
 import com.module06.backend.action.application.usecase.GetTeamActionsUseCase.TeamActionListItem;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase;
+import com.module06.backend.action.application.usecase.GetTeamDashboardSummaryUseCase.TeamDashboardSummary;
 import com.module06.backend.action.application.usecase.IssueTeamActionAttachmentDownloadUrlUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
@@ -58,6 +60,9 @@ class TeamActionControllerTest {
 
     @MockitoBean
     private IssueTeamActionAttachmentDownloadUrlUseCase issueTeamActionAttachmentDownloadUrlUseCase;
+
+    @MockitoBean
+    private GetTeamDashboardSummaryUseCase getTeamDashboardSummaryUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -118,6 +123,21 @@ class TeamActionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.downloadUrl").value("https://s3/get"))
                 .andExpect(jsonPath("$.data.expiresInSeconds").value(300));
+    }
+
+    @Test
+    @DisplayName("팀 대시보드 요약은 토큰의 teamId·memberId로 조회한다 — 이슈 #352")
+    void getTeamDashboardSummaryTakesTeamAndMemberFromToken() throws Exception {
+        authenticateAs(55L, COMPANY, TEAM, "LEADER");
+        when(getTeamDashboardSummaryUseCase.getTeamDashboardSummary(TEAM, 55L))
+                .thenReturn(new TeamDashboardSummary(3L, 6L, 1L, 0L));
+
+        mockMvc.perform(get("/api/team/actions/dashboard-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.teamActionCount").value(3))
+                .andExpect(jsonPath("$.data.teamMemberActionCount").value(6))
+                .andExpect(jsonPath("$.data.myActionCount").value(1))
+                .andExpect(jsonPath("$.data.completedActionCount").value(0));
     }
 
     private void authenticateAs(Long memberId, Long companyId, Long teamId, String authority) {

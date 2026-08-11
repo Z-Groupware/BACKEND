@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.action.domain.model.ActionType;
 
 /* comment.
     action 저장소 계약. 착수한 슬라이스에 필요한 메서드만 채워 나간다 —
@@ -70,4 +71,17 @@ public interface ActionRepository {
 
     // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL이 actionType으로 섞여 나온다(회의 상세 화면 전용).
     List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
+
+    // 2026-08-11 — 팀 대시보드 KPI "팀원 액션" 카드. countByTeamId는 actionType=TEAM으로 고정돼
+    // 있어 재사용할 수 없다 — actionType을 파라미터로 받는 이 메서드를 별도로 둔다.
+    long countByTeamIdAndActionType(Long teamId, ActionType actionType, ActionStatus status);
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황"의 "담당 액션 수" 배치 집계. PERSONAL 액션만 대상
+    // (TEAM은 담당자 개념이 없다). 상태 무관 전체 건수 — 완료 여부 구분은 이번 스코프 밖
+    // (홍근님 childDoneCount/childTotalCount 요청은 팀 액션 하위 개인 액션 진척 건으로 별도
+    // 이슈, 이 메서드와 용도가 다르다).
+    List<AssigneeActionCount> countActionsByAssigneeMemberIds(List<Long> assigneeMemberIds);
+
+    record AssigneeActionCount(Long assigneeMemberId, long actionCount) {
+    }
 }

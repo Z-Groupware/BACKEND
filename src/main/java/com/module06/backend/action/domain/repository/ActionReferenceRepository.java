@@ -56,6 +56,13 @@ public interface ActionReferenceRepository {
     // 미지정)이라 호출측에서 null 필터링 후 넘긴다.
     List<SubTeamReference> findSubTeamReferences(List<Long> subTeamIds);
 
+    // 2026-08-11 — 팀 대시보드 "팀원 현황"의 "직급" 라벨 배치 조회. position_id는 nullable이라
+    // (identity MemberJpaEntity 주석 확인) 호출측에서 null 필터링 후 넘긴다.
+    List<PositionReference> findPositionReferences(List<Long> positionIds);
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 로스터. 퇴사자는 제외하고 재직·휴직 중인 멤버만 낸다.
+    List<TeamMemberReference> findTeamMemberReferences(Long teamId);
+
     // FR-AC-06 — 팀 액션 상세에 인라인으로 싣는 소속 프로젝트 첨부파일 목록. 단건 조회라 배치가 아니다.
     List<AttachmentReference> findProjectAttachments(Long projectId);
 
@@ -91,5 +98,24 @@ public interface ActionReferenceRepository {
     // project 도메인 AttachmentResponse와 같은 shape이지만 presentation DTO를 직접 참조하지 않으므로
     // action이 자체 타입으로 복제해서 쓴다(0절 1항, TeamActionDetailResponse 주석 참고).
     record AttachmentReference(Long attachmentId, String fileName, String fileUrl, long fileSize, LocalDateTime createdAt) {
+    }
+
+    // 2026-08-11 — "직급" 라벨 조회용(팀 대시보드 팀원 현황).
+    record PositionReference(Long positionId, String name) {
+    }
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황" 로스터 한 행. subTeamId·positionId는 역할·직급 라벨
+    // 배치조회(findSubTeamReferences·findPositionReferences)에 넘길 키만 담고, 라벨 문자열
+    // 자체는 호출측(application)이 조립한다 — 이 인터페이스의 다른 배치조회들과 같은 책임분리.
+    record TeamMemberReference(Long memberId, String name, Long subTeamId, Long positionId, ReferenceMemberStatus status) {
+    }
+
+    // identity(B, 윤종호) 소유 member.status(MemberStatus enum) 값의 로컬 복제본이다 — B의
+    // 도메인 모델 클래스를 action(C)이 직접 import하지 않기 위함(0절 1항 취지, MemberReferenceEntity
+    // 주석 참고). action 자신의 infrastructure(MemberReferenceEntity)가 이 도메인 계약에 의존해
+    // JPA 컬럼을 매핑한다 — 방향은 infrastructure→domain이라 계층 규칙 위반이 아니다.
+    // 값 목록이 바뀌면(B가 enum에 값 추가) 여기도 같이 갱신해야 한다.
+    enum ReferenceMemberStatus {
+        ACTIVE, VACATION, WAITING, RESIGNED
     }
 }

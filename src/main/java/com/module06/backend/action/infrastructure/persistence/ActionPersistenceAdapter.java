@@ -233,6 +233,31 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 buildActionSpecification(ActionType.TEAM, null, teamId, status, null));
     }
 
+    // 2026-08-11 — 팀 대시보드 KPI "팀원 액션" 카드. countByTeamId와 달리 actionType을
+    // 파라미터로 받아 PERSONAL(팀 소속 개인 액션 전체)에도 쓸 수 있다.
+    @Override
+    public long countByTeamIdAndActionType(Long teamId, ActionType actionType, ActionStatus status) {
+        return springDataActionRepository.count(
+                buildActionSpecification(actionType, null, teamId, status, null));
+    }
+
+    // 2026-08-11 — 팀원 현황 "담당 액션 수" 배치 집계. countActionsByProjectIds와 동일한
+    // 프로젝션+자바 집계 패턴(Gate 1 QUERY_002가 COUNT GROUP BY용 신규 @Query를 막는다).
+    @Override
+    public List<AssigneeActionCount> countActionsByAssigneeMemberIds(List<Long> assigneeMemberIds) {
+        if (assigneeMemberIds.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionRepository
+                .findAllByActionTypeAndAssigneeMemberIdIn(ActionType.PERSONAL, assigneeMemberIds).stream()
+                .collect(Collectors.groupingBy(
+                        SpringDataActionRepository.AssigneeActionProjection::getAssigneeMemberId, Collectors.counting()))
+                .entrySet().stream()
+                .map(entry -> new AssigneeActionCount(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
     // FR-AC-08 — 팀 액션 타임라인. companyId·PERSONAL 조건을 조회 자체에 넣어 다른 회사 행이나
     // TEAM 액션이 섞여 들어올 여지를 원천 차단한다.
     @Override

@@ -89,6 +89,54 @@ class ActionPersistenceAdapterListFilterTest {
         assertThat(actionRepository.countByTeamId(TEAM, ActionStatus.IN_PROGRESS)).isEqualTo(1L);
     }
 
+    // ---------- countByTeamIdAndActionType / countActionsByAssigneeMemberIds (이슈 #352) ----------
+
+    @Test
+    void countByTeamIdAndActionTypeCountsOnlyPersonalActionsUnderTeam() {
+        actionRepository.save(team(ActionStatus.IN_PROGRESS)); // TEAM 액션 — PERSONAL 카운트엔 안 잡혀야 함
+        actionRepository.save(personalUnderTeam(ActionStatus.TODO));
+        actionRepository.save(personalUnderTeam(ActionStatus.DONE));
+
+        long result = actionRepository.countByTeamIdAndActionType(TEAM, ActionType.PERSONAL, null);
+
+        assertThat(result).isEqualTo(2L);
+    }
+
+    @Test
+    void countActionsByAssigneeMemberIdsGroupsByAssignee() {
+        Long other = 51L;
+        actionRepository.save(personal(ActionStatus.TODO, LocalDate.of(2026, 12, 31))); // ASSIGNEE
+        actionRepository.save(personal(ActionStatus.DONE, LocalDate.of(2026, 12, 31))); // ASSIGNEE
+        actionRepository.save(Action.createManual(
+                COMPANY, 1L, null, other, ActionType.PERSONAL, "제목", "설명", LocalDate.of(2026, 12, 31)));
+
+        var result = actionRepository.countActionsByAssigneeMemberIds(List.of(ASSIGNEE, other));
+
+        assertThat(result).hasSize(2);
+        assertThat(result).anySatisfy(count -> {
+            assertThat(count.assigneeMemberId()).isEqualTo(ASSIGNEE);
+            assertThat(count.actionCount()).isEqualTo(2L);
+        });
+        assertThat(result).anySatisfy(count -> {
+            assertThat(count.assigneeMemberId()).isEqualTo(other);
+            assertThat(count.actionCount()).isEqualTo(1L);
+        });
+    }
+
+    @Test
+    void countActionsByAssigneeMemberIdsReturnsEmptyWithoutQueryingWhenIdsIsEmpty() {
+        assertThat(actionRepository.countActionsByAssigneeMemberIds(List.of())).isEmpty();
+    }
+
+    private Action personalUnderTeam(ActionStatus status) {
+        LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
+        boolean isDone = status == ActionStatus.DONE;
+        return Action.reconstitute(
+                null, COMPANY, 1L, 900L, null, TEAM, ASSIGNEE, ActionType.PERSONAL, "개인 액션", "설명",
+                isDone, startDate, LocalDate.of(2026, 12, 31), false,
+                ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
+    }
+
     private Action personal(ActionStatus status, LocalDate dueDate) {
         Action action = Action.createManual(
                 COMPANY, 1L, null, ASSIGNEE, ActionType.PERSONAL, "제목", "설명", dueDate);
