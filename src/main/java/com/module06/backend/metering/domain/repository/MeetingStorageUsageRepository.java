@@ -1,0 +1,16 @@
+package com.module06.backend.metering.domain.repository;
+
+import com.module06.backend.metering.domain.model.MeetingStorageUsage;
+
+public interface MeetingStorageUsageRepository {
+
+    /**
+     * meetingId가 식별자다 — 있으면 갱신, 없으면 새로 생성한다. revision이 기존 저장값보다 크지
+     * 않으면(뒤바뀐 순서로 도착했거나 중복) 조용히 무시한다 — 항상 덮어쓰면 오래된 report가 최신
+     * 값을 지워 사용량이 과소 집계될 수 있다.
+     */
+    void reportIfNewer(MeetingStorageUsage usage);
+
+    /** 이 회사의 모든 회의 스냅샷을 합산한 현재 총 사용량. */
+    long sumUsedBytesByCompanyId(Long companyId);
+}
