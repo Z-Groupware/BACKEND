@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ import com.module06.backend.action.domain.repository.ActionReferenceRepository.M
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.ProjectReference;
 import com.module06.backend.action.domain.repository.ActionReferenceRepository.TeamReference;
 import com.module06.backend.action.domain.repository.ActionRepository;
+import com.module06.backend.action.domain.repository.ActionRepository.ChildActionProgress;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.port.ProjectAttachmentStoragePort;
@@ -64,7 +66,8 @@ public class TeamActionService implements
     // 2026-08-10 페이지네이션 도입(이홍근 요청).
     @Override
     @Transactional(readOnly = true)
-    public TeamActionListResult getTeamActions(Long teamId, ActionStatus status, String sort, String order, int page, int size) {
+    public TeamActionListResult getTeamActions(
+            Long teamId, Long companyId, ActionStatus status, String sort, String order, int page, int size) {
         long totalElements = actionRepository.countByTeamId(teamId, status);
         List<Action> actions = actionRepository.findAllByTeamId(teamId, status, sort, order, page, size);
         if (actions.isEmpty()) {
@@ -78,10 +81,25 @@ public class TeamActionService implements
         String teamName = actionReferenceRepository.findTeamReferences(List.of(teamId)).stream()
                 .findFirst().map(TeamReference::name).orElse(null);
 
+        // 2026-08-11, 이슈 #355 — 하위 개인 액션 진척 배치 집계. 이 페이지의 팀 액션 id만 묶어
+        // countActionsByProjectIds와 동일한 이유로 N+1을 피한다. 하위가 없는 팀 액션은
+        // countChildActionProgressByParentActionIds의 group-by 결과에 아예 안 잡히므로
+        // getOrDefault로 0/0을 채운다. companyId는 CodeRabbit(#357) 지적 반영 — 다른 회사의
+        // PERSONAL 액션이 같은 parentActionId를 참조하는 경우를 걸러낸다.
+        Map<Long, ChildActionProgress> childProgressByActionId = actionRepository
+                .countChildActionProgressByParentActionIds(companyId, distinct(actions, Action::getId))
+                .stream()
+                .collect(Collectors.toMap(ChildActionProgress::parentActionId, progress -> progress));
+
         List<TeamActionListItem> items = actions.stream()
-                .map(action -> new TeamActionListItem(
-                        action, projectTagById.get(action.getProjectId()),
-                        projectNameById.get(action.getProjectId()), teamName))
+                .map(action -> {
+                    ChildActionProgress progress = childProgressByActionId.get(action.getId());
+                    return new TeamActionListItem(
+                            action, projectTagById.get(action.getProjectId()),
+                            projectNameById.get(action.getProjectId()), teamName,
+                            progress == null ? 0 : progress.doneCount(),
+                            progress == null ? 0 : progress.totalCount());
+                })
                 .toList();
 
         return new TeamActionListResult(items, totalElements);

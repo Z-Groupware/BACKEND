@@ -338,6 +338,31 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // 2026-08-11, 이슈 #355 — 팀 액션 목록 하위 개인 액션 진척 배치 집계. countActionsByProjectIds와
+    // 동일 패턴(프로젝션+자바 집계).
+    @Override
+    public List<ChildActionProgress> countChildActionProgressByParentActionIds(Long companyId, List<Long> parentActionIds) {
+        if (parentActionIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, List<SpringDataActionRepository.ChildActionProgressProjection>> byParentActionId =
+                springDataActionRepository
+                        .findAllByActionTypeAndCompanyIdAndParentActionIdIn(ActionType.PERSONAL, companyId, parentActionIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(SpringDataActionRepository.ChildActionProgressProjection::getParentActionId));
+
+        return byParentActionId.entrySet().stream()
+                .map(entry -> new ChildActionProgress(
+                        entry.getKey(),
+                        entry.getValue().size(),
+                        (int) entry.getValue().stream()
+                                .filter(projection -> projection.getStatus() == ActionStatus.DONE)
+                                .count()
+                ))
+                .toList();
+    }
+
     // MEET-01 회의 예약 시 relatedActionId 검증용 — 단순 위임.
     @Override
     public boolean existsAction(Long companyId, Long actionId) {
