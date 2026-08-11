@@ -71,18 +71,18 @@ public class MeetingRoomController {
     }
 
     /*
-     * 특정 날짜의 회의실별 30분 슬롯 예약 현황을 조회한다.
-     * 시간표 그리드 전체를 이 응답 하나로 그릴 수 있게 회의실 정보와 예약 상태를 함께 내려준다.
+     * 회의실 하나의 월요일부터 금요일까지 30분 슬롯 예약 현황을 조회한다.
+     * 주간 시간표 전체를 이 응답 하나로 그릴 수 있게 회의실 정보와 날짜별 예약 상태를 함께 내려준다.
      *
      * @param companyId 인증 principal에서 추출한 요청자의 회사 식별자
      * @param memberId 인증 principal에서 추출한 요청자의 구성원 식별자
-     * @param date 조회 날짜 문자열
-     * @param meetingRoomId 특정 회의실만 조회할 때의 식별자 문자열
-     * @return 공통 성공 응답으로 감싼 회의실별 슬롯 현황
+     * @param date 조회 주의 기준일 문자열, 생략하면 KST 오늘
+     * @param meetingRoomId 조회할 필수 회의실 식별자 문자열
+     * @return 공통 성공 응답으로 감싼 단일 회의실 주간 슬롯 현황
      */
     @Operation(
             summary = "회의실 예약 현황 조회",
-            description = "특정 날짜의 회의실별 30분 슬롯 예약 현황을 조회합니다. "
+            description = "회의실 하나의 월요일부터 금요일까지 30분 슬롯 예약 현황을 조회합니다. "
                     + "이용 가능 시간 밖의 슬롯은 응답에 포함하지 않으며, 참석자가 아닌 회의의 제목은 노출하지 않습니다."
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
@@ -92,9 +92,9 @@ public class MeetingRoomController {
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
-            @Parameter(description = "조회 날짜 (YYYY-MM-DD)", required = true, example = "2026-08-04")
+            @Parameter(description = "조회 주의 기준일 (YYYY-MM-DD), 생략 시 KST 오늘", example = "2026-08-10")
             @RequestParam(name = "date", required = false) String date,
-            @Parameter(description = "특정 회의실만 조회할 때의 회의실 식별자", example = "2")
+            @Parameter(description = "주간 현황을 조회할 회의실 식별자", required = true, example = "2")
             @RequestParam(name = "meetingRoomId", required = false) String meetingRoomId
     ) {
         /* Query Parameter를 요청 DTO에서 검증하고 파싱한다. */

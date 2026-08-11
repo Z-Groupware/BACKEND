@@ -157,6 +157,35 @@ class HandoverTest {
     }
 
     @Test
+    void pendingAttributionTrueAfterDirectLeaderFinalizeAndAttributeAssignsAllItems() {
+        Handover handover = Handover.createOffboarding(WRITER, TEAM, "Kim", "Manager",
+                LAST_WORKING_DAY, List.of(item(100L), item(101L)));
+        handover.finalizeApproval(9L, "Owner", NOW, true);
+
+        assertThat(handover.isPendingAttribution()).isTrue();
+
+        handover.attributeToNewLeader(TARGET, "Lee", "Leader", NOW);
+
+        assertThat(handover.isPendingAttribution()).isFalse();
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
+        assertThat(handover.getItems()).allSatisfy(i -> {
+            assertThat(i.getReassigneeId()).isEqualTo(TARGET);
+            assertThat(i.isCommitted()).isTrue();
+        });
+    }
+
+    @Test
+    void attributeToNewLeaderRejectedWhenNotPendingAttribution() {
+        // 정상 경로로 FINALIZED된 건은 전 항목 재분배 완료라 귀속 대기가 아니다.
+        Handover finalized = reassignedHandover();
+        finalized.finalizeApproval(9L, "Leader", NOW);
+
+        assertThat(finalized.isPendingAttribution()).isFalse();
+        assertThatThrownBy(() -> finalized.attributeToNewLeader(TARGET, "Lee", "Leader", NOW))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
     void noItemsCountsAsAllReassigned() {
         Handover handover = Handover.createVacation(WRITER, TEAM, "Kim", "Manager", START, END, List.of());
 

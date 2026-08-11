@@ -7,27 +7,30 @@ import com.module06.backend.meetingroom.application.result.MeetingRoomAvailabili
 /*
  * ROOM-02 회의실 예약 현황 조회의 data 영역을 표현하는 프레젠테이션 DTO다.
  *
- * 화면의 시간표 그리드 전체가 이 응답 하나로 그려지므로 회의실 목록과 예약 상태를 나눠 호출하지 않는다.
- * 조회 결과가 0건이어도 404가 아니라 200과 빈 배열로 응답한다.
+ * 단일 회의실의 월요일부터 금요일까지 시간표 전체를 이 응답 하나로 그릴 수 있게 한다.
  *
- * @param date 조회한 날짜
+ * @param weekStart 조회 주의 월요일
+ * @param weekEnd 조회 주의 금요일
  * @param slotMinutes 슬롯 하나의 길이(분)
- * @param meetingRooms 회의실별 슬롯 현황 목록
+ * @param meetingRoom 조회 대상 회의실 정보
+ * @param days 월요일부터 금요일까지 날짜별 슬롯 현황
  */
 public record MeetingRoomAvailabilityResponse(
-        String date,
+        String weekStart,
+        String weekEnd,
         int slotMinutes,
-        List<MeetingRoomAvailabilityItemResponse> meetingRooms
+        MeetingRoomAvailabilityItemResponse meetingRoom,
+        List<MeetingRoomDayResponse> days
 ) {
 
     /*
-     * 응답 생성 이후 회의실 목록이 변경되지 않도록 불변으로 복사한다.
+     * 응답 생성 이후 날짜별 목록이 변경되지 않도록 불변으로 복사한다.
      *
-     * @param meetingRooms 회의실 현황 응답 항목 목록
+     * @param days 날짜별 슬롯 현황 응답 목록
      */
     public MeetingRoomAvailabilityResponse {
-        /* 응답 컬렉션을 불변 복사해 계층 밖에서 목록 내용이 변경되는 것을 방지한다. */
-        meetingRooms = List.copyOf(meetingRooms);
+        /* 응답 컬렉션을 불변 복사해 계층 밖에서 주간 목록이 변경되는 것을 방지한다. */
+        days = List.copyOf(days);
     }
 
     /*
@@ -37,12 +40,14 @@ public record MeetingRoomAvailabilityResponse(
      * @return 조회 날짜와 회의실별 슬롯 현황을 담은 data 객체
      */
     public static MeetingRoomAvailabilityResponse from(MeetingRoomAvailability availability) {
-        /* 날짜는 YYYY-MM-DD 문자열로 변환하고 회의실별 현황은 각 응답 항목으로 변환한다. */
+        /* 주간 범위와 회의실 메타, 날짜별 슬롯을 확정된 외부 JSON 구조로 변환한다. */
         return new MeetingRoomAvailabilityResponse(
-                ApiTimeFormat.formatDate(availability.date()),
+                ApiTimeFormat.formatDate(availability.weekStart()),
+                ApiTimeFormat.formatDate(availability.weekEnd()),
                 availability.slotMinutes(),
-                availability.meetingRooms().stream()
-                        .map(MeetingRoomAvailabilityItemResponse::from)
+                MeetingRoomAvailabilityItemResponse.from(availability.meetingRoom()),
+                availability.days().stream()
+                        .map(MeetingRoomDayResponse::from)
                         .toList()
         );
     }

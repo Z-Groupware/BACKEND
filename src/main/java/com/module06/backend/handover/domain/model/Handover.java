@@ -198,6 +198,41 @@ public class Handover {
                 .allMatch(HandoverItem::isReassigned);
     }
 
+    /**
+     * "귀속 대기" — 팀장 오프보딩이 후임 없이 직행 finalize(SUBMITTED→FINALIZED)돼, 문서·퇴사는 확정됐지만
+     * 액션은 아직 새 팀장에게 귀속되지 않은 상태. 파생 판정이라 별도 상태값을 두지 않는다.
+     * 일반 사원 오프보딩은 complete(전 항목 재분배)를 거쳐야 FINALIZED라 이 조건에 걸리지 않는다.
+     */
+    public boolean isPendingAttribution() {
+        return status == HandoverStatus.FINALIZED
+                && handoverType == HandoverType.OFFBOARDING
+                && !isAllReassigned();
+    }
+
+    /**
+     * 귀속 대기 상태의 인계 항목 전부를 신규 팀장 1명에게 일괄 귀속시킨다.
+     * 상태는 이미 FINALIZED라 전이 없이 항목 스냅샷만 채운다(이관 후 isPendingAttribution=false).
+     */
+    public void attributeToNewLeader(Long newLeaderId, String reassigneeNameSnap,
+                                     String reassigneePositionSnap, LocalDateTime at) {
+        if (!isPendingAttribution()) {
+            throw new BusinessException(HandoverErrorCode.HO_ATTRIBUTE_NOT_ALLOWED);
+        }
+        requireId(newLeaderId, "newLeaderId");
+        requireText(reassigneeNameSnap, "reassigneeNameSnap");
+        requireText(reassigneePositionSnap, "reassigneePositionSnap");
+        if (at == null) {
+            throw new BusinessException(HandoverErrorCode.HO_REASSIGNED_AT_REQUIRED);
+        }
+        items.stream()
+                .filter(HandoverItem::isReassignRequired)
+                .filter(item -> !item.isReassigned())
+                .forEach(item -> {
+                    item.reassignTo(newLeaderId, reassigneeNameSnap, reassigneePositionSnap, at);
+                    item.commit(at);
+                });
+    }
+
     public List<HandoverItem> getItems() {
         return Collections.unmodifiableList(items);
     }

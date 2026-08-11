@@ -19,8 +19,8 @@ import com.module06.backend.meetingroom.application.query.MeetingRoomAvailabilit
  * - MeetingRoomController: 이 DTO로 Query Parameter를 검증한 뒤 조회 조건으로 변환한다
  * - MeetingRoomAvailabilityQuery: 인증 정보와 합쳐 만들어지는 애플리케이션 조회 조건
  *
- * @param date 조회 날짜
- * @param meetingRoomId 특정 회의실만 조회할 때의 식별자, 전체 조회는 null
+ * @param date 조회 주의 기준일, 생략하면 서비스가 KST 오늘을 사용한다
+ * @param meetingRoomId 주간 현황을 조회할 필수 회의실 식별자
  */
 public record MeetingRoomAvailabilityRequest(
         LocalDate date,
@@ -34,9 +34,9 @@ public record MeetingRoomAvailabilityRequest(
      * Query Parameter 문자열을 검증하고 요청 DTO로 변환한다.
      *
      * @param date 조회 날짜 문자열
-     * @param meetingRoomId 회의실 식별자 문자열, 전체 조회는 null 또는 빈 문자열
+     * @param meetingRoomId 필수 회의실 식별자 문자열
      * @return 검증을 통과한 요청 DTO
-     * @throws BusinessException 날짜가 없거나 형식이 올바르지 않은 경우, 회의실 식별자가 숫자가 아닌 경우
+     * @throws BusinessException 날짜 형식이 올바르지 않거나 회의실 식별자가 없거나 양수가 아닌 경우
      */
     public static MeetingRoomAvailabilityRequest of(String date, String meetingRoomId) {
         /* 두 파라미터를 각각 검증해 잘못된 입력을 400 Z-001로 통일한다. */
@@ -57,16 +57,16 @@ public record MeetingRoomAvailabilityRequest(
     }
 
     /*
-     * 필수 조회 날짜를 파싱한다.
+     * 선택 조회 기준일을 파싱한다.
      *
      * @param date 조회 날짜 문자열
-     * @return 파싱된 조회 날짜
-     * @throws BusinessException 값이 없거나 YYYY-MM-DD 형식이 아닌 경우
+     * @return 파싱된 기준일, 값이 없으면 null
+     * @throws BusinessException 값이 YYYY-MM-DD 형식이 아닌 경우
      */
     private static LocalDate parseDate(String date) {
-        /* 조회 날짜는 필수이므로 값이 비어 있으면 입력값 오류로 처리한다. */
+        /* 기준일을 생략하면 서비스가 KST Clock의 오늘을 사용하도록 null을 유지한다. */
         if (date == null || date.isBlank()) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+            return null;
         }
 
         try {
@@ -78,21 +78,25 @@ public record MeetingRoomAvailabilityRequest(
     }
 
     /*
-     * 선택 파라미터인 회의실 식별자를 파싱한다.
+     * 필수 파라미터인 회의실 식별자를 파싱한다.
      *
      * @param meetingRoomId 회의실 식별자 문자열
-     * @return 파싱된 회의실 식별자, 값이 없으면 null
-     * @throws BusinessException 값이 숫자가 아닌 경우
+     * @return 파싱된 양수 회의실 식별자
+     * @throws BusinessException 값이 없거나 양수가 아닌 경우
      */
     private static Long parseMeetingRoomId(String meetingRoomId) {
-        /* 값을 넘기지 않은 요청은 활성 회의실 전체 조회를 의미한다. */
+        /* 단일 회의실 주간 조회이므로 식별자를 생략한 요청은 입력값 오류다. */
         if (meetingRoomId == null || meetingRoomId.isBlank()) {
-            return null;
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
 
         try {
-            /* 존재하지 않는 회의실은 조회 단계에서 404로 처리하고, 여기서는 형식만 검증한다. */
-            return Long.valueOf(meetingRoomId.trim());
+            /* 존재 여부는 조회 단계에서 판단하고, 여기서는 양수 식별자 형식만 허용한다. */
+            Long parsedMeetingRoomId = Long.valueOf(meetingRoomId.trim());
+            if (parsedMeetingRoomId <= 0) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+            }
+            return parsedMeetingRoomId;
         } catch (NumberFormatException e) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
