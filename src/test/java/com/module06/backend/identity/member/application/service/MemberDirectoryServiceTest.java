@@ -390,6 +390,65 @@ class MemberDirectoryServiceTest {
         assertThat(mailPort.sentCompanyCode).isEqualTo("COMP01");
     }
 
+    @Test
+    @DisplayName("대시보드 인원 요약 — 재직·휴직·대기를 전체로 세고, 휴직자는 VACATION 만 센다")
+    void countsMembersForDashboard() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActive(COMPANY_ID, "재직자", null, null);
+        directory.addOnLeave(COMPANY_ID, "휴직자", null, null, Authority.MEMBER,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 15));
+        directory.addWaiting(COMPANY_ID, "휴직대기자", PendingHandoverType.VACATION);
+        directory.addWaiting(COMPANY_ID, "퇴사대기자", PendingHandoverType.OFFBOARDING);
+        directory.addActive(2L, "다른회사", null, null);
+
+        var summary = service(directory).getDashboardSummary(COMPANY_ID);
+
+        assertThat(summary.totalMemberCount()).isEqualTo(4);
+        assertThat(summary.onLeaveMemberCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("팀장 현황은 팀마다 한 행이고, 팀 id 오름차순이다")
+    void listsOneLeaderPerTeam() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        Team dev = teams.create(COMPANY_ID, "개발팀");
+        Team design = teams.create(COMPANY_ID, "디자인팀");
+        Long devLeader = directory.addActiveWithAuthority(COMPANY_ID, "김서준", dev.id(), "개발팀", Authority.LEADER);
+        Long designLeader = directory.addOnLeave(COMPANY_ID, "강서연", design.id(), "디자인팀", Authority.LEADER,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 15));
+        directory.addActive(COMPANY_ID, "팀원", dev.id(), "개발팀");
+        teams.setLeader(dev.id(), devLeader);
+        teams.setLeader(design.id(), designLeader);
+
+        var leaders = service(directory, teams, new FakePositionRepository()).getTeamLeadersStatus(COMPANY_ID);
+
+        assertThat(leaders).extracting(l -> l.name()).containsExactly("김서준", "강서연");
+        assertThat(leaders.get(0).teamName()).isEqualTo("개발팀");
+        assertThat(leaders.get(0).status()).isEqualTo(MemberStatus.ACTIVE);
+        assertThat(leaders.get(0).leaveStartDate()).isNull();
+        assertThat(leaders.get(0).leaveEndDate()).isNull();
+        assertThat(leaders.get(1).status()).isEqualTo(MemberStatus.VACATION);
+        assertThat(leaders.get(1).leaveStartDate()).isEqualTo(LocalDate.of(2026, 8, 1));
+        assertThat(leaders.get(1).leaveEndDate()).isEqualTo(LocalDate.of(2026, 8, 15));
+        assertThat(leaders.get(1).email()).isEqualTo("강서연@company.kr");
+    }
+
+    @Test
+    @DisplayName("리더가 공석이거나 이미 빠진 팀은 행 자체가 없다")
+    void skipsTeamsWithoutLeader() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        Team vacant = teams.create(COMPANY_ID, "공석팀");
+        Team stale = teams.create(COMPANY_ID, "퇴사팀");
+        teams.setLeader(stale.id(), 999L);
+
+        var leaders = service(directory, teams, new FakePositionRepository()).getTeamLeadersStatus(COMPANY_ID);
+
+        assertThat(leaders).isEmpty();
+        assertThat(vacant.leaderMemberId()).isNull();
+    }
+
     /* ── 조립 헬퍼 ──────────────────────────────────────────────────── */
 
     private MemberDirectoryService service(FakeDirectory directory) {
@@ -441,6 +500,17 @@ class MemberDirectoryServiceTest {
             long id = nextId++;
             MutableRow row = new MutableRow(id, companyId, name, name + "@company.kr", teamId, teamName, roleLabel,
                     Authority.MEMBER, false, MemberStatus.ACTIVE, null);
+            rows.put(id, row);
+            return id;
+        }
+
+        Long addOnLeave(Long companyId, String name, Long teamId, String teamName, Authority authority,
+                         LocalDate leaveStartDate, LocalDate leaveEndDate) {
+            long id = nextId++;
+            MutableRow row = new MutableRow(id, companyId, name, name + "@company.kr", teamId, teamName, null,
+                    authority, false, MemberStatus.VACATION, null);
+            row.leaveStartDate = leaveStartDate;
+            row.leaveEndDate = leaveEndDate;
             rows.put(id, row);
             return id;
         }
@@ -514,7 +584,8 @@ class MemberDirectoryServiceTest {
 
         private MemberRow toRow(MutableRow row) {
             return new MemberRow(row.id, row.name, row.email, row.teamId, row.teamName, null, "선임",
-                    row.roleLabel, row.authority, row.isAdmin, row.status, LocalDate.of(2026, 1, 1), row.pendingType);
+                    row.roleLabel, row.authority, row.isAdmin, row.status, LocalDate.of(2026, 1, 1),
+                    row.pendingType, row.leaveStartDate, row.leaveEndDate);
         }
 
         private static final class MutableRow {
@@ -529,6 +600,9 @@ class MemberDirectoryServiceTest {
             boolean isAdmin;
             MemberStatus status;
             final PendingHandoverType pendingType;
+            /* VACATION 일 때만 어댑터가 채운다 — 그 규칙은 어댑터 쪽이라 여기서는 그냥 담아만 둔다. */
+            LocalDate leaveStartDate;
+            LocalDate leaveEndDate;
 
             MutableRow(Long id, Long companyId, String name, String email, Long teamId, String teamName,
                        String roleLabel, Authority authority, boolean isAdmin, MemberStatus status,

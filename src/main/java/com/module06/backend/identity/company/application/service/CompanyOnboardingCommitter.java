@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -69,6 +70,9 @@ class CompanyOnboardingCommitter {
             throw new BusinessException(AuthErrorCode.ALREADY_ONBOARDED);
         }
 
+        /* tempId 유일성은 아래 toMap 과 tempId 기반 해석 전부의 전제라 가장 먼저 본다. */
+        assertNoDuplicateTempIds(command);
+        assertNoDuplicateNames(command);
         assertPositionRolesAssignable(command);
 
         Map<String, Authority> positionAuthorityByTempId = command.jobPositions().stream()
@@ -146,6 +150,77 @@ class CompanyOnboardingCommitter {
 
         return new CommitResult(now, teamIdByTempId.size(), subTeamCount, positionIdByTempId.size(),
                 issuedAccounts, skipped);
+    }
+
+    /**
+     * 요청 안에서 tempId 가 겹치는지 본다 — 겹치면 4xx 로 끊는다.
+     *
+     * <p>막지 않으면 세 갈래로 샌다. 직급 tempId 중복은 {@code Collectors.toMap} 이
+     * {@code IllegalStateException: Duplicate key} 를 던져 500(Z-003)이 되고 — 이건
+     * {@code IllegalArgumentException} 이 아니라서 400 핸들러에도 안 걸린다 — 부서·역할
+     * tempId 중복은 {@code HashMap.put} 이라 예외 없이 조용히 덮어써서 부서 하나가 사라진 채
+     * 성공하거나, 초대가 엉뚱한 역할에 붙는다.
+     *
+     * <p>배열끼리는 겹쳐도 된다. tempId → 실제 id 해석 맵이 부서·역할·직급 따로라 부서 "1"과
+     * 직급 "1"이 서로를 가리는 일이 없다 — 배열마다 1부터 번호를 매기는 프런트를 막을 이유가
+     * 없으므로 Set 도 배열별로 나눠 쓴다. 역할은 부서를 건너뛰고 한 맵에 모이므로 요청 전체에서
+     * 유일해야 한다.
+     */
+    private void assertNoDuplicateTempIds(OnboardCompanyCommand command) {
+        Set<String> teamTempIds = new HashSet<>();
+        Set<String> subTeamTempIds = new HashSet<>();
+        for (OnboardCompanyCommand.TeamNode team : command.teams()) {
+            if (!teamTempIds.add(team.tempId())) {
+                throw new BusinessException(AuthErrorCode.ONBOARDING_TEMP_ID_DUPLICATED);
+            }
+            for (OnboardCompanyCommand.SubTeamNode subTeam : team.subTeams()) {
+                if (!subTeamTempIds.add(subTeam.tempId())) {
+                    throw new BusinessException(AuthErrorCode.ONBOARDING_TEMP_ID_DUPLICATED);
+                }
+            }
+        }
+
+        Set<String> positionTempIds = new HashSet<>();
+        for (OnboardCompanyCommand.JobPositionNode position : command.jobPositions()) {
+            if (!positionTempIds.add(position.tempId())) {
+                throw new BusinessException(AuthErrorCode.ONBOARDING_TEMP_ID_DUPLICATED);
+            }
+        }
+    }
+
+    /**
+     * 부서명·직급명 중복을 DB 가 아니라 여기서 잡는다.
+     *
+     * <p>{@code UK_TEAM_COMPANY_NAME}(V2.3.16) · {@code UK_POSITION_COMPANY_NAME}(V2.3.15) 가
+     * 이미 막고 있지만, 거기까지 가면 {@code DataIntegrityViolationException} 이라 500(Z-003)이
+     * 된다. "부서명이 중복됐다"는 사용자가 화면에서 만들 수 있는 입력이므로 400 이어야 한다.
+     *
+     * <p>비교 키를 {@code strip().toLowerCase()} 로 맞춘다 — 두 인덱스의 콜레이션이
+     * {@code utf8mb4_unicode_ci} 라 대소문자와 끝 공백을 무시한다. 그대로 비교하면 "Dev"/"dev"
+     * 가 이 검사를 통과하고 DB 에서 터져 결국 500 이 된다. (악센트까지 같게 보는 콜레이션의
+     * 나머지 규칙은 따라가지 않는다 — 한글·영문 부서명에서 실질적으로 걸리지 않는다.)
+     *
+     * <p>역할(role)명은 보지 않는다 — role 테이블에 이름 UNIQUE 가 없어 중복이 DB 에서
+     * 터지지 않는다(부서마다 "백엔드" 역할을 두는 게 정상이다).
+     */
+    private void assertNoDuplicateNames(OnboardCompanyCommand command) {
+        Set<String> teamNames = new HashSet<>();
+        for (OnboardCompanyCommand.TeamNode team : command.teams()) {
+            if (!teamNames.add(nameKey(team.name()))) {
+                throw new BusinessException(AuthErrorCode.ONBOARDING_TEAM_NAME_DUPLICATED);
+            }
+        }
+
+        Set<String> positionNames = new HashSet<>();
+        for (OnboardCompanyCommand.JobPositionNode position : command.jobPositions()) {
+            if (!positionNames.add(nameKey(position.name()))) {
+                throw new BusinessException(AuthErrorCode.ONBOARDING_POSITION_NAME_DUPLICATED);
+            }
+        }
+    }
+
+    private String nameKey(String name) {
+        return name.strip().toLowerCase(Locale.ROOT);
     }
 
     /**

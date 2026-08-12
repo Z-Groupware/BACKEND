@@ -47,6 +47,12 @@ public interface SpringDataActionRepository
     List<ActionJpaEntity> findAllByActionTypeAndCompanyIdAndParentActionId(
             ActionType actionType, Long companyId, Long parentActionId);
 
+    // 상위 팀 액션명 스냅샷 배치 조회(ActionReassignAdapter) — id만으로 찾으면 회사·종류 불변식에
+    // 기대게 되어 다른 회사·PERSONAL 액션 제목이 섞일 수 있어, actionType(TEAM)·companyId도 조건에 넣는다
+    // (위 findAllByActionTypeAndCompanyIdAndParentActionId와 동일 이유, CodeRabbit PR #382 지적).
+    List<ActionJpaEntity> findAllByActionTypeAndCompanyIdAndIdIn(
+            ActionType actionType, Long companyId, List<Long> ids);
+
     // 마이페이지 확정 대기 목록(MeetingActionQueryPort) — 아직 분배되지 않은(dispatched_at IS NULL)
     // 액션이 남은 회의를 찾는다. review_status = PENDING만 보면 틀린다 — HUMAN_CONFIRMED인데
     // 아직 분배 확정 버튼을 안 누른 액션을 놓친다(V5.17__add_dispatched_at_to_action.sql:12-17).

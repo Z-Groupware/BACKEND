@@ -109,16 +109,22 @@ tasks.named('test') {
 	}
 }
 
-// 실패·건너뜀의 "이유"를 CI 로그에 남긴다.
-// Gradle 기본값은 실패한 테스트를 "IllegalStateException at Xxx.java:32" 한 줄로만 찍어서
-// 예외 메시지가 사라진다. 실제로 gate2-live-judge 가 5건 실패했는데 HTTP 상태코드가 로그에
-// 없어서 키 문제인지 쿼터인지 모델 id 인지 판별할 수 없었다(2026-08-05).
-// skipped 도 함께 찍는다 — 라이브 판정이 왜 건너뛰어졌는지가 그 사유에 담긴다.
 tasks.withType(Test).configureEach {
-	// develop 병합으로 @SpringBootTest 컨텍스트 수가 늘면서 기본 힙(~512MB)으로 OutOfMemoryError가
-	// 남(MeteringControllerTest 등, 2026-08-11). Spring이 서로 다른 설정의 컨텍스트를 전부 캐시에
-	// 올려두는 특성상 컨텍스트가 많아질수록 힙 요구량이 커진다.
+	// 테스트 JVM 힙. Gradle 의 Test 기본값은 512m 인데, 이 스위트에는 부족하다.
+	// 스프링은 테스트 컨텍스트를 JVM 안에 캐시해두고 재사용하는데(기본 최대 32개 동시 보유),
+	// 설정이 서로 다른 컨텍스트가 @SpringBootTest 51개 + @WebMvcTest 16개만큼 있어서
+	// 캐시가 512m 를 넘긴다. 실제로 CI 와 로컬 양쪽에서 OutOfMemoryError 가 났고,
+	// ProjectAttachmentController·ProjectController 테스트 8건이 ApplicationContext 로드
+	// 실패로 떨어졌다(2026-08-11). 터진 자리가 Jackson 빈이라 Jackson 문제로 보이지만,
+	// 그건 하필 그 순간 메모리를 요청한 지점일 뿐 원인이 아니다.
+	// 값 근거: CI 러너(ubuntu-latest)는 16GB, 개발 장비도 그 이상이라 2g 포크는 안전하다.
 	maxHeapSize = '2g'
+
+	// 실패·건너뜀의 "이유"를 CI 로그에 남긴다.
+	// Gradle 기본값은 실패한 테스트를 "IllegalStateException at Xxx.java:32" 한 줄로만 찍어서
+	// 예외 메시지가 사라진다. 실제로 gate2-live-judge 가 5건 실패했는데 HTTP 상태코드가 로그에
+	// 없어서 키 문제인지 쿼터인지 모델 id 인지 판별할 수 없었다(2026-08-05).
+	// skipped 도 함께 찍는다 — 라이브 판정이 왜 건너뛰어졌는지가 그 사유에 담긴다.
 	testLogging {
 		events 'failed', 'skipped'
 		exceptionFormat = 'full'

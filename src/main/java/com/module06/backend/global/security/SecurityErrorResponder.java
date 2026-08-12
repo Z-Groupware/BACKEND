@@ -12,6 +12,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
 import com.module06.backend.global.exception.CommonErrorCode;
 import com.module06.backend.global.exception.ErrorCode;
 import com.module06.backend.global.exception.ErrorResponse;
@@ -32,6 +33,7 @@ public class SecurityErrorResponder implements AuthenticationEntryPoint, AccessD
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
+        AuthzAuditLogger.unauthenticated(request, AuthErrorCode.UNAUTHORIZED.getCode());
         write(request, response, AuthErrorCode.UNAUTHORIZED);
     }
 
@@ -39,6 +41,7 @@ public class SecurityErrorResponder implements AuthenticationEntryPoint, AccessD
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
+        AuthzAuditLogger.deniedByFilter(request, CommonErrorCode.ACCESS_DENIED.getCode());
         write(request, response, CommonErrorCode.ACCESS_DENIED);
     }
 
