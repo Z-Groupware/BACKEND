@@ -3,6 +3,7 @@ package com.module06.backend.metering.application.service;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.metering.application.result.MeteringDashboardResult;
+import com.module06.backend.metering.application.result.TeamMeteringDashboardResult;
 import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import com.module06.backend.metering.domain.model.CompanyTokenPlan;
 import com.module06.backend.metering.domain.model.QuotaStatus;
@@ -24,12 +25,18 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class MeteringDashboardServiceTest {
 
     private static final Long COMPANY = 1L;
+    // 교차 회사 격리 검증용 — COMPANY 와 다른 회사.
+    private static final Long OTHER_COMPANY = 2L;
     private static final LocalDateTime AUGUST_START = LocalDateTime.of(2026, 8, 1, 0, 0);
     private static final LocalDateTime SEPTEMBER_START = LocalDateTime.of(2026, 9, 1, 0, 0);
 
@@ -108,5 +115,54 @@ class MeteringDashboardServiceTest {
 
     private static AuthPrincipal owner() {
         return new AuthPrincipal(1L, COMPANY, "OWNER", false, 10L);
+    }
+
+    private static AuthPrincipal otherCompanyOwner() {
+        return new AuthPrincipal(9L, OTHER_COMPANY, "OWNER", false, 10L);
+    }
+
+    private static AuthPrincipal otherCompanyLeader() {
+        return new AuthPrincipal(9L, OTHER_COMPANY, "LEADER", false, 99L);
+    }
+
+    // ── 교차 회사 격리 ────────────────────────────────────────────────────
+    // 대시보드는 이 도메인에서 실제 사용량을 읽는 유일한 경로다. 인가가 컨트롤러
+    // @PreAuthorize 가 아니라 서비스에 있어서(Gate 1 AUTHZ_001), 회사 경계도 여기서
+    // 단언하지 않으면 아무 데서도 안 본다.
+    //
+    // 집계 쿼리에 넘기는 companyId 가 principal 것 하나뿐인지를 본다 — 다른 회사 id 로
+    // 한 번이라도 부르면 그 회사의 토큰 사용량이 응답에 섞인다.
+
+    @Test
+    void companyDashboardAggregatesOnlyPrincipalCompany() {
+        when(companyTokenPlanRepository.findByCompanyId(OTHER_COMPANY)).thenReturn(Optional.of(plan()));
+        when(tokenUsageRecordRepository.sumTotalTokens(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
+                .thenReturn(1_000L);
+        when(tokenUsageRecordRepository.sumTotalTokensByDepartment(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
+                .thenReturn(List.of());
+
+        MeteringDashboardResult result = service.getCompanyDashboard(otherCompanyOwner(), "2026-08");
+
+        assertThat(result.usedTokens()).isEqualTo(1_000L);
+        // 남의 회사 사용량은 한 번도 집계하지 않는다.
+        verify(tokenUsageRecordRepository, never())
+                .sumTotalTokens(eq(COMPANY), any(), any());
+        verify(tokenUsageRecordRepository, never())
+                .sumTotalTokensByDepartment(eq(COMPANY), any(), any());
+        verify(companyTokenPlanRepository, never()).findByCompanyId(COMPANY);
+    }
+
+    @Test
+    void teamDashboardAggregatesOnlyPrincipalCompanyAndTeam() {
+        when(companyTokenPlanRepository.findByCompanyId(OTHER_COMPANY)).thenReturn(Optional.of(plan()));
+        when(tokenUsageRecordRepository.sumTotalTokensByTeam(OTHER_COMPANY, 99L, AUGUST_START, SEPTEMBER_START))
+                .thenReturn(500L);
+
+        TeamMeteringDashboardResult result = service.getMyTeamDashboard(otherCompanyLeader(), "2026-08");
+
+        assertThat(result.usedTokens()).isEqualTo(500L);
+        // 팀 id 를 그대로 두고 회사만 바꿔 부르는 일이 없어야 한다 — 팀 id 는 회사 간에 겹칠 수 있다.
+        verify(tokenUsageRecordRepository, never())
+                .sumTotalTokensByTeam(eq(COMPANY), any(), any(), any());
     }
 }

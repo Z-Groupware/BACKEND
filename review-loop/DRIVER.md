@@ -154,7 +154,7 @@ bash scripts/review-lesson-from-revert.sh --apply
 - 급할 때 우회: `git push --no-verify` — **로컬 훅만** 건너뛴다. 머지 전 PR에서 서버 게이트가 다시 잡는다:
   | CI 잡 | 무엇을 보나 | 머지 차단 |
   |---|---|---|
-  | `semgrep-query` (Gate 1) | PR 코드의 신규 `@Query` | ✅ |
+  | `semgrep-query` (Gate 1) | PR 코드의 신규 `@Query`(QUERY_002) · 회사 경계 없는 파생 쿼리(TENANT_001) · `@PreAuthorize` 없는 엔드포인트(AUTHZ_001) | ✅ |
   | `gate2-deterministic` | **루프 자신의** 채점·근거검증 로직 (PR 코드 아님) | ✅ |
   | `gate2-review` | **PR 코드를 LLM 판정** — 훅과 동일한 `reviewLoop --gate` | ❌ 리포터(아래 정책) |
   | `gate2-live-judge` | golden 씨앗 기준 어댑터 회귀(스모크, PR 코드 아님) | ❌ informational |
