@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.action.application.port.MeetingActionQueryPort;
+import com.module06.backend.action.application.port.MeetingActionQueryPort.ActionTeamReference;
 import com.module06.backend.action.application.port.MeetingActionQueryPort.MeetingUndispatchedActions;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionStatus;
@@ -105,6 +106,62 @@ class ActionPersistenceAdapterMeetingQueryTest {
                 meetingActionQueryPort.findMeetingsWithUndispatchedActions(COMPANY, List.of(MEETING));
 
         assertThat(result).hasSize(1);
+    }
+
+    // ── 이슈 #403 회의–액션 팀 일치 검증 ─────────────────────────────
+
+    @Test
+    void findActionTeamReferenceReturnsTeamIdAndActionTypeForTeamAction() {
+        ActionJpaEntity teamAction = ActionJpaEntity.builder()
+                .companyId(COMPANY)
+                .projectId(1L)
+                .teamId(77L)
+                .actionType(ActionType.TEAM)
+                .title("팀 액션")
+                .status(ActionStatus.TODO)
+                .isDone(false)
+                .dueDate(LocalDate.of(2026, 8, 20))
+                .dueDateDefaulted(false)
+                .reviewStatus(ActionReviewStatus.HUMAN_CONFIRMED)
+                .isManual(true)
+                .build();
+        ActionJpaEntity saved = springDataActionRepository.save(teamAction);
+
+        var result = meetingActionQueryPort.findActionTeamReference(COMPANY, saved.getId());
+
+        assertThat(result).contains(new ActionTeamReference(77L, ActionType.TEAM));
+    }
+
+    @Test
+    void findActionTeamReferenceReturnsNullTeamIdForPersonalAction() {
+        // PERSONAL은 teamId가 항상 null이다 — actionType으로 구분해야 하는 이유가 이거다.
+        ActionJpaEntity personalAction = baseEntity(COMPANY, null, ActionReviewStatus.HUMAN_CONFIRMED).build();
+        ActionJpaEntity saved = springDataActionRepository.save(personalAction);
+
+        var result = meetingActionQueryPort.findActionTeamReference(COMPANY, saved.getId());
+
+        assertThat(result).contains(new ActionTeamReference(null, ActionType.PERSONAL));
+    }
+
+    @Test
+    void findActionTeamReferenceIsEmptyForOtherCompanyOrMissingAction() {
+        ActionJpaEntity otherCompanyAction = ActionJpaEntity.builder()
+                .companyId(OTHER_COMPANY)
+                .projectId(1L)
+                .teamId(77L)
+                .actionType(ActionType.TEAM)
+                .title("다른 회사 팀 액션")
+                .status(ActionStatus.TODO)
+                .isDone(false)
+                .dueDate(LocalDate.of(2026, 8, 20))
+                .dueDateDefaulted(false)
+                .reviewStatus(ActionReviewStatus.HUMAN_CONFIRMED)
+                .isManual(true)
+                .build();
+        ActionJpaEntity saved = springDataActionRepository.save(otherCompanyAction);
+
+        assertThat(meetingActionQueryPort.findActionTeamReference(COMPANY, saved.getId())).isEmpty();
+        assertThat(meetingActionQueryPort.findActionTeamReference(COMPANY, 999_999L)).isEmpty();
     }
 
     private void saveAction(Long companyId, Long meetingId, ActionReviewStatus reviewStatus,

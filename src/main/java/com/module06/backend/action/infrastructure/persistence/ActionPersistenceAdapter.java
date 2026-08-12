@@ -378,9 +378,18 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
     }
 
     // MEET-01 회의 예약 시 relatedActionId 검증용 — 단순 위임.
+    // findActionTeamReference로 대체 예정(위 인터페이스 주석 참고) — D 마이그레이션 전까지 유지.
     @Override
     public boolean existsAction(Long companyId, Long actionId) {
         return springDataActionRepository.existsByCompanyIdAndId(companyId, actionId);
+    }
+
+    // 2026-08-12, 모성진(D) 요청 — 회의–액션 팀 일치 검증용 단건 조회.
+    @Override
+    public Optional<MeetingActionQueryPort.ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+        return springDataActionRepository.findByCompanyIdAndId(companyId, actionId)
+                .map(projection -> new MeetingActionQueryPort.ActionTeamReference(
+                        projection.getTeamId(), projection.getActionType()));
     }
 
     // 마이페이지 확정 대기 목록 — 200건씩 청킹해 조회하고 회의별로 미분배 건수를 집계한다.
