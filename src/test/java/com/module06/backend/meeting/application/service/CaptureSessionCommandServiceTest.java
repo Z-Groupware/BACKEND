@@ -138,18 +138,27 @@ class CaptureSessionCommandServiceTest {
         assertThat(repository.saveCalls).isZero();
     }
 
-    /* 회의 입장 전에는 캡처 시간축을 시작할 수 없는지 검증한다. */
+    /* 예약 회의의 녹음 시작이 회의 상태와 캡처 시간축을 함께 시작하는지 검증한다. */
     @Test
-    @DisplayName("SCHEDULED 회의는 MT-013으로 거절한다")
-    void rejectsMeetingNotStarted() {
+    @DisplayName("SCHEDULED 회의는 IN_PROGRESS 전이와 ACTIVE 세션 생성을 함께 저장한다")
+    void startsScheduledMeetingAndCaptureSessionAtomically() {
         /* 아직 아무도 입장하지 않은 SCHEDULED 회의를 준비한다. */
         RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
                 meeting(MeetingStatus.SCHEDULED),
                 false
         );
 
-        /* host 요청이어도 회의 시작 전이면 MT-013이어야 한다. */
-        assertErrorCode(() -> service(repository).startCaptureSession(command(3L)), "MT-013");
+        /* host의 CAP-01 요청만으로 회의 시작과 캡처 세션 생성을 실행한다. */
+        CaptureSessionStartResult result = service(repository).startCaptureSession(command(3L));
+
+        /* 회의와 캡처 세션은 같은 시각을 기준으로 시작돼야 한다. */
+        assertThat(repository.savedMeetingState.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
+        assertThat(repository.savedMeetingState.getStartedAt()).isEqualTo(LocalDateTime.ofInstant(
+                START_CLOCK.instant(),
+                START_CLOCK.getZone()
+        ));
+        assertThat(result.startedAtEpochMs()).isEqualTo(START_CLOCK.instant().toEpochMilli());
+        assertThat(repository.saveCalls).isEqualTo(1);
     }
 
     /* 종료된 회의를 새 세션으로 되살리지 않는지 검증한다. */
@@ -166,19 +175,100 @@ class CaptureSessionCommandServiceTest {
         assertErrorCode(() -> service(repository).startCaptureSession(command(3L)), "MT-009");
     }
 
-    /* 이미 회의 세션이 있으면 두 번째 세션을 저장하지 않는지 검증한다. */
+    /* host 재접속이 기존 ACTIVE 세션과 최초 시간축을 그대로 돌려받는지 검증한다. */
     @Test
-    @DisplayName("기존 캡처 세션이 있으면 CS-002로 거절한다")
-    void rejectsDuplicateCaptureSession() {
-        /* 회의별 존재 조회가 true인 저장소 대역을 준비한다. */
+    @DisplayName("기존 ACTIVE 세션이 있으면 새 행 없이 같은 세션을 반환한다")
+    void returnsExistingActiveCaptureSessionIdempotently() {
+        /* 기존 ACTIVE 세션을 가진 IN_PROGRESS 회의 저장소 대역을 준비한다. */
         RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
                 meeting(MeetingStatus.IN_PROGRESS),
                 true
         );
 
-        /* host의 재호출도 CS-002가 되고 저장은 수행되지 않아야 한다. */
-        assertErrorCode(() -> service(repository).startCaptureSession(command(3L)), "CS-002");
+        /* host가 CAP-01을 다시 호출하면 최초 세션 ID와 시간축을 그대로 받아야 한다. */
+        CaptureSessionStartResult result = service(repository).startCaptureSession(command(3L));
+
+        /* 새 INSERT 없이 기존 식별자·상태·epoch가 응답에 유지돼야 한다. */
+        assertThat(result.captureSessionId()).isEqualTo(15L);
+        assertThat(result.status()).isEqualTo(CaptureSessionStatus.ACTIVE);
+        assertThat(result.startedAtEpochMs()).isEqualTo(START_CLOCK.instant().toEpochMilli());
         assertThat(repository.saveCalls).isZero();
+    }
+
+    /* 예약 시작 허용 창보다 이른 CAP-01이 회의 상태와 세션을 만들지 않는지 검증한다. */
+    @Test
+    @DisplayName("예약 시작 10분 전보다 이른 녹음 시작은 MT-008로 거절한다")
+    void rejectsCaptureStartBeforeAllowedWindow() {
+        /* 14시 회의를 허용 경계보다 1초 이른 13시 49분 59초에 시작한다. */
+        RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
+                meeting(MeetingStatus.SCHEDULED),
+                false
+        );
+
+        /* 잠금 트랜잭션 안에서 기존 회의 시작 정책과 같은 MT-008을 반환해야 한다. */
+        assertErrorCode(() -> service(
+                repository,
+                fixedClock(LocalDateTime.of(2026, 8, 6, 13, 49, 59))
+        ).startCaptureSession(command(3L)), "MT-008");
+        assertThat(repository.savedMeetingState).isNull();
+        assertThat(repository.saveCalls).isZero();
+    }
+
+    /* 예약 시작 허용 경계 시각 자체는 CAP-01의 정상 입력인지 검증한다. */
+    @Test
+    @DisplayName("예약 시작 10분 전 경계에서는 녹음 시작을 허용한다")
+    void allowsCaptureStartAtOpeningBoundary() {
+        /* 14시 회의를 정확히 13시 50분에 시작한다. */
+        RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
+                meeting(MeetingStatus.SCHEDULED),
+                false
+        );
+
+        /* 포함 경계이므로 회의와 캡처 세션이 함께 시작돼야 한다. */
+        CaptureSessionStartResult result = service(
+                repository,
+                fixedClock(LocalDateTime.of(2026, 8, 6, 13, 50))
+        ).startCaptureSession(command(3L));
+        assertThat(result.status()).isEqualTo(CaptureSessionStatus.ACTIVE);
+        assertThat(repository.savedMeetingState.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
+    }
+
+    /* 예약 종료 시각 이후의 CAP-01이 늦은 새 세션 생성을 막는지 검증한다. */
+    @Test
+    @DisplayName("예약 종료 시각 이후의 녹음 시작은 MT-009로 거절한다")
+    void rejectsCaptureStartAfterMeetingEnd() {
+        /* 15시 종료 회의를 종료보다 1초 늦은 시각에 시작한다. */
+        RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
+                meeting(MeetingStatus.SCHEDULED),
+                false
+        );
+
+        /* 늦은 신규 시작은 종료된 회의와 같은 MT-009 공개 계약으로 거절한다. */
+        assertErrorCode(() -> service(
+                repository,
+                fixedClock(LocalDateTime.of(2026, 8, 6, 15, 0, 1))
+        ).startCaptureSession(command(3L)), "MT-009");
+        assertThat(repository.savedMeetingState).isNull();
+        assertThat(repository.saveCalls).isZero();
+    }
+
+    /* 예약 종료 경계 시각 자체는 CAP-01의 정상 입력인지 검증한다. */
+    @Test
+    @DisplayName("예약 종료 시각 경계에서는 녹음 시작을 허용한다")
+    void allowsCaptureStartAtClosingBoundary() {
+        /* 15시 종료 회의를 정확히 종료 경계에서 시작한다. */
+        RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
+                meeting(MeetingStatus.SCHEDULED),
+                false
+        );
+
+        /* 포함 경계이므로 회의와 세션이 함께 시작돼야 한다. */
+        CaptureSessionStartResult result = service(
+                repository,
+                fixedClock(LocalDateTime.of(2026, 8, 6, 15, 0))
+        ).startCaptureSession(command(3L));
+        assertThat(result.status()).isEqualTo(CaptureSessionStatus.ACTIVE);
+        assertThat(repository.savedMeetingState.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
     }
 
     /* 잘못된 인증 식별자를 데이터베이스 조회 전에 거절하는지 검증한다. */
@@ -199,12 +289,27 @@ class CaptureSessionCommandServiceTest {
 
     /* 테스트별 저장소 대역과 정상 구성원 Port를 가진 서비스를 만든다. */
     private CaptureSessionCommandService service(RecordingCaptureSessionRepository repository) {
+        /* 기본 CAP-01 테스트는 14시로 고정된 서버 시계를 사용한다. */
+        return service(repository, START_CLOCK);
+    }
+
+    /* 테스트별 저장소와 시각 경계를 지정한 CAP-01 서비스를 만든다. */
+    private CaptureSessionCommandService service(
+            RecordingCaptureSessionRepository repository,
+            Clock clock
+    ) {
         /* 참석자 ID를 모두 정상 구성원으로 해석하는 B Port 대역을 사용한다. */
         return new CaptureSessionCommandService(
                 repository,
                 new RecordingMemberQueryPort(),
-                new CaptureSessionCreationService(repository, START_CLOCK)
+                new CaptureSessionCreationService(repository, clock)
         );
+    }
+
+    /* KST 로컬 일시를 동일 순간의 고정 Clock으로 변환한다. */
+    private Clock fixedClock(LocalDateTime dateTime) {
+        /* 운영과 같은 Asia/Seoul 시간대를 유지해 정책 경계를 재현한다. */
+        return Clock.fixed(dateTime.atZone(START_CLOCK.getZone()).toInstant(), START_CLOCK.getZone());
     }
 
     /* 요청자만 달리해 회사 10의 91번 회의 시작 명령을 만든다. */
@@ -270,6 +375,9 @@ class CaptureSessionCommandServiceTest {
         /* 저장에 전달된 캡처 세션 애그리거트다. */
         private CaptureSession savedCaptureSession;
 
+        /* 같은 트랜잭션에서 IN_PROGRESS로 저장된 회의 애그리거트다. */
+        private Meeting savedMeetingState;
+
         /* 테스트별 회의와 중복 여부로 저장소 대역을 만든다. */
         private RecordingCaptureSessionRepository(Meeting meeting, boolean captureSessionExists) {
             /* null 회의는 회사 범위에서 대상을 찾지 못한 상황을 표현한다. */
@@ -292,11 +400,22 @@ class CaptureSessionCommandServiceTest {
             return Optional.ofNullable(meeting);
         }
 
-        /* 준비된 회의별 세션 존재 여부를 반환한다. */
+        /* 준비된 기존 ACTIVE 세션을 CAP-01 멱등 조회 결과로 반환한다. */
         @Override
-        public boolean existsByMeetingId(Long meetingId) {
-            /* 중복 시나리오에서 save가 호출되지 않는지 분리해 검증한다. */
-            return captureSessionExists;
+        public Optional<CaptureSession> findByMeetingId(Long meetingId) {
+            /* 중복 플래그가 없으면 신규 저장 흐름을 사용한다. */
+            if (!captureSessionExists) {
+                return Optional.empty();
+            }
+            return Optional.of(existingActiveCaptureSession(meetingId));
+        }
+
+        /* CAP-01이 시작 상태로 전이한 회의를 기록하고 그대로 반환한다. */
+        @Override
+        public Meeting saveMeetingState(Meeting meeting) {
+            /* 세션 저장 전에 동일 트랜잭션으로 전달된 회의 상태와 시작 시각을 보관한다. */
+            savedMeetingState = meeting;
+            return meeting;
         }
 
         /* 저장 호출을 기록하고 ID 15가 반영된 캡처 세션으로 복원한다. */
@@ -385,9 +504,16 @@ class CaptureSessionCommandServiceTest {
 
         /* 이 시나리오에는 기존 캡처 세션이 없다고 응답한다. */
         @Override
-        public boolean existsByMeetingId(Long meetingId) {
+        public Optional<CaptureSession> findByMeetingId(Long meetingId) {
             /* 명단 경합만 검증하도록 중복 세션 분기를 비활성화한다. */
-            return false;
+            return Optional.empty();
+        }
+
+        /* 이 경합 테스트는 이미 진행 중인 회의를 사용하므로 상태 저장 호출을 그대로 반환한다. */
+        @Override
+        public Meeting saveMeetingState(Meeting meeting) {
+            /* 예기치 않은 SCHEDULED 입력이 생겨도 테스트 대역이 저장 계약을 충족하도록 한다. */
+            return meeting;
         }
 
         /* 두 번째 시도의 캡처 세션을 저장하고 ID가 반영된 도메인으로 반환한다. */
@@ -408,5 +534,23 @@ class CaptureSessionCommandServiceTest {
                     captureSession.getUpdatedAt()
             );
         }
+    }
+
+    /* CAP-01 재호출 테스트에서 반환할 기존 ACTIVE 세션을 만든다. */
+    private static CaptureSession existingActiveCaptureSession(Long meetingId) {
+        /* 최초 세션의 ID와 시간축은 재호출에서도 바뀌지 않는 고정 원본이다. */
+        LocalDateTime startedAt = LocalDateTime.ofInstant(START_CLOCK.instant(), START_CLOCK.getZone());
+        return CaptureSession.reconstitute(
+                15L,
+                meetingId,
+                3L,
+                CaptureSessionStatus.ACTIVE,
+                startedAt,
+                START_CLOCK.instant().toEpochMilli(),
+                null,
+                null,
+                startedAt,
+                startedAt
+        );
     }
 }

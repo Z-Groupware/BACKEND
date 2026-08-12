@@ -71,6 +71,11 @@ public interface SpringDataActionRepository
 
     boolean existsByCompanyIdAndId(Long companyId, Long id);
 
+    // 2026-08-12, 모성진(D) 요청 — 회의–액션 팀 일치 검증용. teamId·actionType 두 컬럼만
+    // 필요해 ProjectActionProjection과 같은 이유로 프로젝션이다. existsByCompanyIdAndId를
+    // 대체하는 단건 조회 — 존재 여부는 Optional.isPresent()로 그대로 판단할 수 있다.
+    Optional<ActionTeamReferenceProjection> findByCompanyIdAndId(Long companyId, Long id);
+
     // ActionReassignAdapter.reassign()의 read-modify-write 전용 — SELECT ... FOR UPDATE로
     // 같은 행을 노리는 동시 요청을 뒤엣것이 앞엣것을 기다리게 만든다. 호출자가 트랜잭션
     // 안에서 불러야 잠금이 유지된다(meeting_analysis_run의 findWithLockByMeetingId와 동일 패턴).
@@ -122,5 +127,12 @@ public interface SpringDataActionRepository
     // 닫힌 프로젝션 — assigneeMemberId 한 컬럼만 읽는다.
     interface AssigneeActionProjection {
         Long getAssigneeMemberId();
+    }
+
+    // 닫힌 프로젝션 — teamId·actionType 두 컬럼만 읽는다(회의–액션 팀 일치 검증용).
+    interface ActionTeamReferenceProjection {
+        Long getTeamId();
+
+        ActionType getActionType();
     }
 }
