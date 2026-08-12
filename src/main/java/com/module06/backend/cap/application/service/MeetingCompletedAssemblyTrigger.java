@@ -48,20 +48,24 @@ public class MeetingCompletedAssemblyTrigger {
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingGapChecker gapChecker;
     private final RecordingAssemblyDispatcher recordingAssemblyDispatcher;
+    private final SttBlockCutTrigger sttBlockCutTrigger;
 
     public MeetingCompletedAssemblyTrigger(RecordingRepository recordingRepository,
                                            CaptureUploadStateRepository captureUploadStateRepository,
                                            RecordingGapChecker gapChecker,
-                                           RecordingAssemblyDispatcher recordingAssemblyDispatcher) {
+                                           RecordingAssemblyDispatcher recordingAssemblyDispatcher,
+                                           SttBlockCutTrigger sttBlockCutTrigger) {
         this.recordingRepository = recordingRepository;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.gapChecker = gapChecker;
         this.recordingAssemblyDispatcher = recordingAssemblyDispatcher;
+        this.sttBlockCutTrigger = sttBlockCutTrigger;
     }
 
     @Async("recordingAssemblyTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMeetingCompleted(MeetingCompletionRequestedEvent event) {
+        Long companyId = event.companyId();
         Long meetingId = event.meetingId();
 
         try {
@@ -88,6 +92,12 @@ public class MeetingCompletedAssemblyTrigger {
                         + "CAP-05(수동 녹음 종료)로 상태를 확인해야 한다.", meetingId);
                 return;
             }
+
+            // 조립(parts 삭제)이 청크를 지우기 전에, 마지막 세그먼트의 자투리를 TAIL STT 블록으로
+            // 먼저 마무리한다(동기 호출 — SttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion
+            // 주석 참고). 안 하면 그 구간이 STT 블록 자체가 안 생겨 분석이 빠진 채로 조용히 돈다.
+            sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId, meetingId, lastSegmentSeq, lastSeq,
+                    state.get().getBlocksFormed(), state.get().getLastBlockEndOffsetMs());
 
             recordingAssemblyDispatcher.dispatch(meetingId, lastSegmentSeq, lastSeq);
             log.info("회의 종료 자동 조립 트리거 — meetingId={} lastSegmentSeq={} lastSeq={}",

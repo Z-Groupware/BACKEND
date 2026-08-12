@@ -10,12 +10,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
+import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
+import com.module06.backend.cap.application.port.out.SttBlockCutDetectionPort;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
+import com.module06.backend.capture.application.port.in.CreateSttBlockPort;
 import com.module06.backend.meeting.application.event.MeetingCompletionRequestedEvent;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,7 +111,7 @@ class MeetingCompletedAssemblyTriggerTest {
         };
         MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
                 recordingRepo(false), stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
-                new RecordingAssemblyDispatcher(exploding));
+                new RecordingAssemblyDispatcher(exploding), noOpSttBlockCutTrigger());
 
         assertThatCode(() -> trigger.onMeetingCompleted(event())).doesNotThrowAnyException();
     }
@@ -140,7 +143,7 @@ class MeetingCompletedAssemblyTriggerTest {
         RecordingAssemblyCalls port = new RecordingAssemblyCalls();
         MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
                 exploding, stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
-                new RecordingAssemblyDispatcher(port));
+                new RecordingAssemblyDispatcher(port), noOpSttBlockCutTrigger());
 
         assertThatCode(() -> trigger.onMeetingCompleted(event())).doesNotThrowAnyException();
         assertThat(port.calls).isEmpty();
@@ -154,7 +157,56 @@ class MeetingCompletedAssemblyTriggerTest {
                                                      RecordingAssemblyPort port) {
         return new MeetingCompletedAssemblyTrigger(
                 recordingRepo(recordingExists), stateRepo(state), gapChecker(seqsBySegment),
-                new RecordingAssemblyDispatcher(port));
+                new RecordingAssemblyDispatcher(port), noOpSttBlockCutTrigger());
+    }
+
+    // TAIL 블록 마무리 자체는 SttBlockCutTriggerTest가 검증한다 — 여기서는 예약 경합에서 지는
+    // 걸로 항상 조용히 넘어가게만 만들어, 이 클래스가 부르는지/안 부르는지에 집중한다.
+    private SttBlockCutTrigger noOpSttBlockCutTrigger() {
+        CaptureUploadStateRepository refusingReservation = new CaptureUploadStateRepository() {
+            @Override
+            public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public CaptureUploadState save(CaptureUploadState value) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                return Optional.empty();
+            }
+        };
+        SttBlockAudioAssemblyPort refusingAudioPort = new SttBlockAudioAssemblyPort() {
+            @Override
+            public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
+                                                     long targetOffsetMs, long availableUpToMs) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public String assembleBlockAudio(Long companyId, Long meetingId, int segmentSeq, int blockSeq,
+                                             long startOffsetMs, long endOffsetMs) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
+        return new SttBlockCutTrigger(
+                refusingAudioPort,
+                (meetingId, s3Key, windowStartOffsetMs, targetOffsetMs) -> {
+                    throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+                },
+                command -> {
+                    throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+                },
+                refusingReservation,
+                new SttBlockFormedWriter(refusingReservation));
     }
 
     private RecordingRepository recordingRepo(boolean exists) {

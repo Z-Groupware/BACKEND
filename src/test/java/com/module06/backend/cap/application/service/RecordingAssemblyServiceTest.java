@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
+import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.model.RecordingPart;
@@ -171,7 +172,7 @@ class RecordingAssemblyServiceTest {
 
             @Override
             public Optional<Long> findCompanyId(Long meetingId) {
-                return Optional.of(1L);
+                return exists ? Optional.of(1L) : Optional.empty();
             }
 
             @Override
@@ -232,7 +233,57 @@ class RecordingAssemblyServiceTest {
         RecordingGapChecker gapChecker = new RecordingGapChecker(partRepo);
         // @Async는 스프링 컨텍스트 없이 직접 호출하면 프록시를 안 타므로 이 테스트 스레드에서 그대로 동기 실행된다.
         RecordingAssemblyDispatcher dispatcher = new RecordingAssemblyDispatcher(assemblyPort);
-        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, dispatcher);
+        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, dispatcher,
+                noOpSttBlockCutTrigger());
+    }
+
+    // TAIL 블록 마무리 자체는 SttBlockCutTriggerTest가 검증한다 — 여기서는 예약 경합에서 지는
+    // 걸로 항상 조용히 넘어가게만 만들어, 이 서비스가 부르는지/안 부르는지에 집중한다.
+    private SttBlockCutTrigger noOpSttBlockCutTrigger() {
+        CaptureUploadStateRepository refusingReservation = new CaptureUploadStateRepository() {
+            @Override
+            public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public CaptureUploadState save(CaptureUploadState value) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                return Optional.empty();
+            }
+        };
+        SttBlockAudioAssemblyPort refusingAudioPort = new SttBlockAudioAssemblyPort() {
+            @Override
+            public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
+                                                     long targetOffsetMs, long availableUpToMs) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public String assembleBlockAudio(Long companyId, Long meetingId, int segmentSeq, int blockSeq,
+                                             long startOffsetMs, long endOffsetMs) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
+        return new SttBlockCutTrigger(
+                refusingAudioPort,
+                (meetingId, s3Key, windowStartOffsetMs, targetOffsetMs) -> {
+                    throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+                },
+                command -> {
+                    throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+                },
+                refusingReservation,
+                new SttBlockFormedWriter(refusingReservation));
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

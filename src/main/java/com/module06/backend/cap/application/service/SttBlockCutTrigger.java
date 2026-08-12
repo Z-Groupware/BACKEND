@@ -157,8 +157,33 @@ public class SttBlockCutTrigger {
     @Async("sttBlockCutTaskExecutor")
     public void finalizeTailBlockOnSegmentChange(Long companyId, Long meetingId, int oldSegmentSeq,
                                                  int oldLastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
+        finalizeTailBlock(companyId, meetingId, oldSegmentSeq, oldLastSeq, blocksFormed, lastBlockEndOffsetMs,
+                "세그먼트 전환");
+    }
+
+    /*
+     * 회의가 끝날 때 마지막 세그먼트에 남은 자투리(40청크 문턱을 못 채운 구간, 최대 10분)를 TAIL
+     * 블록으로 마무리한다 — 이게 없으면 그 구간은 STT 블록 자체가 안 생겨서, AnalysisOrchestrator의
+     * countUnfinished가 "이미 존재하는 블록 중 안 끝난 것"만 세는 바람에 0으로 나와 분석이 그
+     * 구간이 빠진 채로(에러 없이) 돌아간다 — 실제로 겪은 콘텐츠 유실 버그.
+     *
+     * <h2>일부러 동기(@Async 아님)로 둔다</h2>
+     * MeetingCompletedAssemblyTrigger가 이 메서드를 recordingAssemblyDispatcher.dispatch(조립,
+     * 완료 후 parts를 지움) 호출 **전에** 부르고 끝날 때까지 기다려야 한다 — 여기서 하는
+     * audioAssemblyPort.assembleBlockAudio가 recording_part를 읽어 오디오를 만드는데, 조립이
+     * 먼저 그 행과 S3 청크 객체를 지워버리면 TAIL 블록을 만들 재료 자체가 사라진다. 세그먼트
+     * 전환 버전(@Async)과 달리 여기는 그런 뒤이은 삭제 작업과 경합할 수 있어 순서를 강제해야 한다.
+     */
+    public void finalizeTailBlockOnMeetingCompletion(Long companyId, Long meetingId, int lastSegmentSeq,
+                                                      int lastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
+        finalizeTailBlock(companyId, meetingId, lastSegmentSeq, lastSeq, blocksFormed, lastBlockEndOffsetMs,
+                "회의 종료");
+    }
+
+    private void finalizeTailBlock(Long companyId, Long meetingId, int segmentSeq, int lastSeqInSegment,
+                                   int blocksFormed, long lastBlockEndOffsetMs, String triggerReason) {
         try {
-            long endOffsetMs = (long) oldLastSeq * CHUNK_DURATION_MS;
+            long endOffsetMs = (long) lastSeqInSegment * CHUNK_DURATION_MS;
             if (endOffsetMs <= lastBlockEndOffsetMs) {
                 // 이미 블록 경계에 딱 맞게 끝났거나, 애초에 이 세그먼트에 청크가 없었다 — 자투리 없음.
                 return;
@@ -166,21 +191,22 @@ public class SttBlockCutTrigger {
 
             Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(meetingId, blocksFormed);
             if (reserved.isEmpty()) {
-                log.info("TAIL 블록 예약 경합에서 짐 — meetingId={} oldSegmentSeq={}", meetingId, oldSegmentSeq);
+                log.info("TAIL 블록 예약 경합에서 짐 — meetingId={} segmentSeq={} 트리거={}",
+                        meetingId, segmentSeq, triggerReason);
                 return;
             }
             int blockSeq = reserved.get();
 
-            String blockAudioS3Key = audioAssemblyPort.assembleBlockAudio(companyId, meetingId, oldSegmentSeq,
+            String blockAudioS3Key = audioAssemblyPort.assembleBlockAudio(companyId, meetingId, segmentSeq,
                     blockSeq, lastBlockEndOffsetMs, endOffsetMs);
 
             createSttBlockPort.createAndSubmitBlock(new CreateSttBlockCommand(
                     meetingId, blockSeq, Math.toIntExact(lastBlockEndOffsetMs),
                     Math.toIntExact(endOffsetMs), "TAIL", blockAudioS3Key));
         } catch (RuntimeException e) {
-            // 여기서도 던지지 않는다 — 세그먼트 전환(이어받기) 자체는 이미 별도로 진행된다.
-            log.error("세그먼트 전환 시 자투리(TAIL) 블록 마무리 실패 — meetingId={} oldSegmentSeq={}",
-                    meetingId, oldSegmentSeq, e);
+            // 던지지 않는다 — 세그먼트 전환/회의 종료 자체는 이미 별도로 진행된다(호출자 주석 참고).
+            log.error("자투리(TAIL) 블록 마무리 실패 — meetingId={} segmentSeq={} 트리거={}",
+                    meetingId, segmentSeq, triggerReason, e);
         }
     }
 }
