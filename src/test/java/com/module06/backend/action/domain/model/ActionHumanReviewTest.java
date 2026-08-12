@@ -103,11 +103,32 @@ class ActionHumanReviewTest {
     @DisplayName("예정 시작일이 오늘이거나 과거면 거부된다 — 익일부터만 허용")
     void 예정_시작일이_오늘이면_거부된다() {
         Action action = pendingAction();
+        // CodeRabbit 지적(PR #387) — LocalDate.now()를 여기와 도메인 메서드 내부에서 각각
+        // 읽으면 자정 경계에서 갈릴 수 있다. 어제 날짜는 그 경계와 무관하게 항상 "익일 미만"이라
+        // 같은 검증(오늘 이하 거부)을 자정 레이스 없이 확인할 수 있다.
+        LocalDate yesterday = LocalDate.now().minusDays(1);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
                 null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
-                LocalDate.now(), LocalDate.now().plusDays(10))
+                yesterday, yesterday.plusDays(10))
         ).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("예정 시작일 검증에 걸리면 담당자·기한도 반영되지 않는다 — 부분 반영 없음")
+    void 예정_시작일_검증_실패시_다른_필드도_반영되지_않는다() {
+        Action action = pendingAction();
+        LocalDate invalidPlannedStartDate = LocalDate.now(); // 익일 미만이라 거부됨
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
+                BOB, LocalDate.of(2026, 9, 1), ActionReviewStatus.HUMAN_CONFIRMED, "새 제목", "새 내용",
+                invalidPlannedStartDate, invalidPlannedStartDate.plusDays(10))
+        ).isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(action.getAssigneeMemberId()).isEqualTo(ALICE);
+        assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 8));
+        assertThat(action.getTitle()).isEqualTo("로드맵 초안 작성");
+        assertThat(action.getReviewStatus()).isEqualTo(ActionReviewStatus.PENDING);
     }
 
     @Test

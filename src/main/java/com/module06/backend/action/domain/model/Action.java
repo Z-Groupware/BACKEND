@@ -247,6 +247,11 @@ public class Action {
      * (null이면 안 바꾼다)이되, 검증이 하나 더 붙는다: 익일~프로젝트 마감일 범위 안이어야 한다.
      * 프로젝트 마감일은 domain이 다른 계층에 의존할 수 없어(절대규칙 5항) 호출자가 값으로
      * 넘겨준다 — newPlannedStartDate가 null이면 범위 검증도 건너뛴다(projectDueDate 필요 없음).
+     *
+     * CodeRabbit 지적(PR #387) — 이 검증을 다른 필드 반영 뒤에 두면, 검증이 실패해 예외를
+     * 던져도 그 앞에서 이미 담당자·기한·제목·내용이 이 객체에 반영된 채로 남는다("부분 반영"
+     * 상태로 예외). 그래서 맨 앞으로 옮겨서 통과해야만 나머지를 건드리게 한다. projectDueDate가
+     * null인데 newPlannedStartDate가 있으면 NPE 대신 이 예외로 명시적으로 막는다.
      */
     public void applyHumanReview(
             Long newAssigneeMemberId, LocalDate newDueDate, ActionReviewStatus newReviewStatus,
@@ -254,6 +259,15 @@ public class Action {
     ) {
         if (newReviewStatus == null) {
             throw new IllegalArgumentException("newReviewStatus는 null일 수 없습니다.");
+        }
+        if (newPlannedStartDate != null) {
+            if (projectDueDate == null) {
+                throw new IllegalArgumentException("projectDueDate는 null일 수 없습니다.");
+            }
+            LocalDate earliestAllowed = LocalDate.now().plusDays(1);
+            if (newPlannedStartDate.isBefore(earliestAllowed) || newPlannedStartDate.isAfter(projectDueDate)) {
+                throw new IllegalArgumentException("예정 시작일은 익일부터 프로젝트 마감일 사이여야 합니다.");
+            }
         }
         if (newAssigneeMemberId != null) {
             reassignTo(newAssigneeMemberId);
@@ -269,10 +283,6 @@ public class Action {
             this.description = newDescription;
         }
         if (newPlannedStartDate != null) {
-            LocalDate earliestAllowed = LocalDate.now().plusDays(1);
-            if (newPlannedStartDate.isBefore(earliestAllowed) || newPlannedStartDate.isAfter(projectDueDate)) {
-                throw new IllegalArgumentException("예정 시작일은 익일부터 프로젝트 마감일 사이여야 합니다.");
-            }
             this.plannedStartDate = newPlannedStartDate;
         }
         this.reviewStatus = newReviewStatus;
