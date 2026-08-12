@@ -14,7 +14,7 @@ import lombok.Getter;
     지정 부서·담당자·프로젝트는 다른 도메인 엔티티를 참조하지 않고 id 값만 가진다(0절 절대규칙 1항).
 
     create()는 AI 분배(ActionDistributionPort)의 생성 경로다. 상태는 항상 TODO, 검토 상태는
-    항상 PENDING으로 시작한다 — 자동확정(AUTO_CONFIRMED) 판정은 review(A)의 책임이라 C가
+    항상 PENDING으로 시작한다 — 자동확정 판정(게이트 통과 여부)은 review(A)의 책임이라 C가
     분배 시점에 올려두지 않는다(결정로그 25번).
     dueDate는 컬럼이 NOT NULL이라 AI가 기한을 비워 보내면 프로젝트 마감일로 채워서 들어오며,
     그렇게 채운 경우 dueDateDefaulted=true로 표시한다 — review의 WRONG_DUE 반려 판정이
@@ -291,12 +291,11 @@ public class Action {
          * 컬럼 뜻(V1 주석)과 갈리고, 보드로 가지 않은 액션이 확정된 것으로 집계된다.
          *
          * 확정이 아니면 **이전 확정 시각을 지운다.** 한 번 확정한 액션을 뒤늦게 반려하는 경로가
-         * 있어(사람이 마음을 바꾼 것도 판정이다), 안 지우면 reviewStatus=HUMAN_REJECTED 와
+         * 있어(사람이 마음을 바꾼 것도 판정이다), 안 지우면 reviewStatus=REJECTED 와
          * confirmedAt != null 이 함께 저장된다 — 그 행은 확정 집계에도 잡히고 반려 목록에도
          * 잡혀 두 숫자가 서로 맞지 않게 된다.
          */
-        if (newReviewStatus == ActionReviewStatus.HUMAN_CONFIRMED
-                || newReviewStatus == ActionReviewStatus.AUTO_CONFIRMED) {
+        if (newReviewStatus == ActionReviewStatus.HUMAN_CONFIRMED) {
             this.confirmedAt = LocalDateTime.now();
         } else {
             this.confirmedAt = null;
