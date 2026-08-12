@@ -30,6 +30,8 @@ public class BillingPaymentMethodJpaEntity {
     @Column(name = "expires_on", nullable = false)
     private LocalDate expiresOn;
 
+    // KNOWN GAP - plaintext OK only because PG is mocked; when Toss is wired, billing_key MUST be
+    // envelope-encrypted (KMS) before persist and decrypted only at PG call.
     @Column(name = "billing_key")
     private String billingKey;
 

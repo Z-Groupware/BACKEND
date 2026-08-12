@@ -38,30 +38,16 @@ public class BillingConfigService implements GetBillingConfigUseCase {
         Optional<CompanyStoragePlan> storagePlan = companyStoragePlanRepository.findByCompanyId(companyId);
         Optional<CompanyBillingConfig> billingConfig = companyBillingConfigRepository.findByCompanyId(companyId);
 
-        if (tokenPlan.isEmpty() || storagePlan.isEmpty() || billingConfig.isEmpty()) {
-            return defaults();
-        }
-
-        CompanyTokenPlan token = tokenPlan.orElseThrow();
-        CompanyStoragePlan storage = storagePlan.orElseThrow();
-        CompanyBillingConfig config = billingConfig.orElseThrow();
-
         return new BillingConfigResult(
-                token.getBaseFee(),
-                token.getMonthlyTokenPool(),
-                storage.getStorageCapBytes() / BYTES_PER_GB,
-                token.getTokenOveragePricePer1k(),
-                config.getStorageOveragePricePerGb(),
-                config.isVatIncluded());
-    }
-
-    private BillingConfigResult defaults() {
-        return new BillingConfigResult(
-                BillingDefaults.BASE_FEE,
-                BillingDefaults.INCLUDED_TOKENS,
-                BillingDefaults.INCLUDED_STORAGE_GB,
-                BillingDefaults.OVERAGE_PER_THOUSAND_TOKENS,
-                BillingDefaults.OVERAGE_PER_GB_MONTH,
-                BillingDefaults.VAT_INCLUDED);
+                tokenPlan.map(CompanyTokenPlan::getBaseFee).orElse(BillingDefaults.BASE_FEE),
+                tokenPlan.map(CompanyTokenPlan::getMonthlyTokenPool).orElse(BillingDefaults.INCLUDED_TOKENS),
+                storagePlan.map(plan -> plan.getStorageCapBytes() / BYTES_PER_GB)
+                        .orElse(BillingDefaults.INCLUDED_STORAGE_GB),
+                tokenPlan.map(CompanyTokenPlan::getTokenOveragePricePer1k)
+                        .orElse(BillingDefaults.OVERAGE_PER_THOUSAND_TOKENS),
+                billingConfig.map(CompanyBillingConfig::getStorageOveragePricePerGb)
+                        .orElse(BillingDefaults.OVERAGE_PER_GB_MONTH),
+                billingConfig.map(CompanyBillingConfig::isVatIncluded)
+                        .orElse(BillingDefaults.VAT_INCLUDED));
     }
 }

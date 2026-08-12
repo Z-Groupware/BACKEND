@@ -1,4 +1,6 @@
 -- BIL-0: Store the PG billing key server-side only and enforce one card per company.
+-- KNOWN GAP - plaintext OK only because PG is mocked; when Toss is wired, billing_key
+-- MUST be envelope-encrypted (KMS) before persist and decrypted only at PG call.
 -- If legacy rows contain more than one card for a company, keep the newest row so
 -- the UNIQUE(company_id) contract can be applied deterministically.
 ALTER TABLE `payment_method`

@@ -33,6 +33,9 @@ public class BillingSubscription {
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.startedOn = Objects.requireNonNull(startedOn, "startedOn must not be null");
         this.currentPeriodStart = Objects.requireNonNull(currentPeriodStart, "currentPeriodStart must not be null");
+        if (currentPeriodEnd != null && currentPeriodEnd.isBefore(this.currentPeriodStart)) {
+            throw new BusinessException(BillingErrorCode.BIL_SUBSCRIPTION_COMMAND_INVALID);
+        }
         this.currentPeriodEnd = currentPeriodEnd;
         this.nextBillingDate = nextBillingDate;
         this.carriedOverageAmount = carriedOverageAmount;

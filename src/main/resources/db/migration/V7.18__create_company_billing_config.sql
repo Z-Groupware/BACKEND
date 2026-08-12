@@ -10,5 +10,6 @@ CREATE TABLE `company_billing_config` (
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    CONSTRAINT `uq_company_billing_config_company` UNIQUE (`company_id`)
+    CONSTRAINT `uq_company_billing_config_company` UNIQUE (`company_id`),
+    CONSTRAINT `fk_company_billing_config_company` FOREIGN KEY (`company_id`) REFERENCES `company` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

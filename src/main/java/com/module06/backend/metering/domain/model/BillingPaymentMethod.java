@@ -13,6 +13,8 @@ public class BillingPaymentMethod {
     private final String brand;
     private final String last4;
     private final LocalDate expiresOn;
+    // KNOWN GAP - plaintext OK only because PG is mocked; when Toss is wired, billing_key MUST be
+    // envelope-encrypted (KMS) before persist and decrypted only at PG call.
     private final String billingKey;
     private final boolean defaultMethod;
 
@@ -29,6 +31,7 @@ public class BillingPaymentMethod {
 
     public static BillingPaymentMethod create(Long companyId, String brand, String last4, LocalDate expiresOn,
                                               String billingKey, boolean defaultMethod) {
+        requireText(billingKey, "billingKey");
         return new BillingPaymentMethod(null, companyId, brand, last4, expiresOn, billingKey, defaultMethod);
     }
 
