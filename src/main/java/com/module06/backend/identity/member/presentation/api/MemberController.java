@@ -130,7 +130,8 @@ public class MemberController {
             throw new BusinessException(AuthErrorCode.MEMBER_FIELD_NOT_ALLOWED);
         }
         MemberDetail detail = updateMemberRoleUseCase.update(new UpdateMemberRoleCommand(
-                companyId, actingMemberId, memberId, request.role(), request.jobPositionId()));
+                companyId, actingMemberId, memberId, request.role(), request.jobPositionId(),
+                request.roleLabel()));
         return ApiResponse.success("구성원 정보를 수정했습니다", MemberDetailResponse.from(detail));
     }
 

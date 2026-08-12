@@ -63,6 +63,16 @@ public class CompanyJpaEntity {
     @Column(name = "address", length = 255)
     private String address;
 
+    /**
+     * 지도에서 고른 회사 위치(V2.3.22). address 와 짝이지만 서로를 강제하지 않는다 — 지도 SDK 가
+     * 뜨지 않는 환경에서는 주소만 채워지고 좌표는 비어 있다.
+     */
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
     /** 회사 대표번호. managerPhone(담당자 개인 연락처)과 다르다. */
     @Column(name = "main_phone", length = 30)
     private String mainPhone;
@@ -129,7 +139,7 @@ public class CompanyJpaEntity {
      * 대입된 필드만 UPDATE에 싣는 것과 짝을 이룬다.
      */
     void updateProfile(String name, String registrationNo, String representativeName,
-                        String address, String mainPhone) {
+                        String address, Double latitude, Double longitude, String mainPhone) {
         if (name != null) {
             this.name = name;
         }
@@ -141,6 +151,17 @@ public class CompanyJpaEntity {
         }
         if (address != null) {
             this.address = address;
+        }
+        /*
+         * 좌표는 각각 독립으로 얹는다. "주소를 바꿨으니 좌표도 같이 와야 한다"를 여기서 강제하지
+         * 않는다 — 부분 수정 계약상 주소만 손으로 고치는 요청이 정상이고, 그때 좌표를 지우면
+         * 지도에 찍혀 있던 위치가 소리 없이 사라진다. 두 값을 맞추는 책임은 화면에 있다.
+         */
+        if (latitude != null) {
+            this.latitude = latitude;
+        }
+        if (longitude != null) {
+            this.longitude = longitude;
         }
         if (mainPhone != null) {
             this.mainPhone = mainPhone;

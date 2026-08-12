@@ -21,6 +21,7 @@ import com.module06.backend.identity.company.application.port.out.AccountMailPor
 import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
+import com.module06.backend.identity.member.application.command.DeleteMemberCommand;
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberRoleCommand;
@@ -174,13 +175,141 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
+    @DisplayName("역할 라벨을 안 보내면 기존 라벨을 그대로 둔다 — 직급만 고치는 요청이 라벨을 지우면 안 된다")
+    void keepsRoleLabelWhenNotSent() {
+        FakeDirectory directory = new FakeDirectory();
+        FakePositionRepository positions = new FakePositionRepository();
+        Long targetId = directory.addActiveWithRoleLabel(COMPANY_ID, "대상", null, null, "백엔드");
+        Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
+
+        MemberDetail detail = service(directory, new FakeTeamRepository(), positions).update(
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, targetId, Authority.MEMBER, position.id(), null));
+
+        assertThat(detail.roleLabel()).isEqualTo("백엔드");
+    }
+
+    @Test
+    @DisplayName("역할 라벨을 보내면 그 역할로 바뀐다")
+    void changesRoleLabel() {
+        FakeDirectory directory = new FakeDirectory();
+        FakePositionRepository positions = new FakePositionRepository();
+        Long targetId = directory.addActiveWithRoleLabel(COMPANY_ID, "대상", null, null, "백엔드");
+        directory.addRole(COMPANY_ID, "프론트엔드", 7L);
+        Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
+
+        MemberDetail detail = service(directory, new FakeTeamRepository(), positions).update(
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, targetId, Authority.MEMBER, position.id(), "프론트엔드"));
+
+        assertThat(detail.roleLabel()).isEqualTo("프론트엔드");
+    }
+
+    @Test
+    @DisplayName("\"없음\"은 유효한 값이다 — 역할을 비우는 유일한 방법이라 회사 카탈로그에 없어도 통과한다")
+    void acceptsNoneRoleLabel() {
+        FakeDirectory directory = new FakeDirectory();
+        FakePositionRepository positions = new FakePositionRepository();
+        Long targetId = directory.addActiveWithRoleLabel(COMPANY_ID, "대상", null, null, "백엔드");
+        Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
+
+        MemberDetail detail = service(directory, new FakeTeamRepository(), positions).update(
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, targetId, Authority.MEMBER, position.id(), "없음"));
+
+        assertThat(detail.roleLabel()).isEqualTo("없음");
+    }
+
+    @Test
+    @DisplayName("회사에 없는 역할 이름이면 404 — 조용히 '없음'으로 접으면 고른 역할이 사라진 채 성공한다")
+    void rejectsUnknownRoleLabel() {
+        FakeDirectory directory = new FakeDirectory();
+        FakePositionRepository positions = new FakePositionRepository();
+        Long targetId = directory.addActiveWithRoleLabel(COMPANY_ID, "대상", null, null, "백엔드");
+        Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
+
+        assertThatThrownBy(() -> service(directory, new FakeTeamRepository(), positions).update(
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, targetId, Authority.MEMBER, position.id(), "없는역할")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("사원을 삭제하면 목록에서 빠지고 refresh 가 폐기된다 — 행은 남는다")
+    void softDeleteRemovesMemberFromListingAndRevokesTokens() {
+        FakeDirectory directory = new FakeDirectory();
+        Long targetId = directory.addActive(COMPANY_ID, "퇴장", null, null);
+        directory.addActive(COMPANY_ID, "잔류", null, null);
+        FakeRefreshTokenStore tokenStore = new FakeRefreshTokenStore();
+
+        service(directory, new FakeTeamRepository(), new FakePositionRepository(), tokenStore)
+                .delete(new DeleteMemberCommand(COMPANY_ID, 999L, targetId));
+
+        assertThat(directory.getMemberStatus(targetId)).isEqualTo(MemberStatus.DELETED);
+        assertThat(directory.findActiveById(COMPANY_ID, targetId)).isEmpty();
+        assertThat(service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, null, 0, 20).totalElements())
+                .isEqualTo(1);
+        assertThat(tokenStore.revokedMemberIds).contains(targetId);
+    }
+
+    @Test
+    @DisplayName("삭제하면 팀장 자리가 비워진다 — 안 비우면 후임 승급이 '이미 팀장이 있다'로 막힌다")
+    void softDeleteClearsTeamLeaderSeat() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        Team team = teams.create(COMPANY_ID, "개발팀");
+        Long leaderId = directory.addActiveWithAuthority(COMPANY_ID, "리더", team.id(), "개발팀", Authority.LEADER);
+        teams.setLeader(team.id(), leaderId);
+
+        service(directory, teams, new FakePositionRepository())
+                .delete(new DeleteMemberCommand(COMPANY_ID, 999L, leaderId));
+
+        assertThat(teams.findByIdAndCompanyId(team.id(), COMPANY_ID).orElseThrow().leaderMemberId()).isNull();
+    }
+
+    @Test
+    @DisplayName("오너는 삭제할 수 없다 — 소유자 이관은 별도 절차다")
+    void rejectsOwnerDeletion() {
+        FakeDirectory directory = new FakeDirectory();
+        Long ownerId = directory.addActiveWithAuthority(COMPANY_ID, "오너", null, null, Authority.OWNER);
+
+        assertThatThrownBy(() -> service(directory).delete(new DeleteMemberCommand(COMPANY_ID, 999L, ownerId)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.MEMBER_CANNOT_MODIFY_OWNER);
+    }
+
+    @Test
+    @DisplayName("본인은 삭제할 수 없다 — 마지막 관리자가 자기 계정을 닫으면 회사가 잠긴다")
+    void rejectsSelfDeletion() {
+        FakeDirectory directory = new FakeDirectory();
+        Long selfId = directory.addActive(COMPANY_ID, "본인", null, null);
+
+        assertThatThrownBy(() -> service(directory).delete(new DeleteMemberCommand(COMPANY_ID, selfId, selfId)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.MEMBER_CANNOT_MODIFY_SELF);
+    }
+
+    @Test
+    @DisplayName("다른 회사 구성원은 삭제할 수 없다 — 404 다(403 은 존재를 알려준다)")
+    void rejectsCrossCompanyDeletion() {
+        FakeDirectory directory = new FakeDirectory();
+        Long otherCompanyMemberId = directory.addActive(2L, "남의회사", null, null);
+
+        assertThatThrownBy(() -> service(directory)
+                .delete(new DeleteMemberCommand(COMPANY_ID, 999L, otherCompanyMemberId)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.MEMBER_NOT_FOUND);
+    }
+
+    @Test
     @DisplayName("OWNER 로는 역할을 지정할 수 없다")
     void rejectsOwnerRoleAssignment() {
         FakeDirectory directory = new FakeDirectory();
         Long targetId = directory.addActive(COMPANY_ID, "대상", null, null);
 
         assertThatThrownBy(() -> service(directory).update(
-                new UpdateMemberRoleCommand(COMPANY_ID, 999L, targetId, Authority.OWNER, 1L)))
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, targetId, Authority.OWNER, 1L, null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(AuthErrorCode.MEMBER_ROLE_NOT_ASSIGNABLE);
@@ -195,7 +324,7 @@ class MemberDirectoryServiceTest {
         Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
 
         assertThatThrownBy(() -> service(directory, new FakeTeamRepository(), positions).update(
-                new UpdateMemberRoleCommand(COMPANY_ID, selfId, selfId, Authority.LEADER, position.id())))
+                new UpdateMemberRoleCommand(COMPANY_ID, selfId, selfId, Authority.LEADER, position.id(), null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(AuthErrorCode.MEMBER_CANNOT_MODIFY_SELF);
@@ -210,7 +339,7 @@ class MemberDirectoryServiceTest {
         Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
 
         assertThatThrownBy(() -> service(directory, new FakeTeamRepository(), positions).update(
-                new UpdateMemberRoleCommand(COMPANY_ID, 999L, ownerId, Authority.LEADER, position.id())))
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, ownerId, Authority.LEADER, position.id(), null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(AuthErrorCode.MEMBER_CANNOT_MODIFY_OWNER);
@@ -231,7 +360,7 @@ class MemberDirectoryServiceTest {
 
         FakeRefreshTokenStore tokenStore = new FakeRefreshTokenStore();
         MemberDetail detail = service(directory, teams, positions, tokenStore).update(
-                new UpdateMemberRoleCommand(COMPANY_ID, 999L, newLeaderId, Authority.LEADER, position.id()));
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, newLeaderId, Authority.LEADER, position.id(), null));
 
         assertThat(detail.role()).isEqualTo(Authority.LEADER);
         assertThat(teams.findByIdAndCompanyId(team.id(), COMPANY_ID).orElseThrow().leaderMemberId())
@@ -254,7 +383,7 @@ class MemberDirectoryServiceTest {
         teams.setLeader(team.id(), leaderId);
 
         service(directory, teams, positions).update(
-                new UpdateMemberRoleCommand(COMPANY_ID, 999L, leaderId, Authority.MEMBER, position.id()));
+                new UpdateMemberRoleCommand(COMPANY_ID, 999L, leaderId, Authority.MEMBER, position.id(), null));
 
         assertThat(teams.findByIdAndCompanyId(team.id(), COMPANY_ID).orElseThrow().leaderMemberId()).isNull();
     }
@@ -477,7 +606,18 @@ class MemberDirectoryServiceTest {
         private final Map<Long, MutableRow> rows = new HashMap<>();
         private final Map<Long, Plan> planByCompany = new HashMap<>();
         private final Map<Long, Long> issuedRoleIds = new HashMap<>();
+        /** 회사별 역할 카탈로그 — 이름→id. 실제 어댑터의 role 테이블 조회를 대신한다. */
+        private final Map<Long, Map<String, Long>> rolesByCompany = new HashMap<>();
+        private final List<Long> softDeletedIds = new ArrayList<>();
         private long nextId = 1;
+
+        MemberStatus getMemberStatus(Long memberId) {
+            return rows.get(memberId).status;
+        }
+
+        void addRole(Long companyId, String label, Long roleId) {
+            rolesByCompany.computeIfAbsent(companyId, key -> new HashMap<>()).put(label, roleId);
+        }
 
         Long addActive(Long companyId, String name, Long teamId, String teamName) {
             return addActiveWithAuthority(companyId, name, teamId, teamName, Authority.MEMBER);
@@ -527,6 +667,7 @@ class MemberDirectoryServiceTest {
         public List<MemberRow> findActiveByCompany(Long companyId) {
             return rows.values().stream()
                     .filter(r -> r.companyId.equals(companyId))
+                    .filter(r -> !softDeletedIds.contains(r.id))
                     .map(this::toRow)
                     .toList();
         }
@@ -534,7 +675,7 @@ class MemberDirectoryServiceTest {
         @Override
         public Optional<MemberRow> findActiveById(Long companyId, Long memberId) {
             MutableRow row = rows.get(memberId);
-            if (row == null || !row.companyId.equals(companyId)) {
+            if (row == null || !row.companyId.equals(companyId) || softDeletedIds.contains(memberId)) {
                 return Optional.empty();
             }
             return Optional.of(toRow(row));
@@ -550,9 +691,45 @@ class MemberDirectoryServiceTest {
             return Optional.ofNullable(planByCompany.get(companyId));
         }
 
+        /** 실제 어댑터와 같이 "없음"은 회사 카탈로그를 보지 않고 시스템 역할 id 로 답한다. */
         @Override
-        public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId) {
-            rows.get(memberId).authority = authority;
+        public Optional<Long> findRoleIdByLabel(Long companyId, String label) {
+            if ("없음".equals(label)) {
+                return Optional.of(2L);
+            }
+            return Optional.ofNullable(rolesByCompany.getOrDefault(companyId, Map.of()).get(label));
+        }
+
+        @Override
+        public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId, Long roleId) {
+            MutableRow row = rows.get(memberId);
+            row.authority = authority;
+            if (roleId != null) {
+                row.roleLabel = labelOf(companyOf(memberId), roleId);
+            }
+        }
+
+        private Long companyOf(Long memberId) {
+            return rows.get(memberId).companyId;
+        }
+
+        /** id→이름 역방향. 서비스가 넘긴 roleId 가 실제로 라벨까지 반영되는지 보려고 둔다. */
+        private String labelOf(Long companyId, Long roleId) {
+            if (roleId == 2L) {
+                return "없음";
+            }
+            return rolesByCompany.getOrDefault(companyId, Map.of()).entrySet().stream()
+                    .filter(entry -> entry.getValue().equals(roleId))
+                    .map(Map.Entry::getKey)
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        /** 실제 어댑터처럼 행을 지우지 않는다 — 상태만 DELETED 로 바꾸고 조회에서 뺀다. */
+        @Override
+        public void softDelete(Long memberId) {
+            rows.get(memberId).status = MemberStatus.DELETED;
+            softDeletedIds.add(memberId);
         }
 
         @Override
@@ -595,7 +772,7 @@ class MemberDirectoryServiceTest {
             final String email;
             final Long teamId;
             final String teamName;
-            final String roleLabel;
+            String roleLabel;
             Authority authority;
             boolean isAdmin;
             MemberStatus status;
@@ -733,7 +910,7 @@ class MemberDirectoryServiceTest {
         @Override
         public Optional<Company> findById(Long id) {
             String code = codeByCompany.getOrDefault(id, "COMP00");
-            return Optional.of(new Company(id, code, "테스트기업", null, null, null, null, null));
+            return Optional.of(new Company(id, code, "테스트기업", null, null, null, null, null, null, null));
         }
 
         @Override

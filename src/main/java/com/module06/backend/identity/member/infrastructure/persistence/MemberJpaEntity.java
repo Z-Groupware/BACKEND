@@ -144,12 +144,18 @@ public class MemberJpaEntity {
     }
 
     /**
-     * 역할·직급 동시 변경(§7-4). 하나만 열면 "직급은 팀장인데 권한은 멤버" 같은 중간 상태가
-     * 저장될 수 있어 같이 받는다. isAdmin 은 여기서 건드리지 않는다 — §7-7 전용이다.
+     * 권한·직급·역할 라벨 동시 변경(§7-4). 하나만 열면 "직급은 팀장인데 권한은 멤버" 같은 중간
+     * 상태가 저장될 수 있어 같이 받는다. isAdmin 은 여기서 건드리지 않는다 — §7-7 전용이다.
+     *
+     * <p>{@code role} 만 null 을 "안 바꾼다"로 읽는다. role_id 는 NOT NULL 이라(V2.3.10) null 을
+     * 그대로 대입하면 플러시에서 제약 위반으로 터진다 — 역할을 비우는 것은 "없음" 행을 넣는 것이다.
      */
-    public void changeRoleAndPosition(Authority authority, PositionRefEntity position) {
+    public void changeRoleAndPosition(Authority authority, PositionRefEntity position, RoleRefEntity role) {
         this.authority = authority;
         this.position = position;
+        if (role != null) {
+            this.role = role;
+        }
     }
 
     /** 관리 권한(겸직) 부여·회수(§7-7). role 은 건드리지 않는다 — 그게 이 모델의 요점이다. */
@@ -187,6 +193,8 @@ public class MemberJpaEntity {
      *   ACTIVE ─[requestLeave]→ WAITING ─[approveVacation]→ VACATION
      *                             │       └[offboard]→ deleted_at + RESIGNED
      *                             └──────[restoreActive]→ ACTIVE
+     *
+     *   (어느 상태에서든) ─[softDelete]→ deleted_at + DELETED
      *
      * 검사를 서비스가 아니라 여기서 하는 이유: 호출 경로가 늘어나도 규칙이 한 곳에만 있게 된다.
      * setter 를 열면 다음 사람이 상태를 임의로 바꿔 이 그림이 무의미해진다.
@@ -228,8 +236,30 @@ public class MemberJpaEntity {
     }
 
     /**
-     * 출발 상태가 아니면 거절한다. RESIGNED 는 어떤 전이도 통과하지 못한다 — 되살리는 경로가
-     * 없기 때문에 여기서 따로 분기하지 않아도 자연히 막힌다.
+     * 관리자의 사원 삭제(§7). 오프보딩(=인수인계 절차를 밟은 퇴사)과 달리 승인 흐름 없이 계정을
+     * 닫는다. 물리 삭제하지 않는 이유는 {@link #offboard} 와 같다 — 회의·인수인계가 이 행을
+     * 참조하므로 지우면 그 이력이 끊긴다.
+     *
+     * <p>RESIGNED 가 아니라 DELETED 를 찍는다(V2.3.21). 두 값이 같아지면 "인계를 하고 나갔는지"를
+     * 데이터로 답할 수 없다.
+     *
+     * <p>출발 상태를 제한하지 않는다 — 재직·휴직·대기 어느 쪽이든 관리자는 계정을 닫을 수 있어야
+     * 한다. 이미 닫힌 계정만 막는다. {@link #offboard} 와 마찬가지로 팀장 권한은 회수한다.
+     */
+    public void softDelete(LocalDateTime at) {
+        if (this.deletedAt != null) {
+            throw new BusinessException(AuthErrorCode.MEMBER_STATUS_TRANSITION_INVALID);
+        }
+        this.status = MemberStatus.DELETED;
+        this.deletedAt = at;
+        if (this.authority == Authority.LEADER) {
+            this.authority = Authority.MEMBER;
+        }
+    }
+
+    /**
+     * 출발 상태가 아니면 거절한다. RESIGNED·DELETED 는 어떤 전이도 통과하지 못한다 — 되살리는
+     * 경로가 없기 때문에 여기서 따로 분기하지 않아도 자연히 막힌다.
      */
     private void requireStatus(MemberStatus expected) {
         if (this.status != expected) {

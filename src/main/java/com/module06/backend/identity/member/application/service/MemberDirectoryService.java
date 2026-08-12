@@ -18,6 +18,7 @@ import com.module06.backend.identity.company.application.port.out.AccountMailPor
 import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
+import com.module06.backend.identity.member.application.command.DeleteMemberCommand;
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberRoleCommand;
@@ -33,6 +34,7 @@ import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort.MemberRow;
+import com.module06.backend.identity.member.application.usecase.DeleteMemberUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
@@ -61,7 +63,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgChartUseCase,
         GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase,
-        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase {
+        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase, DeleteMemberUseCase {
 
     private final MemberDirectoryQueryPort queryPort;
     private final MemberDirectoryCommandPort commandPort;
@@ -227,12 +229,58 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         }
         positionRepository.findByIdAndCompanyId(command.jobPositionId(), command.companyId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.POSITION_NOT_FOUND));
+        Long roleId = resolveRoleLabel(command.companyId(), command.roleLabel());
 
         applyLeaderSideEffects(command.companyId(), target, command.role());
-        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId());
+        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId(), roleId);
         refreshTokenStore.revokeAllByMember(command.targetMemberId());
 
         return getDetail(command.companyId(), command.targetMemberId());
+    }
+
+    /**
+     * 역할 라벨은 선택 값이라 안 보내면(null) 그대로 둔다. 보냈으면 회사 안에 실제로 있는 이름이어야
+     * 한다 — 없는 이름을 조용히 "없음"으로 접으면 사용자가 고른 역할이 사라진 채 200 이 나간다.
+     *
+     * <p>직급 검증과 같은 자리에서, 쓰기 전에 끝낸다. 나중에 확인하면 이미 권한이 바뀐 뒤에 실패해
+     * 트랜잭션이 롤백되더라도 팀장 교체 부수효과의 순서 가정이 흐트러진다.
+     */
+    private Long resolveRoleLabel(Long companyId, String roleLabel) {
+        if (roleLabel == null) {
+            return null;
+        }
+        return queryPort.findRoleIdByLabel(companyId, roleLabel)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND));
+    }
+
+    /**
+     * §7 사원 삭제. 물리 삭제하지 않는다 — 상태를 DELETED 로 바꾸고 {@code deleted_at} 을 찍는다.
+     *
+     * <p>차단 규칙은 §7-4 와 같다. 오너는 지울 수 없고(소유자 이관은 별도 절차다), 본인도 지울 수
+     * 없다 — 마지막 관리자가 자기 계정을 닫아 회사가 잠기는 경로를 없앤다.
+     *
+     * <p>부수효과 두 가지가 §7-4·오프보딩과 같은 이유로 붙는다. 팀장 자리를 비우지 않으면 후임
+     * 승급이 {@code MEMBER_TEAM_LEADER_ALREADY_EXISTS} 로 막히고(권한 강등만으로는 부족하다 —
+     * 검사가 보는 것은 {@code team.leader_member_id} 다), 갱신표를 폐기하지 않으면 삭제된 계정이
+     * 남은 TTL 동안 스스로 액세스 토큰을 다시 받아 간다.
+     */
+    @Override
+    @Transactional
+    public void delete(DeleteMemberCommand command) {
+        MemberRow target = queryPort.findActiveById(command.companyId(), command.targetMemberId())
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
+
+        if (target.authority() == Authority.OWNER) {
+            throw new BusinessException(AuthErrorCode.MEMBER_CANNOT_MODIFY_OWNER);
+        }
+        if (command.targetMemberId().equals(command.actingMemberId())) {
+            throw new BusinessException(AuthErrorCode.MEMBER_CANNOT_MODIFY_SELF);
+        }
+
+        commandPort.softDelete(command.targetMemberId());
+        teamRepository.findByLeaderMemberId(command.targetMemberId())
+                .ifPresent(team -> teamRepository.updateLeader(team.id(), null));
+        refreshTokenStore.revokeAllByMember(command.targetMemberId());
     }
 
     private void applyLeaderSideEffects(Long companyId, MemberRow target, Authority newRole) {

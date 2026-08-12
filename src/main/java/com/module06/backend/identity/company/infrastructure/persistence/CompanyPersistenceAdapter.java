@@ -37,7 +37,8 @@ public class CompanyPersistenceAdapter
 
     private Company toCompany(CompanyJpaEntity e) {
         return new Company(e.getId(), e.getCode(), e.getName(), e.getRegistrationNo(),
-                e.getRepresentativeName(), e.getAddress(), e.getMainPhone(), e.getOnboardedAt());
+                e.getRepresentativeName(), e.getAddress(), e.getLatitude(), e.getLongitude(),
+                e.getMainPhone(), e.getOnboardedAt());
     }
 
     /**
@@ -85,8 +86,9 @@ public class CompanyPersistenceAdapter
     @Override
     @Transactional
     public void updateProfile(Long id, String name, String registrationNo, String representativeName,
-                               String address, String mainPhone) {
-        findEntity(id).updateProfile(name, registrationNo, representativeName, address, mainPhone);
+                               String address, Double latitude, Double longitude, String mainPhone) {
+        findEntity(id).updateProfile(name, registrationNo, representativeName,
+                address, latitude, longitude, mainPhone);
     }
 
     @Override

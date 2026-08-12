@@ -40,7 +40,7 @@ class CompanyProfileServiceTest {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));
 
         Company updated = service(repository).updateProfile(
-                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null));
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null, null, null));
 
         assertThat(updated.address()).isEqualTo("서울시 강남구 테헤란로 123");
         assertThat(updated.name()).isEqualTo("(주)테크스타트");
@@ -58,12 +58,42 @@ class CompanyProfileServiceTest {
          * address 변경을 되돌리면 이 테스트가 잡아낸다.
          */
         service(repository).updateProfile(
-                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null));
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null, null, null));
         Company afterSecondPatch = service(repository).updateProfile(
-                new UpdateCompanyCommand(COMPANY_ID, null, null, "김서준", null, null));
+                new UpdateCompanyCommand(COMPANY_ID, null, null, "김서준", null, null, null, null));
 
         assertThat(afterSecondPatch.address()).isEqualTo("서울시 강남구 테헤란로 123");
         assertThat(afterSecondPatch.representativeName()).isEqualTo("김서준");
+    }
+
+    @Test
+    @DisplayName("좌표만 보내면 좌표만 바뀐다 — 주소는 그대로다")
+    void updatesCoordinatesWithoutTouchingAddress() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+        service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null, null, null));
+
+        Company updated = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, null, 37.5006, 127.0366, null));
+
+        assertThat(updated.latitude()).isEqualTo(37.5006);
+        assertThat(updated.longitude()).isEqualTo(127.0366);
+        assertThat(updated.address()).isEqualTo("서울시 강남구 테헤란로 123");
+    }
+
+    @Test
+    @DisplayName("주소만 고치면 이미 찍혀 있던 좌표는 지워지지 않는다")
+    void addressOnlyUpdateKeepsCoordinates() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+        service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, null, 37.5006, 127.0366, null));
+
+        Company updated = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 45", null, null, null));
+
+        assertThat(updated.address()).isEqualTo("서울시 강남구 테헤란로 45");
+        assertThat(updated.latitude()).isEqualTo(37.5006);
+        assertThat(updated.longitude()).isEqualTo(127.0366);
     }
 
     @Test
@@ -72,7 +102,7 @@ class CompanyProfileServiceTest {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));
 
         assertThatThrownBy(() -> service(repository).updateProfile(
-                new UpdateCompanyCommand(COMPANY_ID, null, "1234567890", null, null, null)))
+                new UpdateCompanyCommand(COMPANY_ID, null, "1234567890", null, null, null, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.REGISTRATION_NO_INVALID);
     }
@@ -84,7 +114,7 @@ class CompanyProfileServiceTest {
         repository.taken.add("999-99-99999");
 
         assertThatThrownBy(() -> service(repository).updateProfile(
-                new UpdateCompanyCommand(COMPANY_ID, null, "999-99-99999", null, null, null)))
+                new UpdateCompanyCommand(COMPANY_ID, null, "999-99-99999", null, null, null, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.REGISTRATION_NO_DUPLICATED);
     }
@@ -95,7 +125,7 @@ class CompanyProfileServiceTest {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));
 
         Company updated = service(repository).updateProfile(
-                new UpdateCompanyCommand(COMPANY_ID, null, "123-45-67890", null, null, null));
+                new UpdateCompanyCommand(COMPANY_ID, null, "123-45-67890", null, null, null, null, null));
 
         assertThat(updated.registrationNo()).isEqualTo("123-45-67890");
     }
@@ -106,7 +136,7 @@ class CompanyProfileServiceTest {
 
     private Company company(String registrationNo) {
         return new Company(COMPANY_ID, "NOVA-7K3D", "(주)테크스타트", registrationNo,
-                "김서준", null, null, null);
+                "김서준", null, null, null, null, null);
     }
 
     private static final class FakeRepository implements CompanyRepository, CompanyProfileRepository {
@@ -141,12 +171,14 @@ class CompanyProfileServiceTest {
         /** 실제 {@code CompanyJpaEntity.updateProfile} 과 같다 — null 인자는 기존 값을 그대로 둔다. */
         @Override
         public void updateProfile(Long id, String name, String registrationNo, String representativeName,
-                                   String address, String mainPhone) {
+                                   String address, Double latitude, Double longitude, String mainPhone) {
             company = new Company(id, company.code(),
                     name != null ? name : company.name(),
                     registrationNo != null ? registrationNo : company.registrationNo(),
                     representativeName != null ? representativeName : company.representativeName(),
                     address != null ? address : company.address(),
+                    latitude != null ? latitude : company.latitude(),
+                    longitude != null ? longitude : company.longitude(),
                     mainPhone != null ? mainPhone : company.mainPhone(),
                     company.onboardedAt());
         }
@@ -154,7 +186,8 @@ class CompanyProfileServiceTest {
         @Override
         public void markOnboarded(Long id, LocalDateTime now) {
             company = new Company(id, company.code(), company.name(), company.registrationNo(),
-                    company.representativeName(), company.address(), company.mainPhone(), now);
+                    company.representativeName(), company.address(), company.latitude(), company.longitude(),
+                    company.mainPhone(), now);
         }
     }
 }

@@ -13,7 +13,7 @@ public interface CompanyProfileRepository {
 
     /** §4-3. name 은 필수, 나머지는 호출자가 기존 값과 병합해 넘긴다(부분 수정은 서비스 책임). */
     void updateProfile(Long id, String name, String registrationNo, String representativeName,
-                        String address, String mainPhone);
+                        String address, Double latitude, Double longitude, String mainPhone);
 
     /** §4-1 온보딩 커밋 마지막 단계. */
     void markOnboarded(Long id, LocalDateTime now);
