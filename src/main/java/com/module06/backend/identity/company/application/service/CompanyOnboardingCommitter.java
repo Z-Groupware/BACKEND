@@ -116,8 +116,16 @@ class CompanyOnboardingCommitter {
 
         Map<String, Long> positionIdByTempId = new HashMap<>();
         for (OnboardCompanyCommand.JobPositionNode positionNode : command.jobPositions()) {
+            /*
+             * 설명은 온보딩 요청에 없는 값이라 빈 문자열로 만든다 — null 을 넘기면 안 된다.
+             * position.description 은 NOT NULL DEFAULT ''(V2.3.14) 인데, DEFAULT 는 컬럼을
+             * 생략했을 때만 적용되고 명시적 NULL 에는 적용되지 않는다. JPA INSERT 는 항상 모든
+             * 컬럼을 쓰므로 null 을 넘기면 "Column 'description' cannot be null" 이 나고,
+             * 이건 유일성 위반이 아니라 어댑터가 번역하지 않아 그대로 500(Z-003)이 된다.
+             * 빈 문자열은 마이그레이션이 기존 행에 채운 값과 같아 "아직 설명을 안 채운 직급"으로 읽힌다.
+             */
             Position position = positionRepository.create(
-                    companyId, positionNode.name(), positionNode.defaultRole(), null);
+                    companyId, positionNode.name(), positionNode.defaultRole(), "");
             positionIdByTempId.put(positionNode.tempId(), position.id());
         }
 
