@@ -37,8 +37,10 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final CaptureHeartbeatPort captureHeartbeatPort;
-    // 10분/40청크 블록 카운터가 일시정지 구간을 세지 않도록(명세) — 청크 완료 통보 시점에 D의
-    // capture_session이 PAUSED인지 확인한다.
+    // 캡처 세션이 ACTIVE일 때만 업로드를 허용한다(명세) — PAUSED/ENDED/세션없음은 전부 거절한다.
+    // ⚠️ MEET-07(회의 입장)이 capture_session 없이도 회의를 IN_PROGRESS로 만들 수 있는 동안은,
+    // "세션 없음"이 아직 정상적으로 발생할 수 있는 상태다(D가 MEET-07을 폐기/host-only화하는
+    // 작업이 develop에 반영되기 전까지는 이 검증을 켜면 안 된다 — 팀 합의 사항, 머지 타이밍 주의).
     private final CapCaptureSessionReferenceRepository captureSessionReferenceRepository;
     // completePartUpload의 실제 DB 쓰기(청크·상태 저장)만 짧은 트랜잭션으로 묶는 별도 협력자
     // (CodeRabbit 지적 — S3 HEAD 호출을 트랜잭션 밖에 두려고 분리). CaptureUploadService 자신을
@@ -84,6 +86,10 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         // 비참석자가 유효한 meetingId만으로 녹음자로 배정(첫 presign)되는 걸 막는다.
         // TEMP 헤더 브리지 구간에서도 회의 참석자 명단은 이미 검증 가능(V1 테이블 존재).
         requireAttendee(command.meetingId(), command.callerId());
+
+        // 캡처 세션이 ACTIVE일 때만 업로드 URL을 발급한다 — host가 아닌 참석자가 세션 없이/
+        // 일시정지·종료된 상태에서 녹음자로 배정되는 것 자체를 여기서 막는다.
+        requireActiveCaptureSession(command.meetingId());
 
         Optional<CaptureUploadState> existing = captureUploadStateRepository.findByMeetingId(command.meetingId());
 
@@ -151,12 +157,10 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         requireAttendee(command.meetingId(), command.callerId());
 
-        // 일시정지 중엔 청크를 받지 않는다 — 10분/40청크 블록 카운터가 청크 개수 기준이라
+        // ACTIVE가 아니면 청크를 받지 않는다 — 10분/40청크 블록 카운터가 청크 개수 기준이라
         // 일시정지 중엔 자연히 안 늘지만, 서버가 그걸 강제하는 코드는 없었다(클라이언트를
-        // 신뢰하는 것뿐). 방어선을 하나 둔다: 일시정지 중 통보는 거부하고 상태를 바꾸지 않는다.
-        if (captureSessionReferenceRepository.isPaused(command.meetingId())) {
-            throw new BusinessException(CapErrorCode.CAP_CAPTURE_PAUSED);
-        }
+        // 신뢰하는 것뿐). 방어선을 하나 둔다: PAUSED/ENDED/세션없음 통보는 거부하고 상태를 바꾸지 않는다.
+        requireActiveCaptureSession(command.meetingId());
 
         // capture_upload_state가 없다는 건 presign이 한 번도 호출 안 됐다는 뜻 — 즉 아무도 아직
         // 녹음자로 배정 안 됐으므로, 이 caller도 당연히 "현재 녹음자"가 아니다.
@@ -233,6 +237,20 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private void requireAttendee(Long meetingId, Long callerId) {
         if (!accessGuard.isAttendee(meetingId, callerId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
+        }
+    }
+
+    // ACTIVE만 통과시킨다 — PAUSED는 기존 CAP-020(일시정지)으로, 그 외(ENDED/세션없음)는
+    // CAP-022로 구분해서 던진다. PAUSED만 별도 코드를 유지하는 이유는 프론트가 "일시정지 중이니
+    // 재개하라"는 안내를 CAP-020에 이미 붙여뒀을 수 있어서다 — ENDED/세션없음은 재개 대상이
+    // 아니므로 다른 코드로 명확히 분리한다.
+    private void requireActiveCaptureSession(Long meetingId) {
+        String status = captureSessionReferenceRepository.findStatus(meetingId).orElse(null);
+        if ("PAUSED".equals(status)) {
+            throw new BusinessException(CapErrorCode.CAP_CAPTURE_PAUSED);
+        }
+        if (!"ACTIVE".equals(status)) {
+            throw new BusinessException(CapErrorCode.CAP_CAPTURE_SESSION_NOT_ACTIVE);
         }
     }
 
