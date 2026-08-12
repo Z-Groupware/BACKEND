@@ -1,7 +1,9 @@
 package com.module06.backend.meeting.application.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +18,8 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort.MeetingActionCount;
+import com.module06.backend.meeting.application.port.out.MemberQueryPort;
+import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
@@ -23,6 +27,8 @@ import com.module06.backend.meeting.application.port.out.ProjectQueryPort.Projec
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingListUseCase;
+import com.module06.backend.meeting.domain.model.MeetingEntryPolicy;
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingListCriteria;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingListSnapshot;
@@ -64,7 +70,10 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
     /* 회의 목록 카드에 표시할 회의별 전체 액션 수를 조회하는 C 연동 Port다. */
     private final ActionQueryPort actionQueryPort;
 
-    /* 생략된 조회 기간을 동일한 KST 현재 날짜에서 계산하는 시계다. */
+    /* 회의 목록 카드의 참석자 아바타 이름을 조회하는 B 연동 Port다. */
+    private final MemberQueryPort memberQueryPort;
+
+    /* 생략된 조회 기간과 입장 가능 여부 계산에 쓰는 동일한 KST 현재 시각의 시계다. */
     private final Clock clock;
 
     /* 인증 사용자에게 허용된 회의를 필터·페이징하여 표시 정보와 함께 반환한다. */
@@ -87,6 +96,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 resolved.from().atStartOfDay(),
                 resolved.to().atTime(LocalTime.MAX),
                 resolved.status(),
+                resolved.scope(),
                 resolved.page(),
                 resolved.size()
         ));
@@ -133,13 +143,29 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 actionQueryPort.countActionsByMeetings(resolved.companyId(), meetingIds)
         );
 
+        /* 페이지 전체 회의의 참석자 식별자를 한 데 모아 B에 한 번만 전달해 이름을 조회한다. */
+        List<Long> attendeeMemberIds = page.meetings().stream()
+                .flatMap(meeting -> meeting.attendeeMemberIds().stream())
+                .distinct()
+                .toList();
+        Map<Long, MemberSnapshot> members = indexMembers(
+                attendeeMemberIds,
+                memberQueryPort.findMembersIncludingDeleted(resolved.companyId(), attendeeMemberIds)
+        );
+
+        /* isHost·entryAvailable 판정이 응답 조립 도중 흔들리지 않도록 같은 순간을 한 번만 읽는다. */
+        LocalDateTime now = LocalDateTime.now(clock);
+
         /* 저장소가 보장한 내림차순을 유지하며 표시 정보가 완성된 응답 행으로 변환한다. */
         List<MeetingListResult.MeetingItem> meetings = page.meetings().stream()
                 .map(meeting -> toResultItem(
                         meeting,
                         meetingRooms.get(meeting.meetingRoomId()),
                         projects.get(meeting.projectId()),
-                        actionCounts.getOrDefault(meeting.meetingId(), 0L)
+                        actionCounts.getOrDefault(meeting.meetingId(), 0L),
+                        resolved.requesterMemberId(),
+                        now,
+                        members
                 ))
                 .toList();
 
@@ -200,6 +226,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 from,
                 to,
                 query.status(),
+                query.scope(),
                 page,
                 size
         );
@@ -285,13 +312,42 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         return Map.copyOf(indexed);
     }
 
+    /* 요청한 참석자 전체가 회사 범위 결과에 존재하는지 확인하고 식별자 맵으로 만든다. */
+    private Map<Long, MemberSnapshot> indexMembers(
+            List<Long> requestedIds,
+            List<MemberSnapshot> snapshots
+    ) {
+        /* 조회 순서와 무관하게 목록 행이 식별자로 표시값을 찾을 수 있도록 맵을 만든다. */
+        Map<Long, MemberSnapshot> indexed = new LinkedHashMap<>();
+        for (MemberSnapshot snapshot : snapshots) {
+            indexed.put(snapshot.memberId(), snapshot);
+        }
+
+        /* 참조 참석자가 누락되면 임의 표시값을 만들지 않고 데이터 계약 위반으로 실패한다. */
+        if (indexed.size() != requestedIds.size() || !indexed.keySet().containsAll(requestedIds)) {
+            throw new IllegalStateException("회의가 참조하는 참석자 표시 정보를 조회할 수 없습니다.");
+        }
+
+        /* 응답 조립 중 외부에서 값을 바꾸지 못하도록 불변 맵으로 반환한다. */
+        return Map.copyOf(indexed);
+    }
+
     /* 회의 조회 모델과 각 도메인의 표시값을 MEET-02 결과 한 건으로 변환한다. */
     private MeetingListResult.MeetingItem toResultItem(
             MeetingListSnapshot meeting,
             MeetingRoomSnapshot meetingRoom,
             ProjectSnapshot project,
-            long actionCount
+            long actionCount,
+            Long requesterMemberId,
+            LocalDateTime now,
+            Map<Long, MemberSnapshot> members
     ) {
+        /* 카드 아바타는 host를 포함한 전체 참석자를 DB가 반환한 memberId 오름차순 그대로 담는다. */
+        List<MeetingListResult.Attendee> attendees = meeting.attendeeMemberIds().stream()
+                .map(members::get)
+                .map(member -> new MeetingListResult.Attendee(member.memberId(), member.name()))
+                .toList();
+
         /* 명세에 필요한 값만 엔티티 참조 없이 중첩 결과로 조립한다. */
         return new MeetingListResult.MeetingItem(
                 meeting.meetingId(),
@@ -299,8 +355,12 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meeting.status(),
                 meeting.startAt(),
                 meeting.endAt(),
-                meeting.attendeeCount(),
+                meeting.attendeeMemberIds().size(),
                 actionCount,
+                meeting.hostMemberId().equals(requesterMemberId),
+                MeetingEntryPolicy.isEntryAvailable(meeting.startAt(), meeting.endAt(), now),
+                (int) Duration.between(meeting.startAt(), meeting.endAt()).toMinutes(),
+                attendees,
                 new MeetingListResult.MeetingRoom(meetingRoom.meetingRoomId(), meetingRoom.name()),
                 new MeetingListResult.Project(project.projectId(), project.tag(), project.name())
         );
@@ -316,6 +376,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
             LocalDate from,
             LocalDate to,
             com.module06.backend.meeting.domain.model.MeetingStatus status,
+            MeetingListScope scope,
             int page,
             int size
     ) {

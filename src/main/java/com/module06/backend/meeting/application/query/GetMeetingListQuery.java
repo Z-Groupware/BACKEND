@@ -2,6 +2,7 @@ package com.module06.backend.meeting.application.query;
 
 import java.time.LocalDate;
 
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 
 /*
@@ -19,6 +20,7 @@ public record GetMeetingListQuery(
         LocalDate from,
         LocalDate to,
         MeetingStatus status,
+        MeetingListScope scope,
         Integer page,
         Integer size
 ) {
