@@ -296,6 +296,44 @@ class SttBlockCutTriggerTest {
         assertThat(state.getBlocksFormed()).isEqualTo(1);
     }
 
+    /*
+     * triggerIfThresholdReached(비동기)가 아직 못 따라잡아 남은 구간이 정확히 40청크(한 블록
+     * 분량)면, 그 전체를 TAIL로 뭉개지 않고 false를 반환하는지 검증한다(CodeRabbit 지적).
+     */
+    @Test
+    @DisplayName("회의 종료 시 남은 구간이 정확히 40청크면 TAIL로 만들지 않고 false를 반환한다")
+    void returnsFalseWhenRemainingEqualsFullBlock() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        // lastSeq=40 — 정확히 한 블록 분량(600,000ms)이 아직 안 끝난 채 회의가 종료된 상황.
+        boolean result = trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(),
+                createPort).finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 40, 0, 0L);
+
+        assertThat(result).isFalse();
+        assertThat(createPort.received).isEmpty();
+        // 예약 자체를 시도하지 않으므로 blocksFormed는 그대로다.
+        assertThat(state.getBlocksFormed()).isZero();
+    }
+
+    /* 남은 구간이 40청크를 넘겨도(41개) 마찬가지로 TAIL로 만들지 않고 false를 반환하는지 검증한다. */
+    @Test
+    @DisplayName("회의 종료 시 남은 구간이 40청크를 넘으면 TAIL로 만들지 않고 false를 반환한다")
+    void returnsFalseWhenRemainingExceedsFullBlock() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        // lastSeq=41 — 비동기 10분 트리거가 못 따라잡은 채 회의가 종료된 상황.
+        boolean result = trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(),
+                createPort).finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 41, 0, 0L);
+
+        assertThat(result).isFalse();
+        assertThat(createPort.received).isEmpty();
+        assertThat(state.getBlocksFormed()).isZero();
+    }
+
     private SttBlockCutTrigger trigger(CaptureUploadStateRepository stateRepo, SttBlockAudioAssemblyPort audioPort,
                                        SttBlockCutDetectionPort cutPort, CreateSttBlockPort createPort) {
         return new SttBlockCutTrigger(audioPort, cutPort, createPort, stateRepo, new SttBlockFormedWriter(stateRepo));

@@ -185,6 +185,14 @@ public class SttBlockCutTrigger {
      * 조립 dispatch 자체를 미뤄야 한다 — 여기서 계속 진행해버리면 방금 실패한 TAIL 재료(recording_part)를
      * 조립이 곧 지워버려서 다음 재시도조차 불가능해진다. 자투리가 원래 없던 경우(정상 종료)는
      * true다.
+     *
+     * <h2>남은 구간이 40청크(BLOCK_DURATION_MS) 이상이면 TAIL로 만들지 않는다(CodeRabbit 지적)</h2>
+     * triggerIfThresholdReached는 비동기다 — 회의 종료가 그 트리거보다 먼저 도착하면, 아직
+     * lastBlockEndOffsetMs가 갱신 안 된 채로 40청크 이상이 남아 보일 수 있다. 그 전체를 TAIL
+     * 하나로 밀어넣으면 원래 AI-01 무음 절단으로 처리됐어야 할 정상 10분 블록 구간까지 절단
+     * 탐지 없이 뭉뚱그려 제출하게 된다. 그래서 이 경우 블록을 만들지 않고 FAILED를 돌려준다 —
+     * 호출자는 조립을 미루고, 그 사이 진행 중이던 triggerIfThresholdReached가 정상 블록을
+     * 마저 확정하면 남은 자투리가 40청크 미만으로 줄어 다음 재시도(CAP-05)에서 정상 처리된다.
      */
     public boolean finalizeTailBlockOnMeetingCompletion(Long companyId, Long meetingId, int lastSegmentSeq,
                                                          int lastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
@@ -207,6 +215,14 @@ public class SttBlockCutTrigger {
             if (endOffsetMs <= lastBlockEndOffsetMs) {
                 // 이미 블록 경계에 딱 맞게 끝났거나, 애초에 이 세그먼트에 청크가 없었다 — 자투리 없음.
                 return TailFinalizeOutcome.NO_LEFTOVER;
+            }
+            if (endOffsetMs - lastBlockEndOffsetMs >= BLOCK_DURATION_MS) {
+                // triggerIfThresholdReached(비동기)가 아직 못 따라잡았다 — 이 구간을 TAIL로
+                // 뭉개면 안 된다(위 클래스 주석). 그 트리거가 마저 처리할 때까지 실패로 취급한다.
+                log.warn("TAIL 마무리 시점에 남은 구간이 이미 한 블록(40청크) 이상이다 — 비동기 10분 "
+                                + "트리거가 아직 안 끝났을 수 있다. meetingId={} segmentSeq={} 트리거={}",
+                        meetingId, segmentSeq, triggerReason);
+                return TailFinalizeOutcome.FAILED;
             }
 
             Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(meetingId, blocksFormed);
