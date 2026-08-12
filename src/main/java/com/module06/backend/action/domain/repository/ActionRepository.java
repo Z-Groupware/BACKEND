@@ -81,8 +81,8 @@ public interface ActionRepository {
     // ("3/5")용 배치 집계. 팀 액션 하나당 하위 PERSONAL 액션의 전체 건수·완료 건수.
     // findAllByParentActionId(단건, FR-AC-08 타임라인용)와 달리 목록 페이지의 여러 팀 액션
     // id를 한 번에 묶어 N+1을 피한다. companyId는 CodeRabbit(#357) 지적 반영 — parentActionId만
-    // 조건이면 다른 회사의 PERSONAL 액션이 같은 parentActionId(같은 물리 테이블의 auto-increment
-    // id라 우연히 겹칠 수 있다)를 참조할 때 회사 경계 밖 데이터가 섞여 들어간다.
+    // 조건이면, 누군가 다른 회사의 parentActionId를 실제로 참조시킨 경우(단일 auto-increment는
+    // 회사 무관하게 유일하므로 우연한 충돌은 아니다) 회사 경계 밖 데이터가 섞여 들어간다.
     // findAllByParentActionId가 이미 companyId를 필수로 받는 것과 동일한 이유.
     List<ChildActionProgress> countChildActionProgressByParentActionIds(Long companyId, List<Long> parentActionIds);
 
