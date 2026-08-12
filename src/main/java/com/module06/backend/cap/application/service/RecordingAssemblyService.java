@@ -24,17 +24,20 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingGapChecker gapChecker;
     private final RecordingAssemblyDispatcher recordingAssemblyDispatcher;
+    private final SttBlockCutTrigger sttBlockCutTrigger;
 
     public RecordingAssemblyService(MeetingReferenceRepository meetingReferenceRepository,
                                     CapMeetingAccessGuard accessGuard,
                                     CaptureUploadStateRepository captureUploadStateRepository,
                                     RecordingGapChecker gapChecker,
-                                    RecordingAssemblyDispatcher recordingAssemblyDispatcher) {
+                                    RecordingAssemblyDispatcher recordingAssemblyDispatcher,
+                                    SttBlockCutTrigger sttBlockCutTrigger) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.gapChecker = gapChecker;
         this.recordingAssemblyDispatcher = recordingAssemblyDispatcher;
+        this.sttBlockCutTrigger = sttBlockCutTrigger;
     }
 
     @Override
@@ -45,9 +48,8 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
         }
 
         // 인가: 회의 존재(404) → 참석자(403) → 상태행 → 녹음자(403). CAP-08과 동일한 회의 접근 확인.
-        if (!meetingReferenceRepository.existsById(command.meetingId())) {
-            throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
-        }
+        Long companyId = meetingReferenceRepository.findCompanyId(command.meetingId())
+                .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
         if (!accessGuard.isAttendee(command.meetingId(), command.callerId())) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
         }
@@ -57,6 +59,18 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
 
         // seq 연속성 검증 — 구멍이 하나라도 있으면 조립을 시작하지 않고 409로 막는다(어느 순번인지는 CAP-08로 확인).
         if (gapChecker.hasGap(command.meetingId(), command.lastSegmentSeq(), command.lastSeq())) {
+            throw new BusinessException(CapErrorCode.CAP_ASSEMBLY_INCOMPLETE);
+        }
+
+        // 조립(parts 삭제)이 청크를 지우기 전에, 마지막 세그먼트의 자투리를 TAIL STT 블록으로
+        // 먼저 마무리한다(동기 호출 — MeetingCompletedAssemblyTrigger의 자동 경로와 동일 이유·
+        // 동일 메서드). CAP-05는 자동 경로가 실패했을 때 사람이 쓰는 대체 수단이라, 실패를 삼키고
+        // 조립을 진행하면 사람이 재시도해도 같은 콘텐츠 유실이 반복된다(CodeRabbit 지적) — 409로
+        // 알려서 클라이언트가 다시 호출하게 한다.
+        boolean tailFinalized = sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId,
+                command.meetingId(), command.lastSegmentSeq(), command.lastSeq(), state.getBlocksFormed(),
+                state.getLastBlockEndOffsetMs());
+        if (!tailFinalized) {
             throw new BusinessException(CapErrorCode.CAP_ASSEMBLY_INCOMPLETE);
         }
 
