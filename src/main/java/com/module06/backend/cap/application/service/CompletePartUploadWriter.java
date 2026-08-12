@@ -22,17 +22,25 @@ class CompletePartUploadWriter {
     private final RecordingPartRepository recordingPartRepository;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final CaptureHeartbeatPort captureHeartbeatPort;
+    // CaptureUploadService가 S3 HEAD 호출 전에 이미 한 번 확인하지만, 그 네트워크 호출 동안
+    // 세션이 PAUSED/ENDED로 바뀔 수 있어(CodeRabbit 지적, findStatus는 잠금 없는 조회) 실제 쓰기
+    // 직전에 여기서 한 번 더 확인해 레이스 윈도우를 좁힌다(CaptureSessionActiveGuard 주석 참고).
+    private final CaptureSessionActiveGuard captureSessionActiveGuard;
 
     CompletePartUploadWriter(RecordingPartRepository recordingPartRepository,
                              CaptureUploadStateRepository captureUploadStateRepository,
-                             CaptureHeartbeatPort captureHeartbeatPort) {
+                             CaptureHeartbeatPort captureHeartbeatPort,
+                             CaptureSessionActiveGuard captureSessionActiveGuard) {
         this.recordingPartRepository = recordingPartRepository;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.captureHeartbeatPort = captureHeartbeatPort;
+        this.captureSessionActiveGuard = captureSessionActiveGuard;
     }
 
     @Transactional
     void write(CaptureUploadState state, String expectedKey, String contentType, CompletePartUploadCommand command) {
+        captureSessionActiveGuard.requireActive(command.meetingId());
+
         RecordingPart part = RecordingPart.create(command.meetingId(), state.getSegmentSeq(), command.seq(),
                 expectedKey, contentType, command.sizeBytes(), command.callerId());
         // UNIQUE(meeting_id, segment_seq, seq) 위반 시 어댑터가 CAP_PART_ALREADY_REGISTERED(409)로 변환.

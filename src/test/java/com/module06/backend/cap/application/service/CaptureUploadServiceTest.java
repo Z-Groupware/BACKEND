@@ -501,7 +501,6 @@ class CaptureUploadServiceTest {
                 return recorderAlive;
             }
         };
-        CompletePartUploadWriter writer = new CompletePartUploadWriter(partRepo, stateRepo, heartbeat);
         CapCaptureSessionReferenceRepository sessionRef = new CapCaptureSessionReferenceRepository() {
             @Override
             public Optional<String> findStatus(Long meetingId) {
@@ -513,6 +512,9 @@ class CaptureUploadServiceTest {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
+        CaptureSessionActiveGuard sessionActiveGuard = new CaptureSessionActiveGuard(sessionRef);
+        CompletePartUploadWriter writer =
+                new CompletePartUploadWriter(partRepo, stateRepo, heartbeat, sessionActiveGuard);
 
         // 이 테스트 파일의 시나리오는 전부 40청크 임계값에 한참 못 미치므로(lastSeq가 항상 한 자릿수),
         // 트리거 내부의 실제 파이프라인 포트는 호출되면 안 된다 — 호출되면 테스트가 실패하도록 던진다.
@@ -548,8 +550,8 @@ class CaptureUploadServiceTest {
             return new StorageQuotaStatusResult(quotaCompanyId, 0L, 1L, overQuota);
         };
 
-        return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, sessionRef, writer,
-                sttBlockCutTrigger, storageQuotaPort);
+        return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, sessionActiveGuard,
+                writer, sttBlockCutTrigger, storageQuotaPort);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

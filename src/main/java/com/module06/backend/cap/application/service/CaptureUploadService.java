@@ -9,7 +9,6 @@ import com.module06.backend.cap.application.usecase.CompletePartUploadUseCase;
 import com.module06.backend.cap.application.usecase.IssuePartUploadUrlsUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
-import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepository;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
@@ -41,7 +40,9 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     // MEET-07(회의 입장) 제거로 IN_PROGRESS 전이가 CAP-01(캡처 세션 생성)에만 묶여서(#423),
     // 이제 "IN_PROGRESS면 항상 capture_session이 있다"는 전제가 성립한다 — 그 전엔 세션 없음이
     // 정상 상태일 수 있어 이 검증을 켤 수 없었다(팀 합의 사항이었음, 지금은 해소됨).
-    private final CapCaptureSessionReferenceRepository captureSessionReferenceRepository;
+    // presign 쪽 확인은 여기서 하고, complete 쪽은 CompletePartUploadWriter가 실제 쓰기 직전에
+    // 한 번 더 확인한다(CaptureSessionActiveGuard 주석 참고 — 레이스 윈도우 축소).
+    private final CaptureSessionActiveGuard captureSessionActiveGuard;
     // completePartUpload의 실제 DB 쓰기(청크·상태 저장)만 짧은 트랜잭션으로 묶는 별도 협력자
     // (CodeRabbit 지적 — S3 HEAD 호출을 트랜잭션 밖에 두려고 분리). CaptureUploadService 자신을
     // this.xxx()로 불렀다면 @Transactional이 프록시를 못 거쳐 안 걸렸을 것이라, 별도 빈으로 뽑았다.
@@ -60,7 +61,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
                                 CaptureUploadStateRepository captureUploadStateRepository,
                                 CapObjectStoragePort capObjectStoragePort,
                                 CaptureHeartbeatPort captureHeartbeatPort,
-                                CapCaptureSessionReferenceRepository captureSessionReferenceRepository,
+                                CaptureSessionActiveGuard captureSessionActiveGuard,
                                 CompletePartUploadWriter completePartUploadWriter,
                                 SttBlockCutTrigger sttBlockCutTrigger,
                                 StorageQuotaPort storageQuotaPort) {
@@ -69,7 +70,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.capObjectStoragePort = capObjectStoragePort;
         this.captureHeartbeatPort = captureHeartbeatPort;
-        this.captureSessionReferenceRepository = captureSessionReferenceRepository;
+        this.captureSessionActiveGuard = captureSessionActiveGuard;
         this.completePartUploadWriter = completePartUploadWriter;
         this.sttBlockCutTrigger = sttBlockCutTrigger;
         this.storageQuotaPort = storageQuotaPort;
@@ -89,7 +90,7 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         // 캡처 세션이 ACTIVE일 때만 업로드 URL을 발급한다 — host가 아닌 참석자가 세션 없이/
         // 일시정지·종료된 상태에서 녹음자로 배정되는 것 자체를 여기서 막는다.
-        requireActiveCaptureSession(command.meetingId());
+        captureSessionActiveGuard.requireActive(command.meetingId());
 
         Optional<CaptureUploadState> existing = captureUploadStateRepository.findByMeetingId(command.meetingId());
 
@@ -157,10 +158,10 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
 
         requireAttendee(command.meetingId(), command.callerId());
 
-        // ACTIVE가 아니면 청크를 받지 않는다 — 10분/40청크 블록 카운터가 청크 개수 기준이라
-        // 일시정지 중엔 자연히 안 늘지만, 서버가 그걸 강제하는 코드는 없었다(클라이언트를
-        // 신뢰하는 것뿐). 방어선을 하나 둔다: PAUSED/ENDED/세션없음 통보는 거부하고 상태를 바꾸지 않는다.
-        requireActiveCaptureSession(command.meetingId());
+        // 여기서 한 번 빠르게 확인한다(서버가 그걸 강제하는 코드는 원래 없었다 — 클라이언트를
+        // 신뢰하는 것뿐). 이 아래로 S3 HEAD 네트워크 호출이 있어 창이 넓으므로, 실제 DB 쓰기
+        // 직전에 CompletePartUploadWriter가 한 번 더 확인한다(CaptureSessionActiveGuard 주석 참고).
+        captureSessionActiveGuard.requireActive(command.meetingId());
 
         // capture_upload_state가 없다는 건 presign이 한 번도 호출 안 됐다는 뜻 — 즉 아무도 아직
         // 녹음자로 배정 안 됐으므로, 이 caller도 당연히 "현재 녹음자"가 아니다.
@@ -237,20 +238,6 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private void requireAttendee(Long meetingId, Long callerId) {
         if (!accessGuard.isAttendee(meetingId, callerId)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
-        }
-    }
-
-    // ACTIVE만 통과시킨다 — PAUSED는 기존 CAP-020(일시정지)으로, 그 외(ENDED/세션없음)는
-    // CAP-022로 구분해서 던진다. PAUSED만 별도 코드를 유지하는 이유는 프론트가 "일시정지 중이니
-    // 재개하라"는 안내를 CAP-020에 이미 붙여뒀을 수 있어서다 — ENDED/세션없음은 재개 대상이
-    // 아니므로 다른 코드로 명확히 분리한다.
-    private void requireActiveCaptureSession(Long meetingId) {
-        String status = captureSessionReferenceRepository.findStatus(meetingId).orElse(null);
-        if ("PAUSED".equals(status)) {
-            throw new BusinessException(CapErrorCode.CAP_CAPTURE_PAUSED);
-        }
-        if (!"ACTIVE".equals(status)) {
-            throw new BusinessException(CapErrorCode.CAP_CAPTURE_SESSION_NOT_ACTIVE);
         }
     }
 
