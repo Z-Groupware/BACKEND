@@ -58,7 +58,7 @@ class CompanyTokenPlanServiceTest {
         when(companyTokenPlanRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         CompanyTokenPlanResult result = service.setPlan(owner(),
-                new SetCompanyTokenPlanCommand(null, 1_500_000L, 150_000, 20, null));
+                new SetCompanyTokenPlanCommand(null, 1_500_000L, 150_000, 20, null, null, null));
 
         ArgumentCaptor<CompanyTokenPlan> captor = ArgumentCaptor.forClass(CompanyTokenPlan.class);
         verify(companyTokenPlanRepository).save(captor.capture());
@@ -66,30 +66,35 @@ class CompanyTokenPlanServiceTest {
         assertThat(saved.getId()).isNull();                       // 신규 → INSERT
         assertThat(saved.getPlanCode()).isEqualTo("STANDARD");    // planCode 미지정 → 기본값
         assertThat(saved.getEffectiveFrom()).isEqualTo(LocalDate.of(2026, 8, 7)); // 고정 Clock(KST)
+        // 방향 단가 미지정 → 총량 단가로 채운다(기존 요청 호환).
+        assertThat(saved.getInputTokenPricePer1k()).isEqualTo(20);
+        assertThat(saved.getOutputTokenPricePer1k()).isEqualTo(20);
         assertThat(result.monthlyTokenPool()).isEqualTo(1_500_000L);
     }
 
     @Test
     void setPlanUpdatesKeepingIdWhenExists() {
         CompanyTokenPlan existing = CompanyTokenPlan.restore(99L, COMPANY, "STANDARD",
-                1_000_000L, 100_000, 20, LocalDate.of(2026, 7, 1));
+                1_000_000L, 100_000, 20, 20, 20, LocalDate.of(2026, 7, 1));
         when(companyTokenPlanRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(existing));
         when(companyTokenPlanRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.setPlan(owner(),
-                new SetCompanyTokenPlanCommand("STANDARD", 2_000_000L, 180_000, 25, LocalDate.of(2026, 8, 1)));
+                new SetCompanyTokenPlanCommand("STANDARD", 2_000_000L, 180_000, 25, 15, 45, LocalDate.of(2026, 8, 1)));
 
         ArgumentCaptor<CompanyTokenPlan> captor = ArgumentCaptor.forClass(CompanyTokenPlan.class);
         verify(companyTokenPlanRepository).save(captor.capture());
         CompanyTokenPlan saved = captor.getValue();
         assertThat(saved.getId()).isEqualTo(99L);                 // 기존 id 유지 → UPDATE (UNIQUE 위반 방지)
         assertThat(saved.getMonthlyTokenPool()).isEqualTo(2_000_000L);
+        assertThat(saved.getInputTokenPricePer1k()).isEqualTo(15);  // 방향 단가 명시 → 그대로 반영
+        assertThat(saved.getOutputTokenPricePer1k()).isEqualTo(45);
     }
 
     @Test
     void setPlanRejectedForNonOwnerNonAdmin() {
         assertThatThrownBy(() -> service.setPlan(member(),
-                new SetCompanyTokenPlanCommand(null, 1_000_000L, 100_000, 20, null)))
+                new SetCompanyTokenPlanCommand(null, 1_000_000L, 100_000, 20, null, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", MeteringErrorCode.MT_FORBIDDEN_SCOPE);
         verify(companyTokenPlanRepository, never()).save(any());
@@ -97,7 +102,7 @@ class CompanyTokenPlanServiceTest {
 
     @Test
     void setPlanRejectsInvalidNumbers() {
-        assertThatThrownBy(() -> new SetCompanyTokenPlanCommand(null, 0L, 100_000, 20, null))
+        assertThatThrownBy(() -> new SetCompanyTokenPlanCommand(null, 0L, 100_000, 20, null, null, null))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", MeteringErrorCode.MT_PLAN_COMMAND_INVALID);
     }

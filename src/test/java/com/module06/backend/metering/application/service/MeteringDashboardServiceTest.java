@@ -51,14 +51,17 @@ class MeteringDashboardServiceTest {
     }
 
     @Test
-    void dashboardCalculatesCompanyUsageDepartmentBreakdownAndOverageAmount() {
+    void dashboardCalculatesCompanyUsageDepartmentBreakdownAndDirectionalAmount() {
         when(companyTokenPlanRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(plan()));
         when(tokenUsageRecordRepository.sumTotalTokens(COMPANY, AUGUST_START, SEPTEMBER_START))
                 .thenReturn(1_502_300L);
+        // 회사 전체 방향 합계(입력 1,000,000 · 출력 502,300, 합 = 총량과 일치).
+        when(tokenUsageRecordRepository.sumDirectionTokens(COMPANY, AUGUST_START, SEPTEMBER_START))
+                .thenReturn(new TokenUsageRecordRepository.DirectionUsageAggregate(1_000_000L, 502_300L));
         when(tokenUsageRecordRepository.sumTotalTokensByDepartment(COMPANY, AUGUST_START, SEPTEMBER_START))
                 .thenReturn(List.of(
-                        new TokenUsageRecordRepository.DepartmentUsageAggregate(10L, 1_000L),
-                        new TokenUsageRecordRepository.DepartmentUsageAggregate(20L, 1_501_300L)
+                        new TokenUsageRecordRepository.DepartmentUsageAggregate(10L, 1_000L, 1_000L, 0L),
+                        new TokenUsageRecordRepository.DepartmentUsageAggregate(20L, 1_501_300L, 999_000L, 502_300L)
                 ));
 
         MeteringDashboardResult result = service.getCompanyDashboard(owner(), "2026-08");
@@ -66,12 +69,17 @@ class MeteringDashboardServiceTest {
         assertThat(result.usedTokens()).isEqualTo(1_502_300L);
         assertThat(result.monthlyTokenPool()).isEqualTo(1_500_000L);
         assertThat(result.overageTokens()).isEqualTo(2_300L);
+        // estimatedAmountKrw 는 총량 기준(overage 20원/1k): baseFee 150,000 + ceil(2,300/1k)*20 = 150,060.
         assertThat(result.estimatedAmountKrw()).isEqualTo(150_060L);
+        // directionalAmountKrw 는 방향 단가(입력 10원·출력 30원/1k):
+        //   ceil(1,000,000/1k)*10 + ceil(502,300/1k)*30 = 10,000 + 15,090 = 25,090.
+        assertThat(result.directionalAmountKrw()).isEqualTo(25_090L);
         assertThat(result.quotaStatus()).isEqualTo(QuotaStatus.OVER);
         assertThat(result.departments()).hasSize(2);
         assertThat(result.departments().get(0).teamId()).isEqualTo(10L);
         assertThat(result.departments().get(0).usedTokens()).isEqualTo(1_000L);
-        assertThat(result.departments().get(0).estimatedAmountKrw()).isEqualTo(20L);
+        // 부서 금액도 방향 차등: 입력 1,000·출력 0 → ceil(1,000/1k)*10 = 10.
+        assertThat(result.departments().get(0).estimatedAmountKrw()).isEqualTo(10L);
     }
 
     @Test
@@ -92,8 +100,9 @@ class MeteringDashboardServiceTest {
                                 .isEqualTo(MeteringErrorCode.MT_PERIOD_INVALID));
     }
 
+    // overage 총량 단가 20, 방향 단가 입력 10·출력 30 — 방향 차등이 총량과 다른 금액을 내는지 본다.
     private static CompanyTokenPlan plan() {
-        return CompanyTokenPlan.restore(1L, COMPANY, "STANDARD", 1_500_000L, 150_000, 20,
+        return CompanyTokenPlan.restore(1L, COMPANY, "STANDARD", 1_500_000L, 150_000, 20, 10, 30,
                 LocalDate.of(2026, 1, 1));
     }
 

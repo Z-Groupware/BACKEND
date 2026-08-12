@@ -10,6 +10,8 @@ public record CompanyTokenPlanResponse(
         long monthlyTokenPool,
         int baseFee,
         int tokenOveragePricePer1k,
+        int inputTokenPricePer1k,
+        int outputTokenPricePer1k,
         LocalDate effectiveFrom
 ) {
 
@@ -20,6 +22,8 @@ public record CompanyTokenPlanResponse(
                 result.monthlyTokenPool(),
                 result.baseFee(),
                 result.tokenOveragePricePer1k(),
+                result.inputTokenPricePer1k(),
+                result.outputTokenPricePer1k(),
                 result.effectiveFrom()
         );
     }

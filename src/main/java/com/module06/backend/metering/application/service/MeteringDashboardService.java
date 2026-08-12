@@ -47,13 +47,17 @@ public class MeteringDashboardService implements GetMeteringDashboardUseCase {
         PeriodBounds bounds = bounds(yearMonth);
         CompanyTokenPlan plan = findPlan(principal.companyId());
         long usedTokens = tokenUsageRecordRepository.sumTotalTokens(principal.companyId(), bounds.start(), bounds.end());
+        TokenUsageRecordRepository.DirectionUsageAggregate direction =
+                tokenUsageRecordRepository.sumDirectionTokens(principal.companyId(), bounds.start(), bounds.end());
+        // 부서별 금액도 방향 차등 단가로 계산한다 — 총량 단일 단가와 달리 입력·출력 비중이
+        // 다른 부서가 서로 다른 원가 구조로 청구된다.
         List<DepartmentUsageResult> departments = tokenUsageRecordRepository
                 .sumTotalTokensByDepartment(principal.companyId(), bounds.start(), bounds.end())
                 .stream()
                 .map(usage -> new DepartmentUsageResult(
                         usage.teamId(),
                         usage.usedTokens(),
-                        plan.usageAmountKrw(usage.usedTokens())))
+                        plan.usageAmountKrw(usage.inputTokens(), usage.outputTokens())))
                 .toList();
 
         return new MeteringDashboardResult(
@@ -62,6 +66,7 @@ public class MeteringDashboardService implements GetMeteringDashboardUseCase {
                 plan.getMonthlyTokenPool(),
                 plan.overageTokens(usedTokens),
                 plan.estimatedAmountKrw(usedTokens),
+                plan.usageAmountKrw(direction.inputTokens(), direction.outputTokens()),
                 plan.quotaStatus(usedTokens),
                 departments
         );
