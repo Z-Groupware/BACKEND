@@ -42,7 +42,11 @@ public interface MemberDirectoryQueryPort {
             MemberStatus status,
             LocalDate joinedOn,
             /** status 가 WAITING 일 때만 채워진다 — 어느 쪽 대기인지(§7-1). 그 외에는 null. */
-            PendingHandoverType pendingType
+            PendingHandoverType pendingType,
+            /** status 가 VACATION 일 때만 채워진다 — 승인된 휴직의 시작일. 그 외에는 null. */
+            LocalDate leaveStartDate,
+            /** status 가 VACATION 일 때만 채워진다 — 승인된 휴직의 종료일. 그 외에는 null. */
+            LocalDate leaveEndDate
     ) {
     }
 }

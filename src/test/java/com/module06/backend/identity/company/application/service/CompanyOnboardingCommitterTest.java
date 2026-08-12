@@ -510,7 +510,7 @@ class CompanyOnboardingCommitterTest {
             for (int i = 0; i < currentSeats; i++) {
                 rows.add(new MemberRow((long) i, "기존" + i, "existing" + i + "@company.com", null, null,
                         null, null, null, Authority.MEMBER, false, MemberStatus.ACTIVE,
-                        LocalDate.now(), null));
+                        LocalDate.now(), null, null, null));
             }
             return rows;
         }

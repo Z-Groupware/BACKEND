@@ -38,9 +38,13 @@ import com.module06.backend.identity.member.application.dto.MemberPage;
 import com.module06.backend.identity.member.application.dto.OrgChartMember;
 import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
+import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
 import com.module06.backend.identity.member.domain.model.Authority;
@@ -71,6 +75,10 @@ class MemberControllerTest {
     private UpdateMemberRoleUseCase updateMemberRoleUseCase;
     @MockitoBean
     private UpdateMemberAdminUseCase updateMemberAdminUseCase;
+    @MockitoBean
+    private GetMemberDashboardSummaryUseCase getMemberDashboardSummaryUseCase;
+    @MockitoBean
+    private GetTeamLeadersStatusUseCase getTeamLeadersStatusUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -163,6 +171,68 @@ class MemberControllerTest {
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].name").value("이하윤"))
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].positionName").value("선임"))
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].role").value("MEMBER"));
+    }
+
+    /* ── 오너 대시보드 ─────────────────────────────────────────────────────── */
+
+    @Test
+    @DisplayName("인원 요약 응답 키 — totalMemberCount·onLeaveMemberCount 둘뿐이다")
+    void dashboardSummaryResponseKeys() throws Exception {
+        authenticateAs(1L);
+        when(getMemberDashboardSummaryUseCase.getDashboardSummary(1L))
+                .thenReturn(new MemberDashboardSummary(24L, 2L));
+
+        mockMvc.perform(get("/api/members/dashboard-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalMemberCount").value(24))
+                .andExpect(jsonPath("$.data.onLeaveMemberCount").value(2));
+    }
+
+    /*
+     * 휴직 기간은 "8월 1일~15일" 같은 완성된 문자열이 아니라 ISO 날짜 원자값이어야 한다 — 표시
+     * 포맷은 프론트 몫이라, 여기서 문자열로 바뀌면 포맷을 바꿀 때마다 이 API 를 다시 건드리게 된다.
+     */
+    @Test
+    @DisplayName("팀장 현황 응답 키 8개 — 휴직 기간은 ISO 날짜고, 재직 중이면 둘 다 null 이다")
+    void leadersStatusResponseKeys() throws Exception {
+        authenticateAs(1L);
+        when(getTeamLeadersStatusUseCase.getTeamLeadersStatus(1L)).thenReturn(List.of(
+                new TeamLeaderStatus(12L, "김서준", "seojun.kim@zteam.io", 2L, "개발팀",
+                        MemberStatus.ACTIVE, null, null),
+                new TeamLeaderStatus(31L, "강서연", "seoyeon.kang@zteam.io", 5L, "디자인팀",
+                        MemberStatus.VACATION, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 15))));
+
+        mockMvc.perform(get("/api/members/leaders-status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].memberId").value(12))
+                .andExpect(jsonPath("$.data[0].name").value("김서준"))
+                .andExpect(jsonPath("$.data[0].email").value("seojun.kim@zteam.io"))
+                .andExpect(jsonPath("$.data[0].teamId").value(2))
+                .andExpect(jsonPath("$.data[0].teamName").value("개발팀"))
+                .andExpect(jsonPath("$.data[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[0].leaveStartDate").doesNotExist())
+                .andExpect(jsonPath("$.data[0].leaveEndDate").doesNotExist())
+                .andExpect(jsonPath("$.data[1].status").value("VACATION"))
+                .andExpect(jsonPath("$.data[1].leaveStartDate").value("2026-08-01"))
+                .andExpect(jsonPath("$.data[1].leaveEndDate").value("2026-08-15"));
+    }
+
+    /*
+     * 두 경로가 상세 조회의 {memberId} 에 먹히면 안 된다. 먹히면 memberId 를 Long 으로 못 바꿔
+     * 400 이 나가는데, 화면에서는 "대시보드가 가끔 안 뜬다"로만 보여 원인을 찾기 어렵다.
+     */
+    @Test
+    @DisplayName("대시보드 경로는 상세 조회의 {memberId} 로 빨려들어가지 않는다")
+    void dashboardPathsAreNotTreatedAsMemberId() throws Exception {
+        authenticateAs(1L);
+        when(getMemberDashboardSummaryUseCase.getDashboardSummary(1L))
+                .thenReturn(new MemberDashboardSummary(0L, 0L));
+        when(getTeamLeadersStatusUseCase.getTeamLeadersStatus(1L)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/members/dashboard-summary")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/members/leaders-status")).andExpect(status().isOk());
+
+        verify(getMemberDetailUseCase, never()).getDetail(anyLong(), anyLong());
     }
 
     /* ── 상세 · 역할변경 · 어드민토글 ─────────────────────────────────────────── */

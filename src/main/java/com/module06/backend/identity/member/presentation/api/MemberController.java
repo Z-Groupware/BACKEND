@@ -28,16 +28,21 @@ import com.module06.backend.identity.member.application.dto.MemberDetail;
 import com.module06.backend.identity.member.application.dto.MemberListFilter;
 import com.module06.backend.identity.member.application.dto.MemberPage;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
 import com.module06.backend.identity.member.presentation.api.dto.request.UpdateMemberAdminRequest;
 import com.module06.backend.identity.member.presentation.api.dto.request.UpdateMemberRoleRequest;
+import com.module06.backend.identity.member.presentation.api.dto.response.MemberDashboardSummaryResponse;
 import com.module06.backend.identity.member.presentation.api.dto.response.MemberDetailResponse;
 import com.module06.backend.identity.member.presentation.api.dto.response.MemberPageResponse;
 import com.module06.backend.identity.member.presentation.api.dto.response.OrgChartTeamResponse;
+import com.module06.backend.identity.member.presentation.api.dto.response.TeamLeaderStatusResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -51,6 +56,8 @@ public class MemberController {
     private final GetMembersUseCase getMembersUseCase;
     private final GetMemberOrgChartUseCase getMemberOrgChartUseCase;
     private final GetMemberDetailUseCase getMemberDetailUseCase;
+    private final GetMemberDashboardSummaryUseCase getMemberDashboardSummaryUseCase;
+    private final GetTeamLeadersStatusUseCase getTeamLeadersStatusUseCase;
     private final UpdateMemberRoleUseCase updateMemberRoleUseCase;
     private final UpdateMemberAdminUseCase updateMemberAdminUseCase;
 
@@ -76,6 +83,28 @@ public class MemberController {
                 .map(OrgChartTeamResponse::from)
                 .toList();
         return ApiResponse.success("조직도를 조회했습니다", response);
+    }
+
+    /** 오너 대시보드 KPI 카드 뒤 2개(전체 사원·휴직자). 앞 2개는 project 도메인이 낸다. */
+    @GetMapping("/dashboard-summary")
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<MemberDashboardSummaryResponse> dashboardSummary(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId) {
+        MemberDashboardSummary summary = getMemberDashboardSummaryUseCase.getDashboardSummary(companyId);
+        return ApiResponse.success("대시보드 인원 요약을 조회했습니다", MemberDashboardSummaryResponse.from(summary));
+    }
+
+    /** 오너 대시보드 "팀장 현황" 테이블 — 팀마다 팀장 1행. 리더가 공석인 팀은 행이 빠진다. */
+    @GetMapping("/leaders-status")
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<List<TeamLeaderStatusResponse>> leadersStatus(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId) {
+        List<TeamLeaderStatusResponse> response = getTeamLeadersStatusUseCase.getTeamLeadersStatus(companyId).stream()
+                .map(TeamLeaderStatusResponse::from)
+                .toList();
+        return ApiResponse.success("팀장 현황을 조회했습니다", response);
     }
 
     @GetMapping("/{memberId}")
