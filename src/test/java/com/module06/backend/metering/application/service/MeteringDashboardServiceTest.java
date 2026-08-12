@@ -138,6 +138,9 @@ class MeteringDashboardServiceTest {
         when(companyTokenPlanRepository.findByCompanyId(OTHER_COMPANY)).thenReturn(Optional.of(plan()));
         when(tokenUsageRecordRepository.sumTotalTokens(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
                 .thenReturn(1_000L);
+        // 방향 합계도 집계 경로다 — 안 채우면 서비스가 null 을 받는다(입력 600 · 출력 400, 합 = 총량).
+        when(tokenUsageRecordRepository.sumDirectionTokens(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
+                .thenReturn(new TokenUsageRecordRepository.DirectionUsageAggregate(600L, 400L));
         when(tokenUsageRecordRepository.sumTotalTokensByDepartment(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
                 .thenReturn(List.of());
 
@@ -147,6 +150,8 @@ class MeteringDashboardServiceTest {
         // 남의 회사 사용량은 한 번도 집계하지 않는다.
         verify(tokenUsageRecordRepository, never())
                 .sumTotalTokens(eq(COMPANY), any(), any());
+        verify(tokenUsageRecordRepository, never())
+                .sumDirectionTokens(eq(COMPANY), any(), any());
         verify(tokenUsageRecordRepository, never())
                 .sumTotalTokensByDepartment(eq(COMPANY), any(), any());
         verify(companyTokenPlanRepository, never()).findByCompanyId(COMPANY);

@@ -137,7 +137,7 @@ class CompanyTokenPlanServiceTest {
         when(companyTokenPlanRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.setPlan(otherCompanyOwner(),
-                new SetCompanyTokenPlanCommand(null, 1_500_000L, 150_000, 20, null));
+                new SetCompanyTokenPlanCommand(null, 1_500_000L, 150_000, 20, null, null, null));
 
         ArgumentCaptor<CompanyTokenPlan> captor = ArgumentCaptor.forClass(CompanyTokenPlan.class);
         verify(companyTokenPlanRepository).save(captor.capture());
