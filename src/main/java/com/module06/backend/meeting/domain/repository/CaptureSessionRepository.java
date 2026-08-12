@@ -16,8 +16,8 @@ public interface CaptureSessionRepository {
     /* 회사 범위의 회의를 잠그고 host·상태·예약 참석자 명단을 포함해 조회한다. */
     Optional<Meeting> findMeetingForStart(Long companyId, Long meetingId);
 
-    /* 해당 회의에 이미 생성된 캡처 세션이 있는지 확인한다. */
-    boolean existsByMeetingId(Long meetingId);
+    /* 회의당 하나인 기존 캡처 세션을 조회해 CAP-01 재호출을 멱등 처리한다. */
+    Optional<CaptureSession> findByMeetingId(Long meetingId);
 
     /* 녹음 시작과 함께 IN_PROGRESS로 전이된 회의 상태를 같은 트랜잭션에 저장한다. */
     Meeting saveMeetingState(Meeting meeting);

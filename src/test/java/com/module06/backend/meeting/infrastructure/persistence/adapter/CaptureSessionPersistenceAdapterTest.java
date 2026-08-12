@@ -445,7 +445,7 @@ class CaptureSessionPersistenceAdapterTest {
 
     /* 같은 회의에 동시에 들어온 두 시작 요청이 하나의 세션만 만드는지 검증한다. */
     @Test
-    @DisplayName("동일 회의 동시 시작은 성공 1건과 CS-002 1건으로 직렬화한다")
+    @DisplayName("동일 회의 동시 시작은 같은 ACTIVE 세션으로 멱등 수렴한다")
     void allowsOnlyOneConcurrentCaptureSessionStart() throws Exception {
         /* 두 스레드가 공유할 예약 회의를 먼저 커밋해 상태 전이까지 경쟁하게 한다. */
         Meeting meeting = saveScheduledMeeting();
@@ -471,9 +471,9 @@ class CaptureSessionPersistenceAdapterTest {
         assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
         start.countDown();
 
-        /* meeting 행 잠금과 UNIQUE 제약으로 한 요청만 성공하고 다른 요청은 CS-002가 돼야 한다. */
+        /* meeting 행 잠금 뒤 두 요청 모두 최초 ACTIVE 세션을 성공 응답으로 받아야 한다. */
         assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
-                .containsExactlyInAnyOrder("SUCCESS", "CS-002");
+                .containsExactly("SUCCESS", "SUCCESS");
 
         /* 경합이 끝난 뒤 실제 캡처 세션 행도 정확히 하나만 남아야 한다. */
         assertThat(springDataCaptureSessionRepository.count()).isEqualTo(1L);

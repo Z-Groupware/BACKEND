@@ -54,11 +54,8 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
                     .findMeeting(command.companyId(), command.meetingId())
                     .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
 
-            /* 불필요한 B 호출 전에 사전 스냅샷으로 host·상태·기존 세션을 빠르게 검증한다. */
+            /* 불필요한 B 호출 전에 사전 스냅샷으로 host와 종료 상태를 빠르게 검증한다. */
             validateHostAndStatus(meeting, command.requesterMemberId());
-            if (captureSessionRepository.existsByMeetingId(meeting.getId())) {
-                throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_ALREADY_EXISTS);
-            }
 
             /* 잠금 밖에서 B 원본 이름과 명단 외 sentinel을 합쳐 닫힌 roster를 만든다. */
             List<RosterEntry> roster = createRoster(

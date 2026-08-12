@@ -13,7 +13,9 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.domain.model.CaptureSession;
+import com.module06.backend.meeting.domain.model.CaptureSessionStatus;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingEntryPolicy;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.exception.CaptureSessionErrorCode;
@@ -53,14 +55,36 @@ public class CaptureSessionCreationService {
             throw new CaptureSessionRosterChangedException();
         }
 
-        /* 사용자 친화적 오류를 먼저 반환하되 최종 중복 방지는 DB UNIQUE 제약에 맡긴다. */
-        if (captureSessionRepository.existsByMeetingId(meeting.getId())) {
+        /* 재접속 또는 동시 재호출이면 기존 ACTIVE 세션과 최초 시간축을 그대로 반환한다. */
+        CaptureSession existingSession = captureSessionRepository.findByMeetingId(meeting.getId())
+                .orElse(null);
+        if (existingSession != null) {
+            /* PAUSED 세션은 CAP-03으로 재개해야 하므로 CAP-01 멱등 반환 대상에서 제외한다. */
+            if (existingSession.getStatus() == CaptureSessionStatus.ACTIVE) {
+                return existingSession;
+            }
             throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_ALREADY_EXISTS);
         }
 
         /* 회의 시작 일시와 세션 epoch가 어긋나지 않도록 서버 순간을 한 번만 읽는다. */
         Instant startedInstant = clock.instant();
         LocalDateTime startedAt = LocalDateTime.ofInstant(startedInstant, clock.getZone());
+
+        /* 새 SCHEDULED 회의는 기존 입장 정책과 같은 예약 시간 창 안에서만 녹음을 시작한다. */
+        if (meeting.getStatus() == MeetingStatus.SCHEDULED
+                && !MeetingEntryPolicy.isEntryAvailable(
+                        meeting.getStartAt(),
+                        meeting.getEndAt(),
+                        startedAt
+                )) {
+            /* 너무 이른 시작과 예약 종료 뒤의 시작을 기존 공개 오류 계약으로 구분한다. */
+            if (startedAt.isBefore(meeting.getStartAt().minusMinutes(
+                    MeetingEntryPolicy.EARLY_ENTRY_MINUTES
+            ))) {
+                throw new BusinessException(MeetingErrorCode.ENTRY_NOT_AVAILABLE);
+            }
+            throw new BusinessException(MeetingErrorCode.MEETING_ALREADY_DONE);
+        }
 
         /* SCHEDULED 회의를 동일한 시작 시각으로 IN_PROGRESS 전이하고 먼저 영속화한다. */
         Meeting startedMeeting = meeting.enter(startedAt);

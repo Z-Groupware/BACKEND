@@ -77,13 +77,6 @@ public class CaptureSessionPersistenceAdapter implements
                 ));
     }
 
-    /* 해당 회의의 캡처 세션 존재 여부를 파생 쿼리로 조회한다. */
-    @Override
-    public boolean existsByMeetingId(Long meetingId) {
-        /* 빠른 사용자 오류 반환을 위한 사전 검사이며 최종 보장은 UNIQUE 제약이 담당한다. */
-        return springDataCaptureSessionRepository.existsByMeetingId(meetingId);
-    }
-
     /* 녹음 시작으로 바뀐 회의 상태와 startedAt을 캡처 세션 INSERT와 같은 트랜잭션에 저장한다. */
     @Override
     public Meeting saveMeetingState(Meeting meeting) {
