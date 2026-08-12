@@ -139,7 +139,7 @@ class CaptureQueryServiceTest {
     private CapCaptureSessionReferenceRepository session(Long sessionId) {
         return new CapCaptureSessionReferenceRepository() {
             @Override
-            public boolean isPaused(Long meetingId) {
+            public Optional<String> findStatus(Long meetingId) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
 
@@ -154,8 +154,8 @@ class CaptureQueryServiceTest {
     private CapCaptureSessionReferenceRepository noSession() {
         return new CapCaptureSessionReferenceRepository() {
             @Override
-            public boolean isPaused(Long meetingId) {
-                return false;
+            public Optional<String> findStatus(Long meetingId) {
+                return Optional.empty();
             }
 
             @Override

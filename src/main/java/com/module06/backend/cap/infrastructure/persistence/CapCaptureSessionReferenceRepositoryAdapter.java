@@ -18,10 +18,9 @@ public class CapCaptureSessionReferenceRepositoryAdapter implements CapCaptureSe
     private final SpringDataCapCaptureSessionReferenceRepository springDataCapCaptureSessionReferenceRepository;
 
     @Override
-    public boolean isPaused(Long meetingId) {
+    public Optional<String> findStatus(Long meetingId) {
         return springDataCapCaptureSessionReferenceRepository.findByMeetingId(meetingId)
-                .map(view -> "PAUSED".equals(view.getStatus()))
-                .orElse(false);
+                .map(SpringDataCapCaptureSessionReferenceRepository.SessionView::getStatus);
     }
 
     @Override
