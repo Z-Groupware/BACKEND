@@ -44,6 +44,17 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
      *
      * 어느 상태가 "미완"인지는 어댑터가 정한다(countByMeetingIdAndStatusIn 과 같은 규칙).
      */
+    // TENANT_001 승인: 호출 경로가 SttBlockPersistenceAdapter.findMeetingsWithUnfinishedBlocks
+    // 하나뿐이고, 그 위의 MeetingSummaryQueryService.findSummaryStatuses(:105) 가 이미
+    // meetingAccessPort.filterInCompany(companyId, meetingIds) 로 남의 회사 회의를 떨어낸 뒤
+    // accessible → targets(:120) → notStarted(:129) 로 좁혀 넘긴다. 이 메서드에 도달하는
+    // meetingId 는 전부 요청 회사 것이다(같은 서비스 :59-60 에 "analysis_layer 에 company_id 가
+    // 없어서 이 단계를 건너뛰면 회사 경계가 아예 없다"고 적혀 있는 그 필터다).
+    //
+    // ⚠ 이 근거는 호출 경로가 하나라는 데 기댄다. 포트(SttBlockRepository:65)가 companyId 를
+    // 받지 않으므로 새 호출자가 필터 없이 부를 수 있다 — 진입점이 늘어나면 포트가 companyId 를
+    // 받는 형태로 바꿀 것.
+    // nosemgrep: review-loop.semgrep.tenant-derived-query-without-company-scope
     List<MeetingIdView> findByMeetingIdInAndStatusIn(
             Collection<Long> meetingIds, Collection<SttBlockStatus> statuses);
 
