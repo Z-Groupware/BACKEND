@@ -235,6 +235,7 @@ class ActionDistributionServiceTest {
                 action.getDescription(),
                 action.isDone(),
                 action.getStartDate(),
+                action.getPlannedStartDate(),
                 action.getDueDate(),
                 action.isDueDateDefaulted(),
                 action.getReviewStatus(),

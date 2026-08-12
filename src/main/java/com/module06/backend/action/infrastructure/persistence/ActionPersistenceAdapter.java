@@ -446,6 +446,7 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .status(action.getStatus())
                 .isDone(action.isDone())
                 .startDate(action.getStartDate())
+                .plannedStartDate(action.getPlannedStartDate())
                 .dueDate(action.getDueDate())
                 .dueDateDefaulted(action.isDueDateDefaulted())
                 .reviewStatus(action.getReviewStatus())
@@ -471,6 +472,7 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 entity.getDescription(),
                 entity.isDone(),
                 entity.getStartDate(),
+                entity.getPlannedStartDate(),
                 entity.getDueDate(),
                 entity.isDueDateDefaulted(),
                 entity.getReviewStatus(),

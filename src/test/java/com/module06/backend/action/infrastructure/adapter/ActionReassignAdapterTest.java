@@ -100,7 +100,7 @@ class ActionReassignAdapterTest {
     private Action personalAction(Long assigneeMemberId) {
         return Action.reconstitute(
                 ACTION_ID, 1L, 100L, null, null, null, assigneeMemberId,
-                ActionType.PERSONAL, "액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
+                ActionType.PERSONAL, "액션", "설명", false, null, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );

@@ -637,7 +637,7 @@ class ActionServiceTest {
         LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
         return Action.reconstitute(
                 id, companyId, projectId, null, sourceMeetingId, teamId, null,
-                ActionType.TEAM, "팀 액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
+                ActionType.TEAM, "팀 액션 " + id, "설명", isDone, startDate, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );
@@ -654,7 +654,7 @@ class ActionServiceTest {
         LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
         return Action.reconstitute(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                ActionType.PERSONAL, "액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
+                ActionType.PERSONAL, "액션 " + id, "설명", isDone, startDate, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );
