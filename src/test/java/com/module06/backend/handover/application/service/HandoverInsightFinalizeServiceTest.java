@@ -132,7 +132,7 @@ class HandoverInsightFinalizeServiceTest {
         public List<HandoverableAction> findHandoverableActions(Long fromMemberId) {
             assertThat(fromMemberId).isEqualTo(DEPARTURE_MEMBER_ID);
             return List.of(new HandoverableAction(100L, "Personal action", "PRJ", 101L, "PERSONAL", "TODO",
-                    null, null, 1002L, "Review", "Description"));
+                    null, null, 1002L, "Review", "Description", "Parent Team Action", null));
         }
 
         @Override

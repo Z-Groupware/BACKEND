@@ -1,5 +1,7 @@
 package com.module06.backend.cap.infrastructure.persistence;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Component;
 
 import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepository;
@@ -16,9 +18,14 @@ public class CapCaptureSessionReferenceRepositoryAdapter implements CapCaptureSe
     private final SpringDataCapCaptureSessionReferenceRepository springDataCapCaptureSessionReferenceRepository;
 
     @Override
-    public boolean isPaused(Long meetingId) {
+    public Optional<String> findStatus(Long meetingId) {
         return springDataCapCaptureSessionReferenceRepository.findByMeetingId(meetingId)
-                .map(view -> "PAUSED".equals(view.getStatus()))
-                .orElse(false);
+                .map(SpringDataCapCaptureSessionReferenceRepository.SessionView::getStatus);
+    }
+
+    @Override
+    public Optional<Long> findSessionId(Long meetingId) {
+        return springDataCapCaptureSessionReferenceRepository.findByMeetingId(meetingId)
+                .map(SpringDataCapCaptureSessionReferenceRepository.SessionView::getId);
     }
 }

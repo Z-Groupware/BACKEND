@@ -27,8 +27,10 @@ import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.application.usecase.CreateMeetingUseCase;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingAgenda;
 import com.module06.backend.meeting.domain.model.MeetingSlotGrid;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
+import com.module06.backend.meeting.domain.repository.MeetingTopicRepository;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 import com.module06.backend.project.exception.ProjectErrorCode;
@@ -45,6 +47,9 @@ public class MeetingService implements CreateMeetingUseCase {
 
     /* 회의와 슬롯, 참석자를 원자적으로 저장하는 도메인 저장소다. */
     private final MeetingRepository meetingRepository;
+
+    /* 저장된 회의 아래에 MAIN·SUB 안건 계층을 저장하는 도메인 저장소다. */
+    private final MeetingTopicRepository meetingTopicRepository;
 
     /* 활성 회의실과 이용 가능 시간을 조회하는 D도메인 내부 포트다. */
     private final MeetingRoomQueryPort meetingRoomQueryPort;
@@ -75,6 +80,13 @@ public class MeetingService implements CreateMeetingUseCase {
     public MeetingCreationResult createMeeting(CreateMeetingCommand command) {
         /* Controller 밖에서 호출돼도 필수 계약이 깨지지 않도록 기본 입력을 재검증한다. */
         validateRequiredValues(command);
+
+        /* 역할별 상위 팀 액션 규칙과 host 외 참석자 최소 인원을 외부 조회 전에 검증한다. */
+        validateRelatedActionPolicy(command.hostRole(), command.relatedActionId());
+        validateInvitedAttendees(command.hostMemberId(), command.attendeeMemberIds());
+
+        /* 대주제와 소주제 계약을 검증하고 저장에 사용할 불변 안건 묶음을 만든다. */
+        MeetingAgenda agenda = MeetingAgenda.create(command.mainTopic(), command.subTopics());
 
         /* 시간 자체의 순서와 30분 그리드, 과거 예약 여부를 먼저 검증한다. */
         validateTime(command.startAt(), command.endAt());
@@ -120,6 +132,9 @@ public class MeetingService implements CreateMeetingUseCase {
         /* 슬롯 PK 충돌이 발생하면 저장소가 MT-002로 변환하고 전체 트랜잭션이 롤백된다. */
         Meeting savedMeeting = meetingRepository.saveReservation(meeting);
 
+        /* 회의와 MAIN·SUB 안건은 같은 트랜잭션으로 묶여 어느 한쪽만 커밋되지 않게 한다. */
+        meetingTopicRepository.saveAgenda(savedMeeting.getId(), agenda);
+
         /* 커밋 후 알림 소비자가 처리할 예약 완료 이벤트를 발행한다. */
         meetingEventPublisher.publish(new MeetingReservedEvent(
                 savedMeeting.getId(),
@@ -142,6 +157,8 @@ public class MeetingService implements CreateMeetingUseCase {
         if (command == null
                 || command.companyId() == null
                 || command.hostMemberId() == null
+                || command.hostRole() == null
+                || command.hostRole().isBlank()
                 || command.projectId() == null
                 || command.meetingRoomId() == null
                 || command.title() == null
@@ -150,6 +167,28 @@ public class MeetingService implements CreateMeetingUseCase {
                 || command.endAt() == null
                 || command.attendeeMemberIds() == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+        }
+    }
+
+    /* OWNER와 그 외 역할의 상위 팀 액션 입력 규칙을 검증한다. */
+    private void validateRelatedActionPolicy(String hostRole, Long relatedActionId) {
+        /* OWNER는 상위 팀 액션을 지정할 수 없고 다른 역할은 반드시 지정해야 한다. */
+        boolean ownerWithAction = "OWNER".equals(hostRole) && relatedActionId != null;
+        boolean nonOwnerWithoutAction = !"OWNER".equals(hostRole) && relatedActionId == null;
+        if (ownerWithAction || nonOwnerWithoutAction) {
+            throw new BusinessException(MeetingErrorCode.INVALID_RELATED_ACTION_POLICY);
+        }
+    }
+
+    /* 개설자를 제외하고 실제 초대된 참석자가 한 명 이상인지 검증한다. */
+    private void validateInvitedAttendees(Long hostMemberId, List<Long> attendeeMemberIds) {
+        /* host 중복 입력은 자동 제거되므로 host가 아닌 서로 다른 식별자를 기준으로 센다. */
+        long invitedAttendeeCount = attendeeMemberIds.stream()
+                .filter(memberId -> !hostMemberId.equals(memberId))
+                .distinct()
+                .count();
+        if (invitedAttendeeCount < 1) {
+            throw new BusinessException(MeetingErrorCode.MEETING_ATTENDEE_REQUIRED);
         }
     }
 

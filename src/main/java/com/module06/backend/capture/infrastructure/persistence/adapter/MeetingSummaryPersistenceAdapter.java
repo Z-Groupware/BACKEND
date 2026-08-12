@@ -112,6 +112,35 @@ public class MeetingSummaryPersistenceAdapter implements MeetingSummaryRepositor
         return applied;
     }
 
+    /*
+     * 개요 문장만 덮는다(OVERVIEW 계층).
+     *
+     * 회사 스코프를 **조회 조건에** 넣는다(findByMeeting 과 같은 규칙). replace 는 companyId 를
+     * 받아 새 행을 만들 때만 쓰고 조회는 meetingId 로만 하는데, 이쪽은 새 행을 만들 일이 없으니
+     * 조건에 넣는 쪽이 맞다 — 남의 회사 요약의 개요를 덮는 경로를 남기지 않는다.
+     *
+     * 자식(meeting_decision)은 손대지 않는다. 그게 replace 와 갈리는 지점이고 이 메서드가 있는
+     * 이유다(포트 주석).
+     */
+    @Override
+    @Transactional
+    public boolean replaceOverview(long companyId, long meetingId, String overview,
+                                   String modelName, String promptVersion) {
+        return summaryRepository.findByMeetingIdAndCompanyId(meetingId, companyId)
+                .map(summary -> {
+                    /*
+                     * overwrite 가 아니라 overwriteOverview 다. 그쪽은 편집 이력(edited_at ·
+                     * edited_by_member_id)을 null 로 지우는데, 여기서 지우면 사람이 고친 항목은
+                     * 그대로 남아 있는 채로 화면이 「AI 원본 그대로」라고 말한다
+                     * (CodeRabbit PR #398).
+                     */
+                    summary.overwriteOverview(overview, modelName, promptVersion);
+                    summaryRepository.save(summary);
+                    return true;
+                })
+                .orElse(false);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public Optional<MeetingSummaryView> findByMeeting(long companyId, long meetingId) {

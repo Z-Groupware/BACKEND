@@ -1,0 +1,11 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: slack-alerts
+    receivers:
+      - uid: slack-webhook-1
+        type: slack
+        settings:
+          url: $__env{SLACK_WEBHOOK_URL}
+        disableResolveMessage: false

@@ -22,6 +22,9 @@ public class TeamPersistenceAdapter implements TeamRepository {
     /* 회사 안 부서 이름 유일성을 최종 차단하는 데이터베이스 제약 이름이다(V2.3.16). */
     private static final String TEAM_NAME_UNIQUE_CONSTRAINT = "UK_TEAM_COMPANY_NAME";
 
+    /* 한 사람이 두 부서의 팀장이 되는 것을 최종 차단하는 데이터베이스 제약 이름이다(V2.2.6). */
+    private static final String TEAM_LEADER_MEMBER_UNIQUE_CONSTRAINT = "UK_TEAM_LEADER_MEMBER";
+
     private final SpringDataTeamRepository repository;
 
     @Override
@@ -100,12 +103,34 @@ public class TeamPersistenceAdapter implements TeamRepository {
         return false;
     }
 
+    /**
+     * {@code rename} 과 같은 이유로 {@code @Transactional} 이 붙고, 같은 이유로 여기서 flush 한다.
+     *
+     * <p>flush 가 없으면 이 UPDATE 가 커밋 시점에야 나간다. 온보딩 커밋(§4-1)에서 이 메서드는
+     * 마지막 초대까지 처리한 뒤 호출되는데, 그 자리는 모든 try/catch 바깥이라 제약 위반이
+     * 나도 아무도 잡지 못하고 그대로 500(Z-003)이 된다. 메서드 경계에서 flush 해
+     * {@code UK_TEAM_LEADER_MEMBER}(V2.2.6 — 한 사람이 두 부서의 팀장이 될 수 없다) 위반을
+     * 공개 계약인 에러 코드로 바꾼다.
+     */
     @Override
     @Transactional
     public void updateLeader(Long id, Long leaderMemberId) {
         TeamJpaEntity entity = repository.findById(id)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.TEAM_NOT_FOUND));
         entity.updateLeader(leaderMemberId);
+        try {
+            repository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw translateLeaderDuplicate(exception);
+        }
+    }
+
+    /* 팀장 참조 유일성 위반만 §7 과 같은 AU-029 로 변환하고 다른 무결성 오류는 숨기지 않는다. */
+    private RuntimeException translateLeaderDuplicate(DataIntegrityViolationException exception) {
+        if (containsConstraintName(exception, TEAM_LEADER_MEMBER_UNIQUE_CONSTRAINT)) {
+            return new BusinessException(AuthErrorCode.MEMBER_TEAM_LEADER_ALREADY_EXISTS, exception);
+        }
+        return exception;
     }
 
     @Override

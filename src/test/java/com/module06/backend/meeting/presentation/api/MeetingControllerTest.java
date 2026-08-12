@@ -12,7 +12,6 @@ import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.application.usecase.CreateMeetingUseCase;
-import com.module06.backend.meeting.application.usecase.EnterMeetingUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.presentation.api.request.CreateMeetingRequest;
 import com.module06.backend.meeting.presentation.api.response.CreateMeetingResponse;
@@ -22,11 +21,6 @@ import com.module06.backend.meeting.presentation.api.response.CreateMeetingRespo
  */
 @DisplayName("MEET-01 회의 예약 Controller")
 class MeetingControllerTest {
-
-    /* MEET-01 테스트에서 호출되면 실패하는 MEET-07 입장 유스케이스 대역이다. */
-    private static final EnterMeetingUseCase UNUSED_ENTRY_USE_CASE = command -> {
-        throw new AssertionError("MEET-01 예약에서는 입장 유스케이스를 호출하면 안 됩니다.");
-    };
 
     /* 인증 principal 값과 요청 본문이 유스케이스에 전달되고 응답으로 변환되는지 확인한다. */
     @Test
@@ -40,7 +34,7 @@ class MeetingControllerTest {
             capturedCommand[0] = command;
             return result();
         };
-        MeetingController controller = new MeetingController(useCase, UNUSED_ENTRY_USE_CASE);
+        MeetingController controller = new MeetingController(useCase);
 
         /* 녹음 동의 값을 생략하고 개설자가 없는 참석자 요청을 준비한다. */
         CreateMeetingRequest request = new CreateMeetingRequest(
@@ -51,11 +45,13 @@ class MeetingControllerTest {
                 LocalDateTime.of(2026, 8, 6, 15, 0),
                 null,
                 305L,
-                List.of(7L, 11L)
+                List.of(7L, 11L),
+                "스프린트 진행 상황",
+                List.of("개발 진행률 점검")
         );
 
         /* 인증 principal에서 추출됐다고 가정한 값과 요청 본문으로 API 메서드를 호출한다. */
-        ApiResponse<CreateMeetingResponse> response = controller.createMeeting(10L, 3L, 100L, request);
+        ApiResponse<CreateMeetingResponse> response = controller.createMeeting(10L, 3L, 100L, "LEADER", request);
 
         /* 실제 HTTP 상태 어노테이션과 같은 201 값과 성공 메시지가 래퍼에도 담겨야 한다. */
         assertThat(response.getHttpStatus()).isEqualTo(201);
@@ -65,6 +61,11 @@ class MeetingControllerTest {
         assertThat(capturedCommand[0].companyId()).isEqualTo(10L);
         assertThat(capturedCommand[0].hostMemberId()).isEqualTo(3L);
         assertThat(capturedCommand[0].hostTeamId()).isEqualTo(100L);
+        assertThat(capturedCommand[0].hostRole()).isEqualTo("LEADER");
+
+        /* 회의 개설 화면의 대주제와 소주제가 명령에 그대로 전달돼야 한다. */
+        assertThat(capturedCommand[0].mainTopic()).isEqualTo("스프린트 진행 상황");
+        assertThat(capturedCommand[0].subTopics()).containsExactly("개발 진행률 점검");
 
         /* 생략한 녹음 동의 값은 명세 기본값 false로 전달돼야 한다. */
         assertThat(capturedCommand[0].recordingConsent()).isFalse();

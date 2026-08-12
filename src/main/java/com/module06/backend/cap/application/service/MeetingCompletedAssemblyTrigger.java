@@ -48,20 +48,24 @@ public class MeetingCompletedAssemblyTrigger {
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final RecordingGapChecker gapChecker;
     private final RecordingAssemblyDispatcher recordingAssemblyDispatcher;
+    private final SttBlockCutTrigger sttBlockCutTrigger;
 
     public MeetingCompletedAssemblyTrigger(RecordingRepository recordingRepository,
                                            CaptureUploadStateRepository captureUploadStateRepository,
                                            RecordingGapChecker gapChecker,
-                                           RecordingAssemblyDispatcher recordingAssemblyDispatcher) {
+                                           RecordingAssemblyDispatcher recordingAssemblyDispatcher,
+                                           SttBlockCutTrigger sttBlockCutTrigger) {
         this.recordingRepository = recordingRepository;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.gapChecker = gapChecker;
         this.recordingAssemblyDispatcher = recordingAssemblyDispatcher;
+        this.sttBlockCutTrigger = sttBlockCutTrigger;
     }
 
     @Async("recordingAssemblyTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMeetingCompleted(MeetingCompletionRequestedEvent event) {
+        Long companyId = event.companyId();
         Long meetingId = event.meetingId();
 
         try {
@@ -86,6 +90,18 @@ public class MeetingCompletedAssemblyTrigger {
             if (gapChecker.hasGap(meetingId, lastSegmentSeq, lastSeq)) {
                 log.warn("녹음에 빠진 순번이 있어 자동 조립을 생략한다 — meetingId={}. "
                         + "CAP-05(수동 녹음 종료)로 상태를 확인해야 한다.", meetingId);
+                return;
+            }
+
+            // 조립(parts 삭제)이 청크를 지우기 전에, 마지막 세그먼트의 자투리를 TAIL STT 블록으로
+            // 먼저 마무리한다(동기 호출 — SttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion
+            // 주석 참고). 실패하면(예약 경합·조립 실패) 조립을 진행하지 않는다(CodeRabbit 지적) —
+            // 조립이 곧 recording_part/S3 청크를 지워버려서 실패한 TAIL의 재료까지 함께 사라진다.
+            boolean tailFinalized = sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId, meetingId,
+                    lastSegmentSeq, lastSeq, state.get().getBlocksFormed(), state.get().getLastBlockEndOffsetMs());
+            if (!tailFinalized) {
+                log.warn("자투리(TAIL) 블록 마무리 실패로 자동 조립을 생략한다 — meetingId={}. "
+                        + "CAP-05(수동 녹음 종료)로 재시도해야 한다.", meetingId);
                 return;
             }
 

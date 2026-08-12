@@ -32,6 +32,38 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
     int countByMeetingIdAndStatusIn(long meetingId, Collection<SttBlockStatus> statuses);
 
     /*
+     * 미완 블록이 있는 회의를 배치로 찾는다(MEET-04 요약 상태).
+     *
+     * <h2>엔티티가 아니라 id 만 읽는다</h2>
+     * 필요한 것은 "이 회의에 미완 블록이 있나"뿐이다. 엔티티를 읽으면 회의 20건 × 블록 수만큼
+     * 행이 영속성 컨텍스트에 올라오는데, 그중 어느 필드도 쓰지 않는다.
+     *
+     * <h2>GROUP BY 를 쓰지 않는다</h2>
+     * 파생 쿼리로는 집계를 못 하지만 집계가 필요하지도 않다 — 같은 회의가 여러 행으로 와도
+     * 호출자가 Set 으로 접는다. @Query 를 새로 쓰지 않는 쪽을 고른 것이다(Gate1 QUERY_002).
+     *
+     * 어느 상태가 "미완"인지는 어댑터가 정한다(countByMeetingIdAndStatusIn 과 같은 규칙).
+     */
+    // TENANT_001 승인: 호출 경로가 SttBlockPersistenceAdapter.findMeetingsWithUnfinishedBlocks
+    // 하나뿐이고, 그 위의 MeetingSummaryQueryService.findSummaryStatuses(:105) 가 이미
+    // meetingAccessPort.filterInCompany(companyId, meetingIds) 로 남의 회사 회의를 떨어낸 뒤
+    // accessible → targets(:120) → notStarted(:129) 로 좁혀 넘긴다. 이 메서드에 도달하는
+    // meetingId 는 전부 요청 회사 것이다(같은 서비스 :59-60 에 "analysis_layer 에 company_id 가
+    // 없어서 이 단계를 건너뛰면 회사 경계가 아예 없다"고 적혀 있는 그 필터다).
+    //
+    // ⚠ 이 근거는 호출 경로가 하나라는 데 기댄다. 포트(SttBlockRepository:65)가 companyId 를
+    // 받지 않으므로 새 호출자가 필터 없이 부를 수 있다 — 진입점이 늘어나면 포트가 companyId 를
+    // 받는 형태로 바꿀 것.
+    // nosemgrep: review-loop.semgrep.tenant-derived-query-without-company-scope
+    List<MeetingIdView> findByMeetingIdInAndStatusIn(
+            Collection<Long> meetingIds, Collection<SttBlockStatus> statuses);
+
+    /* 위 조회가 읽는 단 하나의 컬럼. */
+    interface MeetingIdView {
+        Long getMeetingId();
+    }
+
+    /*
      * 재처리 전이 전용 — **조건을 DB 가 판정하게 하고** 쓰기 잠금을 건다.
      *
      * <h2>id 로 찾아 자바에서 비교하면 안 된다</h2>

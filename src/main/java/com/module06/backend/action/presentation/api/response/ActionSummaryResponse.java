@@ -38,6 +38,11 @@ import com.module06.backend.action.domain.model.ActionType;
     해서 int 0으로 defaulting하지 않는다(PERSONAL 액션·타임라인·회의별 조회는 애초에 하위 개념이
     없다). TeamActionListItem 경로는 서비스가 항상 0/0 이상의 실값을 채워 보낸다.
 
+    2026-08-12 — plannedStartDate 추가(이슈 #386, 이태연·홍근 합의). startDate와 달리 상태 파생과
+    완전히 무관한 순수 표시값 — action.getPlannedStartDate()를 모든 경로에서 그대로 노출한다
+    (startDate와 같은 취급, projectTag처럼 경로별로 비우지 않는다). RVW 검토 화면에서 실제로
+    값을 채우는 배선은 별도(capture, 이태연 담당) — 이 PR은 값이 있으면 그대로 보여주는 것까지.
+
     연결된 클래스
     - ActionController · TeamActionController : 이 DTO를 내보내는 진입점
     - ActionService · TeamActionService        : 이 DTO를 만드는 구현체
@@ -50,6 +55,7 @@ public record ActionSummaryResponse(
         String description,
         ActionStatus status,
         LocalDate startDate,
+        LocalDate plannedStartDate,
         LocalDate dueDate,
         boolean needsReview,
         boolean isDelayed,
@@ -126,6 +132,7 @@ public record ActionSummaryResponse(
                 action.getDescription(),
                 action.getStatus(),
                 action.getStartDate(),
+                action.getPlannedStartDate(),
                 action.getDueDate(),
                 action.getReviewStatus() == ActionReviewStatus.PENDING,
                 delayed,

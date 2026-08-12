@@ -191,9 +191,15 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
             if (!reviewable) {
                 continue;
             }
+            /*
+             * plannedStartDate 는 null 이다(마지막 인자). 일괄확정은 "AI 값이 다 맞다"를
+             * 회의 단위로 한 번 누르는 동작이고, 액션마다 예정 시작일을 고르는 자리가 아니다 —
+             * 그건 RVW-02 개별 판정에서 한다. 여기서 임의로 채우면 사람이 정하지 않은 날짜가
+             * 타임라인에 그려진다.
+             */
             applyReviewDecisionUseCase.apply(new ReviewDecisionCommand(
                     command.companyId(), command.meetingId(), action.actionId(), command.requestedBy(),
-                    ReviewDecision.CONFIRM, null, null, null, null, null));
+                    ReviewDecision.CONFIRM, null, null, null, null, null, null));
             confirmed++;
         }
         return confirmed;

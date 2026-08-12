@@ -85,6 +85,9 @@ public class ActionJpaEntity {
     @Column(name = "start_date")
     private LocalDate startDate;
 
+    @Column(name = "planned_start_date")
+    private LocalDate plannedStartDate;
+
     @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
 
@@ -149,6 +152,7 @@ public class ActionJpaEntity {
             ActionStatus status,
             boolean isDone,
             LocalDate startDate,
+            LocalDate plannedStartDate,
             LocalDate dueDate,
             boolean dueDateDefaulted,
             ActionReviewStatus reviewStatus,
@@ -171,6 +175,7 @@ public class ActionJpaEntity {
         this.status = status;
         this.isDone = isDone;
         this.startDate = startDate;
+        this.plannedStartDate = plannedStartDate;
         this.dueDate = dueDate;
         this.dueDateDefaulted = dueDateDefaulted;
         this.reviewStatus = reviewStatus;

@@ -101,7 +101,9 @@ class HandoverPackageServiceTest {
                                      Long meetingId, String meetingTitle, String content,
                                      Long reassigneeId, String reassigneeName) {
         return new HandoverItem(null, actionId, title, status, "PRJ", "TEAM", deadline,
-                ACTION_CREATED_AT, meetingId, meetingTitle, content, reassigneeId, reassigneeName,
+                ACTION_CREATED_AT, meetingId, meetingTitle, content,
+                "Parent Action", LocalDate.of(2026, 8, 1),
+                reassigneeId, reassigneeName,
                 reassigneeId == null ? null : "Staff", null, null, null, true);
     }
 }

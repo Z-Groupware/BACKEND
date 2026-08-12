@@ -199,6 +199,13 @@ class EditSummaryServiceTest {
             this.items = List.of(items);
         }
 
+        /* 개요 덮어쓰기는 OVERVIEW 계층의 것이다 — ANLZ-04(항목 수정)는 부르지 않는다. */
+        @Override
+        public boolean replaceOverview(long companyId, long meetingId, String overview,
+                                       String modelName, String promptVersion) {
+            throw new UnsupportedOperationException("ANLZ-04 는 개요를 덮지 않는다");
+        }
+
         @Override
         public List<ItemView> findItemsInMeeting(long meetingId, List<Long> itemIds) {
             reads++;

@@ -38,10 +38,10 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
     /* 예약 참석자 식별자를 표시 이름으로 일괄 해석하는 B 도메인 조회 Port다. */
     private final MemberQueryPort memberQueryPort;
 
-    /* meeting 행 잠금과 캡처 세션 저장만 짧은 트랜잭션으로 실행하는 내부 서비스다. */
+    /* meeting 시작 상태와 캡처 세션 저장을 짧은 트랜잭션으로 실행하는 내부 서비스다. */
     private final CaptureSessionCreationService captureSessionCreationService;
 
-    /* 진행 중인 회의의 host 요청으로 회의당 하나의 ACTIVE 캡처 세션을 생성한다. */
+    /* 예약 회의의 host 요청으로 회의를 시작하고 회의당 하나의 ACTIVE 캡처 세션을 생성한다. */
     @Override
     public CaptureSessionStartResult startCaptureSession(StartCaptureSessionCommand command) {
         /* Controller를 우회한 호출도 잘못된 인증·Path 값으로 저장소를 조회하지 못하게 한다. */
@@ -54,11 +54,8 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
                     .findMeeting(command.companyId(), command.meetingId())
                     .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
 
-            /* 불필요한 B 호출 전에 사전 스냅샷으로 host·상태·기존 세션을 빠르게 검증한다. */
+            /* 불필요한 B 호출 전에 사전 스냅샷으로 host와 종료 상태를 빠르게 검증한다. */
             validateHostAndStatus(meeting, command.requesterMemberId());
-            if (captureSessionRepository.existsByMeetingId(meeting.getId())) {
-                throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_ALREADY_EXISTS);
-            }
 
             /* 잠금 밖에서 B 원본 이름과 명단 외 sentinel을 합쳐 닫힌 roster를 만든다. */
             List<RosterEntry> roster = createRoster(
@@ -67,7 +64,7 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
             );
 
             try {
-                /* 짧은 별도 트랜잭션에서 명단 일치 확인과 세션 INSERT만 수행한다. */
+                /* 짧은 별도 트랜잭션에서 명단 일치 확인과 회의 시작·세션 INSERT를 함께 수행한다. */
                 CaptureSession savedSession = captureSessionCreationService.create(
                         command,
                         meeting.getAttendeeMemberIds()
@@ -99,11 +96,6 @@ public class CaptureSessionCommandService implements StartCaptureSessionUseCase 
         /* 화면 역할과 무관하게 실제 회의 개설자만 세션 생명주기를 제어할 수 있다. */
         if (!meeting.isHost(requesterMemberId)) {
             throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_HOST_ONLY);
-        }
-
-        /* 입장 전 예약 회의에는 캡처 시간축을 만들 수 없다. */
-        if (meeting.getStatus() == MeetingStatus.SCHEDULED) {
-            throw new BusinessException(MeetingErrorCode.MEETING_NOT_STARTED);
         }
 
         /* 종료·취소된 회의가 새 캡처 세션으로 다시 활성화되는 상태 역행을 차단한다. */

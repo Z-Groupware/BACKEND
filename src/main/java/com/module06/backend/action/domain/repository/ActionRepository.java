@@ -50,6 +50,12 @@ public interface ActionRepository {
     // FR-AC-02/03 — 상위 액션 표시값·벌크 상태변경 대상 배치 조회.
     List<Action> findAllByIds(List<Long> ids);
 
+    // 상위 팀 액션명 스냅샷 배치 조회 — parentActionId만으로 찾으면 DB가 강제 안 하는 회사·종류
+    // 불변식(자식은 항상 같은 회사의 PERSONAL, 부모는 TEAM)에 기대게 되어 다른 회사·PERSONAL
+    // 액션의 제목이 섞일 수 있다. companyId·actionType(TEAM)을 조건에 넣어 조회 자체에서 보장한다
+    // (findAllByParentActionId와 동일 판단, CodeRabbit PR #382 지적).
+    List<Action> findTeamActionsByIds(Long companyId, List<Long> ids);
+
     /* 사람이 직접 추가한 액션을 지운다(RVW-04). AI 생성 액션은 이 경로로 오지 않는다 —
        지우면 review_log에 남길 판정 대상이 사라지고, 그건 반려(RVW-02)로 처리한다. */
     void delete(Action action);
@@ -75,8 +81,8 @@ public interface ActionRepository {
     // ("3/5")용 배치 집계. 팀 액션 하나당 하위 PERSONAL 액션의 전체 건수·완료 건수.
     // findAllByParentActionId(단건, FR-AC-08 타임라인용)와 달리 목록 페이지의 여러 팀 액션
     // id를 한 번에 묶어 N+1을 피한다. companyId는 CodeRabbit(#357) 지적 반영 — parentActionId만
-    // 조건이면 다른 회사의 PERSONAL 액션이 같은 parentActionId(같은 물리 테이블의 auto-increment
-    // id라 우연히 겹칠 수 있다)를 참조할 때 회사 경계 밖 데이터가 섞여 들어간다.
+    // 조건이면, 누군가 다른 회사의 parentActionId를 실제로 참조시킨 경우(단일 auto-increment는
+    // 회사 무관하게 유일하므로 우연한 충돌은 아니다) 회사 경계 밖 데이터가 섞여 들어간다.
     // findAllByParentActionId가 이미 companyId를 필수로 받는 것과 동일한 이유.
     List<ChildActionProgress> countChildActionProgressByParentActionIds(Long companyId, List<Long> parentActionIds);
 
