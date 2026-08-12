@@ -38,9 +38,9 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private final CapObjectStoragePort capObjectStoragePort;
     private final CaptureHeartbeatPort captureHeartbeatPort;
     // 캡처 세션이 ACTIVE일 때만 업로드를 허용한다(명세) — PAUSED/ENDED/세션없음은 전부 거절한다.
-    // ⚠️ MEET-07(회의 입장)이 capture_session 없이도 회의를 IN_PROGRESS로 만들 수 있는 동안은,
-    // "세션 없음"이 아직 정상적으로 발생할 수 있는 상태다(D가 MEET-07을 폐기/host-only화하는
-    // 작업이 develop에 반영되기 전까지는 이 검증을 켜면 안 된다 — 팀 합의 사항, 머지 타이밍 주의).
+    // MEET-07(회의 입장) 제거로 IN_PROGRESS 전이가 CAP-01(캡처 세션 생성)에만 묶여서(#423),
+    // 이제 "IN_PROGRESS면 항상 capture_session이 있다"는 전제가 성립한다 — 그 전엔 세션 없음이
+    // 정상 상태일 수 있어 이 검증을 켤 수 없었다(팀 합의 사항이었음, 지금은 해소됨).
     private final CapCaptureSessionReferenceRepository captureSessionReferenceRepository;
     // completePartUpload의 실제 DB 쓰기(청크·상태 저장)만 짧은 트랜잭션으로 묶는 별도 협력자
     // (CodeRabbit 지적 — S3 HEAD 호출을 트랜잭션 밖에 두려고 분리). CaptureUploadService 자신을

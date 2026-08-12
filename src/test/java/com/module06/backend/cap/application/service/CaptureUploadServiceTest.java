@@ -282,7 +282,7 @@ class CaptureUploadServiceTest {
         assertThat(existing.getLastSeq()).isZero();
     }
 
-    /* 캡처 세션이 아예 없으면(D 배선 지연 또는 MEET-07만 거친 IN_PROGRESS) CAP-022로 거절하는지 검증한다. */
+    /* 캡처 세션이 아예 없으면(D 쪽 배선 지연 등) CAP-022로 거절하는지 검증한다. */
     @Test
     @DisplayName("complete: 캡처 세션이 없으면 CAP-022로 거절하고 상태를 바꾸지 않는다")
     void complete_rejectsWhenSessionMissing() {
