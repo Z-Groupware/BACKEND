@@ -44,7 +44,14 @@ public interface ApplyReviewDecisionUseCase {
             Long assignee,
             LocalDate dueDate,
             String title,
-            String detail
+            String detail,
+            /*
+             * 예정 시작일(#386 후속). 다른 다섯과 성질이 다르다 — **AI 산출물이 아니다.**
+             * meeting_assignment_tuple 에 대응 컬럼이 없어 AI 가 애초에 내지 않고, 사람이
+             * 이 화면에서 처음 정한다. 그래서 CONFIRM 에도 실릴 수 있고(고치는 것이 아니라
+             * 정하는 것이다) review_log 에 WRONG_* 라벨을 만들지 않는다.
+             */
+            LocalDate plannedStartDate
     ) {
     }
 }

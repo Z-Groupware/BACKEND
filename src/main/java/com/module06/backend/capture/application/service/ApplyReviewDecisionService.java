@@ -104,10 +104,16 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
          * 화면에서 되짚을 수 없다. 반려는 상태만 바뀐다.
          */
         if (command.decision() == ReviewDecision.REJECT) {
-            actionReviewApplyPort.apply(command.companyId(), target.actionId(), null, null, null, null, reviewStatus);
+            actionReviewApplyPort.apply(command.companyId(), target.actionId(),
+                    null, null, null, null, null, reviewStatus);
         } else {
+            /*
+             * 인자 순서에 LocalDate 가 둘이다(dueDate · plannedStartDate). 포트 주석의 경고가
+             * 이 호출을 가리킨다 — 뒤집으면 컴파일되고 아무 예외도 안 나며, 기한과 예정
+             * 시작일이 서로 바뀌어 저장된다.
+             */
             actionReviewApplyPort.apply(command.companyId(), target.actionId(), assignee, command.dueDate(),
-                    command.title(), command.detail(), reviewStatus);
+                    command.title(), command.detail(), command.plannedStartDate(), reviewStatus);
         }
 
         List<Long> reviewLogIds = appendReviewLogs(command, target, assignee, roster);
@@ -141,14 +147,29 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         if (command.decision() == ReviewDecision.REJECT && !command.rejectReason().isHumanSelectable()) {
             throw new BusinessException(CaptureErrorCode.REVIEW_REASON_NOT_SELECTABLE);
         }
+        /*
+         * ⚠ plannedStartDate 는 이 검사에서 **일부러 빠진다**(#386 후속).
+         *
+         * 다른 넷은 "AI 가 낸 값을 고쳤다"는 뜻이라 CONFIRM(=AI 값이 맞다)과 함께 오면
+         * 모순이다. 예정 시작일은 AI 가 내지 않는 값이라 고칠 대상 자체가 없고, 사람이
+         * **처음 정하는** 값이다 — "AI 값은 다 맞으니 확정하고, 시작일만 정해 둔다"가
+         * 자연스러운 조합이다. 여기서 막으면 화면이 확정 버튼을 누를 때마다 시작일을
+         * 별도 요청으로 다시 보내야 한다.
+         */
         if (command.decision() == ReviewDecision.CONFIRM
                 && (command.assignee() != null || command.dueDate() != null
                     || command.title() != null || command.detail() != null)) {
             throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_WITH_VALUE);
         }
+        /*
+         * MODIFY 쪽에는 **포함된다.** 예정 시작일만 보내온 MODIFY 는 "무엇을 고쳤는지"가
+         * 분명하므로 거절할 이유가 없다 — 이 검사가 막는 것은 넷도 아니고 시작일도 아닌
+         * 빈 요청이다.
+         */
         if (command.decision() == ReviewDecision.MODIFY
                 && command.assignee() == null && command.dueDate() == null
-                && command.title() == null && command.detail() == null) {
+                && command.title() == null && command.detail() == null
+                && command.plannedStartDate() == null) {
             throw new BusinessException(CaptureErrorCode.REVIEW_MODIFY_VALUE_REQUIRED);
         }
     }
@@ -242,8 +263,25 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         if (command.detail() != null) {
             changedFieldReasons.add(RejectReason.WRONG_DETAIL);
         }
-        // requireDecisionShape가 MODIFY에 값 하나도 없는 요청을 이미 막아서 changedFieldReasons는
-        // 여기 도달한 시점엔 절대 비어 있지 않다.
+        /*
+         * ⚠ plannedStartDate 에는 라벨을 만들지 않는다(#386 후속).
+         *
+         * 라벨의 뜻이 {AI 가 낸 것 → 사람이 인정한 정답}이다. 예정 시작일은 AI 가 애초에 내지
+         * 않는 값이므로(meeting_assignment_tuple 에 컬럼이 없다) WRONG_* 를 붙이면 **모델이
+         * 말한 적도 없는 것을 틀렸다고 가르치게 된다.** 그 라벨이 few-shot 예시로 뽑히면
+         * 다음 회의의 프롬프트가 존재하지 않는 필드를 교정하려 든다.
+         *
+         * 대응하는 RejectReason 값도 없다. 새로 만들지 않는 것이 맞다 — 사유 목록은 "AI 가
+         * 어느 계층에서 틀렸나"의 분류이고, 여기엔 틀린 계층이 없다.
+         */
+        if (changedFieldReasons.isEmpty()) {
+            /*
+             * 예정 시작일만 고친 MODIFY 다. 라벨을 만들 사유가 없지만 **판정 자체는 남겨야
+             * 한다** — review_log 가 비면 "사람이 이 액션을 봤다"는 사실이 아무 데도 없다.
+             * 사유 없이 한 건 남긴다(CONFIRM 과 같은 모양이다).
+             */
+            return List.of(reviewLogRepository.append(logEntryOf(command, target, assignee, roster, null)));
+        }
 
         List<Long> ids = new ArrayList<>();
         for (RejectReason reason : changedFieldReasons) {
