@@ -90,6 +90,19 @@ class TeamActionControllerTest {
     // 권한 경계는 안 다루고 배선(생성자 주입 값 전달)만 검증한다(ActionControllerTest 참고).
 
     @Test
+    @DisplayName("목록은 MEMBER 권한도 호출 가능하다 — 이슈 #389, 회의 개설 모달 상위 팀 액션 드롭다운")
+    void listIsAccessibleByMemberTooForMeetingCreationModal() throws Exception {
+        authenticateAs(1L, COMPANY, TEAM, "MEMBER");
+        when(getTeamActionsUseCase.getTeamActions(eq(TEAM), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(new GetTeamActionsUseCase.TeamActionListResult(
+                        List.of(new TeamActionListItem(teamAction(), "GOODS", "굿즈", "개발팀", 2, 5)), 1L));
+
+        mockMvc.perform(get("/api/team/actions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].teamName").value("개발팀"));
+    }
+
+    @Test
     @DisplayName("상세는 전 구성원이 조회 가능하고 토큰의 companyId를 쓴다")
     void detailIsAccessibleByAnyMemberAndUsesCompanyIdFromToken() throws Exception {
         authenticateAs(1L, COMPANY, TEAM, "MEMBER");

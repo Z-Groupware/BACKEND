@@ -32,7 +32,7 @@ import lombok.RequiredArgsConstructor;
 /* comment.
     FR-AC-06,08 — 팀 액션 API 진입점. base path = /api/team/actions.
     담당 엔드포인트
-    - GET    /api/team/actions                          팀 액션 목록 (JWT teamId로 스코프된 LEADER 전용)
+    - GET    /api/team/actions                          팀 액션 목록 (JWT teamId로 스코프된 LEADER·MEMBER 공용, 2026-08-12 확대)
     - GET    /api/team/actions/{teamActionId}            상세 (전 구성원, 프로젝트 첨부파일 포함)
     - GET    /api/team/actions/{teamActionId}?tab=timeline  하위 개인 액션 타임라인 (전 구성원)
     - GET    /api/team/actions/{teamActionId}/attachments/{attachmentId}/download-url  첨부파일 다운로드 URL 발급 (전 구성원, 2026-08-10)
@@ -66,10 +66,14 @@ public class TeamActionController {
 
     // 팀 액션 목록 — teamId는 토큰에서만 꺼낸다(헤더로 받으면 남의 팀을 조회할 수 있다).
     // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
-    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER 전용. "
+    // 2026-08-12, 이슈 #389(이홍근 요청) — MEMBER도 호출 가능하게 완화. 회의 개설 모달의 "상위
+    // 팀 액션" 드롭다운에서 팀원도 이 API를 불러야 함. teamId가 JWT에서만 오고(위 주석)
+    // 응답(TeamActionListItem 경로)에 담당자 정보가 없어(TEAM 액션은 담당자 개념 자체가 없음)
+    // MEMBER로 열어도 다른 팀 데이터나 개인정보 노출 위험이 없음을 확인함.
+    @Operation(summary = "팀 액션 목록 조회", description = "JWT teamId로 스코프된 LEADER·MEMBER 공용. "
             + "페이지네이션(page/size), status 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
     @GetMapping
-    @PreAuthorize("hasRole('LEADER')")
+    @PreAuthorize("hasAnyRole('LEADER', 'MEMBER')")
     public ApiResponse<PageResponse<ActionSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "teamId") Long teamId,
