@@ -258,23 +258,40 @@ class ApplyReviewDecisionServiceTest {
     }
 
     @Test
-    @DisplayName("⚠ 예정 시작일 변경에는 WRONG_* 라벨을 만들지 않는다 — 모델이 말한 적 없는 것을 틀렸다고 가르치면 안 된다")
-    void 예정_시작일은_라벨_사유를_만들지_않는다() {
+    @DisplayName("⚠ 예정 시작일만 고친 MODIFY 는 라벨을 남기지 않는다 — 사유 없는 ACTION MODIFY 는 DB 가 거절한다")
+    void 예정_시작일만_고치면_라벨이_없다() {
         RecordingReviewLog logs = new RecordingReviewLog();
+        RecordingVectorRepository vectors = new RecordingVectorRepository();
 
-        service(target(), logs, new RecordingVectorRepository())
+        service(target(), logs, vectors)
                 .apply(command(ReviewDecision.MODIFY, null, null, null, null, null,
                         LocalDate.of(2026, 8, 20)));
 
         /*
-         * 판정 자체는 남아야 한다 — review_log 가 비면 "사람이 이 액션을 봤다"가 아무 데도
-         * 없다. 다만 사유는 null 이다. meeting_assignment_tuple 에 시작일 컬럼이 없어 AI 가
-         * 애초에 내지 않는 값이고, WRONG_* 를 붙이면 그 라벨이 few-shot 예시로 뽑혀 다음
-         * 회의 프롬프트가 존재하지 않는 필드를 교정하려 든다.
+         * 사유 없이 한 건 남기면 V5.9 의 CK_REVIEW_LOG_REASON 이 막는다 — ACTION + MODIFY 는
+         * 사유가 NOT NULL 이어야 한다(SUMMARY_ITEM 만 예외). 위반하면 **판정 트랜잭션 전체가
+         * 롤백돼** 시작일 하나 때문에 확정이 실패한다(CodeRabbit PR #422 지적).
+         *
+         * 제약을 넓히지 않고 라벨을 안 만드는 쪽을 골랐다. 예정 시작일은 AI 가 내지 않는
+         * 값이라 {AI 입력 → 정답} 쌍이 성립하지 않는다 — 학습할 것이 없는 행이다.
          */
+        assertThat(logs.entries).isEmpty();
+        // 가리킬 라벨이 없으므로 few-shot 예시도 예약하지 않는다.
+        assertThat(vectors.entries).isEmpty();
+    }
+
+    @Test
+    @DisplayName("다른 필드와 함께 오면 그 필드들의 라벨만 남는다 — 예정 시작일은 사유를 더하지 않는다")
+    void 예정_시작일은_사유를_더하지_않는다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        service(target(), logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, BOB, null, null, null,
+                        LocalDate.of(2026, 8, 20)));
+
+        // 담당자 하나만 고쳤으므로 라벨도 하나다. 시작일이 함께 와도 늘지 않는다.
         assertThat(logs.entries).hasSize(1);
-        assertThat(logs.entries.get(0).rejectReason()).isNull();
-        assertThat(logs.entries.get(0).decision()).isEqualTo(ReviewDecision.MODIFY);
+        assertThat(logs.entries.get(0).rejectReason()).isEqualTo(RejectReason.WRONG_ASSIGNEE);
     }
 
     @Test

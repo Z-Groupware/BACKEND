@@ -117,9 +117,17 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         }
 
         List<Long> reviewLogIds = appendReviewLogs(command, target, assignee, roster);
-        // 대표 review_log는 첫 번째 것을 쓴다 — 벡터는 순수 추적용 컬럼이라(코드 전수 확인,
-        // 어디서도 JOIN하지 않음) 여러 review_log 중 어느 것을 가리켜도 정확도에 영향 없다.
-        boolean vectorQueued = enqueueVector(command, target, assignee, reviewLogIds.get(0));
+        /*
+         * 대표 review_log는 첫 번째 것을 쓴다 — 벡터는 순수 추적용 컬럼이라(코드 전수 확인,
+         * 어디서도 JOIN하지 않음) 여러 review_log 중 어느 것을 가리켜도 정확도에 영향 없다.
+         *
+         * ⚠ 라벨이 0건인 경우가 있다 — 예정 시작일만 고친 MODIFY(appendReviewLogs 주석).
+         * 그때는 벡터도 예약하지 않는다. few-shot 예시는 라벨에 딸린 것이라 가리킬 라벨이
+         * 없으면 예시로 쓸 값도 없고, review_log_id 를 비워 넣으면 나중에 그 예시가 어느
+         * 판정에서 왔는지 되짚을 수 없다.
+         */
+        boolean vectorQueued = !reviewLogIds.isEmpty()
+                && enqueueVector(command, target, assignee, reviewLogIds.get(0));
 
         log.info("검토 판정 — meetingId={} actionId={} decision={} reason={} 라벨={}건 벡터예약={}",
                 command.meetingId(), target.actionId(), command.decision(), command.rejectReason(),
@@ -276,11 +284,24 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
          */
         if (changedFieldReasons.isEmpty()) {
             /*
-             * 예정 시작일만 고친 MODIFY 다. 라벨을 만들 사유가 없지만 **판정 자체는 남겨야
-             * 한다** — review_log 가 비면 "사람이 이 액션을 봤다"는 사실이 아무 데도 없다.
-             * 사유 없이 한 건 남긴다(CONFIRM 과 같은 모양이다).
+             * 예정 시작일만 고친 MODIFY 다. **라벨을 남기지 않는다.**
+             *
+             * 처음에는 사유 없이 한 건 남기려 했는데, V5.9 의 CK_REVIEW_LOG_REASON 이
+             * ACTION + MODIFY 에 사유를 **강제한다**(SUMMARY_ITEM 만 예외). 사유 null 로
+             * INSERT 하면 제약 위반으로 **판정 트랜잭션 전체가 롤백된다** — 시작일 하나
+             * 때문에 확정이 실패한다(CodeRabbit PR #422 지적).
+             *
+             * 마이그레이션으로 제약을 넓히지 않는다. 그 제약의 주석이 왜 조인지 적어 뒀고
+             * ("액션 수정은 바뀐 필드로 사유를 자동 추론할 수 있다"), 넓히면 사유 없는 액션
+             * 수정이 라벨셋에 섞인다. 제약은 여기서 **"사유 없는 ACTION MODIFY 는 유효한
+             * 라벨이 아니다"** 를 말하고 있고, 그게 맞다 — 예정 시작일은 AI 가 내지 않는
+             * 값이라 {AI 입력 → 정답} 쌍이 성립하지 않는다. 학습할 것이 없는 행이다.
+             *
+             * 판정 사실이 사라지는 것은 아니다. action.review_status 가 HUMAN_CONFIRMED 로
+             * 바뀌고 confirmed_at 이 찍힌다 — "사람이 이 액션을 처리했다"는 그쪽에 남는다.
+             * review_log 는 감사 로그가 아니라 **학습 라벨**이다(클래스 주석).
              */
-            return List.of(reviewLogRepository.append(logEntryOf(command, target, assignee, roster, null)));
+            return List.of();
         }
 
         List<Long> ids = new ArrayList<>();
