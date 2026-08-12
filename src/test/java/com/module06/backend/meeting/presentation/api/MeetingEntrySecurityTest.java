@@ -41,7 +41,7 @@ class MeetingEntrySecurityTest {
     @DisplayName("익명 POST 입장 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousEntryRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의 입장 요청을 전송한다. */
-        mockMvc.perform(post("/api/v1/meetings/91/entry"))
+        mockMvc.perform(post("/api/meetings/91/entry"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 

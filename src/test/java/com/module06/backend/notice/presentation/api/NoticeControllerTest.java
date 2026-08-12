@@ -219,7 +219,7 @@ class NoticeControllerTest {
                 .build();
 
         /* 공백 제목과 본문을 전송해 공지 전용 검증 응답을 요청한다. */
-        mockMvc.perform(post("/api/v1/notices")
+        mockMvc.perform(post("/api/notices")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":" ","content":" "}
@@ -320,7 +320,7 @@ class NoticeControllerTest {
                 .build();
 
         /* 공백 제목과 본문을 PUT으로 전송해 공지 전용 검증 응답을 요청한다. */
-        mockMvc.perform(put("/api/v1/notices/{noticeId}", 41L)
+        mockMvc.perform(put("/api/notices/{noticeId}", 41L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":" ","content":" "}

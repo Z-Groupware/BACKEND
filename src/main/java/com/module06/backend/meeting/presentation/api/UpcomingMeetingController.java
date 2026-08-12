@@ -25,7 +25,7 @@ import com.module06.backend.meeting.presentation.api.response.UpcomingMeetingLis
  */
 @Tag(name = "Meeting", description = "회의 예약 및 진행 API")
 @RestController
-@RequestMapping("/api/v1/meetings")
+@RequestMapping("/api/meetings")
 @RequiredArgsConstructor
 public class UpcomingMeetingController {
 
