@@ -87,5 +87,31 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  redis_exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: z-redis-exporter
+
+    env_file:
+      - path: "${RUNTIME_ENV_FILE:-./.env.runtime}"
+        format: raw
+
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    ports:
+      - "9121:9121"
+
+    restart: unless-stopped
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
 volumes:
   redis-data:
