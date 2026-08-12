@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -70,8 +73,18 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
 
+    /**
+     * 마지막 그물. 응답 본문에는 traceId 만 나가고 원인은 숨기지만(정보 노출 방지), 서버 로그에는
+     * 반드시 스택트레이스를 남긴다 — 남기지 않으면 Z-003 이 나간 뒤 원인을 되짚을 방법이 아예
+     * 없어진다(응답의 traceId 로 대조할 로그 라인 자체가 없다).
+     *
+     * <p>traceId 를 메시지에 직접 박는다. logback 설정 파일이 없어 Spring 기본 패턴을 쓰는데,
+     * 그 패턴에는 MDC 가 들어 있지 않아 {@code %X{traceId}} 로는 찍히지 않는다.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
+        log.error("처리되지 않은 예외 — traceId={} {} {}",
+                currentTraceId(), request.getMethod(), request.getRequestURI(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponse.of(CommonErrorCode.INTERNAL_SERVER_ERROR, request.getRequestURI(), currentTraceId()));
     }
