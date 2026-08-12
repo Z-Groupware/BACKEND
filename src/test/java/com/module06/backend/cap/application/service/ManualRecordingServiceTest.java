@@ -120,6 +120,89 @@ class ManualRecordingServiceTest {
         assertThat(reportedUsage[0].revision()).isEqualTo(1L);
     }
 
+    /*
+     * STT 트리거(MeetingRecordingSttPort)가 실패해도(예: AWS Transcribe 제출 오류) 등록 자체는
+     * 롤백되지 않는지 검증한다 — best-effort 계약(SttBlockCreationService 주석 참고)이 실 어댑터
+     * 전환 후에도 실제로 지켜지는지 확인하는 회귀 테스트다.
+     */
+    @Test
+    @DisplayName("STT 트리거가 실패해도 녹음 등록은 그대로 완료된다")
+    void registersEvenWhenSttTriggerFails() {
+        MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
+            @Override
+            public boolean existsById(Long meetingId) {
+                return true;
+            }
+
+            @Override
+            public boolean isAttendee(Long meetingId, Long memberId) {
+                return true;
+            }
+
+            @Override
+            public boolean isHost(Long meetingId, Long memberId) {
+                return true;
+            }
+
+            @Override
+            public Optional<Long> findCompanyId(Long meetingId) {
+                return Optional.of(1L);
+            }
+
+            @Override
+            public int countAttendees(Long meetingId) {
+                return 0;
+            }
+
+            @Override
+            public Optional<Long> findProjectId(Long meetingId) {
+                return Optional.empty();
+            }
+        };
+        RecordingRepository recordingRepo = new RecordingRepository() {
+            @Override
+            public Recording save(Recording recording) {
+                savedRecording[0] = recording;
+                return recording;
+            }
+
+            @Override
+            public boolean existsByMeetingId(Long meetingId) {
+                return false;
+            }
+
+            @Override
+            public Optional<Recording> findByMeetingId(Long meetingId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+            }
+        };
+        boolean[] sttPortCalled = new boolean[1];
+        MeetingRecordingSttPort failingSttPort = (meetingId, s3Key) -> {
+            sttPortCalled[0] = true;
+            throw new RuntimeException("AWS Transcribe 제출 실패(가정)");
+        };
+        ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
+        CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
+        ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
+        ManualRecordingService service =
+                new ManualRecordingService(meetingRef, accessGuard, recordingRepo, failingSttPort, storagePort);
+
+        RegisterManualRecordingUseCase.Result result =
+                service.registerManualRecording(cmd(VALID_KEY, 15_000_000L));
+
+        // STT 포트가 실제로 호출됐는지부터 확인한다(CodeRabbit 지적 — 호출을 통째로 지워도
+        // 통과하던 허점).
+        assertThat(sttPortCalled[0]).isTrue();
+        assertThat(result.status()).isEqualTo("DONE");
+        assertThat(savedRecording[0]).isNotNull();
+        // STT는 실패했지만 저장 용량 report는 여전히 이어져야 한다(STT 실패가 뒤 단계를 막지 않음).
+        assertThat(reportedUsage[0]).isNotNull();
+    }
+
     /* 선검사(existsByMeetingId)를 통과한 뒤 저장 단계에서 UNIQUE 위반으로 CAP-014가 나는 경쟁 경로도
        그대로 전파하고, STT는 트리거되지 않는지(save가 트리거보다 앞) 검증한다. */
     @Test
