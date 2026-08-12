@@ -69,10 +69,16 @@ mv -f "${tmp_env}" "${ENV_FILE}"
 trap - EXIT
 
 echo "=== [2/4] Spring·Redis 이미지 pull: ${SPRING_IMAGE} ==="
-docker compose -f "${COMPOSE_FILE}" pull spring redis
+docker compose -f "${COMPOSE_FILE}" pull spring redis redis_exporter
 
 echo "=== [3/4] 컨테이너 교체 ==="
-docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans spring
+# redis_exporter는 REDIS_PASSWORD를 Compose 변수 치환(${REDIS_PASSWORD})으로만
+# 받는다(infra/docker-compose.yml 참고) — --env-file로 ENV_FILE을 넘겨야
+# 그 값이 셸이 아니라 파일에서 곧장 치환된다(모성진 확인, 2026-08-12).
+docker compose \
+  --env-file "${ENV_FILE}" \
+  -f "${COMPOSE_FILE}" \
+  up -d --remove-orphans spring redis_exporter
 
 echo "=== [4/4] 헬스체크 대기 ==="
 for i in $(seq 1 30); do

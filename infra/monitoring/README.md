@@ -98,12 +98,27 @@ curl -s http://127.0.0.1:9090/api/v1/targets | python3 -m json.tool
 
 ## 배포 후 스모크 테스트
 
-```bash
-# redis_exporter 메트릭 노출 확인
-curl -s http://127.0.0.1:9121/metrics | grep '^redis_up'
+### Backend EC2에서 실행
 
+redis_exporter는 Monitoring EC2가 아니라 Backend EC2에서 실행되는 컨테이너다 —
+아래 명령은 Backend EC2에 SSH로 접속해서 실행한다:
+
+```bash
+curl -s http://127.0.0.1:9121/metrics | grep '^redis_up'
+```
+
+### Monitoring EC2에서 실행
+
+```bash
 # Prometheus 타겟 전부 up 상태인지 확인
 curl -s http://127.0.0.1:9090/api/v1/targets | python3 -m json.tool
+```
+
+Prometheus가 Backend EC2의 redis_exporter를 스크레이프하지 못하는 것 같으면,
+Monitoring EC2에서 Backend EC2 프라이빗 IP로 직접 확인한다:
+
+```bash
+curl -s http://<BACKEND_EC2_PRIVATE_IP>:9121/metrics | grep '^redis_up'
 ```
 
 - Grafana UI → Alerting → Contact points → `slack-alerts` → **Test** 버튼으로 실제
