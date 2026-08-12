@@ -108,6 +108,14 @@ public class ActionReassignAdapter implements ActionReassignPort {
                 actions.stream().map(Action::getSourceMeetingId).filter(Objects::nonNull).distinct().toList()
         ).stream().collect(Collectors.toMap(ActionMeetingReferenceEntity::getId, ActionMeetingReferenceEntity::getTitle));
 
+        // E(인수인계) 요청 필드: 상위 팀 액션명. PERSONAL 액션의 parentActionId로 팀 액션 제목을 배치 조회.
+        List<Long> parentIds = actions.stream()
+                .map(Action::getParentActionId).filter(Objects::nonNull).distinct().toList();
+        Map<Long, String> parentTitlesById = parentIds.isEmpty()
+                ? Map.of()
+                : actionRepository.findAllByIds(parentIds).stream()
+                        .collect(Collectors.toMap(Action::getId, Action::getTitle));
+
         return actions.stream()
                 .map(action -> new HandoverableAction(
                         action.getId(),
@@ -121,7 +129,10 @@ public class ActionReassignAdapter implements ActionReassignPort {
                         action.getCreatedAt(),
                         action.getSourceMeetingId(),
                         action.getSourceMeetingId() == null ? null : meetingTitlesById.get(action.getSourceMeetingId()),
-                        action.getDescription()
+                        action.getDescription(),
+                        // E(인수인계) 요청 필드: 상위 팀 액션명 + 작업 시작일.
+                        action.getParentActionId() == null ? null : parentTitlesById.get(action.getParentActionId()),
+                        action.getStartDate()
                 ))
                 .toList();
     }

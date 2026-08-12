@@ -204,11 +204,13 @@ class HandoverTest {
 
     private static HandoverItem item(Long actionId) {
         return HandoverItem.create(actionId, "Action " + actionId, "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), null, 300L, "Weekly", "Context " + actionId, true);
+                LocalDate.of(2026, 8, 30), null, 300L, "Weekly", "Context " + actionId,
+                "Parent Action", LocalDate.of(2026, 8, 1), true);
     }
 
     private static HandoverItem completedItem(Long actionId) {
         return HandoverItem.create(actionId, "Action " + actionId, "DONE", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), null, 300L, "Weekly", "Context " + actionId, false);
+                LocalDate.of(2026, 8, 30), null, 300L, "Weekly", "Context " + actionId,
+                "Parent Action", LocalDate.of(2026, 8, 1), false);
     }
 }
