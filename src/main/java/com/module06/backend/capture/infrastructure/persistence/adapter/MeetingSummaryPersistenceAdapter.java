@@ -128,7 +128,13 @@ public class MeetingSummaryPersistenceAdapter implements MeetingSummaryRepositor
                                    String modelName, String promptVersion) {
         return summaryRepository.findByMeetingIdAndCompanyId(meetingId, companyId)
                 .map(summary -> {
-                    summary.overwrite(overview, modelName, promptVersion);
+                    /*
+                     * overwrite 가 아니라 overwriteOverview 다. 그쪽은 편집 이력(edited_at ·
+                     * edited_by_member_id)을 null 로 지우는데, 여기서 지우면 사람이 고친 항목은
+                     * 그대로 남아 있는 채로 화면이 「AI 원본 그대로」라고 말한다
+                     * (CodeRabbit PR #398).
+                     */
+                    summary.overwriteOverview(overview, modelName, promptVersion);
                     summaryRepository.save(summary);
                     return true;
                 })
