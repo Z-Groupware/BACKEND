@@ -29,6 +29,25 @@ public interface MeetingSummaryRepository {
                  String modelName, String promptVersion);
 
     /*
+     * 개요 문장만 덮는다(OVERVIEW 계층). 주제와 항목은 건드리지 않는다.
+     *
+     * <h2>replace 를 쓰지 않는 이유</h2>
+     * 그쪽은 **교체**다 — 주제와 항목을 통째로 지우고 다시 넣는다(ANLZ-01 재실행 계약). 개요만
+     * 바꾸려고 그걸 부르면 항목 id 가 전부 새로 발급되고, 그 id 를 이미 들고 있는 것들이 끊긴다:
+     * review_log.target_id · meeting_tuple_vector · 화면이 열어 둔 검토 폼. 개요 문장 하나를
+     * 고치려고 검토 이력이 가리키는 대상이 사라지는 것이다.
+     *
+     * <h2>행이 없으면 아무것도 하지 않는다</h2>
+     * 이 계층은 L3 뒤에 도므로 행이 반드시 있다. 없다면 우리 버그이거나 그 사이에 회의가
+     * 지워진 것이고, 둘 다 여기서 새 행을 만들 이유가 아니다 — 주제도 항목도 없는 요약 행이
+     * 생기면 ANLZ-03 이 빈 회의를 "요약 있음"으로 답한다.
+     *
+     * @return 덮었으면 true. 요약 행이 없으면 false
+     */
+    boolean replaceOverview(long companyId, long meetingId, String overview,
+                            String modelName, String promptVersion);
+
+    /*
      * L3.5 판정을 meeting_decision.gate_status 에 반영한다.
      *
      * 판정이 없는 항목은 **건드리지 않는다.** NULL 로 남는 것이 "게이트가 판정하지 못했다"는

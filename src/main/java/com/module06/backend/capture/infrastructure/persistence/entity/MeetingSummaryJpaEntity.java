@@ -88,6 +88,21 @@ public class MeetingSummaryJpaEntity {
         this.editedAt = null;
     }
 
+    /*
+     * 개요 문장만 덮는다(OVERVIEW 계층). **편집 이력을 지우지 않는다.**
+     *
+     * overwrite 와 갈리는 지점이 그것뿐이고, 그게 이 메서드가 있는 이유다. 그쪽은 재분석이라
+     * 요약과 항목을 통째로 새로 만들므로 "사람이 고쳤다"가 더 이상 참이 아니어서 지우는 것이
+     * 맞다. 이쪽은 개요 한 문장만 바꾼다 — 사람이 고친 **항목들은 그대로 남아 있는데**
+     * edited_at 을 지우면 화면이 그 요약을 「AI 생성 원본 그대로」라고 말한다.
+     * 데이터는 남고 그 데이터가 사람 손을 거쳤다는 사실만 사라지는 것이다(CodeRabbit PR #398).
+     */
+    public void overwriteOverview(String overview, String modelName, String promptVersion) {
+        this.overview = overview;
+        this.modelName = modelName;
+        this.promptVersion = promptVersion;
+    }
+
     /* ANLZ-04 · 사람이 고쳤다는 표시. 누가·언제를 함께 남긴다 — 하나만 남기면 뜻이 반쪽이다. */
     public void markEdited(long editorMemberId, LocalDateTime at) {
         this.editedByMemberId = editorMemberId;

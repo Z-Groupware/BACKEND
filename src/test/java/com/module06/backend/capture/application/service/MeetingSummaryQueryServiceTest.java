@@ -221,6 +221,30 @@ class MeetingSummaryQueryServiceTest {
     }
 
     @Test
+    @DisplayName("⚠ 개요만 실패한 회의는 DONE 이다 — 표시용 문장 하나로 「중단」을 띄우지 않는다")
+    void 개요만_실패하면_완료다() {
+        /*
+         * OVERVIEW 는 파이프라인 순서 목록에는 있지만 완료 판정에는 들지 않는다
+         * (AnalysisOrchestrator.REQUIRED_FOR_DONE). 여기서 pipelineLayers() 로 판정하면
+         * 이 회의가 「분석 중단」으로 뜨고, 사람이 다시 눌러 열 계층의 토큰을 전부 다시 태운다.
+         *
+         * 개요 칸은 비지 않는다 — L3 가 이어 붙인 값이 남아 있다.
+         */
+        FakeLayerStates layers = new FakeLayerStates();
+        List<LayerState> requiredDone = new ArrayList<>(AnalysisOrchestrator.requiredLayersForDone().stream()
+                .map(MeetingSummaryQueryServiceTest::done)
+                .toList());
+        requiredDone.add(state(LayerName.OVERVIEW, LayerStatus.FAILED, false));
+        layers.put(480L, requiredDone.toArray(LayerState[]::new));
+
+        assertThat(service(layers).findSummaryStatuses(COMPANY, List.of(480L)))
+                .containsExactly(new MeetingSummaryStatus(480L, SummaryStatus.DONE));
+
+        // 카드에도 오르지 않는다 — 두 화면이 같은 판정을 쓰므로 함께 확인한다.
+        assertThat(service(layers).findStalledSummaries(COMPANY, List.of(480L))).isEmpty();
+    }
+
+    @Test
     @DisplayName("계층 기록이 없고 받아쓰기도 안 도는 회의는 NONE — 「실패」가 아니다")
     void 이력도_받아쓰기도_없으면_NONE() {
         /*

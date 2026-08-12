@@ -38,6 +38,7 @@ import com.module06.backend.capture.application.port.out.SegmentTopicsResult;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.PendingBlock;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.SttBlockView;
+import com.module06.backend.capture.application.port.out.SummarizeMeetingResult;
 import com.module06.backend.capture.application.port.out.SummarizeTopicResult;
 import com.module06.backend.capture.application.port.out.TranscriptRepository;
 import com.module06.backend.capture.application.port.out.TranscriptRepository.NewUtterance;
@@ -1034,9 +1035,12 @@ class AnalysisOrchestratorTest {
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
-        assertThat(layers.locked).containsExactly(
-                LayerName.L1, LayerName.L1_5, LayerName.L2, LayerName.L3, LayerName.L3_5,
-                LayerName.L4, LayerName.L5, LayerName.L6, LayerName.L7, LayerName.DIST);
+        /*
+         * 목록을 손으로 적지 않는다. 계층이 하나 늘면 이 단정이 자동으로 따라가야 한다 —
+         * 예전에는 열 개를 나열해 뒀고, 계층을 더할 때 여기서 걸렸다. 잡는 순서가 곧
+         * 파이프라인 순서라는 것이 이 테스트가 보려는 것이다.
+         */
+        assertThat(layers.locked).containsExactlyElementsOf(AnalysisOrchestrator.pipelineLayers());
     }
 
     // ── 미터링 배선 (teamId) ────────────────────────────────────────────────────
@@ -1083,6 +1087,83 @@ class AnalysisOrchestratorTest {
 
         assertThat(metering.commands).hasSize(1);
         assertThat(metering.commands.get(0).teamId()).isNull();
+    }
+
+    // ── OVERVIEW · 회의 개요 ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("개요 계층이 성공하면 이어 붙인 값을 덮는다")
+    void 개요를_덮는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = confirmingAi();
+        ai.overviewResult = "로드맵을 확정하고 담당자를 정했다.";
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(summaries.replacedOverview).isEqualTo("로드맵을 확정하고 담당자를 정했다.");
+    }
+
+    @Test
+    @DisplayName("⚠ 입력은 주제·확정항목이다 — 자기가 만든 개요를 다시 요약하지 않는다")
+    void 개요_입력은_구조다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = confirmingAi();
+
+        orchestrator(summaries, new FakeTupleRepository(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        /*
+         * 산문(이어 붙인 개요)을 넘기면 재실행 때 자기 출력을 다시 압축한다 — 돌릴수록 내용이
+         * 사라진다. 주제 이름과 확정 항목은 meeting_decision 에 있어 몇 번 돌려도 같다.
+         */
+        assertThat(ai.overviewRequests).hasSize(1);
+        assertThat(ai.overviewRequests.get(0)).isNotEmpty();
+        assertThat(ai.overviewRequests.get(0).get(0).items()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("⚠ 개요가 실패해도 회의는 완료다 — 문장 하나로 열 계층을 다시 태우지 않는다")
+    void 개요_실패는_회의를_실패시키지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = confirmingAi();
+        ai.overviewFailure = new AiLayerException("AI_LAYER_UNREACHABLE", "엔드포인트가 없다", false);
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // Python 엔드포인트가 붙기 전의 상태가 정확히 이것이다(404 → 재시도 불가 예외).
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        // 개요 칸은 비지 않는다 — L3 가 이어 붙인 값이 그대로 남는다.
+        assertThat(summaries.replaceOverviewCalls).isZero();
+        assertThat(summaries.overview).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("빈 개요로는 덮지 않는다 — 이어 붙인 값보다 나쁘다")
+    void 빈_개요로는_덮지_않는다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = confirmingAi();
+        ai.overviewResult = "   ";
+
+        AnalysisOutcome outcome = orchestrator(summaries, new FakeTupleRepository(), ai)
+                .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.DONE);
+        assertThat(summaries.replaceOverviewCalls).isZero();
+        assertThat(summaries.overview).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("완료 판정에 개요를 요구하지 않는다 — 개요만 없는 회의는 이미 완료다")
+    void 완료_판정은_개요를_보지_않는다() {
+        assertThat(AnalysisOrchestrator.requiredLayersForDone())
+                .doesNotContain(LayerName.OVERVIEW)
+                // 나머지 열 계층은 전부 필수다. 여기서 빠지면 그 계층 실패가 조용해진다.
+                .containsAll(AnalysisOrchestrator.pipelineLayers().stream()
+                        .filter(layer -> layer != LayerName.OVERVIEW)
+                        .toList());
     }
 
     // ── 조립 ────────────────────────────────────────────────────────────────────
@@ -1297,6 +1378,22 @@ class AnalysisOrchestratorTest {
                 tuple -> new VerifyTupleResult(true, List.of(), VerifyVerdict.ACCEPT, "근거 발화로 확인됨", RUN);
         private AiLayerException verifyFailure;
 
+        /* 개요 계층. 기본은 성공이고, 실패·빈 응답을 보려는 테스트만 이 값을 바꾼다. */
+        private final List<List<MeetingTopicDigest>> overviewRequests = new ArrayList<>();
+        private String overviewResult = "배포 일정과 담당자를 확정했다.";
+        private AiLayerException overviewFailure;
+
+        @Override
+        public SummarizeMeetingResult summarizeMeeting(long tenantId, long meetingId,
+                                                       List<MeetingTopicDigest> topics,
+                                                       List<Participant> participants) {
+            overviewRequests.add(List.copyOf(topics));
+            if (overviewFailure != null) {
+                throw overviewFailure;
+            }
+            return new SummarizeMeetingResult(overviewResult, RUN);
+        }
+
         /* 게이트 판정은 저장된 항목의 id 를 알아야 만들 수 있어 함수로 받는다. */
         private RecordingAiLayerPort(List<com.module06.backend.capture.domain.model.TopicItem> l3Items,
                                      java.util.function.Function<List<Long>, List<GateVerdict>> verdicts) {
@@ -1374,9 +1471,24 @@ class AnalysisOrchestratorTest {
         private final Map<Integer, String> topicNameBySeq = new LinkedHashMap<>();
         private long nextId = 1_000L;
 
+        /* L3 가 넣은 이어붙인 개요, 그리고 OVERVIEW 계층이 덮은 값. 둘을 따로 본다. */
+        private String overview;
+        private String replacedOverview;
+        private int replaceOverviewCalls;
+
+        @Override
+        public boolean replaceOverview(long companyId, long meetingId, String newOverview,
+                                       String modelName, String promptVersion) {
+            replaceOverviewCalls++;
+            this.replacedOverview = newOverview;
+            this.overview = newOverview;
+            return true;
+        }
+
         @Override
         public void replace(long companyId, long meetingId, String overview, List<TopicDecisions> topics,
                             String modelName, String promptVersion) {
+            this.overview = overview;
             byId.clear();
             topicSeqById.clear();
             topicNameBySeq.clear();

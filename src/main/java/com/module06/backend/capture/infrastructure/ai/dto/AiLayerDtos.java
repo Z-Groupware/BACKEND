@@ -140,6 +140,44 @@ public final class AiLayerDtos {
     ) {
     }
 
+    // ── OVERVIEW · 회의 개요 ────────────────────────────────────────────────────
+    // 명세 번호는 아직 없다 — AI-08·09 는 few-shot 이 쓴다. Python 엔드포인트를 붙일 때 함께 정한다.
+    //
+    // 발화를 싣지 않는다. 개요는 확정된 결론을 줄이는 것이고, 전사를 다시 읽히면 주제 요약과
+    // **다른 말을 하는 개요**가 나온다 — 사용자는 어느 쪽을 믿을지 알 수 없다. 입력을 좁히는 것이
+    // 곧 모순을 막는 방법이다(AiLayerPort#summarizeMeeting 주석).
+
+    public record MeetingTopicDigestDto(
+            Integer topicSeq,
+            String topic,
+            List<DigestItemDto> items
+    ) {
+    }
+
+    /* 확정 항목 하나. 근거 발화 id 를 넘기지 않는다 — 개요는 특정 발화를 가리키지 않는다. */
+    public record DigestItemDto(
+            String itemType,
+            String content
+    ) {
+    }
+
+    public record SummarizeMeetingRequestDto(
+            Long tenantId,
+            Long meetingId,
+            List<MeetingTopicDigestDto> topics,
+            List<ParticipantDto> participants,
+            String queryText
+    ) {
+    }
+
+    public record SummarizeMeetingResponseDto(
+            String overview,
+            UsageDto usage,
+            String model,
+            String promptVersion
+    ) {
+    }
+
     // ── AI-05 · L3.5 확정/논의 게이트 ───────────────────────────────────────────
 
     /*
