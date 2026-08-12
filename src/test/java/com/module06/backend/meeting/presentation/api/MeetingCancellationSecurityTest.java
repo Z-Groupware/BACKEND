@@ -34,7 +34,7 @@ class MeetingCancellationSecurityTest {
     @DisplayName("익명 DELETE 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousMeetingCancellationRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의 취소 요청을 전송한다. */
-        mockMvc.perform(delete("/api/v1/meetings/91"))
+        mockMvc.perform(delete("/api/meetings/91"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 

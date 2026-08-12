@@ -3,8 +3,10 @@ package com.module06.backend.metering.application.service;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.metering.application.command.RecordTokenUsageCommand;
 import com.module06.backend.metering.domain.exception.MeteringErrorCode;
+import com.module06.backend.metering.domain.model.TokenUsageOutbox;
 import com.module06.backend.metering.domain.model.TokenUsageRecord;
 import com.module06.backend.metering.domain.repository.CompanyTokenPlanRepository;
+import com.module06.backend.metering.domain.repository.TokenUsageOutboxRepository;
 import com.module06.backend.metering.domain.repository.TokenUsageRecordRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,6 +33,9 @@ class TokenMeteringServiceTest {
     private TokenUsageRecordRepository tokenUsageRecordRepository;
 
     @Mock
+    private TokenUsageOutboxRepository tokenUsageOutboxRepository;
+
+    @Mock
     private CompanyTokenPlanRepository companyTokenPlanRepository;
 
     private TokenMeteringService service;
@@ -41,7 +46,10 @@ class TokenMeteringServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new TokenMeteringService(tokenUsageRecordRepository, companyTokenPlanRepository, FIXED_CLOCK);
+        // 원장 반영 규칙(멱등)은 실제 TokenUsageLedgerAppender 를 통과시킨다 — record 경로 전체를 검증하기 위함.
+        TokenUsageLedgerAppender appender = new TokenUsageLedgerAppender(tokenUsageRecordRepository);
+        service = new TokenMeteringService(
+                tokenUsageRecordRepository, tokenUsageOutboxRepository, appender, companyTokenPlanRepository, FIXED_CLOCK);
     }
 
     @Test
@@ -64,6 +72,8 @@ class TokenMeteringServiceTest {
         assertThat(saved.getTotalTokens()).isEqualTo(2000);
         assertThat(saved.getModel()).isEqualTo("gpt-test");
         assertThat(saved.getRecordedAt()).isNotNull();
+        // 정상 경로는 outbox 를 거치지 않는다.
+        verify(tokenUsageOutboxRepository, never()).save(any());
     }
 
     @Test
@@ -76,6 +86,29 @@ class TokenMeteringServiceTest {
         service.record(command);
 
         verify(tokenUsageRecordRepository, times(1)).save(any(TokenUsageRecord.class));
+    }
+
+    @Test
+    void recordEnqueuesOutboxWhenLedgerWriteFailsInsteadOfLosingIt() {
+        RecordTokenUsageCommand command = command("job-1", 1200, 800);
+        when(tokenUsageRecordRepository.existsByJobId("job-1")).thenReturn(false);
+        // 원장 반영이 일시적으로 실패(DB 순단 등).
+        when(tokenUsageRecordRepository.save(any(TokenUsageRecord.class)))
+                .thenThrow(new RuntimeException("db unavailable"));
+        when(tokenUsageOutboxRepository.existsByJobId("job-1")).thenReturn(false);
+        when(tokenUsageOutboxRepository.save(any(TokenUsageOutbox.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 예외를 밖으로 던지지 않는다(분석을 실패시키지 않음) — 대신 durable 하게 적재한다.
+        service.record(command);
+
+        ArgumentCaptor<TokenUsageOutbox> captor = ArgumentCaptor.forClass(TokenUsageOutbox.class);
+        verify(tokenUsageOutboxRepository).save(captor.capture());
+        TokenUsageOutbox queued = captor.getValue();
+        assertThat(queued.getJobId()).isEqualTo("job-1");
+        assertThat(queued.getInputTokens()).isEqualTo(1200);
+        assertThat(queued.getOutputTokens()).isEqualTo(800);
+        assertThat(queued.getStatus().name()).isEqualTo("PENDING");
+        assertThat(queued.getAttemptCount()).isZero();
     }
 
     @Test

@@ -34,7 +34,7 @@ class PendingActionMeetingSecurityTest {
     @DisplayName("익명 GET 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousPendingActionMeetingRequest() throws Exception {
         /* 인증 헤더 없이 확정 대기 회의 목록 조회를 전송한다. */
-        mockMvc.perform(get("/api/v1/meetings/pending-action-distributions"))
+        mockMvc.perform(get("/api/meetings/pending-action-distributions"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 
