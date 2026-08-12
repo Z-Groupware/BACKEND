@@ -1,0 +1,67 @@
+name: Gate 1 · ShellCheck
+
+# 셸 스크립트 정적 분석. 이 리포의 셸은 배포(infra/deploy.sh)와 리뷰 루프 러너(scripts/*.sh),
+# 그리고 pre-push 훅이다 — 전부 "조용히 잘못 동작하면 알아채기 어려운" 자리에 있다.
+#
+# gate1-semgrep.yml 에 잡을 붙이지 않고 파일을 나눈 이유: 그 파일은 다른 PR에서 이미
+# 고쳐지는 중이라 같은 자리에 잡을 더하면 반드시 충돌한다. 체크 이름이 따로 잡히면
+# 나중에 필수 체크로 올릴 때도 개별로 고를 수 있다.
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false   # PR 코드를 읽는 잡 — 러너에 git 자격증명을 남기지 않는다
+
+      # shellcheck 는 GitHub 의 ubuntu 러너에 기본 설치돼 있다. 별도 액션을 쓰지 않는 이유는
+      # 공급망 표면을 늘리지 않기 위해서다 — 이 게이트 하나 때문에 서드파티 액션을 더할 이유가 없다.
+      - name: 검사
+        run: |
+          set -euo pipefail
+          shellcheck --version
+
+          # 대상: *.sh 전부 + .githooks/ 의 훅(확장자가 없다).
+          # build/ 는 빌드 산출물, .claude/ 는 워크트리 사본이라 제외한다(.gitignore 대상이기도 하다).
+          # -print0 / mapfile -d '' 로 받는다 — 파일명을 ${{ }} 로 보간하면 PR이 파일명에 셸
+          # 메타문자를 심어 명령을 주입할 수 있다. 경로를 워크플로 표현식에 태우지 않는다.
+          mapfile -d '' -t FILES < <(
+            find . \
+              -type d \( -name build -o -name .git -o -name .claude \) -prune -o \
+              \( -type f \( -name '*.sh' -o -path './.githooks/*' \) \) -print0
+          )
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "검사할 셸 스크립트가 없다."
+            exit 0
+          fi
+
+          echo "── 검사 대상 ${#FILES[@]}개 ──"
+          printf '%s\n' "${FILES[@]}"
+
+          # ── 차단: 오류(error)만 ──────────────────────────────────────────────
+          # 도입 시점 기준선 0건이라 유예할 부채가 없다. 바로 차단으로 넣는다.
+          # error 는 "이 스크립트는 의도대로 동작하지 않는다" 수준이라 오탐이 거의 없다.
+          echo "── 차단 검사(severity=error) ──"
+          shellcheck --severity=error "${FILES[@]}"
+          echo "오류 없음."
+
+          # ── 알림: 경고·정보·스타일 ───────────────────────────────────────────
+          # 도입 시점 9건이고 확인 결과 전부 오탐이거나 의도된 것이다.
+          #   · SC2154 6건 — review-score-domains.sh 의 awk 프로그램 안 변수를 셸 변수로 오인
+          #   · SC2034 3건 — deploy.sh 의 재시도 카운터, pre-push 의 훅 stdin 필드(형식상 필요)
+          # 그래서 머지를 막지 않는다. 새로 늘어난 항목을 사람이 보라고 남기는 로그다.
+          echo "── 참고 검사(severity=style · 머지를 막지 않음) ──"
+          shellcheck --severity=style "${FILES[@]}" || true
