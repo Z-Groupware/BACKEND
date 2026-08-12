@@ -115,6 +115,10 @@ tasks.named('test') {
 // 없어서 키 문제인지 쿼터인지 모델 id 인지 판별할 수 없었다(2026-08-05).
 // skipped 도 함께 찍는다 — 라이브 판정이 왜 건너뛰어졌는지가 그 사유에 담긴다.
 tasks.withType(Test).configureEach {
+	// develop 병합으로 @SpringBootTest 컨텍스트 수가 늘면서 기본 힙(~512MB)으로 OutOfMemoryError가
+	// 남(MeteringControllerTest 등, 2026-08-11). Spring이 서로 다른 설정의 컨텍스트를 전부 캐시에
+	// 올려두는 특성상 컨텍스트가 많아질수록 힙 요구량이 커진다.
+	maxHeapSize = '2g'
 	testLogging {
 		events 'failed', 'skipped'
 		exceptionFormat = 'full'

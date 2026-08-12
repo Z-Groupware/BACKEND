@@ -32,7 +32,7 @@ public class CapRecordingJpaEntity {
     @Column(name = "file_name", nullable = false)
     private String fileName;
 
-    @Column(name = "file_url", nullable = false)
+    @Column(name = "file_url", nullable = false, length = 1024)
     private String fileUrl;
 
     @Column(name = "file_size", nullable = false)

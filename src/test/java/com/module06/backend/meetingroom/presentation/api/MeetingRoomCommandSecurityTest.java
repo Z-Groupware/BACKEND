@@ -50,7 +50,7 @@ class MeetingRoomCommandSecurityTest {
     @DisplayName("익명 POST 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousCreateRequestBeforePrincipalResolution() throws Exception {
         /* Bean Validation을 통과할 수 있는 정상 본문을 인증 헤더 없이 전송한다. */
-        mockMvc.perform(post("/api/v1/meeting-rooms")
+        mockMvc.perform(post("/api/rooms")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -72,7 +72,7 @@ class MeetingRoomCommandSecurityTest {
     @DisplayName("익명 PATCH 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousUpdateRequest() throws Exception {
         /* 정상 PATCH 본문을 인증 헤더 없이 전송한다. */
-        mockMvc.perform(patch("/api/v1/meeting-rooms/2")
+        mockMvc.perform(patch("/api/rooms/2")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -92,7 +92,7 @@ class MeetingRoomCommandSecurityTest {
     @DisplayName("MEMBER의 PATCH 요청을 403으로 거절한다")
     void rejectsMemberUpdateRequest() throws Exception {
         /* MEMBER 인증을 가진 상태에서 정상 PATCH 본문을 전송한다. */
-        mockMvc.perform(patch("/api/v1/meeting-rooms/2")
+        mockMvc.perform(patch("/api/rooms/2")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -111,7 +111,7 @@ class MeetingRoomCommandSecurityTest {
     @DisplayName("익명 DELETE 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousDeactivateRequest() throws Exception {
         /* 인증 헤더 없이 2번 회의실 비활성화 요청을 전송한다. */
-        mockMvc.perform(delete("/api/v1/meeting-rooms/2"))
+        mockMvc.perform(delete("/api/rooms/2"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 
@@ -125,7 +125,7 @@ class MeetingRoomCommandSecurityTest {
     @DisplayName("LEADER의 DELETE 요청을 MR-004와 403으로 거절한다")
     void rejectsLeaderDeactivateRequest() throws Exception {
         /* LEADER 인증으로 2번 회의실 비활성화 요청을 전송한다. */
-        mockMvc.perform(delete("/api/v1/meeting-rooms/2"))
+        mockMvc.perform(delete("/api/rooms/2"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("MR-004"));
 

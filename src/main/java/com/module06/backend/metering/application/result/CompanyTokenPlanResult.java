@@ -10,6 +10,8 @@ public record CompanyTokenPlanResult(
         long monthlyTokenPool,
         int baseFee,
         int tokenOveragePricePer1k,
+        int inputTokenPricePer1k,
+        int outputTokenPricePer1k,
         LocalDate effectiveFrom
 ) {
 
@@ -20,6 +22,8 @@ public record CompanyTokenPlanResult(
                 plan.getMonthlyTokenPool(),
                 plan.getBaseFee(),
                 plan.getTokenOveragePricePer1k(),
+                plan.getInputTokenPricePer1k(),
+                plan.getOutputTokenPricePer1k(),
                 plan.getEffectiveFrom()
         );
     }

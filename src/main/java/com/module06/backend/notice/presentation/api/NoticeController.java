@@ -44,7 +44,7 @@ import com.module06.backend.notice.presentation.api.response.UpdateNoticeRespons
 /* NOTI-01~05 회사 공지 CRUD REST API의 진입점이다. */
 @Tag(name = "Notice", description = "회사 공지 조회 및 관리 API")
 @RestController
-@RequestMapping("/api/v1/notices")
+@RequestMapping("/api/notices")
 @RequiredArgsConstructor
 public class NoticeController {
 

@@ -11,6 +11,7 @@ public record MeteringDashboardResponse(
         long monthlyTokenPool,
         long overageTokens,
         long estimatedAmountKrw,
+        long directionalAmountKrw,
         QuotaStatus quotaStatus,
         List<DepartmentUsageResponse> departments
 ) {
@@ -22,6 +23,7 @@ public record MeteringDashboardResponse(
                 result.monthlyTokenPool(),
                 result.overageTokens(),
                 result.estimatedAmountKrw(),
+                result.directionalAmountKrw(),
                 result.quotaStatus(),
                 result.departments().stream()
                         .map(DepartmentUsageResponse::from)

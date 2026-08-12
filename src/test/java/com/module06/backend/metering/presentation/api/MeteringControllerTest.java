@@ -54,6 +54,7 @@ class MeteringControllerTest {
                         1_500_000L,
                         2_300L,
                         150_060L,
+                        25_090L,
                         QuotaStatus.OVER,
                         List.of(new DepartmentUsageResult(10L, 1_000L, 20L))
                 ));
@@ -61,6 +62,7 @@ class MeteringControllerTest {
         mockMvc.perform(get("/api/metering/dashboard").param("period", "2026-08"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.estimatedAmountKrw").value(150_060L))
+                .andExpect(jsonPath("$.data.directionalAmountKrw").value(25_090L))
                 .andExpect(jsonPath("$.data.departments[0].teamId").value(10L))
                 .andExpect(jsonPath("$.data.departments[0].estimatedAmountKrw").value(20L));
     }

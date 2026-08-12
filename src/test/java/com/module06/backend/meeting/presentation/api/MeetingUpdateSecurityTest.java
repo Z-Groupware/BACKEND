@@ -37,7 +37,7 @@ class MeetingUpdateSecurityTest {
     @DisplayName("익명 PATCH 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousMeetingUpdateRequest() throws Exception {
         /* 인증 헤더 없이 정상 형태의 제목 수정 본문을 91번 회의에 전송한다. */
-        mockMvc.perform(patch("/api/v1/meetings/91")
+        mockMvc.perform(patch("/api/meetings/91")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"변경 시도\"}"))
                 .andExpect(status().isUnauthorized())

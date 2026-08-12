@@ -33,7 +33,7 @@ import com.module06.backend.meetingroom.presentation.api.response.MeetingRoomLis
  */
 @Tag(name = "Meeting Room", description = "회의실 조회 및 관리 API")
 @RestController
-@RequestMapping("/api/v1/meeting-rooms")
+@RequestMapping("/api/rooms")
 @RequiredArgsConstructor
 public class MeetingRoomController {
 
