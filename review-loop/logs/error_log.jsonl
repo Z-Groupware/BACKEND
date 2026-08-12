@@ -161,3 +161,4 @@
 {"timestamp":"2026-08-11T06:03:30.252802200","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":10,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
 {"timestamp":"2026-08-11T09:42:29.528679700","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":8,"terminatedByBudget":false,"skipReason":"제공자를 쓸 수 없다 (HTTP 429 — 키 만료·무효, 쿼터·크레딧 소진, 제공자 장애 중 하나)."}
 {"timestamp":"2026-08-11T07:15:59.969947600","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":5,"terminatedByBudget":false,"skipReason":"제공자를 쓸 수 없다 (HTTP 429 — 키 만료·무효, 쿼터·크레딧 소진, 제공자 장애 중 하나)."}
+{"timestamp":"2026-08-12T02:43:59.569121500","round":0,"model":null,"score":0,"hasCritical":false,"decision":null,"findingsCount":6,"terminatedByBudget":false,"skipReason":"GEMINI_API_KEY 없음 (키 미주입 · fork PR)"}
