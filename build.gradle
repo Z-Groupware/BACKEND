@@ -91,7 +91,7 @@ dependencies {
 	// swagger-annotations(non-jakarta, 2.2.31)를 딸려오는데 springdoc이 쓰는
 	// swagger-annotations-jakarta(2.2.47)와 같은 패키지(io.swagger.v3.oas.annotations)를 다르게 제공해서
 	// 클래스로더가 구버전을 집으면 NoSuchMethodError($dynamicRef)로 /v3/api-docs가 500 난다. 제외해서 방지.
-	implementation('com.anthropic:anthropic-java:2.34.0') {
+	implementation('com.anthropic:anthropic-java:2.53.0') {
 		exclude group: 'io.swagger.core.v3', module: 'swagger-annotations'
 	}
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'  // 루프 유닛테스트 JUnit Jupiter
