@@ -75,14 +75,18 @@ public record CompanyRegistrationRequest(
     public RegisterCompanyCommand toCommand() {
         return new RegisterCompanyCommand(
                 companyName, registrationNo, representativeName, managerEmail, managerPhone,
-                blankToNull(address), employeeScale, purpose,
+                blankToNull(address), blankToNull(employeeScale), blankToNull(purpose),
                 agreedTerms, agreedPrivacy, agreedMarketing);
     }
 
     /**
-     * 주소만 빈 문자열을 NULL 로 접는다. 지도를 못 쓰는 화면은 입력칸을 비운 채 {@code ""} 를 보내는데,
-     * 그대로 저장하면 "주소가 있다"({@code address != null})가 참이 되어 오시는 길 같은 화면이 빈
-     * 주소를 주소로 취급한다. 주소 없음은 NULL 로 통일한다.
+     * 선택 입력값 3종({@code address}·{@code employeeScale}·{@code purpose})의 빈 문자열을 NULL 로 접는다.
+     * 화면은 고르지 않은 항목을 {@code ""} 로 보내는데, 그대로 저장하면 "값이 있다"({@code != null})가 참이
+     * 되어 읽는 쪽이 빈 값을 값으로 취급한다 — 주소가 없는데 "오시는 길"이 빈 주소를 그리는 식이다.
+     * 값 없음은 NULL 하나로 통일한다.
+     *
+     * <p>필수값({@code companyName} 등)은 여기 태우지 않는다 — {@code @NotBlank} 가 이미 400 으로 막아
+     * 이 자리까지 오지 않는다.
      */
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.strip();

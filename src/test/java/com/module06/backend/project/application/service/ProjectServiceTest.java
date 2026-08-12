@@ -7,6 +7,7 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -115,6 +116,42 @@ class ProjectServiceTest {
 
         verify(projectTeamOwnershipPolicy, never()).check(anyList(), any());
         verify(projectRepository, never()).save(any(Project.class));
+    }
+
+    // ---------- getOwnerDashboardSummary (이슈 #352) ----------
+
+    // CodeRabbit 지적 반영 — 테스트의 LocalDate.now()와 서비스 내부의 LocalDate.now()는 서로
+    // 다른 시점에 평가되는 독립 호출이라, 자정을 걸치면 두 값이 갈려 stub이 안 맞을 수 있다.
+    // any(LocalDate.class)로 받고 인자를 캡처해 "이틀 사이 7일 창"이라는 관계만 검증한다.
+    @Test
+    void getOwnerDashboardSummaryReturnsTotalAndDueSoonProjectCounts() {
+        projectService = service();
+        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(3L);
+        when(projectRepository.countDueSoonByCompanyId(eq(COMPANY), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(1L);
+
+        var result = projectService.getOwnerDashboardSummary(COMPANY);
+
+        assertThat(result.totalProjectCount()).isEqualTo(3L);
+        assertThat(result.dueSoonProjectCount()).isEqualTo(1L);
+
+        ArgumentCaptor<LocalDate> from = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> to = ArgumentCaptor.forClass(LocalDate.class);
+        verify(projectRepository).countDueSoonByCompanyId(eq(COMPANY), from.capture(), to.capture());
+        assertThat(to.getValue()).isEqualTo(from.getValue().plusDays(7));
+    }
+
+    @Test
+    void getOwnerDashboardSummaryReturnsZerosWhenCompanyHasNoProjects() {
+        projectService = service();
+        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(0L);
+        when(projectRepository.countDueSoonByCompanyId(eq(COMPANY), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(0L);
+
+        var result = projectService.getOwnerDashboardSummary(COMPANY);
+
+        assertThat(result.totalProjectCount()).isZero();
+        assertThat(result.dueSoonProjectCount()).isZero();
     }
 
     // ---------- list ----------

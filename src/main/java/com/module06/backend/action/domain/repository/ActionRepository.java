@@ -70,4 +70,32 @@ public interface ActionRepository {
 
     // FR-AC-09 — 회의별 액션 조회. TEAM·PERSONAL이 actionType으로 섞여 나온다(회의 상세 화면 전용).
     List<Action> findAllByCompanyIdAndSourceMeetingId(Long companyId, Long sourceMeetingId);
+
+    // 2026-08-11, 이슈 #355(이홍근 요청) — 팀 액션 목록의 하위 개인 액션 진척 게이지
+    // ("3/5")용 배치 집계. 팀 액션 하나당 하위 PERSONAL 액션의 전체 건수·완료 건수.
+    // findAllByParentActionId(단건, FR-AC-08 타임라인용)와 달리 목록 페이지의 여러 팀 액션
+    // id를 한 번에 묶어 N+1을 피한다. companyId는 CodeRabbit(#357) 지적 반영 — parentActionId만
+    // 조건이면 다른 회사의 PERSONAL 액션이 같은 parentActionId(같은 물리 테이블의 auto-increment
+    // id라 우연히 겹칠 수 있다)를 참조할 때 회사 경계 밖 데이터가 섞여 들어간다.
+    // findAllByParentActionId가 이미 companyId를 필수로 받는 것과 동일한 이유.
+    List<ChildActionProgress> countChildActionProgressByParentActionIds(Long companyId, List<Long> parentActionIds);
+
+    record ChildActionProgress(Long parentActionId, int totalCount, int doneCount) {
+    }
+
+    // 2026-08-11 — 팀 대시보드 KPI "팀원 액션" 카드. CodeRabbit(#354) 지적 반영 —
+    // ActionTypeShapePolicy.checkTeamShape상 PERSONAL 액션은 teamId를 가질 수 없어(항상 null)
+    // countByTeamIdAndActionType(teamId, PERSONAL, ...)식으로 PERSONAL의 teamId를 직접
+    // 필터링하는 이전 시도는 항상 0을 반환하는 실버그였다. "팀 소속 개인 액션"은 이 팀의
+    // TEAM 액션을 부모로 둔 PERSONAL 액션으로 정의하고 parentActionId 경유로 집계한다.
+    long countTeamMemberActionsByTeamId(Long teamId);
+
+    // 2026-08-11 — 팀 대시보드 "팀원 현황"의 "담당 액션 수" 배치 집계. PERSONAL 액션만 대상
+    // (TEAM은 담당자 개념이 없다). 상태 무관 전체 건수 — 완료 여부 구분은 이번 스코프 밖
+    // (홍근님 childDoneCount/childTotalCount 요청은 팀 액션 하위 개인 액션 진척 건으로 별도
+    // 이슈, 이 메서드와 용도가 다르다).
+    List<AssigneeActionCount> countActionsByAssigneeMemberIds(List<Long> assigneeMemberIds);
+
+    record AssigneeActionCount(Long assigneeMemberId, long actionCount) {
+    }
 }

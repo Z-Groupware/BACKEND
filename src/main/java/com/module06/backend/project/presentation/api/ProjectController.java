@@ -26,6 +26,7 @@ import com.module06.backend.project.application.command.CreateProjectCommand;
 import com.module06.backend.project.application.command.UpdateProjectCommand;
 import com.module06.backend.project.application.usecase.BulkUpdateProjectStatusUseCase;
 import com.module06.backend.project.application.usecase.CreateProjectUseCase;
+import com.module06.backend.project.application.usecase.GetOwnerDashboardSummaryUseCase;
 import com.module06.backend.project.application.usecase.GetProjectDetailUseCase;
 import com.module06.backend.project.application.usecase.GetProjectListUseCase;
 import com.module06.backend.project.application.usecase.GetProjectTimelineUseCase;
@@ -35,6 +36,7 @@ import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.presentation.api.request.BulkUpdateProjectStatusRequest;
 import com.module06.backend.project.presentation.api.request.CreateProjectRequest;
 import com.module06.backend.project.presentation.api.request.UpdateProjectRequest;
+import com.module06.backend.project.presentation.api.response.OwnerDashboardSummaryResponse;
 import com.module06.backend.project.presentation.api.response.ProjectDetailResponse;
 import com.module06.backend.project.presentation.api.response.ProjectSummaryResponse;
 import com.module06.backend.project.presentation.api.response.ProjectTimelineItemResponse;
@@ -58,6 +60,7 @@ public class ProjectController {
     private final UpdateProjectUseCase updateProjectUseCase;
     private final BulkUpdateProjectStatusUseCase bulkUpdateProjectStatusUseCase;
     private final GetProjectTimelineUseCase getProjectTimelineUseCase;
+    private final GetOwnerDashboardSummaryUseCase getOwnerDashboardSummaryUseCase;
 
     /*
         회사·작성자를 토큰에서 꺼낸다. 헤더로 받으면 로그인만 한 사람이 남의 회사 번호를 적어
@@ -187,5 +190,19 @@ public class ProjectController {
                 .toList();
 
         return ApiResponse.success("프로젝트 타임라인을 조회했습니다.", response);
+    }
+
+    // 2026-08-11, 이슈 #352 — 오너 대시보드 KPI 카드 중 project(C) 소유분만. "전체 사원"·"휴직자"는
+    // identity/leave(B) 소유라 이 응답에 없다 — FE가 각 도메인 응답을 화면에서 합쳐 4카드를 구성한다.
+    @Operation(summary = "오너 대시보드 요약 조회", description = "OWNER 전용. 전체 프로젝트 수·마감 D-7 프로젝트 수.")
+    @GetMapping("/dashboard-summary")
+    @PreAuthorize("hasRole('OWNER')")
+    public ApiResponse<OwnerDashboardSummaryResponse> getOwnerDashboardSummary(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId
+    ) {
+        var result = getOwnerDashboardSummaryUseCase.getOwnerDashboardSummary(companyId);
+
+        return ApiResponse.success("오너 대시보드 요약을 조회했습니다.", OwnerDashboardSummaryResponse.from(result));
     }
 }

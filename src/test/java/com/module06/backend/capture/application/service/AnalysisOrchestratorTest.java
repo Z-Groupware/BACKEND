@@ -237,6 +237,33 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("L1.5 대상은 좁히고 문맥은 전체를 넘긴다 — 선행사가 주제 경계를 넘는다")
+    void 지시어_후보만_대상으로_표시한다() {
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+
+        orchestrator(summaries, new FakeTupleRepository(), ai).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        /*
+         * 대상은 2번뿐이다 — 1번("로드맵 정리합시다")에는 지시 표현이 없다. 이 좁히기가 응답
+         * 스키마의 utteranceId 범위를 줄여, 지시어 없는 발화에 해소가 붙는 것을 막는다.
+         */
+        assertThat(ai.resolveTargets).containsExactly(2L);
+
+        /*
+         * ⚠ 그런데 발화는 **둘 다** 갔다. 이 두 단정이 함께 있어야 하는 이유 — 나중에 누가
+         * "대상만 보내면 입력 토큰이 줄겠다"고 utterances 를 같이 좁히면, 2번의 "그거"가
+         * 무엇을 가리키는지 알려주는 1번이 프롬프트에서 사라진다. 그러면 계층이 기권한 것이
+         * 아니라 우리가 문맥을 잘라 UNRESOLVED 를 만든 것이 된다.
+         */
+        assertThat(ai.resolveUtterances).extracting(Utterance::utteranceId)
+                .containsExactly(1L, 2L);
+    }
+
+    @Test
     @DisplayName("UNRESOLVED 기권은 발화에 적지 않는다 — 모델이 그 문구를 내용으로 인용한다")
     void 기권한_지시어는_주석을_붙이지_않는다() {
         FakeSummaryRepository summaries = new FakeSummaryRepository();
@@ -1256,6 +1283,7 @@ class AnalysisOrchestratorTest {
         private int resolveCalls;
         private int segmentCalls;
         private List<Utterance> resolveUtterances = List.of();
+        private List<Long> resolveTargets = List.of();
         private List<Utterance> segmentUtterances = List.of();
         private final List<List<GateCandidate>> gateRequests = new ArrayList<>();
         private final List<List<ConfirmedItem>> extractRequests = new ArrayList<>();
@@ -1283,6 +1311,7 @@ class AnalysisOrchestratorTest {
             resolveUtterances = List.copyOf(utterances);
             // 계약: null 이 아니라 빈 리스트여야 한다(pydantic 이 list 자리의 None 을 422 로 거절한다).
             assertThat(targetUtteranceIds).isNotNull();
+            resolveTargets = List.copyOf(targetUtteranceIds);
             return new ResolveReferenceResult(references, RUN);
         }
 
