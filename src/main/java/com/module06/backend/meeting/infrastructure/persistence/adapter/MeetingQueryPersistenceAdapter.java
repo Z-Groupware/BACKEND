@@ -25,6 +25,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.DashboardMeetingRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
@@ -48,7 +49,8 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class MeetingQueryPersistenceAdapter
         implements MeetingQueryRepository, MeetingDetailRepository, MeetingLockRepository,
-        MeetingListRepository, PendingActionMeetingRepository, StalledSummaryMeetingRepository {
+        MeetingListRepository, PendingActionMeetingRepository, StalledSummaryMeetingRepository,
+        DashboardMeetingRepository {
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
@@ -577,6 +579,65 @@ public class MeetingQueryPersistenceAdapter
                         meeting.getStartAt()
                 ))
                 .toList();
+    }
+
+    /* MEET-17 대시보드 카드 후보로 회사·스코프 조건을 만족하는 최근 회의를 상한 개수만큼 조회한다. */
+    @Override
+    public List<DashboardMeetingCandidate> findDashboardMeetings(DashboardMeetingCriteria criteria) {
+        /* 스코프별 조건을 Specification으로 구성해 조합마다 별도 @Query를 만들지 않는다. */
+        Specification<MeetingJpaEntity> specification = buildDashboardMeetingSpecification(criteria);
+
+        /* 카드는 총 건수가 필요 없으므로 페이지 메타 없이 상한 개수만큼만 데이터베이스에서 자른다. */
+        PageRequest pageRequest = PageRequest.of(
+                0,
+                criteria.limit(),
+                Sort.by(Sort.Order.desc("startAt"), Sort.Order.desc("id"))
+        );
+
+        return springDataMeetingRepository.findAll(specification, pageRequest)
+                .getContent()
+                .stream()
+                .map(this::toDashboardMeetingCandidate)
+                .toList();
+    }
+
+    /* MEET-17의 회사·취소 제외·스코프 조건을 Specification으로 만든다. */
+    private Specification<MeetingJpaEntity> buildDashboardMeetingSpecification(DashboardMeetingCriteria criteria) {
+        return (meeting, criteriaQuery, criteriaBuilder) -> {
+            /* 모든 스코프가 회사 범위와 취소 회의 제외를 공통으로 적용한다. */
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(criteriaBuilder.equal(meeting.get("companyId"), criteria.companyId()));
+            predicates.add(criteriaBuilder.notEqual(meeting.get("status"), MeetingStatus.CANCELED));
+
+            /* 스코프별로 정확히 하나의 소유·소속 조건만 추가한다. */
+            switch (criteria.scope()) {
+                case OWNER -> predicates.add(
+                        criteriaBuilder.equal(meeting.get("hostMemberId"), criteria.requesterMemberId())
+                );
+                case TEAM -> {
+                    /* 팀장이 직접 개설한 회의만 보이지 않도록 관련 액션이 있는 회의로 한정한다. */
+                    predicates.add(criteriaBuilder.equal(meeting.get("teamId"), criteria.requesterTeamId()));
+                    predicates.add(criteriaBuilder.isNotNull(meeting.get("relatedActionId")));
+                }
+                case ME -> predicates.add(criteriaBuilder.exists(
+                        attendeeExistsSubquery(meeting, criteriaQuery, criteriaBuilder, criteria.requesterMemberId())
+                ));
+            }
+
+            return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
+        };
+    }
+
+    /* 회의 엔티티를 MEET-17 대시보드 카드 조립에 필요한 최소 읽기 모델로 변환한다. */
+    private DashboardMeetingCandidate toDashboardMeetingCandidate(MeetingJpaEntity meeting) {
+        return new DashboardMeetingCandidate(
+                meeting.getId(),
+                meeting.getTitle(),
+                meeting.getProjectId(),
+                meeting.getStatus(),
+                meeting.getMeetingRoomId(),
+                meeting.getStartAt()
+        );
     }
 
 }
