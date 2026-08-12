@@ -92,6 +92,7 @@ class ActionServiceTest {
 
         assertThat(saved.getTeamId()).isEqualTo(7L);
         assertThat(saved.getAssigneeMemberId()).isNull();
+        assertThat(saved.getStatus()).isEqualTo(ActionStatus.TODO);
     }
 
     @Test
