@@ -75,6 +75,31 @@ class MemberDirectoryServiceTest {
     }
 
     @Test
+    @DisplayName("이메일로도 검색한다 — 동명이인은 이메일로만 특정된다")
+    void searchesByEmail() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActiveWithEmail(COMPANY_ID, "김서준", "seojun@company.kr", null, null, Authority.MEMBER);
+        directory.addActiveWithEmail(COMPANY_ID, "김서준", "seojun.kim@company.kr", null, null, Authority.MEMBER);
+        directory.addActiveWithEmail(COMPANY_ID, "박민재", "minjae@company.kr", null, null, Authority.MEMBER);
+
+        MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, "seojun.kim", 0, 20);
+
+        assertThat(page.totalElements()).isEqualTo(1);
+        assertThat(page.content()).extracting(m -> m.name()).containsExactly("김서준");
+    }
+
+    @Test
+    @DisplayName("이메일 검색도 대소문자를 가리지 않는다")
+    void searchesByEmailIgnoringCase() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActiveWithEmail(COMPANY_ID, "김서준", "Seojun@Company.kr", null, null, Authority.MEMBER);
+
+        MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, "SEOJUN@company", 0, 20);
+
+        assertThat(page.totalElements()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("size 만큼만 잘라 돌려주고 totalElements 는 필터된 전체 수다")
     void paginates() {
         FakeDirectory directory = new FakeDirectory();

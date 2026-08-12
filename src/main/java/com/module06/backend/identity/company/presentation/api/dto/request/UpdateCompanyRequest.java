@@ -19,6 +19,11 @@ import com.module06.backend.identity.company.application.command.UpdateCompanyCo
  * <p>이 차단이 서버에 있어야 하는 이유는 화면이 이미 막고 있어도 그것이 서버의 보장은 아니기 때문이다.
  * {@code ""} 가 들어오면 {@link com.module06.backend.identity.company.infrastructure.persistence.CompanyJpaEntity}
  * 의 병합이 {@code null} 검사만 하므로 빈 문자열이 그대로 덮어써진다 — 기업명이 사라질 수 있다.
+ *
+ * <p><b>주소만 예외다 — 빈 값이 "지운다"는 뜻이다.</b> 나머지 필드는 회사에 반드시 있어야 하는 값이라
+ * 빈 값이 실수지만, 주소는 원래 선택이고({@code address} 는 NULL 허용) 잘못 찍은 위치를 되돌릴 방법이
+ * 있어야 한다. JSON 의 {@code null} 은 이 계약에서 이미 "미변경"으로 쓰이고 있어 지우는 신호로 쓸 수
+ * 없으므로, {@code ""}(공백만 있는 문자열 포함)를 지우기로 정한다.
  */
 @Schema(description = "기업 기본 정보 부분 수정 — null 필드는 값을 바꾸지 않는다")
 public record UpdateCompanyRequest(
@@ -37,9 +42,9 @@ public record UpdateCompanyRequest(
         @Pattern(regexp = NOT_BLANK_IF_PRESENT, message = "대표자명은 빈 값으로 보낼 수 없습니다.")
         String representativeName,
 
-        @Schema(description = "주소", example = "서울시 강남구 테헤란로 123")
+        /* 여기만 NOT_BLANK_IF_PRESENT 가 없다 — 빈 값이 유효한 입력(지우기)이기 때문이다. */
+        @Schema(description = "주소 — 빈 문자열을 보내면 주소와 좌표를 함께 지운다", example = "서울시 강남구 테헤란로 123")
         @Size(max = 255, message = "주소는 255자 이하로 입력해 주세요.")
-        @Pattern(regexp = NOT_BLANK_IF_PRESENT, message = "주소는 빈 값으로 보낼 수 없습니다.")
         String address,
 
         /*

@@ -22,6 +22,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -171,6 +172,24 @@ class MemberControllerTest {
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].name").value("이하윤"))
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].positionName").value("선임"))
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].role").value("MEMBER"));
+    }
+
+    /*
+     * 인가 조건을 애노테이션으로 못 박는다. 이 테스트 클래스는 addFilters = false 라 실제 인가가
+     * 돌지 않으므로, 조직도를 전 사원에게 열어둔 결정과 명부를 관리자에게 남겨둔 결정이 나중에
+     * 조용히 뒤집히는 것을 여기서 잡는다.
+     */
+    @Test
+    @DisplayName("조직도는 로그인한 사원 누구나, 명부 목록은 관리자만")
+    void orgChartIsOpenToAllMembersButListIsNot() throws Exception {
+        PreAuthorize orgChart = MemberController.class
+                .getMethod("orgChart", Long.class).getAnnotation(PreAuthorize.class);
+        PreAuthorize list = MemberController.class
+                .getMethod("list", Long.class, MemberListFilter.class, String.class, int.class, int.class)
+                .getAnnotation(PreAuthorize.class);
+
+        assertThat(orgChart.value()).isEqualTo("isAuthenticated()");
+        assertThat(list.value()).isEqualTo("hasAnyRole('OWNER','ADMIN')");
     }
 
     /* ── 오너 대시보드 ─────────────────────────────────────────────────────── */

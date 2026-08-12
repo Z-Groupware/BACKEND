@@ -149,13 +149,26 @@ public class CompanyJpaEntity {
         if (representativeName != null) {
             this.representativeName = representativeName;
         }
+        /*
+         * 빈 주소는 "지운다"는 뜻이다(UpdateCompanyRequest 주석). 이때 좌표도 함께 지운다 —
+         * 주소 없이 남은 핀은 가리키는 곳이 없고, 지우기 신호가 주소 한 곳뿐이라 좌표만 따로
+         * 비울 방법이 없다(JSON null 은 이 계약에서 이미 "미변경"이다).
+         */
         if (address != null) {
-            this.address = address;
+            boolean clearing = address.isBlank();
+            this.address = clearing ? null : address;
+            if (clearing) {
+                this.latitude = null;
+                this.longitude = null;
+            }
         }
         /*
          * 좌표는 각각 독립으로 얹는다. "주소를 바꿨으니 좌표도 같이 와야 한다"를 여기서 강제하지
          * 않는다 — 부분 수정 계약상 주소만 손으로 고치는 요청이 정상이고, 그때 좌표를 지우면
          * 지도에 찍혀 있던 위치가 소리 없이 사라진다. 두 값을 맞추는 책임은 화면에 있다.
+         *
+         * 지우기 뒤에 온다 — 주소를 비우면서 새 좌표를 함께 보낸 요청(지도만 먼저 옮긴 경우)은
+         * 보낸 좌표가 남는 게 맞다. 명시적으로 실은 값이 부수효과보다 우선한다.
          */
         if (latitude != null) {
             this.latitude = latitude;

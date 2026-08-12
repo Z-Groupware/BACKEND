@@ -97,6 +97,34 @@ class CompanyProfileServiceTest {
     }
 
     @Test
+    @DisplayName("주소를 빈 값으로 보내면 주소와 좌표가 함께 지워진다 — 주소 없는 핀은 가리킬 곳이 없다")
+    void blankAddressClearsAddressAndCoordinates() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+        service(repository).updateProfile(new UpdateCompanyCommand(
+                COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", 37.5006, 127.0366, null));
+
+        Company cleared = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "  ", null, null, null));
+
+        assertThat(cleared.address()).isNull();
+        assertThat(cleared.latitude()).isNull();
+        assertThat(cleared.longitude()).isNull();
+    }
+
+    @Test
+    @DisplayName("주소를 비우면서 새 좌표를 함께 보내면 보낸 좌표가 남는다 — 명시한 값이 부수효과보다 우선한다")
+    void explicitCoordinatesSurviveAddressClear() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+
+        Company updated = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "", 37.5006, 127.0366, null));
+
+        assertThat(updated.address()).isNull();
+        assertThat(updated.latitude()).isEqualTo(37.5006);
+        assertThat(updated.longitude()).isEqualTo(127.0366);
+    }
+
+    @Test
     @DisplayName("사업자등록번호 형식이 틀리면 거절한다")
     void rejectsMalformedRegistrationNo() {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));
@@ -168,17 +196,24 @@ class CompanyProfileServiceTest {
             return taken.contains(registrationNo);
         }
 
-        /** 실제 {@code CompanyJpaEntity.updateProfile} 과 같다 — null 인자는 기존 값을 그대로 둔다. */
+        /**
+         * 실제 {@code CompanyJpaEntity.updateProfile} 과 같다 — null 인자는 기존 값을 그대로 두고,
+         * 빈 주소는 주소·좌표를 함께 지운다.
+         */
         @Override
         public void updateProfile(Long id, String name, String registrationNo, String representativeName,
                                    String address, Double latitude, Double longitude, String mainPhone) {
+            boolean clearingAddress = address != null && address.isBlank();
+            String mergedAddress = address == null ? company.address() : (clearingAddress ? null : address);
+            Double mergedLatitude = clearingAddress ? null : company.latitude();
+            Double mergedLongitude = clearingAddress ? null : company.longitude();
             company = new Company(id, company.code(),
                     name != null ? name : company.name(),
                     registrationNo != null ? registrationNo : company.registrationNo(),
                     representativeName != null ? representativeName : company.representativeName(),
-                    address != null ? address : company.address(),
-                    latitude != null ? latitude : company.latitude(),
-                    longitude != null ? longitude : company.longitude(),
+                    mergedAddress,
+                    latitude != null ? latitude : mergedLatitude,
+                    longitude != null ? longitude : mergedLongitude,
                     mainPhone != null ? mainPhone : company.mainPhone(),
                     company.onboardedAt());
         }

@@ -382,12 +382,40 @@ class CompanyControllerTest {
                 Arguments.of("name 공백만", "{\"name\":\"   \"}"),
                 Arguments.of("businessNumber 빈 문자열", "{\"businessNumber\":\"\"}"),
                 Arguments.of("representativeName 빈 문자열", "{\"representativeName\":\"\"}"),
-                Arguments.of("address 빈 문자열", "{\"address\":\"\"}"),
-                Arguments.of("address 탭만", "{\"address\":\"\\t\"}"),
-                /* (?s) 를 붙여도 줄바꿈만 있는 값은 여전히 빈 값이다 — \S 가 하나도 없다. */
-                Arguments.of("address 줄바꿈만", "{\"address\":\"\\n\"}"),
-                Arguments.of("address 줄바꿈+공백만", "{\"address\":\" \\n \"}"),
+                /* address 는 여기 없다 — 빈 값이 '지우기' 라는 유효한 입력이다(clearsAddressWithBlank). */
                 Arguments.of("phone 빈 문자열", "{\"phone\":\"\"}"));
+    }
+
+    /*
+     * 주소만 빈 값이 허용된다. 다른 필드와 달리 원래 선택 값이고, 잘못 찍은 위치를 되돌릴 방법이
+     * 없으면 지도에 남은 핀을 지울 수가 없다. JSON null 은 이 계약에서 이미 "미변경"이라 못 쓴다.
+     */
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("blankAddressBodies")
+    @DisplayName("주소를 빈 값으로 보내면 지우기 — 400 이 아니라 커맨드까지 간다")
+    void clearsAddressWithBlank(String label, String body) throws Exception {
+        authenticateAs(1L);
+        when(updateCompanyProfileUseCase.updateProfile(any())).thenReturn(company());
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateCompanyCommand> captor = ArgumentCaptor.forClass(UpdateCompanyCommand.class);
+        verify(updateCompanyProfileUseCase).updateProfile(captor.capture());
+
+        /* null 이 아니라 빈 값으로 가야 한다 — null 이면 "안 바꾼다"가 되어 주소가 그대로 남는다. */
+        assertThat(captor.getValue().address()).isNotNull().isBlank();
+    }
+
+    private static Stream<Arguments> blankAddressBodies() {
+        return Stream.of(
+                Arguments.of("빈 문자열", "{\"address\":\"\"}"),
+                Arguments.of("공백만", "{\"address\":\"   \"}"),
+                Arguments.of("탭만", "{\"address\":\"\\t\"}"),
+                Arguments.of("줄바꿈만", "{\"address\":\"\\n\"}"),
+                Arguments.of("줄바꿈+공백만", "{\"address\":\" \\n \"}"));
     }
 
     @Test

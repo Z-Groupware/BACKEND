@@ -74,8 +74,16 @@ public class MemberController {
         return ApiResponse.success("구성원 목록을 조회했습니다", MemberPageResponse.from(result));
     }
 
+    /**
+     * 조직도는 전 사원에게 연다. 회사 안에서 누가 어느 부서·직급인지는 명부가 아니라 안내에
+     * 가깝고, 막아두면 사원이 결재선이나 인수인계 대상자를 찾을 수 없다.
+     *
+     * <p>목록({@link #list})은 계속 관리자 전용이다 — 같은 사람들을 담지만 이메일·어드민 겸직·
+     * 대기 상태(휴직·오프보딩 신청 여부)까지 실려 나가고, 그건 인사 정보다. 조직도 응답에는
+     * 이름·직급·권한만 들어간다.
+     */
     @GetMapping("/org-chart")
-    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<OrgChartTeamResponse>> orgChart(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId) {

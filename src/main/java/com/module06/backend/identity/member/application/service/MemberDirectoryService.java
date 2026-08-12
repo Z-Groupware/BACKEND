@@ -111,7 +111,13 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         };
     }
 
-    /** roleLabel 은 검색 대상이 아니다(§7-1) — 이름·부서·직급만 본다. */
+    /**
+     * 이름·부서·직급·이메일을 본다. roleLabel 은 검색 대상이 아니다(§7-1).
+     *
+     * <p>이메일을 넣는 이유: 동명이인이 있는 회사에서 이름만으로는 대상을 특정할 수 없고,
+     * 관리자가 손에 쥔 유일한 고유값이 이메일이다(계정 발급도 이메일로 한다). 목록 응답에
+     * 이미 이메일이 나가는 관리자 전용 화면이라 검색으로 열어도 새로 새는 정보는 없다.
+     */
     private boolean matchesQuery(MemberRow row, String q) {
         if (q == null || q.isBlank()) {
             return true;
@@ -119,7 +125,8 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         String needle = q.toLowerCase(Locale.ROOT);
         return containsIgnoreCase(row.name(), needle)
                 || containsIgnoreCase(row.teamName(), needle)
-                || containsIgnoreCase(row.positionName(), needle);
+                || containsIgnoreCase(row.positionName(), needle)
+                || containsIgnoreCase(row.email(), needle);
     }
 
     private boolean containsIgnoreCase(String haystack, String needle) {
