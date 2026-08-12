@@ -210,12 +210,12 @@ providers:
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30
-    allowUiUpdates: true
+    allowUiUpdates: false
     options:
       path: /var/lib/grafana/dashboards
 ```
 
-`allowUiUpdates: true`로 둬서 급할 때 UI에서 임시 수정은 가능하게 하되, 원본은 항상 이 레포 JSON 파일이다 (`updateIntervalSeconds: 30`마다 파일 변경사항을 다시 읽어들여 UI 변경을 덮어씀 — 파일이 진본이라는 걸 강제하는 효과).
+`allowUiUpdates: false`로 둬서 이 레포의 JSON 파일이 항상 진본(source of truth)이 되도록 강제한다. `allowUiUpdates: true`는 오히려 UI에서 수정한 내용이 Grafana DB에 영구 반영되는 것을 "허용"하는 옵션이라 (파일이 나중에 다시 바뀌어야 재동기화될 때 덮어써질 뿐, 그 전까지는 UI 수정이 그대로 유지됨) 여기서는 정반대 효과를 낸다. `false`로 두면 provisioned 대시보드에 대한 UI 수정 자체가 저장되지 않으므로, "설정은 전부 레포에 코드로 존재해야 한다 (UI 직접 클릭클릭 금지)" 원칙을 지킬 수 있다.
 
 - [ ] **Step 2: YAML 문법 검증**
 

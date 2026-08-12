@@ -10,7 +10,7 @@
       {
         "name": "container",
         "type": "custom",
-        "query": "z-spring,z-redis,z-spring,z-redis",
+        "query": "z-spring,z-redis",
         "current": { "text": "z-spring", "value": "z-spring" },
         "options": [
           { "text": "z-spring", "value": "z-spring" },
