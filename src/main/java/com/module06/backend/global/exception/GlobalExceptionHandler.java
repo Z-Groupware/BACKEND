@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -22,6 +24,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex, HttpServletRequest request) {
         ErrorCode errorCode = ex.getErrorCode();
+        // 인가 거부(403)만 감사 기록으로 남긴다. 이 프로젝트의 교차 회사 거부는 시큐리티 필터가 아니라
+        // 서비스·컨트롤러의 도메인 규칙(MT_FORBIDDEN_SCOPE·HO_ACCESS_DENIED 등)에서 나오므로,
+        // SecurityErrorResponder만 감시하면 정작 필요한 기록이 하나도 남지 않는다.
+        // 404·400 등은 남기지 않는다 — 감사 대상이 아니고 로그만 불린다.
+        if (errorCode.getHttpStatus() == HttpStatus.FORBIDDEN) {
+            AuthzAuditLogger.deniedByDomain(request, errorCode.getCode());
+        }
         return ResponseEntity.status(errorCode.getHttpStatus())
                 .body(ErrorResponse.of(errorCode, request.getRequestURI(), currentTraceId()));
     }
