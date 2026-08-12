@@ -1,6 +1,7 @@
 package com.module06.backend.meeting.infrastructure.adapter;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
@@ -23,11 +24,15 @@ public class ActionQueryAdapter implements ActionQueryPort {
     /* 액션 도메인이 소유하는 존재 검증 및 분배 대기 배치 조회 계약이다. */
     private final MeetingActionQueryPort meetingActionQueryPort;
 
-    /* MEET-01이 회의에 연결하려는 액션이 요청 회사에 존재하는지 확인한다. */
+    /* MEET-01이 연결할 액션의 회사 범위 존재 여부와 팀·종류를 C 계약으로 조회한다. */
     @Override
-    public boolean existsAction(Long companyId, Long actionId) {
-        /* 회사 범위 판정은 원본 데이터를 소유한 액션 도메인에 위임한다. */
-        return meetingActionQueryPort.existsAction(companyId, actionId);
+    public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+        /* C 읽기 모델을 D 포트의 기술 독립 읽기 모델로 변환한다. */
+        return meetingActionQueryPort.findActionTeamReference(companyId, actionId)
+                .map(reference -> new ActionTeamReference(
+                        reference.teamId(),
+                        ActionKind.valueOf(reference.actionType().name())
+                ));
     }
 
     /* MEET-10 후보 회의 중 분배 대기 액션이 남은 회의와 그 건수를 한 번에 조회한다. */

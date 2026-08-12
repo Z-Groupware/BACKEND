@@ -20,6 +20,8 @@ import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionKind;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionTeamReference;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
@@ -184,10 +186,10 @@ class MeetingServiceTest {
     void createsMeetingWithoutRelatedAction() {
         /* 호출되는 순간 실패하는 액션 Port를 포함해 나머지 정상 의존성을 직접 조립한다. */
         ActionQueryPort pendingActionPort = new ActionQueryPort() {
-            /* 관련 액션이 없는 예약에서는 존재 확인이 호출되면 안 된다. */
+            /* OWNER의 액션 없는 경로에서는 팀 조회도 호출되면 안 된다. */
             @Override
-            public boolean existsAction(Long companyId, Long actionId) {
-                throw new AssertionError("relatedActionId가 없으면 ActionQueryPort를 호출하면 안 됩니다.");
+            public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                throw new AssertionError("relatedActionId가 없으면 액션 팀 조회를 호출하면 안 됩니다.");
             }
 
             /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */
@@ -275,6 +277,59 @@ class MeetingServiceTest {
 
         /* 회의실과 프로젝트를 조회하기 전에 안건 오류가 반환돼야 한다. */
         assertErrorCode(() -> defaultService().createMeeting(command), "MT-015");
+    }
+
+    /* PERSONAL 액션을 상위 팀 액션으로 지정할 수 없는지 검증한다. */
+    @Test
+    @DisplayName("PERSONAL 액션을 연결하면 MT-018로 거절한다")
+    void rejectsPersonalRelatedAction() {
+        /* 액션은 존재하지만 종류가 PERSONAL인 Port 대역을 준비한다. */
+        ActionQueryPort actionPort = actionPort(Optional.of(
+                new ActionTeamReference(null, ActionKind.PERSONAL)
+        ));
+
+        /* 개인 액션은 회의의 상위 팀 액션이 될 수 없어야 한다. */
+        assertErrorCode(() -> serviceWithActionPort(actionPort).createMeeting(validCommand()), "MT-018");
+    }
+
+    /* 다른 팀의 TEAM 액션을 연결할 수 없는지 검증한다. */
+    @Test
+    @DisplayName("다른 팀의 TEAM 액션을 연결하면 MT-019로 거절한다")
+    void rejectsRelatedActionFromAnotherTeam() {
+        /* host 팀 100과 다른 팀 200의 TEAM 액션을 반환하는 Port 대역을 준비한다. */
+        ActionQueryPort actionPort = actionPort(Optional.of(
+                new ActionTeamReference(200L, ActionKind.TEAM)
+        ));
+
+        /* 팀 경계가 다른 액션은 회의에 연결할 수 없어야 한다. */
+        assertErrorCode(() -> serviceWithActionPort(actionPort).createMeeting(validCommand()), "MT-019");
+    }
+
+    /* 같은 팀의 TEAM 액션 읽기 결과를 바꿔 검증 테스트에 사용하는 Port 대역을 만든다. */
+    private ActionQueryPort actionPort(Optional<ActionTeamReference> reference) {
+        /* MEET-01 단건 조회 외 계약은 호출 여부를 명시적으로 확인한다. */
+        return new ActionQueryPort() {
+            /* 테스트가 준비한 액션 팀 읽기 결과를 반환한다. */
+            @Override
+            public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                return reference;
+            }
+
+            /* MEET-10 배치 계약은 회의 개설에서 사용하지 않는다. */
+            @Override
+            public List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
+                    Long companyId,
+                    List<Long> meetingIds
+            ) {
+                throw new AssertionError("회의 개설에서 분배 대기 배치 조회를 호출하면 안 됩니다.");
+            }
+
+            /* MEET-02 액션 수 계약은 회의 개설에서 사용하지 않는다. */
+            @Override
+            public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> meetingIds) {
+                throw new AssertionError("회의 개설에서 액션 수 배치 조회를 호출하면 안 됩니다.");
+            }
+        };
     }
 
     /* 정상 외부 리소스를 반환하는 기본 서비스를 생성한다. */
@@ -409,10 +464,12 @@ class MeetingServiceTest {
 
         /* 테스트에서 정한 관련 액션 존재 결과를 반환하는 포트 대역이다. */
         ActionQueryPort actionPort = new ActionQueryPort() {
-            /* 테스트가 정한 관련 액션 존재 결과를 그대로 반환한다. */
+            /* 정상값은 host 팀과 같은 TEAM 액션이며 미존재 조건에서는 빈 결과를 반환한다. */
             @Override
-            public boolean existsAction(Long companyId, Long actionId) {
-                return actionExists;
+            public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                return actionExists
+                        ? Optional.of(new ActionTeamReference(100L, ActionKind.TEAM))
+                        : Optional.empty();
             }
 
             /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */

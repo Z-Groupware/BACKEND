@@ -18,6 +18,8 @@ import com.module06.backend.global.exception.CommonErrorCode;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionKind;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionTeamReference;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
@@ -102,11 +104,8 @@ public class MeetingService implements CreateMeetingUseCase {
             throw new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND);
         }
 
-        /* 관련 액션을 선택했다면 요청 회사의 실제 액션인지 확인한다. */
-        if (command.relatedActionId() != null
-                && !actionQueryPort.existsAction(command.companyId(), command.relatedActionId())) {
-            throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
-        }
+        /* 관련 액션의 존재·TEAM 종류·개설자 팀 일치를 C의 단건 읽기 계약으로 검증한다. */
+        validateRelatedActionTeam(command);
 
         /* 개설자를 자동 포함한 중복 없는 참석자 식별자 순서를 만든다. */
         Meeting meeting = Meeting.create(
@@ -177,6 +176,29 @@ public class MeetingService implements CreateMeetingUseCase {
         boolean nonOwnerWithoutAction = !"OWNER".equals(hostRole) && relatedActionId == null;
         if (ownerWithAction || nonOwnerWithoutAction) {
             throw new BusinessException(MeetingErrorCode.INVALID_RELATED_ACTION_POLICY);
+        }
+    }
+
+    /* OWNER 외 개설자가 선택한 상위 액션이 같은 팀의 TEAM 액션인지 검증한다. */
+    private void validateRelatedActionTeam(CreateMeetingCommand command) {
+        /* OWNER는 역할 정책상 액션이 없으므로 C 도메인을 조회하지 않는다. */
+        if (command.relatedActionId() == null) {
+            return;
+        }
+
+        /* 회사 범위에 존재하지 않는 액션은 기존 MEET-01 계약인 AC-001로 숨긴다. */
+        ActionTeamReference action = actionQueryPort
+                .findActionTeamReference(command.companyId(), command.relatedActionId())
+                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_NOT_FOUND));
+
+        /* 회의의 상위 액션은 팀 단위 액션이어야 하며 개인 액션은 연결할 수 없다. */
+        if (action.actionKind() != ActionKind.TEAM) {
+            throw new BusinessException(MeetingErrorCode.RELATED_ACTION_NOT_TEAM_ACTION);
+        }
+
+        /* 다른 팀의 액션을 연결하면 이후 개인 액션이 잘못된 팀 액션에 종속되므로 거절한다. */
+        if (command.hostTeamId() == null || !command.hostTeamId().equals(action.teamId())) {
+            throw new BusinessException(MeetingErrorCode.RELATED_ACTION_TEAM_MISMATCH);
         }
     }
 

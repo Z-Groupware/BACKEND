@@ -366,11 +366,11 @@ class MeetingListQueryServiceTest {
             this.actionCounts = List.copyOf(actionCounts);
         }
 
-        /* MEET-01 존재 검증 계약은 MEET-02 테스트에서 사용하지 않는다. */
+        /* MEET-01 액션 팀 조회 계약은 MEET-02 테스트에서 사용하지 않는다. */
         @Override
-        public boolean existsAction(Long companyId, Long actionId) {
+        public java.util.Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
             /* 잘못된 호출이 생기면 테스트가 즉시 실패하도록 한다. */
-            throw new AssertionError("MEET-02는 액션 단건 존재 검증을 호출하면 안 됩니다.");
+            throw new AssertionError("MEET-02는 액션 팀 조회를 호출하면 안 됩니다.");
         }
 
         /* MEET-10 분배 대기 계약은 MEET-02 테스트에서 사용하지 않는다. */

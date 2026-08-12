@@ -262,10 +262,10 @@ class PendingActionMeetingQueryServiceTest {
     private ActionQueryPort throwingActionPort() {
         /* 단축 경로에서는 액션 도메인 조회가 호출되지 않아야 한다. */
         return new ActionQueryPort() {
-            /* 액션 존재 확인이 호출되면 테스트를 즉시 실패시킨다. */
+            /* 액션 팀 조회가 호출되면 테스트를 즉시 실패시킨다. */
             @Override
-            public boolean existsAction(Long companyId, Long actionId) {
-                return fail("MEET-10 단축 경로에서 액션 존재 확인이 호출되면 안 된다.");
+            public java.util.Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                return fail("MEET-10 단축 경로에서 액션 팀 조회가 호출되면 안 된다.");
             }
 
             /* 분배 대기 배치 조회가 호출되면 테스트를 즉시 실패시킨다. */
@@ -350,11 +350,11 @@ class PendingActionMeetingQueryServiceTest {
             this.undispatchedMeetings = List.copyOf(undispatchedMeetings);
         }
 
-        /* MEET-10 테스트에서는 액션 존재 확인 단건 계약을 사용하지 않는다. */
+        /* MEET-10 테스트에서는 액션 팀 조회 단건 계약을 사용하지 않는다. */
         @Override
-        public boolean existsAction(Long companyId, Long actionId) {
-            /* 호출되지 않는 기존 계약을 정상 값으로 만족시킨다. */
-            return true;
+        public java.util.Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+            /* 잘못된 단건 호출이 생기면 테스트를 즉시 실패시킨다. */
+            throw new AssertionError("MEET-10은 액션 팀 단건 조회를 호출하면 안 됩니다.");
         }
 
         /* 호출 횟수와 전달된 회의 식별자를 기록하고 준비된 판정 결과를 반환한다. */
