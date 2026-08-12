@@ -20,6 +20,9 @@ public interface SpringDataTokenUsageOutboxRepository extends JpaRepository<Toke
      * claimed_until 이 null(미클레임) 이거나 만료된 항목만 포함한다 — 다른 릴레이 인스턴스가
      * 현재 처리 중인 항목(claimed_until > now)은 건너뛴다.
      */
+    // QUERY_002 승인: (claimedUntil IS NULL OR claimedUntil < :now) 처럼 같은 컬럼에 대한
+    // IS NULL OR 비교 조건은 단일 파생 쿼리 메서드로 표현할 수 없어 @Query 가 불가피하다.
+    // nosemgrep: no-new-jpa-query-annotation
     @Query("SELECT e FROM TokenUsageOutboxJpaEntity e " +
            "WHERE e.status = :status " +
            "AND e.nextAttemptAt <= :now " +
@@ -39,6 +42,8 @@ public interface SpringDataTokenUsageOutboxRepository extends JpaRepository<Toke
      * @return 업데이트된 행 수 (1=성공, 0=이미 클레임됨)
      */
     @Modifying
+    // QUERY_002 승인: 원자적 클레임을 위한 @Modifying UPDATE 는 파생 쿼리 메서드로 표현할 수 없다.
+    // nosemgrep: no-new-jpa-query-annotation
     @Query("UPDATE TokenUsageOutboxJpaEntity e " +
            "SET e.claimedUntil = :claimedUntil " +
            "WHERE e.id = :id " +
