@@ -1,6 +1,7 @@
 package com.module06.backend.action.infrastructure.adapter;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
+import com.module06.backend.action.domain.repository.ActionReferenceRepository;
 import com.module06.backend.action.domain.repository.ActionRepository;
 import com.module06.backend.action.exception.ActionErrorCode;
 import com.module06.backend.capture.application.port.out.ActionReviewApplyPort;
@@ -38,10 +40,19 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
 
     private final ActionRepository actionRepository;
 
+    /*
+     * 예정 시작일 범위검증의 상한(프로젝트 마감일)을 여기서 꺼낸다.
+     *
+     * A 가 넘겨주지 않는 이유는 포트 주석에 있다 — 그 값은 project 소유이고 A 는 갖고 있지
+     * 않다. A 가 굳이 조회해 넘기면 검증 기준선을 A 가 정하게 되고, 낡은 값으로 통과·거절이
+     * 갈린다. 분배 경로가 기한 기본값을 채울 때 쓰는 것과 같은 조회다(ActionDistributionService).
+     */
+    private final ActionReferenceRepository actionReferenceRepository;
+
     @Override
     @Transactional
     public void apply(long companyId, long actionId, Long assigneeMemberId, LocalDate dueDate,
-                       String title, String detail, String reviewStatus) {
+                       String title, String detail, LocalDate plannedStartDate, String reviewStatus) {
         /*
          * 둘 다 ACTION_NOT_FOUND(404)다. 자바 기본 예외를 던지면 회사 불일치가 500 으로,
          * 액션 미존재가 400 으로 나가 둘 다 명세와 갈린다(GlobalExceptionHandler 의 매핑).
@@ -55,11 +66,36 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
             throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
         }
 
+        /*
+         * 프로젝트 마감일은 **예정 시작일이 실제로 올 때만** 꺼낸다.
+         *
+         * 항상 조회하면 예정 시작일과 무관한 판정(담당자만 고치는 확정 · 반려)에도 쿼리가
+         * 한 번 더 나간다. applyHumanReview 도 plannedStartDate 가 null 이면 이 값을 보지
+         * 않으므로(그쪽 검증 분기) 없을 때 넘기지 않는 것이 계약과 맞는다.
+         */
+        LocalDate projectDueDate = plannedStartDate == null ? null : projectDueDateOf(action);
+
         // detail → Action.description. 파라미터명이 갈리는 이유는 ActionReviewApplyPort 주석 참고.
-        // plannedStartDate·projectDueDate는 아직 null 고정 — ActionReviewApplyPort가 RVW 쪽
-        // plannedStartDate 배선(이태연 담당, 이슈 #386)을 받으면 이 자리도 같이 넓어진다.
         action.applyHumanReview(
-                assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail, null, null);
+                assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail,
+                plannedStartDate, projectDueDate);
         actionRepository.save(action);
+    }
+
+    /*
+     * 이 액션이 속한 프로젝트의 마감일.
+     *
+     * 프로젝트가 없는 액션(projectId == null)이면 null 이다. 그 경우 applyHumanReview 가
+     * IllegalArgumentException 을 던진다 — 상한을 모르는 채로 통과시키면 범위검증이 이름만
+     * 남고, 검토 화면이 어떤 날짜든 받아들이게 된다. 막는 쪽이 맞다.
+     */
+    private LocalDate projectDueDateOf(Action action) {
+        if (action.getProjectId() == null) {
+            return null;
+        }
+        return actionReferenceRepository.findProjectReferences(List.of(action.getProjectId())).stream()
+                .findFirst()
+                .map(ActionReferenceRepository.ProjectReference::dueDate)
+                .orElse(null);
     }
 }

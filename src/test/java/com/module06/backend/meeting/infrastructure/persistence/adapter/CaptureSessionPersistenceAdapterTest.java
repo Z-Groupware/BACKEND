@@ -51,7 +51,7 @@ import com.module06.backend.meeting.application.usecase.ResumeCaptureSessionUseC
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
 import com.module06.backend.meeting.domain.model.CaptureSession;
 import com.module06.backend.meeting.domain.model.Meeting;
-import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
+import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataCaptureSessionRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
@@ -94,9 +94,9 @@ class CaptureSessionPersistenceAdapterTest {
     @Autowired
     private MeetingRepository meetingRepository;
 
-    /* 테스트 회의를 IN_PROGRESS로 전이하는 도메인 저장소다. */
+    /* CAP-01과 같은 잠금·상태 저장 경로로 테스트 회의를 IN_PROGRESS로 전이하는 저장소다. */
     @Autowired
-    private MeetingEntryRepository meetingEntryRepository;
+    private CaptureSessionRepository captureSessionRepository;
 
     /* 저장된 캡처 세션 행을 검증하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -597,10 +597,10 @@ class CaptureSessionPersistenceAdapterTest {
         /* 저장된 회의 행을 잠그고 최초 입장 시각과 IN_PROGRESS 상태를 반영한다. */
         return transaction.execute(status -> {
             /* 같은 회사 범위에서 방금 저장한 회의를 조회해 실제 상태를 변경한다. */
-            Meeting lockedMeeting = meetingEntryRepository
-                    .findForEntry(10L, savedMeeting.getId())
+            Meeting lockedMeeting = captureSessionRepository
+                    .findMeetingForStart(10L, savedMeeting.getId())
                     .orElseThrow();
-            return meetingEntryRepository.saveState(
+            return captureSessionRepository.saveMeetingState(
                     lockedMeeting.enter(LocalDateTime.of(2026, 8, 6, 13, 58))
             );
         });
