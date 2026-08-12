@@ -21,13 +21,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 코드 체크아웃
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          persist-credentials: false   # 러너에 git 자격증명을 남기지 않는다
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4
 
       - name: Docker Hub 로그인
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -35,7 +37,7 @@ jobs:
       # 배포는 커밋 SHA 태그로만 한다(deploy.sh 가 SHA 인자로 pull).
       # 어떤 이미지가 운영에 떠 있는지 태그=커밋으로 1:1 추적되도록 latest 는 밀지 않는다.
       - name: 이미지 빌드 & 푸시 (커밋 SHA 태그)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
           context: .
           push: true
@@ -46,7 +48,7 @@ jobs:
           cache-to: type=gha,mode=max,ignore-error=true
 
       - name: AWS 인증 (OIDC — 액세스 키 없음)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
           # 배포 Role ARN은 AWS_DEPLOY_ROLE_ARN Repository Variable에서 가져옴
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
