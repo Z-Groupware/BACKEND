@@ -49,12 +49,20 @@ class ConfirmDistributionServiceTest {
     @DisplayName("확정된 액션만 내보낸다 — 반려·담당자 미정은 남기고 이유를 돌려준다")
     void 확정된_액션만_내보낸다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        /*
+         * 확정 두 건을 나란히 두는 이유 — 하나만 내보내고 끝나는 구현을 잡는다.
+         *
+         * 예전에는 1번이 AUTO_CONFIRMED 였다. "확정 상태 두 종류가 모두 나간다"를 보는
+         * 자리였는데, #418 이 그 값을 지워(쓰는 코드가 없던 죽은 값이었다) 확정 상태가
+         * 하나만 남았다. 그래서 이 목록은 이제 "확정된 것이 여러 건이면 여러 건 다 나간다"를
+         * 본다.
+         */
         List<ActionReviewQueryPort.ReviewAction> actions = List.of(
-                action(1L, "AUTO_CONFIRMED", HOST),
+                action(1L, "HUMAN_CONFIRMED", HOST),
                 action(2L, "HUMAN_CONFIRMED", HOST),
                 action(3L, "REJECTED", HOST),
                 // 담당자 미정 — C 가 AI 분배 경로에서 허용하고, 나가는 것을 여기서 막는다.
-                action(4L, "AUTO_CONFIRMED", null));
+                action(4L, "HUMAN_CONFIRMED", null));
 
         DistributionConfirmed confirmed = service(actions, dispatch, 0).confirm(command(HOST, false));
 
@@ -75,7 +83,7 @@ class ConfirmDistributionServiceTest {
         // 담당자 없는 PENDING만 진짜 "미검토"로 남는다 — 담당자 있는 PENDING은 2026-08-11부터
         // 확정 호출 자체가 암묵 CONFIRM 처리하므로 여기서 막히지 않는다(아래 새 테스트 참고).
         List<ActionReviewQueryPort.ReviewAction> actions = List.of(
-                action(1L, "AUTO_CONFIRMED", HOST),
+                action(1L, "HUMAN_CONFIRMED", HOST),
                 action(2L, "PENDING", null));
 
         assertThatThrownBy(() -> service(actions, dispatch, 0).confirm(command(HOST, false)))
@@ -92,7 +100,7 @@ class ConfirmDistributionServiceTest {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
         RecordingApplyReviewDecisionUseCase applyUseCase = new RecordingApplyReviewDecisionUseCase();
         StubQueryPort query = new StubQueryPort(List.of(
-                action(1L, "AUTO_CONFIRMED", HOST),
+                action(1L, "HUMAN_CONFIRMED", HOST),
                 action(2L, "PENDING", HOST)));
         applyUseCase.attach(query);
         ConfirmDistributionService service = new ConfirmDistributionService(
@@ -110,7 +118,7 @@ class ConfirmDistributionServiceTest {
     @DisplayName("확인되지 않은 STT 구간이 있으면 막는다 — 아무도 못 들은 구간의 할 일이 사라진다")
     void 미확인_구멍이_있으면_막는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
-        List<ActionReviewQueryPort.ReviewAction> actions = List.of(action(1L, "AUTO_CONFIRMED", HOST));
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(action(1L, "HUMAN_CONFIRMED", HOST));
 
         assertThatThrownBy(() -> service(actions, dispatch, 2).confirm(command(HOST, false)))
                 .isInstanceOf(BusinessException.class)
@@ -124,7 +132,7 @@ class ConfirmDistributionServiceTest {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
         // 담당자 없어 암묵 CONFIRM 대상이 아닌 진짜 미검토 항목.
         List<ActionReviewQueryPort.ReviewAction> actions = List.of(
-                action(1L, "AUTO_CONFIRMED", HOST),
+                action(1L, "HUMAN_CONFIRMED", HOST),
                 action(2L, "PENDING", null));
 
         /*
@@ -161,7 +169,7 @@ class ConfirmDistributionServiceTest {
     @DisplayName("회의 담당자가 아니면 403 이다 — 마지막 버튼은 한 사람이다")
     void 담당자가_아니면_확정하지_못한다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
-        List<ActionReviewQueryPort.ReviewAction> actions = List.of(action(1L, "AUTO_CONFIRMED", HOST));
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(action(1L, "HUMAN_CONFIRMED", HOST));
 
         assertThatThrownBy(() -> service(actions, dispatch, 0).confirm(command(NOT_HOST, false)))
                 .isInstanceOf(BusinessException.class)
@@ -174,7 +182,7 @@ class ConfirmDistributionServiceTest {
     void 담당자를_모르면_확정하지_않는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
         ConfirmDistributionService service = new ConfirmDistributionService(
-                new StubQueryPort(List.of(action(1L, "AUTO_CONFIRMED", HOST))), dispatch,
+                new StubQueryPort(List.of(action(1L, "HUMAN_CONFIRMED", HOST))), dispatch,
                 gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
                 meetingId -> Optional.empty(), new RecordingApplyReviewDecisionUseCase(), fixedClock());
 
@@ -189,7 +197,7 @@ class ConfirmDistributionServiceTest {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
         dispatch.alreadyDispatched = List.of(1L, 2L);
         List<ActionReviewQueryPort.ReviewAction> actions = List.of(
-                action(1L, "AUTO_CONFIRMED", HOST),
+                action(1L, "HUMAN_CONFIRMED", HOST),
                 action(2L, "HUMAN_CONFIRMED", HOST),
                 // 확정 뒤에 사람이 새로 넣은 액션(RVW-03)이다. 이번에 나가야 한다.
                 action(3L, "HUMAN_CONFIRMED", HOST));
