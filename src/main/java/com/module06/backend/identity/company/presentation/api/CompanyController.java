@@ -25,6 +25,8 @@ import com.module06.backend.identity.company.presentation.api.dto.response.Compa
 import com.module06.backend.identity.company.presentation.api.dto.response.CompanyProfileResponse;
 import com.module06.backend.identity.company.presentation.api.dto.response.CompanyRegistrationResponse;
 import com.module06.backend.identity.company.presentation.api.dto.response.OnboardingResponse;
+import com.module06.backend.metering.domain.model.BillingSubscriptionStatus;
+import com.module06.backend.metering.domain.repository.BillingSubscriptionRepository;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -43,6 +45,7 @@ public class CompanyController {
     private final GetCompanyProfileUseCase getCompanyProfileUseCase;
     private final UpdateCompanyProfileUseCase updateCompanyProfileUseCase;
     private final OnboardCompanyUseCase onboardCompanyUseCase;
+    private final BillingSubscriptionRepository billingSubscriptionRepository;
 
     @Operation(summary = "기업코드 조회", description = "로그인 1단계. 기업 코드로 회사 이름을 확인합니다.")
     @PostMapping("/lookup")
@@ -88,7 +91,8 @@ public class CompanyController {
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId) {
         CompanyProfileResponse response = CompanyProfileResponse.from(
-                getCompanyProfileUseCase.getProfile(companyId));
+                getCompanyProfileUseCase.getProfile(companyId),
+                subscriptionStatusOf(companyId));
         return ApiResponse.success("기업 정보를 조회했습니다", response);
     }
 
@@ -100,7 +104,17 @@ public class CompanyController {
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
             @Valid @RequestBody UpdateCompanyRequest request) {
         CompanyProfileResponse response = CompanyProfileResponse.from(
-                updateCompanyProfileUseCase.updateProfile(request.toCommand(companyId)));
+                updateCompanyProfileUseCase.updateProfile(request.toCommand(companyId)),
+                subscriptionStatusOf(companyId));
         return ApiResponse.success("기업 정보를 수정했습니다", response);
+    }
+
+    private String subscriptionStatusOf(Long companyId) {
+        return billingSubscriptionRepository.findByCompanyId(companyId)
+                .map(subscription -> subscription.getStatus() == BillingSubscriptionStatus.CANCELED
+                        ? BillingSubscriptionStatus.EXPIRED
+                        : subscription.getStatus())
+                .orElse(BillingSubscriptionStatus.UNPAID)
+                .name();
     }
 }
