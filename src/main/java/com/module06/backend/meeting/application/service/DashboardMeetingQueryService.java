@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
+import com.module06.backend.meeting.application.port.out.MemberQueryPort;
+import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
@@ -33,8 +35,11 @@ import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.Mee
  * 조회 조건과 결과 DTO만 대시보드 전용으로 분리한다. 참석자 수는 D가 소유한 참석자
  * 테이블을 직접 배치 조회해 세므로 별도 외부 Port를 타지 않는다.
  *
- * originLabel·hostLabel은 B의 findTeams 배치 계약(MEET-17 팀·host 라벨 연결)이 연결되기
- * 전까지는 알 수 없는 값을 추측해 내려주지 않고 항상 null로 응답한다.
+ * originLabel은 요청 전체에 적용되는 단일 값이다 — owner는 상수 "Owner", me는 요청자
+ * 본인의 팀 이름(팀 없는 Owner는 "Owner", 그 외 팀 정보 누락은 null)이며 기존 구성원 조회
+ * Port만으로 채울 수 있다. team의 origin은 명세에 정의가 없어 null로 둔다.
+ * hostLabel의 "(팀장)" 표기는 개설자가 그 팀의 팀장인지 판별해야 하므로, B의 findTeams
+ * 배치 계약(MEET-17 팀·host 라벨 연결)이 연결되기 전까지는 항상 null로 응답한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -57,6 +62,9 @@ public class DashboardMeetingQueryService implements GetDashboardMeetingsUseCase
 
     /* 대시보드 카드에 표시할 프로젝트 태그를 조회하는 C 연동 Port다. */
     private final ProjectQueryPort projectQueryPort;
+
+    /* scope=me의 originLabel에 쓸 요청자 본인의 팀 이름을 조회하는 B 연동 Port다. */
+    private final MemberQueryPort memberQueryPort;
 
     /* 인증 사용자의 요청 스코프에 해당하는 최근 회의를 표시 정보와 함께 반환한다. */
     @Override
@@ -111,13 +119,17 @@ public class DashboardMeetingQueryService implements GetDashboardMeetingsUseCase
                 projectQueryPort.findProjects(query.companyId(), projectIds)
         );
 
+        /* originLabel은 회의마다 다르지 않고 요청 전체에 적용되는 단일 값이라 한 번만 계산한다. */
+        String originLabel = resolveOriginLabel(query);
+
         /* 저장소가 보장한 정렬을 유지하며 카드별 표시 정보가 완성된 결과로 변환한다. */
         List<DashboardMeetingListResult.MeetingItem> meetings = candidates.stream()
                 .map(candidate -> toResultItem(
                         candidate,
                         attendeeCounts.getOrDefault(candidate.meetingId(), 0L).intValue(),
                         meetingRooms.get(candidate.meetingRoomId()),
-                        projects.get(candidate.projectId())
+                        projects.get(candidate.projectId()),
+                        originLabel
                 ))
                 .toList();
 
@@ -152,6 +164,31 @@ public class DashboardMeetingQueryService implements GetDashboardMeetingsUseCase
         if (query.scope() == DashboardMeetingScope.TEAM && !"LEADER".equals(query.requesterRole())) {
             throw new BusinessException(CommonErrorCode.ACCESS_DENIED);
         }
+    }
+
+    /* owner는 상수, me는 요청자 본인의 팀 이름, team은 명세에 정의가 없어 null로 둔다. */
+    private String resolveOriginLabel(GetDashboardMeetingsQuery query) {
+        return switch (query.scope()) {
+            case OWNER -> "Owner";
+            case ME -> resolveRequesterTeamLabel(query);
+            case TEAM -> null;
+        };
+    }
+
+    /* 요청자 본인의 팀 이름을 조회한다. 팀이 없으면 Owner만 상수로 대체하고 그 외는 null이다. */
+    private String resolveRequesterTeamLabel(GetDashboardMeetingsQuery query) {
+        /* 팀이 없는 요청자는 구성원 조회 없이도 Owner 여부만으로 값이 정해진다. */
+        if (query.requesterTeamId() == null) {
+            return "OWNER".equals(query.requesterRole()) ? "Owner" : null;
+        }
+
+        /* 팀이 있으면 요청자 본인 한 명만 조회해 팀 이름을 읽는다 — 회의별 반복 조회가 아니다. */
+        return memberQueryPort
+                .findMembersIncludingDeleted(query.companyId(), List.of(query.requesterMemberId()))
+                .stream()
+                .findFirst()
+                .map(MemberSnapshot::teamName)
+                .orElse(null);
     }
 
     /* 요청한 회의실 전체가 회사 범위 결과에 존재하는지 확인하고 식별자 맵으로 만든다. */
@@ -193,9 +230,10 @@ public class DashboardMeetingQueryService implements GetDashboardMeetingsUseCase
             DashboardMeetingCandidate candidate,
             int attendeeCount,
             MeetingRoomSnapshot meetingRoom,
-            ProjectSnapshot project
+            ProjectSnapshot project,
+            String originLabel
     ) {
-        /* originLabel·hostLabel은 이번 이슈 범위에서 제외돼 항상 null로 응답한다. */
+        /* hostLabel의 "(팀장)" 판별은 B의 findTeams 배치 계약이 연결되기 전까지 null로 둔다. */
         return new DashboardMeetingListResult.MeetingItem(
                 candidate.meetingId(),
                 candidate.title(),
@@ -204,7 +242,7 @@ public class DashboardMeetingQueryService implements GetDashboardMeetingsUseCase
                 meetingRoom.name(),
                 candidate.startAt(),
                 attendeeCount,
-                null,
+                originLabel,
                 null
         );
     }

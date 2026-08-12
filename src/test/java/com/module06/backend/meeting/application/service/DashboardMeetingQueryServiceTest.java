@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
+import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.query.GetDashboardMeetingsQuery;
@@ -32,7 +33,7 @@ class DashboardMeetingQueryServiceTest {
 
     /* 저장소가 반환한 회의에 회의실·프로젝트·참석자 수 표시값을 조립하는지 검증한다. */
     @Test
-    @DisplayName("스코프 결과에 회의실·프로젝트 태그·참석자 수를 배치 조립하고 라벨은 null로 둔다")
+    @DisplayName("팀 없는 MEMBER의 me 스코프는 회의실·프로젝트·참석자 수를 조립하고 originLabel은 null이다")
     void assemblesDashboardMeetingsForRequestedScope() {
         RecordingDashboardMeetingRepository repository = new RecordingDashboardMeetingRepository(List.of(
                 new DashboardMeetingCandidate(91L, "실시간 알림 아키텍처 논의", 12L, MeetingStatus.SCHEDULED, 2L,
@@ -47,10 +48,10 @@ class DashboardMeetingQueryServiceTest {
                 new MeetingQueryRepository.MeetingAttendeeReference(95L, 9L)
         ));
         DashboardMeetingQueryService service = new DashboardMeetingQueryService(
-                repository, meetingQueryRepository, meetingRoomPort(), projectPort()
+                repository, meetingQueryRepository, meetingRoomPort(), projectPort(), neverCalledMemberPort()
         );
 
-        /* limit을 생략한 사원(MEMBER)의 me 스코프 요청을 실행한다. */
+        /* limit을 생략한, 팀이 없는 사원(MEMBER)의 me 스코프 요청을 실행한다. */
         DashboardMeetingListResult result = service.getDashboardMeetings(new GetDashboardMeetingsQuery(
                 10L, 3L, null, "MEMBER", DashboardMeetingScope.ME, null
         ));
@@ -73,10 +74,12 @@ class DashboardMeetingQueryServiceTest {
         assertThat(result.meetings().get(1).room()).isEqualTo("회의실 A");
         assertThat(result.meetings().get(1).projectTag()).isEqualTo("GOODS");
 
-        /* originLabel·hostLabel은 팀 라벨 연결 전까지 항상 null이어야 한다. */
+        /* 팀이 없고 OWNER도 아닌 요청자는 구성원 조회 없이 originLabel이 null이어야 한다. */
         assertThat(result.meetings())
                 .extracting(DashboardMeetingListResult.MeetingItem::originLabel)
                 .containsOnlyNulls();
+
+        /* hostLabel은 팀·host 라벨 연결 전까지 항상 null이어야 한다. */
         assertThat(result.meetings())
                 .extracting(DashboardMeetingListResult.MeetingItem::hostLabel)
                 .containsOnlyNulls();
@@ -84,6 +87,118 @@ class DashboardMeetingQueryServiceTest {
         /* 참석자 배치 조회는 현재 후보 회의 식별자로 정확히 한 번만 호출돼야 한다. */
         assertThat(meetingQueryRepository.callCount).isEqualTo(1);
         assertThat(meetingQueryRepository.meetingIds).containsExactly(91L, 95L);
+    }
+
+    /* scope=owner는 구성원 조회 없이 상수 "Owner"를 모든 카드의 originLabel로 채워야 한다. */
+    @Test
+    @DisplayName("scope=owner는 구성원 조회 없이 상수 Owner를 originLabel로 반환한다")
+    void assignsConstantOriginLabelForOwnerScope() {
+        RecordingDashboardMeetingRepository repository = new RecordingDashboardMeetingRepository(List.of(
+                new DashboardMeetingCandidate(95L, "9월 스프린트 리뷰", 13L, MeetingStatus.SCHEDULED, 4L,
+                        LocalDateTime.of(2026, 8, 12, 10, 0))
+        ));
+        DashboardMeetingQueryService service = new DashboardMeetingQueryService(
+                repository,
+                new RecordingMeetingQueryRepository(List.of()),
+                meetingRoomPort(),
+                projectPort(),
+                neverCalledMemberPort()
+        );
+
+        DashboardMeetingListResult result = service.getDashboardMeetings(new GetDashboardMeetingsQuery(
+                10L, 3L, null, "OWNER", DashboardMeetingScope.OWNER, 5
+        ));
+
+        assertThat(result.meetings())
+                .extracting(DashboardMeetingListResult.MeetingItem::originLabel)
+                .containsExactly("Owner");
+        assertThat(result.meetings())
+                .extracting(DashboardMeetingListResult.MeetingItem::hostLabel)
+                .containsOnlyNulls();
+    }
+
+    /* scope=me이고 팀이 있으면 요청자 본인 한 명만 조회해 그 팀 이름을 originLabel로 써야 한다. */
+    @Test
+    @DisplayName("scope=me이고 팀이 있으면 요청자 본인의 팀 이름을 originLabel로 조회한다")
+    void resolvesRequesterTeamNameAsOriginLabelForMeScope() {
+        RecordingDashboardMeetingRepository repository = new RecordingDashboardMeetingRepository(List.of(
+                new DashboardMeetingCandidate(91L, "실시간 알림 아키텍처 논의", 12L, MeetingStatus.SCHEDULED, 2L,
+                        LocalDateTime.of(2026, 8, 11, 10, 0))
+        ));
+        RecordingMemberQueryPort memberQueryPort = new RecordingMemberQueryPort(List.of(
+                new MemberQueryPort.MemberSnapshot(7L, "이든", 100L, "개발팀")
+        ));
+        DashboardMeetingQueryService service = new DashboardMeetingQueryService(
+                repository,
+                new RecordingMeetingQueryRepository(List.of()),
+                meetingRoomPort(),
+                projectPort(),
+                memberQueryPort
+        );
+
+        /* 팀장(LEADER)이 team 100 소속으로 me 스코프를 요청한다. */
+        DashboardMeetingListResult result = service.getDashboardMeetings(new GetDashboardMeetingsQuery(
+                10L, 7L, 100L, "LEADER", DashboardMeetingScope.ME, 5
+        ));
+
+        assertThat(result.meetings())
+                .extracting(DashboardMeetingListResult.MeetingItem::originLabel)
+                .containsExactly("개발팀");
+
+        /* 회의마다가 아니라 요청자 본인 한 명만 정확히 한 번 조회해야 한다. */
+        assertThat(memberQueryPort.callCount).isEqualTo(1);
+        assertThat(memberQueryPort.companyId).isEqualTo(10L);
+        assertThat(memberQueryPort.memberIds).containsExactly(7L);
+    }
+
+    /* scope=me이고 팀이 없는 OWNER는 구성원 조회 없이 상수 "Owner"를 반환해야 한다. */
+    @Test
+    @DisplayName("scope=me이고 팀이 없는 OWNER는 구성원 조회 없이 상수 Owner를 반환한다")
+    void assignsOwnerConstantForTeamlessOwnerOnMeScope() {
+        RecordingDashboardMeetingRepository repository = new RecordingDashboardMeetingRepository(List.of(
+                new DashboardMeetingCandidate(95L, "9월 스프린트 리뷰", 13L, MeetingStatus.SCHEDULED, 4L,
+                        LocalDateTime.of(2026, 8, 12, 10, 0))
+        ));
+        DashboardMeetingQueryService service = new DashboardMeetingQueryService(
+                repository,
+                new RecordingMeetingQueryRepository(List.of()),
+                meetingRoomPort(),
+                projectPort(),
+                neverCalledMemberPort()
+        );
+
+        DashboardMeetingListResult result = service.getDashboardMeetings(new GetDashboardMeetingsQuery(
+                10L, 3L, null, "OWNER", DashboardMeetingScope.ME, 5
+        ));
+
+        assertThat(result.meetings())
+                .extracting(DashboardMeetingListResult.MeetingItem::originLabel)
+                .containsExactly("Owner");
+    }
+
+    /* scope=team은 명세에 정의가 없어 구성원 조회 없이 originLabel을 null로 둬야 한다. */
+    @Test
+    @DisplayName("scope=team은 구성원 조회 없이 originLabel을 null로 둔다")
+    void leavesOriginLabelNullForTeamScope() {
+        RecordingDashboardMeetingRepository repository = new RecordingDashboardMeetingRepository(List.of(
+                new DashboardMeetingCandidate(91L, "실시간 알림 아키텍처 논의", 12L, MeetingStatus.SCHEDULED, 2L,
+                        LocalDateTime.of(2026, 8, 11, 10, 0))
+        ));
+        DashboardMeetingQueryService service = new DashboardMeetingQueryService(
+                repository,
+                new RecordingMeetingQueryRepository(List.of()),
+                meetingRoomPort(),
+                projectPort(),
+                neverCalledMemberPort()
+        );
+
+        DashboardMeetingListResult result = service.getDashboardMeetings(new GetDashboardMeetingsQuery(
+                10L, 7L, 100L, "LEADER", DashboardMeetingScope.TEAM, 5
+        ));
+
+        assertThat(result.meetings())
+                .extracting(DashboardMeetingListResult.MeetingItem::originLabel)
+                .containsOnlyNulls();
     }
 
     /* 후보 회의가 없으면 참석자·회의실·프로젝트 Port를 호출하지 않고 빈 목록을 반환해야 한다. */
@@ -94,7 +209,8 @@ class DashboardMeetingQueryServiceTest {
                 new RecordingDashboardMeetingRepository(List.of()),
                 neverCalledMeetingQueryRepository(),
                 neverCalledMeetingRoomPort(),
-                neverCalledProjectPort()
+                neverCalledProjectPort(),
+                neverCalledMemberPort()
         );
 
         DashboardMeetingListResult result = service.getDashboardMeetings(new GetDashboardMeetingsQuery(
@@ -112,7 +228,8 @@ class DashboardMeetingQueryServiceTest {
                 neverCalledDashboardMeetingRepository(),
                 neverCalledMeetingQueryRepository(),
                 neverCalledMeetingRoomPort(),
-                neverCalledProjectPort()
+                neverCalledProjectPort(),
+                neverCalledMemberPort()
         );
 
         assertThatThrownBy(() -> service.getDashboardMeetings(new GetDashboardMeetingsQuery(
@@ -131,7 +248,8 @@ class DashboardMeetingQueryServiceTest {
                 neverCalledDashboardMeetingRepository(),
                 neverCalledMeetingQueryRepository(),
                 neverCalledMeetingRoomPort(),
-                neverCalledProjectPort()
+                neverCalledProjectPort(),
+                neverCalledMemberPort()
         );
 
         assertThatThrownBy(() -> service.getDashboardMeetings(new GetDashboardMeetingsQuery(
@@ -150,7 +268,8 @@ class DashboardMeetingQueryServiceTest {
                 neverCalledDashboardMeetingRepository(),
                 neverCalledMeetingQueryRepository(),
                 neverCalledMeetingRoomPort(),
-                neverCalledProjectPort()
+                neverCalledProjectPort(),
+                neverCalledMemberPort()
         );
 
         assertThatThrownBy(() -> service.getDashboardMeetings(new GetDashboardMeetingsQuery(
@@ -169,7 +288,8 @@ class DashboardMeetingQueryServiceTest {
                 neverCalledDashboardMeetingRepository(),
                 neverCalledMeetingQueryRepository(),
                 neverCalledMeetingRoomPort(),
-                neverCalledProjectPort()
+                neverCalledProjectPort(),
+                neverCalledMemberPort()
         );
 
         assertThatThrownBy(() -> service.getDashboardMeetings(new GetDashboardMeetingsQuery(
@@ -242,6 +362,21 @@ class DashboardMeetingQueryServiceTest {
             @Override
             public List<ProjectSnapshot> findProjects(Long companyId, List<Long> projectIds) {
                 throw new AssertionError("호출되면 안 되는 프로젝트 Port입니다.");
+            }
+        };
+    }
+
+    /* 호출되면 즉시 실패하는 구성원 조회 Port 대역이다. */
+    private MemberQueryPort neverCalledMemberPort() {
+        return new MemberQueryPort() {
+            @Override
+            public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
+                throw new AssertionError("호출되면 안 되는 구성원 Port입니다.");
+            }
+
+            @Override
+            public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+                throw new AssertionError("호출되면 안 되는 구성원 Port입니다.");
             }
         };
     }
@@ -325,6 +460,32 @@ class DashboardMeetingQueryServiceTest {
         @Override
         public List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds) {
             throw new AssertionError("MEET-17은 안건 조회를 호출하면 안 됩니다.");
+        }
+    }
+
+    /* 요청자 본인 조회 호출을 기록하고 준비된 구성원 표시 정보를 반환하는 Port 대역이다. */
+    private static final class RecordingMemberQueryPort implements MemberQueryPort {
+
+        private final List<MemberSnapshot> members;
+        private int callCount;
+        private Long companyId;
+        private List<Long> memberIds;
+
+        private RecordingMemberQueryPort(List<MemberSnapshot> members) {
+            this.members = List.copyOf(members);
+        }
+
+        @Override
+        public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
+            throw new AssertionError("MEET-17은 활성 구성원 전용 조회를 호출하면 안 됩니다.");
+        }
+
+        @Override
+        public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+            this.callCount++;
+            this.companyId = companyId;
+            this.memberIds = memberIds;
+            return members.stream().filter(member -> memberIds.contains(member.memberId())).toList();
         }
     }
 }
