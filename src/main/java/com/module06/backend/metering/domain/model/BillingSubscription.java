@@ -57,6 +57,30 @@ public class BillingSubscription {
                 currentPeriodStart, currentPeriodEnd, nextBillingDate, carriedOverageAmount);
     }
 
+    public BillingSubscription activate(LocalDate periodStart, LocalDate periodEnd) {
+        if (periodStart == null || periodEnd == null || periodEnd.isBefore(periodStart)) {
+            throw new BusinessException(BillingErrorCode.BIL_SUBSCRIPTION_COMMAND_INVALID);
+        }
+        return restore(id, companyId, planCode, seats, BillingSubscriptionStatus.ACTIVE, startedOn,
+                periodStart, periodEnd, periodEnd, carriedOverageAmount);
+    }
+
+    public BillingSubscription cancelAtPeriodEnd() {
+        if (status != BillingSubscriptionStatus.ACTIVE) {
+            throw new BusinessException(BillingErrorCode.BIL_SUBSCRIPTION_COMMAND_INVALID);
+        }
+        return restore(id, companyId, planCode, seats, BillingSubscriptionStatus.CANCELING, startedOn,
+                currentPeriodStart, currentPeriodEnd, nextBillingDate, carriedOverageAmount);
+    }
+
+    public BillingSubscription resume() {
+        if (status != BillingSubscriptionStatus.CANCELING) {
+            throw new BusinessException(BillingErrorCode.BIL_SUBSCRIPTION_COMMAND_INVALID);
+        }
+        return restore(id, companyId, planCode, seats, BillingSubscriptionStatus.ACTIVE, startedOn,
+                currentPeriodStart, currentPeriodEnd, nextBillingDate, carriedOverageAmount);
+    }
+
     public Long getId() {
         return id;
     }

@@ -70,7 +70,7 @@ public record BillingOverviewResponse(
             String last4,
             String expiry
     ) {
-        static PaymentMethodResponse from(BillingOverviewResult.PaymentMethodResult result) {
+        public static PaymentMethodResponse from(BillingOverviewResult.PaymentMethodResult result) {
             return new PaymentMethodResponse(
                     "pm_" + result.id(),
                     result.brand(),

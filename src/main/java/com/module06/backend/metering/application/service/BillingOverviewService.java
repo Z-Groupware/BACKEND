@@ -24,7 +24,6 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.YearMonth;
 import java.util.List;
 
 @Service
@@ -66,7 +65,7 @@ public class BillingOverviewService implements GetBillingOverviewUseCase {
         BillingSubscription subscription = subscriptionRepository.findByCompanyId(principal.companyId())
                 .orElseThrow(() -> new BusinessException(BillingErrorCode.BIL_SUBSCRIPTION_NOT_FOUND));
 
-        PeriodBounds bounds = bounds(periodOf(subscription));
+        PeriodBounds bounds = bounds(subscription);
         long tokens = tokenUsageRecordRepository.sumTotalTokens(principal.companyId(), bounds.start(), bounds.end());
         long recordingBytes = billingUsageQueryRepository.sumRecordingBytes(principal.companyId());
         long sttBytes = billingUsageQueryRepository.sumCaptionAndSummaryBytes(principal.companyId());
@@ -148,17 +147,17 @@ public class BillingOverviewService implements GetBillingOverviewUseCase {
         return subtotal + vat;
     }
 
-    private YearMonth periodOf(BillingSubscription subscription) {
-        LocalDate currentPeriodStart = subscription.getCurrentPeriodStart();
-        if (currentPeriodStart != null) {
-            return YearMonth.from(currentPeriodStart);
+    private PeriodBounds bounds(BillingSubscription subscription) {
+        LocalDate periodStart = subscription.getCurrentPeriodStart();
+        LocalDate periodEnd = subscription.getCurrentPeriodEnd();
+        if (periodStart == null) {
+            periodStart = LocalDate.now(clock).withDayOfMonth(1);
         }
-        return YearMonth.now(clock);
-    }
-
-    private PeriodBounds bounds(YearMonth period) {
-        LocalDateTime start = period.atDay(1).atStartOfDay();
-        LocalDateTime end = period.plusMonths(1).atDay(1).atStartOfDay();
+        if (periodEnd == null || !periodEnd.isAfter(periodStart)) {
+            periodEnd = periodStart.plusMonths(1);
+        }
+        LocalDateTime start = periodStart.atStartOfDay();
+        LocalDateTime end = periodEnd.atStartOfDay();
         return new PeriodBounds(start, end);
     }
 
