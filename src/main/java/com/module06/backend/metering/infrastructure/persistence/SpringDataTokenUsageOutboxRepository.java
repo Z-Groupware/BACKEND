@@ -12,6 +12,11 @@ import java.util.List;
 
 public interface SpringDataTokenUsageOutboxRepository extends JpaRepository<TokenUsageOutboxJpaEntity, Long> {
 
+    // TENANT_001 승인: job_id 는 token_usage_outbox 에 전역 UNIQUE 다
+    // (V7.12 uq_token_usage_outbox_job_id) — 회사와 무관하게 최대 한 행이므로 회사 조건을
+    // 더해도 결과가 같다. 오히려 회사로 스코프하면 같은 jobId 가 다른 회사로 한 번 더
+    // 적재되려다 INSERT 시점에 UNIQUE 위반으로 터진다. 멱등 키 조회는 전역이어야 맞다.
+    // nosemgrep: review-loop.semgrep.tenant-derived-query-without-company-scope
     boolean existsByJobId(String jobId);
 
     /**
