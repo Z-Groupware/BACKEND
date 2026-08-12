@@ -10,6 +10,8 @@ groups:
         title: "5xx 에러율 급증"
         condition: C
         for: 1m
+        noDataState: OK
+        execErrState: Error
         labels:
           severity: critical
         annotations:
@@ -35,6 +37,8 @@ groups:
         title: "힙 메모리 위험"
         condition: C
         for: 5m
+        noDataState: OK
+        execErrState: Error
         labels:
           severity: warning
         annotations:
@@ -60,6 +64,8 @@ groups:
         title: "Redis 메모리 위험"
         condition: C
         for: 5m
+        noDataState: OK
+        execErrState: Error
         labels:
           severity: warning
         annotations:
@@ -81,6 +87,7 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.80] }
 
-    policies:
-      - orgId: 1
-        receiver: slack-alerts
+policies:
+  - orgId: 1
+    receiver: slack-alerts
+    group_by: ['alertname']

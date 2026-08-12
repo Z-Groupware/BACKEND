@@ -612,9 +612,10 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.80] }
 
-    policies:
-      - orgId: 1
-        receiver: slack-alerts
+policies:
+  - orgId: 1
+    receiver: slack-alerts
+    group_by: ['alertname']
 ```
 
 - [ ] **Step 3: YAML 문법 검증**
