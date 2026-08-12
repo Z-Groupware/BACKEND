@@ -12,5 +12,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 interface SpringDataHandoverRefRepository extends JpaRepository<HandoverRefEntity, Long> {
 
+    /*
+     * TENANT_001 예외: handover 테이블에는 company_id 컬럼이 없어(V7.0) 메서드 이름으로 회사를
+     * 좁힐 방법이 없다. 대신 writerMemberIds 가 이미 회사로 좁혀진 값이다 — 호출자
+     * (MemberDirectoryQueryAdapter)가 findByCompanyIdAndDeletedAtIsNull 로 얻은 구성원의 id 만
+     * 넣는다. 구성원은 회사 하나에만 속하므로 그 id 로 읽은 handover 행도 그 회사 것뿐이다.
+     *
+     * 다른 회사 행이 새려면 호출자가 회사 밖 memberId 를 넘겨야 하는데, 이 인터페이스가
+     * package-private 이라 그 실수는 이 패키지 안에서만 가능하다.
+     */
+    // nosemgrep: tenant-derived-query-without-company-scope
     List<HandoverRefEntity> findByWriterMemberIdInAndStatusNot(List<Long> writerMemberIds, String excludedStatus);
 }
