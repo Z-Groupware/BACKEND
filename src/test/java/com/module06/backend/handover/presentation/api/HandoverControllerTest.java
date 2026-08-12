@@ -526,7 +526,8 @@ class HandoverControllerTest {
 
     private static HandoverItem item() {
         return HandoverItem.create(ACTION, "Action", "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), ACTION_CREATED_AT, 500L, "Meeting", "Content", true);
+                LocalDate.of(2026, 8, 30), ACTION_CREATED_AT, 500L, "Meeting", "Content",
+                "Parent Action", LocalDate.of(2026, 8, 1), true);
     }
 
     /** 필터를 끈 슬라이스라 컨텍스트를 직접 심는다 — 다른 도메인의 컨트롤러 테스트와 같은 방식. */

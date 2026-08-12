@@ -192,6 +192,7 @@ class HandoverDomainIntegrationTest {
         HandoverItem item = new HandoverItem(
                 null, ACTION_TODO, "Round trip", "TODO", "P-HO", "PERSONAL",
                 LocalDate.of(2026, 8, 30), NOW.minusDays(1), MEETING, "Project handover sync", "content",
+                "Parent Team Action", LocalDate.of(2026, 8, 1),
                 TARGET, "Target", "Staff", NOW, NOW.plusHours(1), "ROLLED_BACK", true
         );
         Handover handover = Handover.createVacation(
@@ -206,6 +207,8 @@ class HandoverDomainIntegrationTest {
 
         assertThat(restored.getItems()).singleElement()
                 .satisfies(restoredItem -> {
+                    assertThat(restoredItem.getParentActionTitleSnap()).isEqualTo("Parent Team Action");
+                    assertThat(restoredItem.getStartDateSnap()).isEqualTo(LocalDate.of(2026, 8, 1));
                     assertThat(restoredItem.getCommittedAt()).isEqualTo(NOW.plusHours(1));
                     assertThat(restoredItem.getRollbackStatus()).isEqualTo("ROLLED_BACK");
                     assertThat(restoredItem.getReassigneeId()).isEqualTo(TARGET);
