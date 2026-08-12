@@ -3,6 +3,7 @@ package com.module06.backend.capture.application.port.out;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import com.module06.backend.capture.domain.model.SttBlockStatus;
 import com.module06.backend.capture.domain.model.SttCutReason;
@@ -45,6 +46,23 @@ public interface SttBlockRepository {
      * 생략되어 어느 쪽인지 구분할 수 없게 된다.
      */
     int countUnfinished(long meetingId);
+
+    /*
+     * 받아쓰기가 아직 도는 중인 회의만 골라낸다(MEET-04 요약 상태 배치 조회).
+     *
+     * "미완"의 정의는 {@link #countUnfinished} 와 **같다** — PENDING · QUEUED · RUNNING.
+     * 같은 상태 집합을 두 곳에서 따로 적으면 분석 시작 관문과 화면 문구가 갈린다: 관문은
+     * 막고 있는데 화면은 「AI 요약 없음」이라고 말하는 상태가 정확히 그것이다.
+     *
+     * <h2>개수를 돌려주지 않는다</h2>
+     * 호출자가 묻는 것은 "기다리는 중인가"이고 몇 개인지가 아니다. 개수를 돌려주면 화면이
+     * 「남은 블록 3개」를 그리게 되는데, 블록 수는 회의 길이에 따라 달라지는 내부 단위라
+     * 사람에게 진척을 뜻하지 않는다(남은 시간은 STT-03·SttProgress 가 준다).
+     *
+     * @param meetingIds 확인할 회의. null 이거나 비면 빈 집합
+     * @return 미완 블록이 하나라도 있는 회의의 id. 나머지는 담기지 않는다
+     */
+    Set<Long> findMeetingsWithUnfinishedBlocks(List<Long> meetingIds);
 
     /*
      * 새 블록을 QUEUED 상태로 만든다(10분/40청크 자동 트리거 전용, cap 소유 오케스트레이션이

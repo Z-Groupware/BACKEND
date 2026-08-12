@@ -38,7 +38,7 @@ public class RecordingPartJpaEntity {
     @Column(name = "uploader_member_id", nullable = false)
     private Long uploaderMemberId;
 
-    @Column(name = "s3_key")
+    @Column(name = "s3_key", length = 1024)
     private String s3Key;
 
     @Column(name = "content_type", nullable = false, length = 100)

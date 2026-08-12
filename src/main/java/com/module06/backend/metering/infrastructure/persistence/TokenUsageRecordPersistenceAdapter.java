@@ -52,19 +52,40 @@ public class TokenUsageRecordPersistenceAdapter implements TokenUsageRecordRepos
     }
 
     @Override
-    public List<DepartmentUsageAggregate> sumTotalTokensByDepartment(Long companyId, LocalDateTime startInclusive,
-                                                                    LocalDateTime endExclusive) {
-        // teamId 는 nullable 이므로 Collectors.groupingBy(null 키 불가) 대신 수동 누적한다.
-        Map<Long, Long> byTeam = new LinkedHashMap<>();
+    public DirectionUsageAggregate sumDirectionTokens(Long companyId, LocalDateTime startInclusive,
+                                                      LocalDateTime endExclusive) {
+        long input = 0L;
+        long output = 0L;
         for (TokenUsageRecordJpaEntity entity : repository
                 .findByCompanyIdAndRecordedAtGreaterThanEqualAndRecordedAtLessThan(
                         companyId, startInclusive, endExclusive)) {
             TokenUsageRecord record = entity.toDomain();
-            byTeam.merge(record.getTeamId(), (long) record.getTotalTokens(), Long::sum);
+            input += record.getInputTokens();
+            output += record.getOutputTokens();
+        }
+        return new DirectionUsageAggregate(input, output);
+    }
+
+    @Override
+    public List<DepartmentUsageAggregate> sumTotalTokensByDepartment(Long companyId, LocalDateTime startInclusive,
+                                                                    LocalDateTime endExclusive) {
+        // teamId 는 nullable 이므로 Collectors.groupingBy(null 키 불가) 대신 수동 누적한다.
+        // 방향별(입력·출력) 합계도 함께 모아 부서 단위 방향 단가 과금을 지원한다.
+        Map<Long, long[]> byTeam = new LinkedHashMap<>();
+        for (TokenUsageRecordJpaEntity entity : repository
+                .findByCompanyIdAndRecordedAtGreaterThanEqualAndRecordedAtLessThan(
+                        companyId, startInclusive, endExclusive)) {
+            TokenUsageRecord record = entity.toDomain();
+            // [total, input, output]
+            long[] acc = byTeam.computeIfAbsent(record.getTeamId(), k -> new long[3]);
+            acc[0] += record.getTotalTokens();
+            acc[1] += record.getInputTokens();
+            acc[2] += record.getOutputTokens();
         }
 
         List<DepartmentUsageAggregate> aggregates = new ArrayList<>();
-        byTeam.forEach((teamId, usedTokens) -> aggregates.add(new DepartmentUsageAggregate(teamId, usedTokens)));
+        byTeam.forEach((teamId, acc) ->
+                aggregates.add(new DepartmentUsageAggregate(teamId, acc[0], acc[1], acc[2])));
         // teamId 오름차순 정렬(null 은 마지막) — 기존 JPQL order by teamId 계약 유지.
         aggregates.sort(Comparator.comparing(DepartmentUsageAggregate::teamId,
                 Comparator.nullsLast(Comparator.naturalOrder())));

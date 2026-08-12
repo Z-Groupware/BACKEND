@@ -64,6 +64,25 @@ rules:
     semgrep_rule: "review-loop/semgrep/query.yml"
     status: verified_green   # semgrep query.yml 존재 · CI(gate1-semgrep)에서 baseline-diff 실행
 
+  # ── 보안 도메인 룰 (2026-08-11 추가) ─────────────────────────────────────
+  # 이 리포에서 반복해서 터진 사고는 "회사 A 사용자가 회사 B 데이터를 본다"이고, 그건
+  # 코드 패턴 위반이 아니라 도메인 제약 위반이라 범용 SAST(CodeQL 등)가 잡지 못한다.
+  # 우리 도메인을 아는 룰만 잡을 수 있어서 Gate 1에 직접 넣는다.
+  # 정당한 예외는 근거 주석 + nosemgrep으로 남긴다(그래야 "판단했다"와 "빼먹었다"가 구분된다).
+  - id: TENANT_001
+    text: "파생 쿼리 이름에 회사 경계(CompanyId)가 없으면 다른 회사 행까지 읽는다"
+    severity: MINOR
+    enforced_by: semgrep
+    semgrep_rule: "review-loop/semgrep/tenant-authz.yml"
+    status: baseline          # 기존 104곳은 baseline 통과 · 신규만 차단(검증 2026-08-11)
+
+  - id: AUTHZ_001
+    text: "@PreAuthorize 없는 엔드포인트 금지 — 인증만으로 충분해도 isAuthenticated()를 명시"
+    severity: MINOR
+    enforced_by: semgrep
+    semgrep_rule: "review-loop/semgrep/tenant-authz.yml"
+    status: baseline          # 기존 12곳(공개 6 · 서비스층 검사 6)은 baseline · 신규만 차단
+
   - id: MIG_001
     text: "스키마 변경은 마이그레이션으로만 · ddl-auto=validate (update 금지)"
     severity: CRITICAL

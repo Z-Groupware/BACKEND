@@ -20,7 +20,7 @@ import com.module06.backend.meeting.application.usecase.CancelMeetingUseCase;
 /* MEET-06 시작 전 회의 취소와 예약 슬롯 해제를 제공하는 REST Controller다. */
 @Tag(name = "Meeting", description = "회의 예약 및 진행 API")
 @RestController
-@RequestMapping("/api/v1/meetings")
+@RequestMapping("/api/meetings")
 @RequiredArgsConstructor
 public class MeetingCancellationController {
 
