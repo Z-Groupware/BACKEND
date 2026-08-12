@@ -159,13 +159,32 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
      * 질문이다(isStalledRather 주석).
      */
     private static SummaryStatus summaryStatusOf(List<LayerState> states) {
-        ProcessingStatus status = ProcessingStatus.of(states.stream()
+        /*
+         * ⚠ **필수 계층만 보고 접는다.**
+         *
+         * ProcessingStatus.of 는 "하나라도 FAILED 면 FAILED"로 접는다. 전체 목록을 넘기면
+         * 개요(OVERVIEW)만 실패한 회의가 그 자리에서 FAILED 가 되고, 아래 DONE 분기에 도달조차
+         * 하지 못한다 — 회의가 끝까지 성공했는데 화면이 「AI 분석 실패」로 말하고 마이페이지
+         * 「요약이 중단된 회의」 카드에도 오른다.
+         *
+         * 개요는 없어도 회의가 완성이므로(AnalysisOrchestrator.REQUIRED_FOR_DONE) 회의 단위
+         * 상태를 정하는 데 참여하지 않아야 한다. 실패 사실이 사라지는 것은 아니다 — CAP-06 은
+         * 계층 목록을 그대로 내려주므로 거기서 OVERVIEW=FAILED 가 보이고, 재개도 열려 있다.
+         *
+         * (이 버그는 개요만 실패한 경우를 검증하는 테스트가 잡았다. 필수/선택을 나눈 뒤에는
+         *  "접기"도 그 구분을 따라야 하는데, 완료 판정만 고치고 접기를 그대로 뒀던 것이다.)
+         */
+        List<LayerState> required = states.stream()
+                .filter(state -> AnalysisOrchestrator.requiredLayersForDone().contains(state.layer()))
+                .toList();
+
+        ProcessingStatus status = ProcessingStatus.of(required.stream()
                 .map(state -> new LayerProgress(state.layer(), state.status(),
                         state.tokensIn(), state.tokensOut(), state.stalled()))
                 .toList());
 
         return switch (status.status()) {
-            case FAILED -> isStalledRather(states) ? SummaryStatus.STALLED : SummaryStatus.FAILED;
+            case FAILED -> isStalledRather(required) ? SummaryStatus.STALLED : SummaryStatus.FAILED;
             case RUNNING -> SummaryStatus.PROCESSING;
             /*
              * ⚠ ProcessingStatus 의 DONE 을 그대로 쓰면 안 된다(CodeRabbit PR #365 지적).
@@ -179,7 +198,7 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
              * 주니 사람이 L5~DIST 가 빈 것을 볼 수 있지만, 이 계약은 값 하나로 접으므로 그
              * 정보가 사라진다. 그래서 여기서 더 조인다.
              */
-            case DONE -> isEveryLayerDone(states) ? SummaryStatus.DONE : SummaryStatus.STALLED;
+            case DONE -> isEveryRequiredLayerDone(required) ? SummaryStatus.DONE : SummaryStatus.STALLED;
             /*
              * 계층 목록이 비지 않았으므로 여기 오지 않는다(ProcessingStatus.of 는 비었을 때만
              * NOT_STARTED 를 낸다). 그래도 적어 두는 이유 — 나중에 그쪽 규칙이 바뀌어도
@@ -190,22 +209,27 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
     }
 
     /*
-     * 파이프라인의 모든 계층이 DONE 인가.
+     * 완료 판정에 필요한 계층이 전부 DONE 인가.
      *
-     * 판정 기준을 **오케스트레이터에서 가져온다**({@code pipelineLayers()}). 그쪽의
+     * 판정 기준을 **오케스트레이터에서 가져온다**({@code requiredLayersForDone()}). 그쪽의
      * {@code isFullyAnalyzed} 와 같은 정의여야 한다 — 거기서 "이미 완료된 회의"라 재실행을
      * 생략하는데 이쪽이 다른 기준으로 완료를 말하면, 화면은 「정상 완료」인데 재실행은 그대로
      * 도는(또는 그 반대) 회의가 생긴다. 목록을 여기 다시 적지 않는 이유가 그것이다.
      *
-     * ⚠ 정상 경로에서는 열 계층 전부 행이 남는다. L7·DIST 의 "생략" 분기는 runLayer **안에**
+     * <h2>⚠ pipelineLayers() 를 쓰면 안 된다</h2>
+     * 그건 **순서**를 뜻하는 목록이라 완료 판정에 필요 없는 계층까지 들어 있다(OVERVIEW).
+     * 그걸로 판정하면 개요 생성만 실패한 회의가 「분석 중단」으로 뜨고, 사람이 다시 눌러
+     * 열 계층의 토큰을 전부 다시 태운다 — 표시용 문장 하나 때문에.
+     *
+     * ⚠ 정상 경로에서는 필수 계층 전부 행이 남는다. L7·DIST 의 "생략" 분기는 runLayer **안에**
      * 있어서 대상이 0건이어도 DONE 으로 닫힌다 — 그래서 이 검사가 멀쩡한 회의를 걸지 않는다.
      */
-    private static boolean isEveryLayerDone(List<LayerState> states) {
+    private static boolean isEveryRequiredLayerDone(List<LayerState> states) {
         Set<LayerName> done = states.stream()
                 .filter(state -> state.status() == LayerStatus.DONE)
                 .map(LayerState::layer)
                 .collect(Collectors.toSet());
-        return done.containsAll(AnalysisOrchestrator.pipelineLayers());
+        return done.containsAll(AnalysisOrchestrator.requiredLayersForDone());
     }
 
     /*

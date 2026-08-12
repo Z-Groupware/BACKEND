@@ -363,9 +363,9 @@ public class AnalysisOrchestrator {
          * L4 는 1인칭 발화("제가 할게요")의 담당자를 정할 때 speakerMemberId 를 쓴다.
          * 나중에 돌리면 이미 담당자가 정해진 뒤에 화자가 밝혀진다.
          *
-         * ⚠ **CAP-11(자막 청크 전송)이 아직 구현되지 않았다.** caption_chunk 가 비어 있으면
-         * 전원 판정 포기로 끝난다 — 지금과 같은 상태이고, 정상 동작이다. CAP-11 이 붙는 순간
-         * 이 계층이 실제로 화자를 채우기 시작한다.
+         * caption_chunk 가 비어 있으면 전원 판정 포기로 끝난다 — **정상 동작이다.** 참석자가
+         * 브라우저 자막을 보내지 않은 회의(CAP-11 을 안 태운 경로)가 그렇고, 그때 화자는
+         * NULL 로 남는다. 임의로 채우면 회의에 없던 사람 보드로 할 일이 간다.
          */
         // 재개 시 되살릴 것이 없다 — 판정 결과는 transcript_chunk 에 있고, 바로 아래에서 다시 읽는다.
         LayerOutcome<Integer> attributed = runOrReuse(meetingId, runSeq, LayerName.L1, resumeFrom, () -> 0, sink -> {
