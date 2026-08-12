@@ -138,15 +138,19 @@ class MeteringDashboardServiceTest {
         when(companyTokenPlanRepository.findByCompanyId(OTHER_COMPANY)).thenReturn(Optional.of(plan()));
         when(tokenUsageRecordRepository.sumTotalTokens(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
                 .thenReturn(1_000L);
+        when(tokenUsageRecordRepository.sumDirectionTokens(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
+                .thenReturn(new TokenUsageRecordRepository.DirectionUsageAggregate(700L, 300L));
         when(tokenUsageRecordRepository.sumTotalTokensByDepartment(OTHER_COMPANY, AUGUST_START, SEPTEMBER_START))
                 .thenReturn(List.of());
 
         MeteringDashboardResult result = service.getCompanyDashboard(otherCompanyOwner(), "2026-08");
 
         assertThat(result.usedTokens()).isEqualTo(1_000L);
-        // 남의 회사 사용량은 한 번도 집계하지 않는다.
+        // 남의 회사 사용량은 한 번도 집계하지 않는다 — 방향별 집계도 같은 경계를 지켜야 한다.
         verify(tokenUsageRecordRepository, never())
                 .sumTotalTokens(eq(COMPANY), any(), any());
+        verify(tokenUsageRecordRepository, never())
+                .sumDirectionTokens(eq(COMPANY), any(), any());
         verify(tokenUsageRecordRepository, never())
                 .sumTotalTokensByDepartment(eq(COMPANY), any(), any());
         verify(companyTokenPlanRepository, never()).findByCompanyId(COMPANY);
