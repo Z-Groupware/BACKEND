@@ -41,7 +41,7 @@ import com.module06.backend.meeting.presentation.api.response.CaptureSessionStar
  */
 @Tag(name = "Capture Session", description = "회의 캡처 세션 생명주기 API")
 @RestController
-@RequestMapping("/api/v1/meetings/{meetingId}/capture-session")
+@RequestMapping("/api/meetings/{meetingId}/capture-session")
 @RequiredArgsConstructor
 public class CaptureSessionController {
 

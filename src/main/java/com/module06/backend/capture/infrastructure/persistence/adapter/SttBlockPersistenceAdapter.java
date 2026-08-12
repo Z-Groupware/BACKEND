@@ -3,7 +3,9 @@ package com.module06.backend.capture.infrastructure.persistence.adapter;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -39,6 +41,9 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
     private static final Set<SttBlockStatus> UNFINISHED_STATUSES =
             EnumSet.of(SttBlockStatus.PENDING, SttBlockStatus.QUEUED, SttBlockStatus.RUNNING);
 
+    /* 배치 조회의 IN 절 크기. AnalysisLayerPersistenceAdapter 와 같은 값을 쓴다. */
+    private static final int CHUNK_SIZE = 200;
+
     private final SpringDataSttBlockRepository sttBlockRepository;
 
     /*
@@ -69,6 +74,33 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
     @Transactional(readOnly = true)
     public int countUnfinished(long meetingId) {
         return sttBlockRepository.countByMeetingIdAndStatusIn(meetingId, UNFINISHED_STATUSES);
+    }
+
+    /*
+     * 같은 UNFINISHED_STATUSES 를 쓴다 — 단건 관문과 배치 조회가 같은 정의를 봐야 한다.
+     *
+     * IN 절을 청킹하는 이유와 크기는 AnalysisLayerPersistenceAdapter 와 같다. 회의 목록이
+     * 그쪽과 같은 곳에서 오므로(MEET-04 한 화면) 한쪽만 청킹하면 같은 목록에서 한 쿼리는
+     * 나뉘고 다른 쿼리는 통째로 나간다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Set<Long> findMeetingsWithUnfinishedBlocks(List<Long> meetingIds) {
+        if (meetingIds == null || meetingIds.isEmpty()) {
+            return Set.of();
+        }
+        List<Long> distinct = meetingIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<Long> waiting = new LinkedHashSet<>();
+        for (int from = 0; from < distinct.size(); from += CHUNK_SIZE) {
+            List<Long> chunk = distinct.subList(from, Math.min(from + CHUNK_SIZE, distinct.size()));
+            sttBlockRepository.findByMeetingIdInAndStatusIn(chunk, UNFINISHED_STATUSES)
+                    .forEach(view -> waiting.add(view.getMeetingId()));
+        }
+        return waiting;
     }
 
     /*

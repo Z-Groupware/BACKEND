@@ -22,7 +22,7 @@ import com.module06.backend.meeting.presentation.api.response.MeetingCompletionR
 /* MEET-08 회의 종료와 비동기 분석 접수를 제공하는 REST Controller다. */
 @Tag(name = "Meeting", description = "회의 예약 및 진행 API")
 @RestController
-@RequestMapping("/api/v1/meetings")
+@RequestMapping("/api/meetings")
 @RequiredArgsConstructor
 public class MeetingCompletionController {
 

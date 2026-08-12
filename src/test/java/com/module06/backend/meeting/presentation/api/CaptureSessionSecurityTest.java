@@ -52,7 +52,7 @@ class CaptureSessionSecurityTest {
     @DisplayName("익명 POST 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousCaptureSessionRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의 캡처 세션 시작 요청을 전송한다. */
-        mockMvc.perform(post("/api/v1/meetings/91/capture-session"))
+        mockMvc.perform(post("/api/meetings/91/capture-session"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 
@@ -65,7 +65,7 @@ class CaptureSessionSecurityTest {
     @DisplayName("익명 POST 일시정지 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousPauseRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의 캡처 일시정지 요청을 전송한다. */
-        mockMvc.perform(post("/api/v1/meetings/91/capture-session/pause"))
+        mockMvc.perform(post("/api/meetings/91/capture-session/pause"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 
@@ -78,7 +78,7 @@ class CaptureSessionSecurityTest {
     @DisplayName("익명 POST 재개 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousResumeRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의 캡처 재개 요청을 전송한다. */
-        mockMvc.perform(post("/api/v1/meetings/91/capture-session/resume"))
+        mockMvc.perform(post("/api/meetings/91/capture-session/resume"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 
@@ -91,7 +91,7 @@ class CaptureSessionSecurityTest {
     @DisplayName("익명 GET 현재 세션 조회를 AU-006과 401로 거절한다")
     void rejectsAnonymousCurrentSessionRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의의 현재 캡처 세션 조회 요청을 전송한다. */
-        mockMvc.perform(get("/api/v1/meetings/91/capture-session"))
+        mockMvc.perform(get("/api/meetings/91/capture-session"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 

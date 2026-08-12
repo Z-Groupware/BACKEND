@@ -274,7 +274,7 @@ class MeetingRoomControllerTest {
                 .build();
 
         /* meetingRoomId를 생략한 요청은 DTO 검증을 거쳐 공통 입력값 오류로 응답돼야 한다. */
-        mockMvc.perform(get("/api/v1/meeting-rooms/availability"))
+        mockMvc.perform(get("/api/rooms/availability"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("Z-001"));
     }
