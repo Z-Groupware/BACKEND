@@ -26,8 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       # 버전 고정 — latest는 조용히 바뀌어 게이트 동작이 어느 날 달라진다(재현성).
-      # digest 대신 버전 태그: Dependabot이 워크플로 container 이미지를 자동 갱신해주지 않아
-      # digest로 박으면 손으로 계속 올려야 하고, 방치하면 낡은 엔진에 영구히 묶인다.
+      # digest 대신 버전 태그를 쓴다: semgrep 은 버전 태그를 다시 밀지 않으므로 태그만으로도
+      # 재현성이 확보되고, 사람이 읽어 어느 엔진인지 바로 알 수 있다. digest 는 불투명해서
+      # 올릴 때마다 대조가 필요하다.
+      # ⚠️ 이 이미지를 갱신하는 자동 수단은 없다(Dependabot 을 걷어냈다) — 손으로 올려야 한다.
       image: semgrep/semgrep:1.172.0
     steps:
       - name: Checkout (full history for baseline diff)
