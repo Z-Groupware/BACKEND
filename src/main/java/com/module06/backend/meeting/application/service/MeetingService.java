@@ -218,6 +218,11 @@ public class MeetingService implements CreateMeetingUseCase {
 
     /* 개설자를 제외하고 실제 초대된 참석자가 한 명 이상인지 검증한다. */
     private void validateInvitedAttendees(Long hostMemberId, List<Long> attendeeMemberIds) {
+        /* 서비스 직접 호출에서도 null 식별자가 정규화 과정의 500 오류로 번지지 않도록 거절한다. */
+        if (attendeeMemberIds.stream().anyMatch(memberId -> memberId == null)) {
+            throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+        }
+
         /* host 중복 입력은 자동 제거되므로 host가 아닌 서로 다른 식별자를 기준으로 센다. */
         long invitedAttendeeCount = attendeeMemberIds.stream()
                 .filter(memberId -> !hostMemberId.equals(memberId))

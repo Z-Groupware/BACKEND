@@ -157,6 +157,21 @@ class MeetingServiceTest {
         assertErrorCode(() -> service.createMeeting(validCommand()), "MT-010");
     }
 
+    /* null 참석자 식별자가 정규화 과정의 500 오류로 번지지 않는지 검증한다. */
+    @Test
+    @DisplayName("참석자 목록에 null 식별자가 있으면 MT-010으로 거절한다")
+    void rejectsNullAttendeeIdentifier() {
+        /* Bean Validation을 거치지 않는 서비스 직접 호출 상황의 null 원소를 준비한다. */
+        CreateMeetingCommand command = command(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                java.util.Arrays.asList(7L, null)
+        );
+
+        /* List.copyOf의 NullPointerException 대신 참석자 계약 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createMeeting(command), "MT-010");
+    }
+
     /* C도메인이 관련 액션을 찾지 못한 경우 MEET-01 외부 계약이 AC-001인지 검증한다. */
     @Test
     @DisplayName("관련 액션이 존재하지 않으면 AC-001로 거절한다")
