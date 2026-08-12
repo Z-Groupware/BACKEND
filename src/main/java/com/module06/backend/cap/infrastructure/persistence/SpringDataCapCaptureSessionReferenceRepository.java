@@ -9,10 +9,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SpringDataCapCaptureSessionReferenceRepository
         extends JpaRepository<CapCaptureSessionReferenceEntity, Long> {
 
-    /** status만 필요하므로 닫힌 프로젝션으로 그 컬럼만 SELECT한다. */
-    Optional<StatusView> findByMeetingId(Long meetingId);
+    /** id·status만 필요하므로 닫힌 프로젝션으로 그 컬럼들만 SELECT한다. */
+    Optional<SessionView> findByMeetingId(Long meetingId);
 
-    interface StatusView {
+    interface SessionView {
+        Long getId();
+
         String getStatus();
     }
 }

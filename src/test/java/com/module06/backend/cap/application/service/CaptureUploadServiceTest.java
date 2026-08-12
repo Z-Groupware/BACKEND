@@ -436,7 +436,17 @@ class CaptureUploadServiceTest {
             }
         };
         CompletePartUploadWriter writer = new CompletePartUploadWriter(partRepo, stateRepo, heartbeat);
-        CapCaptureSessionReferenceRepository sessionRef = meetingId -> sessionPaused;
+        CapCaptureSessionReferenceRepository sessionRef = new CapCaptureSessionReferenceRepository() {
+            @Override
+            public boolean isPaused(Long meetingId) {
+                return sessionPaused;
+            }
+
+            @Override
+            public Optional<Long> findSessionId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
 
         // 이 테스트 파일의 시나리오는 전부 40청크 임계값에 한참 못 미치므로(lastSeq가 항상 한 자릿수),
         // 트리거 내부의 실제 파이프라인 포트는 호출되면 안 된다 — 호출되면 테스트가 실패하도록 던진다.
