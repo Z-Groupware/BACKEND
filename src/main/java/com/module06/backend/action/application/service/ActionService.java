@@ -274,7 +274,7 @@ public class ActionService implements
 
         List<Action> toSave = new ArrayList<>(actionsById.values());
         for (Long parentActionId : touchedParentIds) {
-            reconcileTeamActionStatus(parentActionId).ifPresent(toSave::add);
+            reconcileTeamActionStatus(parentActionId, actionsById).ifPresent(toSave::add);
         }
 
         actionRepository.saveAll(toSave);
@@ -291,11 +291,18 @@ public class ActionService implements
      * 규칙(requireReachableTransition의 case TODO -> false)과는 별개다. TEAM은 자기 상태를
      * 갖지 않고 하위 집계를 그대로 반영하는 거울이라, 하위가 되돌아가면 거울도 같이 되돌아가야
      * 값이 거짓말을 하지 않는다.
+     *
+     * CodeRabbit 지적(PR #384) — findAllByParentActionId는 DB를 다시 읽는다. 이 시점엔 아직
+     * saveAll을 안 해서, 이번 요청에서 방금 메모리로만 바꾼 하위 상태가 그 조회에 안 잡힌다.
+     * updatedActionsById(이번 요청에서 이미 전이 적용된 액션들)로 조회 결과를 덮어써서 채운다 —
+     * 이번 요청 밖의 형제는 DB 값 그대로(맞는 값), 이번 요청에서 바뀐 형제는 최신 값으로 교체.
      */
-    private Optional<Action> reconcileTeamActionStatus(Long parentActionId) {
+    private Optional<Action> reconcileTeamActionStatus(Long parentActionId, Map<Long, Action> updatedActionsById) {
         Action parent = actionRepository.findById(parentActionId)
                 .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_NOT_FOUND));
-        List<Action> children = actionRepository.findAllByParentActionId(parent.getCompanyId(), parentActionId);
+        List<Action> children = actionRepository.findAllByParentActionId(parent.getCompanyId(), parentActionId).stream()
+                .map(child -> updatedActionsById.getOrDefault(child.getId(), child))
+                .toList();
         ActionStatus target = deriveTeamStatusFromChildren(children);
         if (parent.getStatus() == target) {
             return Optional.empty();

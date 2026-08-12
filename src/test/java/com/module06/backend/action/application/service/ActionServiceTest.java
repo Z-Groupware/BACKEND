@@ -528,6 +528,55 @@ class ActionServiceTest {
         assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
     }
 
+    // CodeRabbit(PR #384) 지적 — findAllByParentActionId는 DB를 다시 읽어서, 이번 요청에서
+    // 방금 메모리로만 바꾼 형제의 새 상태가 그 조회에 안 잡힐 수 있었다. 여기서는 그 조회가
+    // 일부러 "옛날(stale) 상태"의 별개 객체를 돌려주게 만들어서, reconcileTeamActionStatus가
+    // 그 stale 값이 아니라 이번 요청에서 실제로 반영한 최신 값을 쓰는지 검증한다.
+    @Test
+    void bulkUpdateStatusReconcilesUsingFreshChildStatusNotStaleRepositoryRead() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.TODO);
+        Action child = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO);
+        // findAllByParentActionId가 돌려주는 건 command가 바꾸기 "전"의 상태를 담은 별개 객체다 —
+        // 실제 JPA 어댑터가 saveAll 이전에 DB를 다시 읽으면 이렇게 stale한 값을 준다.
+        Action staleChildFromRepository = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO);
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(child));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L)).thenReturn(List.of(staleChildFromRepository));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS)
+        )));
+
+        // stale 객체만 보고 계산했다면 하위가 여전히 TODO로 보여 부모가 TODO에 그대로 남는다.
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void bulkUpdateStatusIncludesReconciledParentExactlyOnceInSaveAll() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.TODO);
+        Action firstChild = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO, 5L);
+        Action secondChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO, 5L);
+        when(actionRepository.findAllByIds(List.of(1L, 2L))).thenReturn(List.of(firstChild, secondChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(firstChild, secondChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS),
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.IN_PROGRESS)
+        )));
+
+        org.mockito.ArgumentCaptor<List<Action>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(actionRepository).saveAll(captor.capture());
+        List<Action> saved = captor.getValue();
+        assertThat(saved.stream().filter(a -> a.getId().equals(100L)).count()).isEqualTo(1);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
     @Test
     void getActionsByMeetingReturnsMixedTeamAndPersonalActionsWithSeparateDisplayFields() {
         ActionService service = actionService();
