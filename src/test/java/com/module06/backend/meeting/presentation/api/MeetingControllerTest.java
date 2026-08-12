@@ -45,11 +45,13 @@ class MeetingControllerTest {
                 LocalDateTime.of(2026, 8, 6, 15, 0),
                 null,
                 305L,
-                List.of(7L, 11L)
+                List.of(7L, 11L),
+                "스프린트 진행 상황",
+                List.of("개발 진행률 점검")
         );
 
         /* 인증 principal에서 추출됐다고 가정한 값과 요청 본문으로 API 메서드를 호출한다. */
-        ApiResponse<CreateMeetingResponse> response = controller.createMeeting(10L, 3L, 100L, request);
+        ApiResponse<CreateMeetingResponse> response = controller.createMeeting(10L, 3L, 100L, "LEADER", request);
 
         /* 실제 HTTP 상태 어노테이션과 같은 201 값과 성공 메시지가 래퍼에도 담겨야 한다. */
         assertThat(response.getHttpStatus()).isEqualTo(201);
@@ -59,6 +61,11 @@ class MeetingControllerTest {
         assertThat(capturedCommand[0].companyId()).isEqualTo(10L);
         assertThat(capturedCommand[0].hostMemberId()).isEqualTo(3L);
         assertThat(capturedCommand[0].hostTeamId()).isEqualTo(100L);
+        assertThat(capturedCommand[0].hostRole()).isEqualTo("LEADER");
+
+        /* 회의 개설 화면의 대주제와 소주제가 명령에 그대로 전달돼야 한다. */
+        assertThat(capturedCommand[0].mainTopic()).isEqualTo("스프린트 진행 상황");
+        assertThat(capturedCommand[0].subTopics()).containsExactly("개발 진행률 점검");
 
         /* 생략한 녹음 동의 값은 명세 기본값 false로 전달돼야 한다. */
         assertThat(capturedCommand[0].recordingConsent()).isFalse();

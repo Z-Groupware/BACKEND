@@ -44,6 +44,7 @@ public class MeetingController {
      * @param companyId 인증 principal에서 추출한 회사 식별자
      * @param memberId 인증 principal에서 추출한 개설자 식별자
      * @param teamId 인증 principal에서 추출한 개설자 소속 팀 식별자
+     * @param role 인증 principal에서 추출한 개설자 역할
      * @param request 검증된 회의 예약 요청 본문
      * @return 공통 생성 성공 응답으로 감싼 회의 예약 결과
      */
@@ -61,11 +62,13 @@ public class MeetingController {
             @AuthenticationPrincipal(expression = "memberId") Long memberId,
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "authority") String role,
             @Valid @RequestBody CreateMeetingRequest request
     ) {
         /* 인증 정보와 요청 값을 결합한 명령으로 회의 예약 유스케이스를 실행한다. */
         MeetingCreationResult result = createMeetingUseCase.createMeeting(
-                request.toCommand(companyId, memberId, teamId)
+                request.toCommand(companyId, memberId, teamId, role)
         );
 
         /* 201 Created 상태와 명세의 응답 data를 프로젝트 공통 래퍼로 반환한다. */

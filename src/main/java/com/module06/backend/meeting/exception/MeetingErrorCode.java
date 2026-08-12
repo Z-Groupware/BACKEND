@@ -56,7 +56,16 @@ public enum MeetingErrorCode implements ErrorCode {
     MEETING_NOT_STARTED(HttpStatus.CONFLICT, "MT-013", "시작되지 않은 회의입니다."),
 
     /* 이미 시작된 회의를 수정하거나 취소하려는 경우다. */
-    MEETING_ALREADY_STARTED(HttpStatus.CONFLICT, "MT-014", "이미 시작된 회의는 수정·취소할 수 없습니다.");
+    MEETING_ALREADY_STARTED(HttpStatus.CONFLICT, "MT-014", "이미 시작된 회의는 수정·취소할 수 없습니다."),
+
+    /* 대주제 또는 하나 이상의 소주제 계약이 깨진 경우다. */
+    INVALID_MEETING_AGENDA(HttpStatus.BAD_REQUEST, "MT-015", "대주제와 하나 이상의 소주제가 필요합니다."),
+
+    /* 개설자 역할과 상위 팀 액션 입력 정책이 맞지 않는 경우다. */
+    INVALID_RELATED_ACTION_POLICY(HttpStatus.BAD_REQUEST, "MT-016", "개설자 역할에 맞는 상위 팀 액션이 필요합니다."),
+
+    /* 개설자 외에 초대한 참석자가 한 명도 없는 경우다. */
+    MEETING_ATTENDEE_REQUIRED(HttpStatus.BAD_REQUEST, "MT-017", "개설자 외 참석자를 한 명 이상 선택해야 합니다.");
 
     /* 응답에 사용할 HTTP 상태다. */
     private final HttpStatus httpStatus;
