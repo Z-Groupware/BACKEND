@@ -207,6 +207,8 @@ class HandoverDomainIntegrationTest {
 
         assertThat(restored.getItems()).singleElement()
                 .satisfies(restoredItem -> {
+                    assertThat(restoredItem.getParentActionTitleSnap()).isEqualTo("Parent Team Action");
+                    assertThat(restoredItem.getStartDateSnap()).isEqualTo(LocalDate.of(2026, 8, 1));
                     assertThat(restoredItem.getCommittedAt()).isEqualTo(NOW.plusHours(1));
                     assertThat(restoredItem.getRollbackStatus()).isEqualTo("ROLLED_BACK");
                     assertThat(restoredItem.getReassigneeId()).isEqualTo(TARGET);

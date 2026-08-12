@@ -50,6 +50,12 @@ public interface ActionRepository {
     // FR-AC-02/03 — 상위 액션 표시값·벌크 상태변경 대상 배치 조회.
     List<Action> findAllByIds(List<Long> ids);
 
+    // 상위 팀 액션명 스냅샷 배치 조회 — parentActionId만으로 찾으면 DB가 강제 안 하는 회사·종류
+    // 불변식(자식은 항상 같은 회사의 PERSONAL, 부모는 TEAM)에 기대게 되어 다른 회사·PERSONAL
+    // 액션의 제목이 섞일 수 있다. companyId·actionType(TEAM)을 조건에 넣어 조회 자체에서 보장한다
+    // (findAllByParentActionId와 동일 판단, CodeRabbit PR #382 지적).
+    List<Action> findTeamActionsByIds(Long companyId, List<Long> ids);
+
     /* 사람이 직접 추가한 액션을 지운다(RVW-04). AI 생성 액션은 이 경로로 오지 않는다 —
        지우면 review_log에 남길 판정 대상이 사라지고, 그건 반려(RVW-02)로 처리한다. */
     void delete(Action action);

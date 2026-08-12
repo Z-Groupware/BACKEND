@@ -109,11 +109,15 @@ public class ActionReassignAdapter implements ActionReassignPort {
         ).stream().collect(Collectors.toMap(ActionMeetingReferenceEntity::getId, ActionMeetingReferenceEntity::getTitle));
 
         // E(인수인계) 요청 필드: 상위 팀 액션명. PERSONAL 액션의 parentActionId로 팀 액션 제목을 배치 조회.
+        // 회사·종류(TEAM)로 스코프한다 — id만으로 찾으면 DB가 강제 안 하는 불변식에 기대게 되어
+        // 다른 회사·PERSONAL 액션 제목이 섞일 수 있다(CodeRabbit PR #382 지적). actions는 한 회사
+        // 소속(departing member 기준)이라 첫 액션의 companyId로 스코프한다.
         List<Long> parentIds = actions.stream()
                 .map(Action::getParentActionId).filter(Objects::nonNull).distinct().toList();
+        Long companyId = actions.get(0).getCompanyId();
         Map<Long, String> parentTitlesById = parentIds.isEmpty()
                 ? Map.of()
-                : actionRepository.findAllByIds(parentIds).stream()
+                : actionRepository.findTeamActionsByIds(companyId, parentIds).stream()
                         .collect(Collectors.toMap(Action::getId, Action::getTitle));
 
         return actions.stream()
