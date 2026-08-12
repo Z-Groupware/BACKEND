@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -53,9 +55,13 @@ class CompanyProfileServiceTest {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));
 
         /*
-         * 두 PATCH가 같은 낡은 스냅샷을 각자 읽었다고 가정해도(동시성 시나리오), 서비스는 이제
-         * 그 스냅샷과 병합하지 않고 null 을 그대로 넘긴다 — 나중에 실행되는 쪽이 먼저 커밋된
-         * address 변경을 되돌리면 이 테스트가 잡아낸다.
+         * 두 PATCH가 같은 낡은 스냅샷을 각자 읽었다고 가정한 상황이다(동시성 시나리오). 이 테스트가
+         * 실제로 고정하는 것은 결과가 아니라 호출 모양이다 — 서비스가 안 보낸 필드를 자기가 읽은 값으로
+         * 채워 넘기기 시작하면(그게 lost update 의 원인이다) 아래 "null 그대로 내려갔는가" 단언이 깨진다.
+         * 결과만 보는 단언은 순차 실행이라 병합 구현에서도 통과할 수 있어(코드래빗 지적) 함께 둔다.
+         *
+         * 진짜 두 트랜잭션을 붙이는 통합 테스트는 두지 않는다. 이 계층에는 트랜잭션이 없어 재현할 수 없고,
+         * 실제 방어선은 @DynamicUpdate + 엔티티 병합이라 그건 CompanyPersistenceAdapterTest 가 본다.
          */
         service(repository).updateProfile(
                 new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null, null, null));
@@ -64,6 +70,10 @@ class CompanyProfileServiceTest {
 
         assertThat(afterSecondPatch.address()).isEqualTo("서울시 강남구 테헤란로 123");
         assertThat(afterSecondPatch.representativeName()).isEqualTo("김서준");
+
+        /* 두 번째 호출이 저장소까지 넘긴 인자 — 대표자명 말고는 전부 null 이어야 한다. */
+        assertThat(repository.lastArguments).containsExactly(
+                COMPANY_ID, null, null, "김서준", null, null, null, null);
     }
 
     @Test
@@ -171,6 +181,8 @@ class CompanyProfileServiceTest {
 
         private Company company;
         private final Set<String> taken = new HashSet<>();
+        /** 서비스가 마지막으로 넘긴 인자 그대로. "안 보낸 필드는 null 로 내려간다"를 보려고 둔다. */
+        private List<Object> lastArguments = List.of();
 
         FakeRepository(Company company) {
             this.company = company;
@@ -203,6 +215,8 @@ class CompanyProfileServiceTest {
         @Override
         public void updateProfile(Long id, String name, String registrationNo, String representativeName,
                                    String address, Double latitude, Double longitude, String mainPhone) {
+            lastArguments = Arrays.asList(
+                    id, name, registrationNo, representativeName, address, latitude, longitude, mainPhone);
             boolean clearingAddress = address != null && address.isBlank();
             String mergedAddress = address == null ? company.address() : (clearingAddress ? null : address);
             Double mergedLatitude = clearingAddress ? null : company.latitude();
