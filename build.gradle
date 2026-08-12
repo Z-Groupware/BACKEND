@@ -21,7 +21,7 @@ repositories {
 // 팀 내 첫 AWS SDK 도입이라 기존에 맞출 버전 고정이 없어 새로 잡는다(2026-08 기준 최신 안정판).
 // ⚠️ s3-presigner는 더 이상 별도 아티팩트가 아니다 — S3Presigner가 s3 모듈 안에 번들돼 있다
 //    (software.amazon.awssdk.services.s3.presigner.*, 2.34.0 jar 안에서 실제 확인).
-def awsSdkVersion = '2.34.0'
+def awsSdkVersion = '2.51.3'
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
