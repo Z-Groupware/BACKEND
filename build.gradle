@@ -101,6 +101,9 @@ dependencies {
 }
 
 tasks.named('test') {
+	// 전체 테스트에서 여러 Spring Context가 생성되므로 테스트 JVM Heap을 명시적으로 확보한다.
+	maxHeapSize = '2g'
+
 	useJUnitPlatform {
 		excludeTags 'migration'
 	}
