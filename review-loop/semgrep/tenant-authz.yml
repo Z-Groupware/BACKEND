@@ -1,0 +1,75 @@
+# Gate 1 · Semgrep 룰 — TENANT_001 / AUTHZ_001 (멀티테넌트 회사 경계 · 인가 누락)
+#
+# 왜 이 두 룰인가 — 이 리포에서 반복해서 터진 사고가 "회사 A 사용자가 회사 B 데이터를
+# 본다"이고, 원인은 항상 둘 중 하나다.
+#   (1) 조회 조건에 companyId 가 빠졌다   → TENANT_001
+#   (2) 엔드포인트에 인가 검사가 없다      → AUTHZ_001
+# 둘 다 "코드 패턴 위반"이 아니라 "도메인 제약 위반"이라 범용 SAST(CodeQL 등)가 잡지
+# 못한다. 우리 도메인을 아는 룰만 잡을 수 있어서 여기 직접 적는다.
+#
+# baseline-diff 전제 — 기존 코드는 base 커밋 기준 baseline 이라 통과하고, PR 에서 새로
+# 추가되는 것만 실패시킨다(query.yml 과 동일 운영). 부채 때문에 게이트를 못 켜는 상황을
+# 피하고, 새 코드가 같은 실수를 반복하는 것만 막는다.
+
+rules:
+  # ── TENANT_001 ────────────────────────────────────────────────────────────
+  # Spring Data 파생 쿼리는 메서드 '이름'이 곧 WHERE 절이다. 이름에 CompanyId 가 없으면
+  # 그 쿼리는 회사 경계를 보지 않는다.
+  #
+  # 정당한 예외가 있다 — memberId·teamId 처럼 이미 한 회사 안으로 좁혀진 축으로 조회하는
+  # 경우, 로그인처럼 회사를 먼저 찾아 넘기는 경우, 회사 자체를 찾는 조회. 그래서 severity
+  # 는 WARNING 이고, 예외는 메서드 위에 근거 주석과 함께 nosemgrep 으로 표기한다.
+  #   // assigneeMemberId 로 이미 회사가 좁혀진다 — TENANT_001 예외
+  #   // nosemgrep: tenant-derived-query-without-company-scope
+  - id: tenant-derived-query-without-company-scope
+    languages: [java]
+    severity: WARNING
+    message: >-
+      TENANT_001: 회사 경계가 없는 파생 쿼리다. 메서드 이름에 CompanyId 가 없으면 이 조회는
+      다른 회사의 행까지 읽는다. 이름에 회사 조건을 넣거나(예: findByCompanyIdAndId),
+      회사 무관이 의도라면 근거 주석과 함께 nosemgrep 으로 예외를 남겨라.
+    patterns:
+      - pattern-inside: |
+          interface $REPO { ... }
+      - pattern: $RET $NAME(...);
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: ^(find|read|get|query|search|stream|count|exists|delete|remove)([A-Z][A-Za-z0-9]*)?By[A-Z]
+      - pattern-not-regex: CompanyId
+    paths:
+      include:
+        # 선행 '/' 는 리포 루트 기준 고정이라는 뜻이다(Semgrepignore v2). 빼면 곧 경고가 뜨고
+        # 해석이 바뀐다 — 이 룰은 리포 루트에서만 돌므로 고정이 맞다.
+        - "/src/main/java/**/infrastructure/persistence/**"
+
+  # ── AUTHZ_001 ─────────────────────────────────────────────────────────────
+  # SecurityConfig 의 anyRequest().authenticated() 는 "로그인했나"까지만 본다.
+  # "이 사람이 이걸 해도 되나"는 각 엔드포인트의 @PreAuthorize 몫이다
+  # (SecurityConfig.java:109-110 주석). 매핑에 @PreAuthorize 가 없으면 로그인한
+  # 아무나 호출할 수 있다.
+  #
+  # 인증만으로 충분한 엔드포인트도 @PreAuthorize("isAuthenticated()") 를 명시적으로 붙인다 —
+  # "생각해봤는데 인증이면 충분"과 "그냥 빼먹음"이 코드에서 구분되지 않으면 리뷰가 못 잡는다.
+  - id: authz-mapping-without-preauthorize
+    languages: [java]
+    severity: WARNING
+    message: >-
+      AUTHZ_001: @PreAuthorize 가 없는 엔드포인트다. SecurityConfig 의 기본 잠금은
+      '로그인 여부'까지만 보므로 이 상태면 로그인한 아무나 호출할 수 있다. 역할·소유권
+      조건을 @PreAuthorize 로 명시하라. 인증만으로 충분하면
+      @PreAuthorize("isAuthenticated()") 를 명시적으로 붙인다.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$MAPPING(...)
+              public $RET $M(...) { ... }
+          - pattern: |
+              @$MAPPING
+              public $RET $M(...) { ... }
+      - metavariable-regex:
+          metavariable: $MAPPING
+          regex: ^(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)$
+      - pattern-not-regex: PreAuthorize
+    paths:
+      include:
+        - "/src/main/java/**/presentation/**"

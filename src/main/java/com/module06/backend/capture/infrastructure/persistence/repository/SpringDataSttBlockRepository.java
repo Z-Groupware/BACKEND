@@ -32,6 +32,27 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
     int countByMeetingIdAndStatusIn(long meetingId, Collection<SttBlockStatus> statuses);
 
     /*
+     * 미완 블록이 있는 회의를 배치로 찾는다(MEET-04 요약 상태).
+     *
+     * <h2>엔티티가 아니라 id 만 읽는다</h2>
+     * 필요한 것은 "이 회의에 미완 블록이 있나"뿐이다. 엔티티를 읽으면 회의 20건 × 블록 수만큼
+     * 행이 영속성 컨텍스트에 올라오는데, 그중 어느 필드도 쓰지 않는다.
+     *
+     * <h2>GROUP BY 를 쓰지 않는다</h2>
+     * 파생 쿼리로는 집계를 못 하지만 집계가 필요하지도 않다 — 같은 회의가 여러 행으로 와도
+     * 호출자가 Set 으로 접는다. @Query 를 새로 쓰지 않는 쪽을 고른 것이다(Gate1 QUERY_002).
+     *
+     * 어느 상태가 "미완"인지는 어댑터가 정한다(countByMeetingIdAndStatusIn 과 같은 규칙).
+     */
+    List<MeetingIdView> findByMeetingIdInAndStatusIn(
+            Collection<Long> meetingIds, Collection<SttBlockStatus> statuses);
+
+    /* 위 조회가 읽는 단 하나의 컬럼. */
+    interface MeetingIdView {
+        Long getMeetingId();
+    }
+
+    /*
      * 재처리 전이 전용 — **조건을 DB 가 판정하게 하고** 쓰기 잠금을 건다.
      *
      * <h2>id 로 찾아 자바에서 비교하면 안 된다</h2>

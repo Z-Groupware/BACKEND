@@ -33,6 +33,12 @@ public class CompanyTokenPlanJpaEntity {
     @Column(name = "token_overage_price_per_1k", nullable = false)
     private int tokenOveragePricePer1k;
 
+    @Column(name = "input_token_price_per_1k", nullable = false)
+    private int inputTokenPricePer1k;
+
+    @Column(name = "output_token_price_per_1k", nullable = false)
+    private int outputTokenPricePer1k;
+
     @Column(name = "effective_from", nullable = false)
     private LocalDate effectiveFrom;
 
@@ -40,13 +46,16 @@ public class CompanyTokenPlanJpaEntity {
     }
 
     private CompanyTokenPlanJpaEntity(Long id, Long companyId, String planCode, long monthlyTokenPool,
-                                      int baseFee, int tokenOveragePricePer1k, LocalDate effectiveFrom) {
+                                      int baseFee, int tokenOveragePricePer1k, int inputTokenPricePer1k,
+                                      int outputTokenPricePer1k, LocalDate effectiveFrom) {
         this.id = id;
         this.companyId = companyId;
         this.planCode = planCode;
         this.monthlyTokenPool = monthlyTokenPool;
         this.baseFee = baseFee;
         this.tokenOveragePricePer1k = tokenOveragePricePer1k;
+        this.inputTokenPricePer1k = inputTokenPricePer1k;
+        this.outputTokenPricePer1k = outputTokenPricePer1k;
         this.effectiveFrom = effectiveFrom;
     }
 
@@ -58,12 +67,14 @@ public class CompanyTokenPlanJpaEntity {
                 plan.getMonthlyTokenPool(),
                 plan.getBaseFee(),
                 plan.getTokenOveragePricePer1k(),
+                plan.getInputTokenPricePer1k(),
+                plan.getOutputTokenPricePer1k(),
                 plan.getEffectiveFrom()
         );
     }
 
     CompanyTokenPlan toDomain() {
         return CompanyTokenPlan.restore(id, companyId, planCode, monthlyTokenPool, baseFee,
-                tokenOveragePricePer1k, effectiveFrom);
+                tokenOveragePricePer1k, inputTokenPricePer1k, outputTokenPricePer1k, effectiveFrom);
     }
 }

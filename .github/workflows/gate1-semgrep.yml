@@ -1,8 +1,14 @@
-name: Gate 1 · Semgrep (QUERY_002)
+name: Gate 1 · Semgrep (QUERY_002 · TENANT_001 · AUTHZ_001)
 
-# AI 코드 리뷰 루프 — Gate 1(정적 패턴) 중 Semgrep만. baseline-diff-only: 신규 @Query만 차단.
+# AI 코드 리뷰 루프 — Gate 1(정적 패턴) 중 Semgrep만. baseline-diff-only.
 # ArchUnit(아키텍처 규칙) 게이트는 컨벤션 담당 팀원이 ArchitectureRulesTest를 추가하면 별도 잡으로 붙인다.
-# 기존 사용처는 base 커밋 기준 baseline이라 통과하고, PR에서 새로 추가되는 @Query만 실패시킨다.
+# 기존 사용처는 base 커밋 기준 baseline이라 통과하고, PR에서 새로 추가되는 것만 실패시킨다.
+#
+# 룰셋 2개를 함께 돌린다.
+#   query.yml        — QUERY_002 (신규 @Query 금지)
+#   tenant-authz.yml — TENANT_001(회사 경계 없는 파생 쿼리) · AUTHZ_001(@PreAuthorize 없는 엔드포인트)
+# 후자는 이 리포에서 반복해서 터진 교차 회사 데이터 유출을 겨냥한 도메인 룰이다 —
+# 범용 SAST가 못 잡는 자리라 직접 적는다(근거는 tenant-authz.yml 머리말).
 
 on:
   pull_request:
@@ -24,9 +30,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false   # 러너에 git 자격증명을 남기지 않는다
-      - name: Gate 1 — Semgrep QUERY_002 (신규 @Query만 차단)
+      - name: Gate 1 — Semgrep (신규 위반만 차단)
         run: >-
           semgrep scan
           --config review-loop/semgrep/query.yml
+          --config review-loop/semgrep/tenant-authz.yml
           --baseline-commit ${{ github.event.pull_request.base.sha }}
           --error
