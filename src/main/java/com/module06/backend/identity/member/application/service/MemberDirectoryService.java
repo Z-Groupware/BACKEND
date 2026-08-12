@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,12 +29,16 @@ import com.module06.backend.identity.member.application.dto.MemberPage;
 import com.module06.backend.identity.member.application.dto.OrgChartMember;
 import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
+import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort.MemberRow;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
 import com.module06.backend.identity.member.application.usecase.IssueMemberUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
@@ -55,7 +60,8 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgChartUseCase,
-        GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase {
+        GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase,
+        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase {
 
     private final MemberDirectoryQueryPort queryPort;
     private final MemberDirectoryCommandPort commandPort;
@@ -146,6 +152,50 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
                                 .map(row -> new OrgChartMember(row.memberId(), row.name(), row.positionName(), row.authority()))
                                 .toList()))
                 .toList();
+    }
+
+    /**
+     * 오너 대시보드 KPI 카드 뒤 2개. {@code findActiveByCompany} 가 이미 소프트삭제된 구성원을 뺀
+     * 스냅샷이라, 아직 {@code deleted_at} 이 찍히기 전인 RESIGNED 행만 한 번 더 거른다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public MemberDashboardSummary getDashboardSummary(Long companyId) {
+        List<MemberRow> rows = queryPort.findActiveByCompany(companyId);
+        long totalMemberCount = rows.stream()
+                .filter(row -> row.status() != MemberStatus.RESIGNED)
+                .count();
+        long onLeaveMemberCount = rows.stream()
+                .filter(row -> row.status() == MemberStatus.VACATION)
+                .count();
+        return new MemberDashboardSummary(totalMemberCount, onLeaveMemberCount);
+    }
+
+    /**
+     * 팀장 현황(오너 대시보드). 팀이 기준이다 — {@code member.authority} 가 아니라 팀의
+     * {@code leaderMemberId} 를 보고 팀마다 한 행씩 만든다. 그래야 "한 팀에 리더는 정확히 1명" 이
+     * 응답에서도 지켜진다. 리더가 공석이거나, 지정된 리더가 이미 퇴사해 스냅샷에 없으면 그 팀은 행이 빠진다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<TeamLeaderStatus> getTeamLeadersStatus(Long companyId) {
+        Map<Long, MemberRow> rowByMemberId = queryPort.findActiveByCompany(companyId).stream()
+                .collect(Collectors.toMap(MemberRow::memberId, row -> row));
+
+        return teamRepository.findByCompanyId(companyId).stream()
+                .sorted(Comparator.comparing(Team::id))
+                .filter(team -> team.leaderMemberId() != null)
+                .map(team -> toLeaderStatus(team, rowByMemberId.get(team.leaderMemberId())))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private TeamLeaderStatus toLeaderStatus(Team team, MemberRow leader) {
+        if (leader == null) {
+            return null;
+        }
+        return new TeamLeaderStatus(leader.memberId(), leader.name(), leader.email(),
+                team.id(), team.name(), leader.status(), leader.leaveStartDate(), leader.leaveEndDate());
     }
 
     @Override
