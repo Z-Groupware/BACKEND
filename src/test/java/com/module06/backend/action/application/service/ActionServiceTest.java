@@ -447,6 +447,87 @@ class ActionServiceTest {
         verify(actionRepository, never()).saveAll(any());
     }
 
+    // ── 이슈 #383 팀 액션 상태 자동 파생 ──────────────────────────────
+
+    @Test
+    void bulkUpdateStatusStartsParentTeamActionWhenFirstChildBecomesInProgress() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.TODO);
+        Action child = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO);
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(child));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L)).thenReturn(List.of(child));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS)
+        )));
+
+        assertThat(child.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(parent.getStartDate()).isEqualTo(LocalDate.now());
+    }
+
+    @Test
+    void bulkUpdateStatusCompletesParentTeamActionWhenAllChildrenBecomeDone() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.IN_PROGRESS);
+        Action alreadyDoneSibling = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.DONE);
+        Action lastChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findAllByIds(List.of(2L))).thenReturn(List.of(lastChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(alreadyDoneSibling, lastChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.DONE)
+        )));
+
+        assertThat(lastChild.getStatus()).isEqualTo(ActionStatus.DONE);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.DONE);
+    }
+
+    @Test
+    void bulkUpdateStatusKeepsParentTeamActionInProgressWhileSiblingStillPending() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.IN_PROGRESS);
+        Action pendingSibling = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.IN_PROGRESS);
+        Action finishingChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findAllByIds(List.of(2L))).thenReturn(List.of(finishingChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(pendingSibling, finishingChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.DONE)
+        )));
+
+        assertThat(finishingChild.getStatus()).isEqualTo(ActionStatus.DONE);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void bulkUpdateStatusReopensParentTeamActionWhenChildIsReopenedFromDone() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.DONE);
+        Action stillDoneSibling = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.DONE);
+        Action reopenedChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.DONE);
+        when(actionRepository.findAllByIds(List.of(2L))).thenReturn(List.of(reopenedChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(stillDoneSibling, reopenedChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.IN_PROGRESS)
+        )));
+
+        assertThat(reopenedChild.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
     @Test
     void getActionsByMeetingReturnsMixedTeamAndPersonalActionsWithSeparateDisplayFields() {
         ActionService service = actionService();
