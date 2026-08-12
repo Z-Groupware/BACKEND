@@ -80,24 +80,31 @@ public class TokenMeteringService implements RecordTokenUsageUseCase, TokenQuota
 
     /*
      * 실패한 기록을 outbox 에 적재한다. outbox 도 job_id UNIQUE 라 중복 적재되지 않는다.
-     * outbox 적재까지 실패하면 그제야 유실이므로 크게 로깅한다(잔여 위험, 관측 가능).
+     *
+     * existsByJobId·save 포함 전 흐름을 RuntimeException 으로 감싼다 — DB 순단 등으로
+     * outbox 조회·저장도 실패하면 record() 밖으로 예외가 새지 않도록 여기서 흡수하고
+     * 에러 레벨로 기록한다(관측 가능한 잔여 위험).
      */
     private void enqueueForRetry(RecordTokenUsageCommand command, RuntimeException cause) {
-        if (tokenUsageOutboxRepository.existsByJobId(command.jobId())) {
-            return;
-        }
-        TokenUsageOutbox outbox = TokenUsageOutbox.enqueue(
-                command.companyId(), command.teamId(), command.meetingId(), command.jobId(),
-                command.inputTokens(), command.outputTokens(), command.model(), LocalDateTime.now(clock));
         try {
-            tokenUsageOutboxRepository.save(outbox);
-            log.warn("토큰 원장 반영 실패 — outbox 적재해 재시도로 넘긴다. jobId={}", command.jobId(), cause);
-        } catch (DataIntegrityViolationException dup) {
-            // outbox job_id 동시 중복이면 이미 적재됨 → no-op.
             if (tokenUsageOutboxRepository.existsByJobId(command.jobId())) {
+                // 이미 outbox 에 적재돼 있음 — 릴레이가 처리 중이므로 중복 적재하지 않는다.
                 return;
             }
-            log.error("토큰 원장·outbox 모두 반영 실패 — 사용량 한 건이 유실될 수 있다. jobId={}", command.jobId(), dup);
+            TokenUsageOutbox outbox = TokenUsageOutbox.enqueue(
+                    command.companyId(), command.teamId(), command.meetingId(), command.jobId(),
+                    command.inputTokens(), command.outputTokens(), command.model(), LocalDateTime.now(clock));
+            try {
+                tokenUsageOutboxRepository.save(outbox);
+                log.warn("토큰 원장 반영 실패 — outbox 적재해 재시도로 넘긴다. jobId={}", command.jobId(), cause);
+            } catch (DataIntegrityViolationException dup) {
+                // outbox job_id 동시 중복 → 다른 스레드/인스턴스가 이미 적재함. no-op.
+                log.debug("outbox 동시 중복 — 릴레이가 이미 이 job 을 처리 중. jobId={}", command.jobId());
+            }
+        } catch (RuntimeException outboxFailure) {
+            // outbox 조회·저장까지 실패 — 이 한 건은 유실 위험. 로그로 관측 가능하게 남긴다.
+            log.error("토큰 원장·outbox 모두 반영 실패 — 사용량 한 건이 유실될 수 있다. jobId={}",
+                    command.jobId(), outboxFailure);
         }
     }
 

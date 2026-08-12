@@ -20,6 +20,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +49,8 @@ class TokenUsageRelayTest {
         TokenUsageOutbox item = pending(0);
         when(tokenUsageOutboxRepository.findDuePending(any(LocalDateTime.class), anyInt()))
                 .thenReturn(List.of(item));
+        when(tokenUsageOutboxRepository.tryClaimForProcessing(any(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(true);
         when(ledgerAppender.append(any())).thenReturn(true);
         when(tokenUsageOutboxRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -62,6 +66,8 @@ class TokenUsageRelayTest {
         TokenUsageOutbox item = pending(0);
         when(tokenUsageOutboxRepository.findDuePending(any(LocalDateTime.class), anyInt()))
                 .thenReturn(List.of(item));
+        when(tokenUsageOutboxRepository.tryClaimForProcessing(any(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(true);
         when(ledgerAppender.append(any())).thenThrow(new RuntimeException("db down"));
         when(tokenUsageOutboxRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -81,6 +87,8 @@ class TokenUsageRelayTest {
         TokenUsageOutbox item = pending(TokenUsageRelay.MAX_ATTEMPTS - 1);
         when(tokenUsageOutboxRepository.findDuePending(any(LocalDateTime.class), anyInt()))
                 .thenReturn(List.of(item));
+        when(tokenUsageOutboxRepository.tryClaimForProcessing(any(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(true);
         when(ledgerAppender.append(any())).thenThrow(new RuntimeException("still down"));
         when(tokenUsageOutboxRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -90,6 +98,25 @@ class TokenUsageRelayTest {
         TokenUsageOutbox saved = captureSaved();
         assertThat(saved.getStatus()).isEqualTo(OutboxStatus.DEAD);      // 자동 복구 포기(관측 가능)
         assertThat(saved.getAttemptCount()).isEqualTo(TokenUsageRelay.MAX_ATTEMPTS);
+    }
+
+    @Test
+    void skipsItemWhenClaimFailsDueToAnotherRelayInstance() {
+        // 두 릴레이 인스턴스가 같은 항목을 조회했을 때 클레임에 실패한 쪽은 처리를 건너뛴다.
+        TokenUsageOutbox item = pending(0);
+        when(tokenUsageOutboxRepository.findDuePending(any(LocalDateTime.class), anyInt()))
+                .thenReturn(List.of(item));
+        // 다른 인스턴스가 먼저 클레임 → 이 인스턴스는 0 rows updated → false 반환
+        when(tokenUsageOutboxRepository.tryClaimForProcessing(any(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(false);
+
+        int delivered = relay.drainOnce();
+
+        assertThat(delivered).isZero();
+        // 클레임 실패 → 원장 반영 시도 자체를 하지 않는다.
+        verify(ledgerAppender, never()).append(any());
+        // 도메인 객체 상태도 변경하지 않는다.
+        verify(tokenUsageOutboxRepository, never()).save(any());
     }
 
     private static TokenUsageOutbox pending(int attemptCount) {

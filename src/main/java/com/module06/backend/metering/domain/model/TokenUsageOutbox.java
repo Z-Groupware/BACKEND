@@ -148,8 +148,15 @@ public class TokenUsageOutbox {
         return updatedAt;
     }
 
+    // job_id·model 컬럼은 VARCHAR(100). 초과하면 저장이 터져 실패 기록 자체가 사라진다 —
+    // 도메인에서 미리 막아 잘못된 입력임을 명확히 한다.
+    private static final int MAX_TEXT_LENGTH = 100;
+
     private static String requireText(String value) {
         if (value == null || value.isBlank()) {
+            throw new BusinessException(MeteringErrorCode.MT_RECORD_COMMAND_INVALID);
+        }
+        if (value.length() > MAX_TEXT_LENGTH) {
             throw new BusinessException(MeteringErrorCode.MT_RECORD_COMMAND_INVALID);
         }
         return value;

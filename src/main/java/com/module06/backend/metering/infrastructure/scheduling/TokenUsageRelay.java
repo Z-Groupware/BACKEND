@@ -36,6 +36,9 @@ public class TokenUsageRelay {
     // 이 횟수를 넘기면 dead-letter. 일시적 순단은 몇 번의 재시도로 회복되고, 그 이상은 사람이 봐야 한다.
     static final int MAX_ATTEMPTS = 5;
     private static final long BASE_BACKOFF_SECONDS = 30L;
+    // 릴레이 인스턴스가 항목을 처리하는 데 허용하는 최대 시간. 이 시간 안에 완료하지 못하면
+    // 리스가 만료돼 다른 인스턴스가 재획득 가능하다(crash 복구).
+    static final long LEASE_DURATION_SECONDS = 300L; // 5분
 
     private final TokenUsageOutboxRepository tokenUsageOutboxRepository;
     private final TokenUsageLedgerAppender ledgerAppender;
@@ -62,6 +65,10 @@ public class TokenUsageRelay {
     /**
      * 재시도할 때가 된 PENDING 항목을 한 배치 처리한다.
      *
+     * <h2>동시성 보호</h2>
+     * 각 항목을 처리하기 전에 원자적 클레임을 시도한다. 두 릴레이 인스턴스가 같은 항목을
+     * 조회하더라도 클레임에 성공한 하나만 처리를 진행하고 나머지는 건너뛴다.
+     *
      * @return 이번 실행에서 원장에 반영(DONE)된 건수. 테스트가 직접 호출한다.
      */
     public int drainOnce() {
@@ -69,6 +76,12 @@ public class TokenUsageRelay {
         List<TokenUsageOutbox> due = tokenUsageOutboxRepository.findDuePending(now, BATCH_SIZE);
         int delivered = 0;
         for (TokenUsageOutbox item : due) {
+            LocalDateTime leaseExpiry = now.plusSeconds(LEASE_DURATION_SECONDS);
+            if (!tokenUsageOutboxRepository.tryClaimForProcessing(item.getId(), leaseExpiry, now)) {
+                // 다른 릴레이 인스턴스가 이미 클레임함 → 건너뜀.
+                log.debug("outbox 클레임 실패(다른 인스턴스가 처리 중). jobId={}", item.getJobId());
+                continue;
+            }
             if (deliver(item)) {
                 delivered++;
             }

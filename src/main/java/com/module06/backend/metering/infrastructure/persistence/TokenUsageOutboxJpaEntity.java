@@ -55,6 +55,10 @@ public class TokenUsageOutboxJpaEntity {
     @Column(name = "next_attempt_at", nullable = false)
     private LocalDateTime nextAttemptAt;
 
+    /** 릴레이 리스 만료 시각. null = 미클레임(처리 가능). 만료되면 다른 인스턴스가 재획득 가능. */
+    @Column(name = "claimed_until")
+    private LocalDateTime claimedUntil;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -67,7 +71,7 @@ public class TokenUsageOutboxJpaEntity {
     private TokenUsageOutboxJpaEntity(Long id, Long companyId, Long teamId, Long meetingId, String jobId,
                                       int inputTokens, int outputTokens, String model, OutboxStatus status,
                                       int attemptCount, String lastError, LocalDateTime nextAttemptAt,
-                                      LocalDateTime createdAt, LocalDateTime updatedAt) {
+                                      LocalDateTime claimedUntil, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.companyId = companyId;
         this.teamId = teamId;
@@ -80,6 +84,7 @@ public class TokenUsageOutboxJpaEntity {
         this.attemptCount = attemptCount;
         this.lastError = lastError;
         this.nextAttemptAt = nextAttemptAt;
+        this.claimedUntil = claimedUntil;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -98,6 +103,7 @@ public class TokenUsageOutboxJpaEntity {
                 outbox.getAttemptCount(),
                 outbox.getLastError(),
                 outbox.getNextAttemptAt(),
+                null,   // claimed_until 은 DB 의 conditional UPDATE 로만 변경한다. 도메인 저장 시엔 건드리지 않는다.
                 outbox.getCreatedAt(),
                 outbox.getUpdatedAt()
         );
