@@ -16,7 +16,6 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.MeetingCancellationRepository;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
-import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.domain.repository.MeetingUpdateRepository;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
@@ -37,7 +36,6 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class MeetingPersistenceAdapter implements
         MeetingRepository,
-        MeetingEntryRepository,
         MeetingCompletionRepository,
         MeetingUpdateRepository,
         MeetingCancellationRepository {
@@ -72,30 +70,6 @@ public class MeetingPersistenceAdapter implements
         persistAttendees(meeting, savedMeeting.getId());
 
         /* 저장된 회의 값과 원래의 참석자 순서를 합쳐 도메인 애그리거트로 복원한다. */
-        return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
-    }
-
-    /* 회사 범위의 회의를 잠근 뒤 최신 참석자 명단을 포함한 입장용 애그리거트로 복원한다. */
-    @Override
-    public Optional<Meeting> findForEntry(Long companyId, Long meetingId) {
-        /* 회의 행 잠금을 먼저 획득한 뒤 같은 트랜잭션에서 입장 허용 명단을 조회한다. */
-        return springDataMeetingRepository.findLockedByIdAndCompanyId(meetingId, companyId)
-                .map(meeting -> meeting.toDomain(
-                        springDataMeetingAttendeeRepository
-                                .findAllByMeetingIdOrderByMemberIdAsc(meeting.getId())
-                                .stream()
-                                .map(MeetingAttendeeJpaEntity::getMemberId)
-                                .toList()
-                ));
-    }
-
-    /* 최초 입장으로 바뀐 기존 회의의 상태와 startedAt을 저장한다. */
-    @Override
-    public Meeting saveState(Meeting meeting) {
-        /* 식별자가 있는 엔티티를 merge하고 즉시 flush해 상태 변경을 트랜잭션 안에서 확정한다. */
-        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(MeetingJpaEntity.from(meeting));
-
-        /* 상태 저장은 참석자 행을 변경하지 않으므로 도메인이 가진 최신 명단과 저장 결과를 합친다. */
         return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
     }
 
