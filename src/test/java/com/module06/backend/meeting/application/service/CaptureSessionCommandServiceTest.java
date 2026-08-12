@@ -138,18 +138,27 @@ class CaptureSessionCommandServiceTest {
         assertThat(repository.saveCalls).isZero();
     }
 
-    /* 회의 입장 전에는 캡처 시간축을 시작할 수 없는지 검증한다. */
+    /* 예약 회의의 녹음 시작이 회의 상태와 캡처 시간축을 함께 시작하는지 검증한다. */
     @Test
-    @DisplayName("SCHEDULED 회의는 MT-013으로 거절한다")
-    void rejectsMeetingNotStarted() {
+    @DisplayName("SCHEDULED 회의는 IN_PROGRESS 전이와 ACTIVE 세션 생성을 함께 저장한다")
+    void startsScheduledMeetingAndCaptureSessionAtomically() {
         /* 아직 아무도 입장하지 않은 SCHEDULED 회의를 준비한다. */
         RecordingCaptureSessionRepository repository = new RecordingCaptureSessionRepository(
                 meeting(MeetingStatus.SCHEDULED),
                 false
         );
 
-        /* host 요청이어도 회의 시작 전이면 MT-013이어야 한다. */
-        assertErrorCode(() -> service(repository).startCaptureSession(command(3L)), "MT-013");
+        /* host의 CAP-01 요청만으로 회의 시작과 캡처 세션 생성을 실행한다. */
+        CaptureSessionStartResult result = service(repository).startCaptureSession(command(3L));
+
+        /* 회의와 캡처 세션은 같은 시각을 기준으로 시작돼야 한다. */
+        assertThat(repository.savedMeetingState.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
+        assertThat(repository.savedMeetingState.getStartedAt()).isEqualTo(LocalDateTime.ofInstant(
+                START_CLOCK.instant(),
+                START_CLOCK.getZone()
+        ));
+        assertThat(result.startedAtEpochMs()).isEqualTo(START_CLOCK.instant().toEpochMilli());
+        assertThat(repository.saveCalls).isEqualTo(1);
     }
 
     /* 종료된 회의를 새 세션으로 되살리지 않는지 검증한다. */
@@ -270,6 +279,9 @@ class CaptureSessionCommandServiceTest {
         /* 저장에 전달된 캡처 세션 애그리거트다. */
         private CaptureSession savedCaptureSession;
 
+        /* 같은 트랜잭션에서 IN_PROGRESS로 저장된 회의 애그리거트다. */
+        private Meeting savedMeetingState;
+
         /* 테스트별 회의와 중복 여부로 저장소 대역을 만든다. */
         private RecordingCaptureSessionRepository(Meeting meeting, boolean captureSessionExists) {
             /* null 회의는 회사 범위에서 대상을 찾지 못한 상황을 표현한다. */
@@ -297,6 +309,14 @@ class CaptureSessionCommandServiceTest {
         public boolean existsByMeetingId(Long meetingId) {
             /* 중복 시나리오에서 save가 호출되지 않는지 분리해 검증한다. */
             return captureSessionExists;
+        }
+
+        /* CAP-01이 시작 상태로 전이한 회의를 기록하고 그대로 반환한다. */
+        @Override
+        public Meeting saveMeetingState(Meeting meeting) {
+            /* 세션 저장 전에 동일 트랜잭션으로 전달된 회의 상태와 시작 시각을 보관한다. */
+            savedMeetingState = meeting;
+            return meeting;
         }
 
         /* 저장 호출을 기록하고 ID 15가 반영된 캡처 세션으로 복원한다. */
@@ -388,6 +408,13 @@ class CaptureSessionCommandServiceTest {
         public boolean existsByMeetingId(Long meetingId) {
             /* 명단 경합만 검증하도록 중복 세션 분기를 비활성화한다. */
             return false;
+        }
+
+        /* 이 경합 테스트는 이미 진행 중인 회의를 사용하므로 상태 저장 호출을 그대로 반환한다. */
+        @Override
+        public Meeting saveMeetingState(Meeting meeting) {
+            /* 예기치 않은 SCHEDULED 입력이 생겨도 테스트 대역이 저장 계약을 충족하도록 한다. */
+            return meeting;
         }
 
         /* 두 번째 시도의 캡처 세션을 저장하고 ID가 반영된 도메인으로 반환한다. */

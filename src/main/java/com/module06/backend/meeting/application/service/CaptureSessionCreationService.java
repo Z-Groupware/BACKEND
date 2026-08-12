@@ -20,7 +20,7 @@ import com.module06.backend.meeting.exception.CaptureSessionErrorCode;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
 
 /*
- * CAP-01에서 meeting 잠금이 필요한 검증과 capture_session INSERT만 짧은 트랜잭션으로 묶는다.
+ * CAP-01에서 meeting 시작 상태 전이와 capture_session INSERT를 하나의 짧은 트랜잭션으로 묶는다.
  *
  * B 도메인 roster 조회는 이 서비스 호출 전에 끝나므로 잠금 시간이 타 도메인 응답 지연에 묶이지 않는다.
  */
@@ -34,7 +34,7 @@ public class CaptureSessionCreationService {
     /* KST 시작 일시와 epoch 밀리초를 같은 순간에서 생성하기 위한 서버 시계다. */
     private final Clock clock;
 
-    /* 최신 회의를 잠근 뒤 검증된 roster 스냅샷과 일치할 때만 세션을 저장한다. */
+    /* 최신 회의를 잠근 뒤 회의 시작과 세션 생성을 하나의 원자적 작업으로 저장한다. */
     @Transactional
     public CaptureSession create(
             StartCaptureSessionCommand command,
@@ -58,13 +58,19 @@ public class CaptureSessionCreationService {
             throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_ALREADY_EXISTS);
         }
 
-        /* 로컬 일시와 epoch가 어긋나지 않도록 잠금 트랜잭션 안에서 서버 순간을 한 번만 읽는다. */
+        /* 회의 시작 일시와 세션 epoch가 어긋나지 않도록 서버 순간을 한 번만 읽는다. */
         Instant startedInstant = clock.instant();
         LocalDateTime startedAt = LocalDateTime.ofInstant(startedInstant, clock.getZone());
 
+        /* SCHEDULED 회의를 동일한 시작 시각으로 IN_PROGRESS 전이하고 먼저 영속화한다. */
+        Meeting startedMeeting = meeting.enter(startedAt);
+        if (meeting.getStatus() == MeetingStatus.SCHEDULED) {
+            startedMeeting = captureSessionRepository.saveMeetingState(startedMeeting);
+        }
+
         /* D 소유 값만 가진 세션을 저장하고 데이터베이스 생성 식별자를 반영한다. */
         return captureSessionRepository.save(CaptureSession.start(
-                meeting.getId(),
+                startedMeeting.getId(),
                 command.requesterMemberId(),
                 startedAt,
                 startedInstant.toEpochMilli()
@@ -76,11 +82,6 @@ public class CaptureSessionCreationService {
         /* 화면 역할과 무관하게 실제 회의 개설자만 세션 생명주기를 제어할 수 있다. */
         if (!meeting.isHost(requesterMemberId)) {
             throw new BusinessException(CaptureSessionErrorCode.CAPTURE_SESSION_HOST_ONLY);
-        }
-
-        /* 입장 전 예약 회의에는 캡처 시간축을 만들 수 없다. */
-        if (meeting.getStatus() == MeetingStatus.SCHEDULED) {
-            throw new BusinessException(MeetingErrorCode.MEETING_NOT_STARTED);
         }
 
         /* 종료·취소된 회의가 새 캡처 세션으로 다시 활성화되는 상태 역행을 차단한다. */
