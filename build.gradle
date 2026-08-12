@@ -52,7 +52,7 @@ dependencies {
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 
 	// Swagger(OpenAPI) 문서화 — CLAUDE.md 0절 6항/5절, 구현과 같은 PR에서 @Tag/@Operation 사용 (이슈 #31)
-	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
 
 	implementation 'org.flywaydb:flyway-mysql'
 
