@@ -150,9 +150,18 @@ class RecordingAssemblyServiceTest {
     }
 
     // 지정한 회의 존재/참석 여부·상태·세그먼트별 순번으로 서비스를 조립한다. 조립 포트는 호출 여부를 기록한다.
+    // TAIL 마무리는 항상 성공한다고 가정한다(대부분의 테스트가 관심 있는 건 인가·연속성 규칙이다).
     private RecordingAssemblyService service(boolean exists, boolean attendee,
                                             Optional<CaptureUploadState> state,
                                             Map<Integer, List<Integer>> seqsBySegment) {
+        return serviceWithSttBlockCutTrigger(exists, attendee, state, seqsBySegment, succeedingSttBlockCutTrigger());
+    }
+
+    // service(...)와 같지만 SttBlockCutTrigger 대역을 직접 지정한다 — TAIL 마무리 실패 시나리오 전용.
+    private RecordingAssemblyService serviceWithSttBlockCutTrigger(boolean exists, boolean attendee,
+                                            Optional<CaptureUploadState> state,
+                                            Map<Integer, List<Integer>> seqsBySegment,
+                                            SttBlockCutTrigger sttBlockCutTrigger) {
         assemblyTriggered[0] = false;
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -234,12 +243,60 @@ class RecordingAssemblyServiceTest {
         // @Async는 스프링 컨텍스트 없이 직접 호출하면 프록시를 안 타므로 이 테스트 스레드에서 그대로 동기 실행된다.
         RecordingAssemblyDispatcher dispatcher = new RecordingAssemblyDispatcher(assemblyPort);
         return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, dispatcher,
-                noOpSttBlockCutTrigger());
+                sttBlockCutTrigger);
     }
 
-    // TAIL 블록 마무리 자체는 SttBlockCutTriggerTest가 검증한다 — 여기서는 예약 경합에서 지는
-    // 걸로 항상 조용히 넘어가게만 만들어, 이 서비스가 부르는지/안 부르는지에 집중한다.
-    private SttBlockCutTrigger noOpSttBlockCutTrigger() {
+    // TAIL 블록 마무리 자체(성공 시 실제로 뭘 부르는지)는 SttBlockCutTriggerTest가 검증한다 —
+    // 여기서는 예약이 항상 성공해 finalizeTailBlockOnMeetingCompletion이 true를 돌려주게만
+    // 만들어서, 이 서비스가 (그 결과를 보고) 조립을 부르는지/안 부르는지에 집중한다.
+    private SttBlockCutTrigger succeedingSttBlockCutTrigger() {
+        CaptureUploadStateRepository acceptingReservation = new CaptureUploadStateRepository() {
+            @Override
+            public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public CaptureUploadState save(CaptureUploadState value) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                return Optional.of(0);
+            }
+        };
+        SttBlockAudioAssemblyPort acceptingAudioPort = new SttBlockAudioAssemblyPort() {
+            @Override
+            public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
+                                                     long targetOffsetMs, long availableUpToMs) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public String assembleBlockAudio(Long companyId, Long meetingId, int segmentSeq, int blockSeq,
+                                             long startOffsetMs, long endOffsetMs) {
+                return "stt-temp/org-1/meeting-500/blocks/" + blockSeq + ".wav";
+            }
+        };
+        return new SttBlockCutTrigger(
+                acceptingAudioPort,
+                (meetingId, s3Key, windowStartOffsetMs, targetOffsetMs) -> {
+                    throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+                },
+                command -> { },
+                acceptingReservation,
+                new SttBlockFormedWriter(acceptingReservation));
+    }
+
+    // TAIL 예약 경합에서 항상 져서 finalizeTailBlockOnMeetingCompletion이 false를 돌려주게 만든다
+    // — "TAIL 블록 마무리가 실패하면" 테스트 전용.
+    private SttBlockCutTrigger failingSttBlockCutTrigger() {
         CaptureUploadStateRepository refusingReservation = new CaptureUploadStateRepository() {
             @Override
             public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
@@ -284,6 +341,21 @@ class RecordingAssemblyServiceTest {
                 },
                 refusingReservation,
                 new SttBlockFormedWriter(refusingReservation));
+    }
+
+    /*
+     * TAIL 블록 마무리가 실패하면(예약 경합·조립 실패) 조립을 부르지 않고 CAP-012로 막는지
+     * 검증한다 — 조립이 곧 recording_part/S3 청크를 지워버려서 실패한 TAIL의 재료까지 함께
+     * 사라지기 때문이다(CodeRabbit 지적, SttBlockCutTrigger 클래스 주석 참고).
+     */
+    @Test
+    @DisplayName("TAIL 블록 마무리가 실패하면 CAP-012로 막고 조립을 트리거하지 않는다")
+    void rejectsWhenTailFinalizationFails() {
+        RecordingAssemblyService service = serviceWithSttBlockCutTrigger(true, true,
+                Optional.of(state(0, 7L)), Map.of(0, List.of(1, 2, 3)), failingSttBlockCutTrigger());
+
+        assertErrorCode(() -> service.startRecordingAssembly(cmd(0, 3)), "CAP-012");
+        assertThat(assemblyTriggered[0]).isFalse();
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

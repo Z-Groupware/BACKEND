@@ -64,11 +64,15 @@ public class RecordingAssemblyService implements StartRecordingAssemblyUseCase {
 
         // 조립(parts 삭제)이 청크를 지우기 전에, 마지막 세그먼트의 자투리를 TAIL STT 블록으로
         // 먼저 마무리한다(동기 호출 — MeetingCompletedAssemblyTrigger의 자동 경로와 동일 이유·
-        // 동일 메서드). CAP-05는 자동 경로가 실패했을 때 사람이 쓰는 대체 수단이라, 여기서도
-        // 빠지면 수동으로 재시도해도 같은 콘텐츠 유실이 반복된다.
-        sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId, command.meetingId(),
-                command.lastSegmentSeq(), command.lastSeq(), state.getBlocksFormed(),
+        // 동일 메서드). CAP-05는 자동 경로가 실패했을 때 사람이 쓰는 대체 수단이라, 실패를 삼키고
+        // 조립을 진행하면 사람이 재시도해도 같은 콘텐츠 유실이 반복된다(CodeRabbit 지적) — 409로
+        // 알려서 클라이언트가 다시 호출하게 한다.
+        boolean tailFinalized = sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId,
+                command.meetingId(), command.lastSegmentSeq(), command.lastSeq(), state.getBlocksFormed(),
                 state.getLastBlockEndOffsetMs());
+        if (!tailFinalized) {
+            throw new BusinessException(CapErrorCode.CAP_ASSEMBLY_INCOMPLETE);
+        }
 
         // 연속성 OK → 조립 파이프라인 트리거(best-effort, 비동기). 실제 조립/상태 전이는 파이프라인이 담당.
         // 여기서 바로 포트를 부르지 않는다 — 실 어댑터는 무거운 ffmpeg 작업이라, 동기로 부르면

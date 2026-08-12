@@ -111,9 +111,27 @@ class MeetingCompletedAssemblyTriggerTest {
         };
         MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
                 recordingRepo(false), stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
-                new RecordingAssemblyDispatcher(exploding), noOpSttBlockCutTrigger());
+                new RecordingAssemblyDispatcher(exploding), succeedingSttBlockCutTrigger());
 
         assertThatCode(() -> trigger.onMeetingCompleted(event())).doesNotThrowAnyException();
+    }
+
+    /*
+     * TAIL 블록 마무리가 실패하면(예약 경합·조립 실패) 조립을 부르면 안 된다 — 조립이 곧
+     * recording_part/S3 청크를 지워버려서 실패한 TAIL의 재료까지 함께 사라지기 때문이다
+     * (CodeRabbit 지적, SttBlockCutTrigger 클래스 주석 참고).
+     */
+    @Test
+    @DisplayName("TAIL 블록 마무리가 실패하면 조립을 부르지 않는다")
+    void TAIL_마무리가_실패하면_조립을_부르지_않는다() {
+        RecordingAssemblyCalls port = new RecordingAssemblyCalls();
+        MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
+                recordingRepo(false), stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
+                new RecordingAssemblyDispatcher(port), failingSttBlockCutTrigger());
+
+        trigger.onMeetingCompleted(event());
+
+        assertThat(port.calls).isEmpty();
     }
 
     @Test
@@ -143,7 +161,7 @@ class MeetingCompletedAssemblyTriggerTest {
         RecordingAssemblyCalls port = new RecordingAssemblyCalls();
         MeetingCompletedAssemblyTrigger trigger = new MeetingCompletedAssemblyTrigger(
                 exploding, stateRepo(state(0, 3)), gapChecker(Map.of(0, List.of(1, 2, 3))),
-                new RecordingAssemblyDispatcher(port), noOpSttBlockCutTrigger());
+                new RecordingAssemblyDispatcher(port), succeedingSttBlockCutTrigger());
 
         assertThatCode(() -> trigger.onMeetingCompleted(event())).doesNotThrowAnyException();
         assertThat(port.calls).isEmpty();
@@ -157,12 +175,60 @@ class MeetingCompletedAssemblyTriggerTest {
                                                      RecordingAssemblyPort port) {
         return new MeetingCompletedAssemblyTrigger(
                 recordingRepo(recordingExists), stateRepo(state), gapChecker(seqsBySegment),
-                new RecordingAssemblyDispatcher(port), noOpSttBlockCutTrigger());
+                new RecordingAssemblyDispatcher(port), succeedingSttBlockCutTrigger());
     }
 
-    // TAIL 블록 마무리 자체는 SttBlockCutTriggerTest가 검증한다 — 여기서는 예약 경합에서 지는
-    // 걸로 항상 조용히 넘어가게만 만들어, 이 클래스가 부르는지/안 부르는지에 집중한다.
-    private SttBlockCutTrigger noOpSttBlockCutTrigger() {
+    // TAIL 블록 마무리 자체(성공 시 실제로 뭘 부르는지)는 SttBlockCutTriggerTest가 검증한다 —
+    // 여기서는 예약이 항상 성공해 finalizeTailBlockOnMeetingCompletion이 true를 돌려주게만
+    // 만들어서, 이 클래스가 (그 결과를 보고) 조립을 부르는지/안 부르는지에 집중한다.
+    private SttBlockCutTrigger succeedingSttBlockCutTrigger() {
+        CaptureUploadStateRepository acceptingReservation = new CaptureUploadStateRepository() {
+            @Override
+            public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public CaptureUploadState save(CaptureUploadState value) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+                return Optional.of(0);
+            }
+        };
+        SttBlockAudioAssemblyPort acceptingAudioPort = new SttBlockAudioAssemblyPort() {
+            @Override
+            public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
+                                                     long targetOffsetMs, long availableUpToMs) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public String assembleBlockAudio(Long companyId, Long meetingId, int segmentSeq, int blockSeq,
+                                             long startOffsetMs, long endOffsetMs) {
+                return "stt-temp/org-1/meeting-500/blocks/" + blockSeq + ".wav";
+            }
+        };
+        return new SttBlockCutTrigger(
+                acceptingAudioPort,
+                (meetingId, s3Key, windowStartOffsetMs, targetOffsetMs) -> {
+                    throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+                },
+                command -> { },
+                acceptingReservation,
+                new SttBlockFormedWriter(acceptingReservation));
+    }
+
+    // TAIL 예약 경합에서 항상 져서 finalizeTailBlockOnMeetingCompletion이 false를 돌려주게 만든다
+    // — "TAIL_마무리가_실패하면_조립을_부르지_않는다" 테스트 전용.
+    private SttBlockCutTrigger failingSttBlockCutTrigger() {
         CaptureUploadStateRepository refusingReservation = new CaptureUploadStateRepository() {
             @Override
             public Optional<CaptureUploadState> findByMeetingId(Long meetingId) {

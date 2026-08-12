@@ -95,9 +95,15 @@ public class MeetingCompletedAssemblyTrigger {
 
             // 조립(parts 삭제)이 청크를 지우기 전에, 마지막 세그먼트의 자투리를 TAIL STT 블록으로
             // 먼저 마무리한다(동기 호출 — SttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion
-            // 주석 참고). 안 하면 그 구간이 STT 블록 자체가 안 생겨 분석이 빠진 채로 조용히 돈다.
-            sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId, meetingId, lastSegmentSeq, lastSeq,
-                    state.get().getBlocksFormed(), state.get().getLastBlockEndOffsetMs());
+            // 주석 참고). 실패하면(예약 경합·조립 실패) 조립을 진행하지 않는다(CodeRabbit 지적) —
+            // 조립이 곧 recording_part/S3 청크를 지워버려서 실패한 TAIL의 재료까지 함께 사라진다.
+            boolean tailFinalized = sttBlockCutTrigger.finalizeTailBlockOnMeetingCompletion(companyId, meetingId,
+                    lastSegmentSeq, lastSeq, state.get().getBlocksFormed(), state.get().getLastBlockEndOffsetMs());
+            if (!tailFinalized) {
+                log.warn("자투리(TAIL) 블록 마무리 실패로 자동 조립을 생략한다 — meetingId={}. "
+                        + "CAP-05(수동 녹음 종료)로 재시도해야 한다.", meetingId);
+                return;
+            }
 
             recordingAssemblyDispatcher.dispatch(meetingId, lastSegmentSeq, lastSeq);
             log.info("회의 종료 자동 조립 트리거 — meetingId={} lastSegmentSeq={} lastSeq={}",

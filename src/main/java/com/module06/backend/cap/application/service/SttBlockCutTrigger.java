@@ -37,10 +37,14 @@ import com.module06.backend.capture.application.port.in.CreateSttBlockPort.Creat
  * 해두므로, 여기서는 예약된 TAIL 블록 하나를 만드는 것만 신경 쓰면 된다. 그래도 이전 세그먼트의
  * 오디오와 새 세그먼트의 오디오를 하나로 이어붙이는 연속성 처리는 안 한다.
  *
- * <h2>여기서 던지지 않는다</h2>
- * best-effort다. 예약까지 성공한 뒤 실패해도 청크 업로드 자체(CAP-07)는 이미 성공적으로 끝난
- * 뒤라 되돌릴 것이 없다 — block_seq에 빈 번호 하나가 남을 뿐(해롭지 않다), 다음 트리거가 같은
- * 자리를 다시 경합하는 것보다 안전하다.
+ * <h2>여기서 던지지 않는다(단, TAIL 마무리는 다르다)</h2>
+ * triggerIfThresholdReached는 best-effort다. 예약까지 성공한 뒤 실패해도 청크 업로드 자체(CAP-07)는
+ * 이미 성공적으로 끝난 뒤라 되돌릴 것이 없다 — block_seq에 빈 번호 하나가 남을 뿐(해롭지 않다),
+ * 다음 트리거가 같은 자리를 다시 경합하는 것보다 안전하다.
+ * 반면 finalizeTailBlockOnMeetingCompletion은 실패 여부를 boolean으로 호출자에게 돌려준다
+ * (CodeRabbit 지적) — 조립이 곧 recording_part/S3 청크를 지우므로, TAIL 마무리가 실패한 채 조립이
+ * 진행되면 그 자투리 구간은 영영 복구할 수 없다. 예약 경합·조립 실패 모두 "실패"로 취급해 호출자가
+ * 조립을 미루게 한다.
  */
 @Component
 public class SttBlockCutTrigger {
@@ -157,6 +161,8 @@ public class SttBlockCutTrigger {
     @Async("sttBlockCutTaskExecutor")
     public void finalizeTailBlockOnSegmentChange(Long companyId, Long meetingId, int oldSegmentSeq,
                                                  int oldLastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
+        // 결과를 보는 호출자가 없다 — 비동기 fire-and-forget이고, 실패해도 뒤이어 지우는 작업이
+        // 없어(클래스 주석) 위험하지 않다.
         finalizeTailBlock(companyId, meetingId, oldSegmentSeq, oldLastSeq, blocksFormed, lastBlockEndOffsetMs,
                 "세그먼트 전환");
     }
@@ -173,27 +179,41 @@ public class SttBlockCutTrigger {
      * audioAssemblyPort.assembleBlockAudio가 recording_part를 읽어 오디오를 만드는데, 조립이
      * 먼저 그 행과 S3 청크 객체를 지워버리면 TAIL 블록을 만들 재료 자체가 사라진다. 세그먼트
      * 전환 버전(@Async)과 달리 여기는 그런 뒤이은 삭제 작업과 경합할 수 있어 순서를 강제해야 한다.
+     *
+     * <h2>실패하면 false를 돌려준다(CodeRabbit 지적)</h2>
+     * 예약 경합에서 지거나 오디오 조립/제출이 터지면, 호출자는 이 결과를 "괜찮다"로 넘기지 말고
+     * 조립 dispatch 자체를 미뤄야 한다 — 여기서 계속 진행해버리면 방금 실패한 TAIL 재료(recording_part)를
+     * 조립이 곧 지워버려서 다음 재시도조차 불가능해진다. 자투리가 원래 없던 경우(정상 종료)는
+     * true다.
      */
-    public void finalizeTailBlockOnMeetingCompletion(Long companyId, Long meetingId, int lastSegmentSeq,
-                                                      int lastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
-        finalizeTailBlock(companyId, meetingId, lastSegmentSeq, lastSeq, blocksFormed, lastBlockEndOffsetMs,
-                "회의 종료");
+    public boolean finalizeTailBlockOnMeetingCompletion(Long companyId, Long meetingId, int lastSegmentSeq,
+                                                         int lastSeq, int blocksFormed, long lastBlockEndOffsetMs) {
+        return finalizeTailBlock(companyId, meetingId, lastSegmentSeq, lastSeq, blocksFormed, lastBlockEndOffsetMs,
+                "회의 종료") != TailFinalizeOutcome.FAILED;
     }
 
-    private void finalizeTailBlock(Long companyId, Long meetingId, int segmentSeq, int lastSeqInSegment,
-                                   int blocksFormed, long lastBlockEndOffsetMs, String triggerReason) {
+    // NO_LEFTOVER: 마무리할 자투리가 애초에 없었다. FINALIZED: TAIL 블록을 만들어 제출했다.
+    // FAILED: 예약 경합에서 졌거나 조립/제출이 터졌다 — finalizeTailBlockOnMeetingCompletion의
+    // 호출자는 이 경우 조립을 진행하면 안 된다(위 클래스 주석).
+    private enum TailFinalizeOutcome {
+        NO_LEFTOVER, FINALIZED, FAILED
+    }
+
+    private TailFinalizeOutcome finalizeTailBlock(Long companyId, Long meetingId, int segmentSeq,
+                                                   int lastSeqInSegment, int blocksFormed, long lastBlockEndOffsetMs,
+                                                   String triggerReason) {
         try {
             long endOffsetMs = (long) lastSeqInSegment * CHUNK_DURATION_MS;
             if (endOffsetMs <= lastBlockEndOffsetMs) {
                 // 이미 블록 경계에 딱 맞게 끝났거나, 애초에 이 세그먼트에 청크가 없었다 — 자투리 없음.
-                return;
+                return TailFinalizeOutcome.NO_LEFTOVER;
             }
 
             Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(meetingId, blocksFormed);
             if (reserved.isEmpty()) {
-                log.info("TAIL 블록 예약 경합에서 짐 — meetingId={} segmentSeq={} 트리거={}",
+                log.warn("TAIL 블록 예약 경합에서 짐 — meetingId={} segmentSeq={} 트리거={}",
                         meetingId, segmentSeq, triggerReason);
-                return;
+                return TailFinalizeOutcome.FAILED;
             }
             int blockSeq = reserved.get();
 
@@ -203,10 +223,13 @@ public class SttBlockCutTrigger {
             createSttBlockPort.createAndSubmitBlock(new CreateSttBlockCommand(
                     meetingId, blockSeq, Math.toIntExact(lastBlockEndOffsetMs),
                     Math.toIntExact(endOffsetMs), "TAIL", blockAudioS3Key));
+            return TailFinalizeOutcome.FINALIZED;
         } catch (RuntimeException e) {
             // 던지지 않는다 — 세그먼트 전환/회의 종료 자체는 이미 별도로 진행된다(호출자 주석 참고).
+            // 대신 FAILED로 알려서, 회의 종료 경로는 조립을 미루게 한다.
             log.error("자투리(TAIL) 블록 마무리 실패 — meetingId={} segmentSeq={} 트리거={}",
                     meetingId, segmentSeq, triggerReason, e);
+            return TailFinalizeOutcome.FAILED;
         }
     }
 }
