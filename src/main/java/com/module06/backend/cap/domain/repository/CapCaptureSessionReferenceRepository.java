@@ -1,5 +1,7 @@
 package com.module06.backend.cap.domain.repository;
 
+import java.util.Optional;
+
 /* comment.
     D(회의) 소유 capture_session 테이블 읽기 전용 조회 계약(MeetingReferenceRepository와 동일 패턴).
 
@@ -12,4 +14,7 @@ public interface CapCaptureSessionReferenceRepository {
 
     /** 이 회의의 캡처 세션이 지금 일시정지(PAUSED) 상태인지. 세션이 없으면 false. */
     boolean isPaused(Long meetingId);
+
+    /** 이 회의의 캡처 세션 id(capture_session.id). 세션이 없으면 empty. */
+    Optional<Long> findSessionId(Long meetingId);
 }

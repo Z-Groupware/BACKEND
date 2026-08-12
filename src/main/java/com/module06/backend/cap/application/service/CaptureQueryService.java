@@ -4,6 +4,7 @@ import com.module06.backend.cap.application.port.out.CaptureHeartbeatPort;
 import com.module06.backend.cap.application.usecase.GetActiveCaptureUseCase;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
 import com.module06.backend.cap.domain.repository.ActiveCaptureQueryRepository;
+import com.module06.backend.cap.domain.repository.CapCaptureSessionReferenceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,11 +20,14 @@ public class CaptureQueryService implements GetActiveCaptureUseCase {
 
     private final ActiveCaptureQueryRepository activeCaptureQueryRepository;
     private final CaptureHeartbeatPort captureHeartbeatPort;
+    private final CapCaptureSessionReferenceRepository captureSessionReferenceRepository;
 
     public CaptureQueryService(ActiveCaptureQueryRepository activeCaptureQueryRepository,
-                               CaptureHeartbeatPort captureHeartbeatPort) {
+                               CaptureHeartbeatPort captureHeartbeatPort,
+                               CapCaptureSessionReferenceRepository captureSessionReferenceRepository) {
         this.activeCaptureQueryRepository = activeCaptureQueryRepository;
         this.captureHeartbeatPort = captureHeartbeatPort;
+        this.captureSessionReferenceRepository = captureSessionReferenceRepository;
     }
 
     @Override
@@ -37,8 +41,7 @@ public class CaptureQueryService implements GetActiveCaptureUseCase {
         boolean canTakeover = !captureHeartbeatPort.isAlive(state.getMeetingId());
         return new Result(
                 state.getMeetingId(),
-                // captureSessionId: D(회의) 도메인 미구현이라 현재는 소스가 없다 → null.
-                null,
+                captureSessionReferenceRepository.findSessionId(state.getMeetingId()).orElse(null),
                 state.getSegmentSeq(),
                 state.getLastSeq(),
                 state.getRecorderPersonId(),
