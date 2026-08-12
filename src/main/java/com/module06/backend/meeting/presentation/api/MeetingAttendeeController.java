@@ -34,7 +34,7 @@ import com.module06.backend.meeting.presentation.api.response.MeetingAttendeeUpd
  */
 @Tag(name = "Meeting Attendee", description = "회의 참석자 조회 및 관리 API")
 @RestController
-@RequestMapping("/api/v1/meetings/{meetingId}/attendees")
+@RequestMapping("/api/meetings/{meetingId}/attendees")
 @RequiredArgsConstructor
 public class MeetingAttendeeController {
 

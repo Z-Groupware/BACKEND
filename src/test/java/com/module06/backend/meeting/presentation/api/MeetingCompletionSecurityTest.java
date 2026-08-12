@@ -34,7 +34,7 @@ class MeetingCompletionSecurityTest {
     @DisplayName("익명 POST 종료 요청을 AU-006과 401로 거절한다")
     void rejectsAnonymousCompletionRequest() throws Exception {
         /* 인증 헤더 없이 91번 회의 종료 요청을 전송한다. */
-        mockMvc.perform(post("/api/v1/meetings/91/complete"))
+        mockMvc.perform(post("/api/meetings/91/complete"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AU-006"));
 
