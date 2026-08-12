@@ -59,6 +59,12 @@ public class HandoverItemJpaEntity {
     @Column(name = "content_snap", length = 65535)
     private String contentSnap;
 
+    @Column(name = "parent_action_title_snap")
+    private String parentActionTitleSnap;
+
+    @Column(name = "start_date_snap")
+    private LocalDate startDateSnap;
+
     @Column(name = "reassign_required", nullable = false)
     private boolean reassignRequired = true;
 
@@ -87,6 +93,7 @@ public class HandoverItemJpaEntity {
                                   String projectTagSnap, String actionTypeSnap, LocalDate deadlineSnap,
                                   LocalDateTime actionCreatedAtSnap,
                                   Long sourceMeetingId, String sourceMeetingTitleSnap, String contentSnap,
+                                  String parentActionTitleSnap, LocalDate startDateSnap,
                                   boolean reassignRequired,
                                   Long reassigneeId, String reassigneeNameSnap,
                                   String reassigneePositionSnap, LocalDateTime reassignedAt,
@@ -102,6 +109,8 @@ public class HandoverItemJpaEntity {
         this.sourceMeetingId = sourceMeetingId;
         this.sourceMeetingTitleSnap = sourceMeetingTitleSnap;
         this.contentSnap = contentSnap;
+        this.parentActionTitleSnap = parentActionTitleSnap;
+        this.startDateSnap = startDateSnap;
         this.reassignRequired = reassignRequired;
         this.reassigneeId = reassigneeId;
         this.reassigneeNameSnap = reassigneeNameSnap;
@@ -115,13 +124,15 @@ public class HandoverItemJpaEntity {
         return new HandoverItemJpaEntity(item.getId(), item.getActionId(), item.getActionTitleSnap(),
                 item.getActionStatusSnap(), item.getProjectTagSnap(), item.getActionTypeSnap(),
                 item.getDeadlineSnap(), item.getActionCreatedAtSnap(), item.getSourceMeetingId(), item.getSourceMeetingTitleSnap(),
-                item.getContentSnap(), item.isReassignRequired(), item.getReassigneeId(), item.getReassigneeNameSnap(), item.getReassigneePositionSnap(),
+                item.getContentSnap(), item.getParentActionTitleSnap(), item.getStartDateSnap(),
+                item.isReassignRequired(), item.getReassigneeId(), item.getReassigneeNameSnap(), item.getReassigneePositionSnap(),
                 item.getReassignedAt(), item.getCommittedAt(), item.getRollbackStatus());
     }
 
     HandoverItem toDomain() {
         return new HandoverItem(id, actionId, actionTitleSnap, actionStatusSnap, projectTagSnap, actionTypeSnap,
                 deadlineSnap, actionCreatedAtSnap, sourceMeetingId, sourceMeetingTitleSnap, contentSnap,
+                parentActionTitleSnap, startDateSnap,
                 reassigneeId, reassigneeNameSnap, reassigneePositionSnap, reassignedAt, committedAt, rollbackStatus,
                 reassignRequired);
     }

@@ -172,6 +172,20 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // 상위 팀 액션명 스냅샷 배치 조회 — actionType(TEAM)·companyId로 스코프해 회사·종류 불변식을
+    // 조회 자체에서 보장한다(CodeRabbit PR #382 지적).
+    @Override
+    public List<Action> findTeamActionsByIds(Long companyId, List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        return springDataActionRepository
+                .findAllByActionTypeAndCompanyIdAndIdIn(ActionType.TEAM, companyId, ids).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     /* id로 지운다 — 도메인 객체를 엔티티로 되돌려 지우면 detached 인스턴스를 merge한 뒤
        삭제하게 되어, 그 사이 다른 트랜잭션이 고친 값이 되살아난다(RVW-04, 2026-08-07). */
     @Override
@@ -432,6 +446,7 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .status(action.getStatus())
                 .isDone(action.isDone())
                 .startDate(action.getStartDate())
+                .plannedStartDate(action.getPlannedStartDate())
                 .dueDate(action.getDueDate())
                 .dueDateDefaulted(action.isDueDateDefaulted())
                 .reviewStatus(action.getReviewStatus())
@@ -457,6 +472,7 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 entity.getDescription(),
                 entity.isDone(),
                 entity.getStartDate(),
+                entity.getPlannedStartDate(),
                 entity.getDueDate(),
                 entity.isDueDateDefaulted(),
                 entity.getReviewStatus(),

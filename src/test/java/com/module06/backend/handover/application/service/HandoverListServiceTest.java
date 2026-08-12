@@ -176,6 +176,7 @@ class HandoverListServiceTest {
 
     private static HandoverItem item() {
         return HandoverItem.create(100L, "Action", "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content", true);
+                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content",
+                "Parent Action", LocalDate.of(2026, 8, 1), true);
     }
 }

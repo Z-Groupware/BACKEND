@@ -458,7 +458,8 @@ class HandoverServiceTest {
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
         return new ActionReassignPort.HandoverableAction(id, title, "PRJ", 700L, "TEAM", status,
-                LocalDate.of(2026, 8, 30), null, 500L + (id - 100L), "Meeting " + title, "Content " + title);
+                LocalDate.of(2026, 8, 30), null, 500L + (id - 100L), "Meeting " + title, "Content " + title,
+                "Parent " + title, LocalDate.of(2026, 8, 1));
     }
 
     private static Handover submittedWithOneItem() {
@@ -504,11 +505,13 @@ class HandoverServiceTest {
 
     private static HandoverItem item(Long actionId) {
         return HandoverItem.create(actionId, "Action", "TODO", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content", true);
+                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content",
+                "Parent Action", LocalDate.of(2026, 8, 1), true);
     }
 
     private static HandoverItem completedItem(Long actionId) {
         return HandoverItem.create(actionId, "Action", "DONE", "PRJ", "TEAM",
-                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content", false);
+                LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content",
+                "Parent Action", LocalDate.of(2026, 8, 1), false);
     }
 }

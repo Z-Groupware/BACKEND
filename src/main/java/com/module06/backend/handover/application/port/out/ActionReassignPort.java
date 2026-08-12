@@ -40,7 +40,9 @@ public interface ActionReassignPort {
             LocalDateTime actionCreatedAt,
             Long sourceMeetingId,
             String sourceMeetingTitle,
-            String content
+            String content,
+            String parentActionTitle,
+            LocalDate startDate
     ) {
     }
 

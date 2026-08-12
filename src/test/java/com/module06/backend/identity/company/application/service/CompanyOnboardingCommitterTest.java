@@ -209,6 +209,131 @@ class CompanyOnboardingCommitterTest {
         assertThat(command.issuedIds).isEmpty();
     }
 
+    @Test
+    @DisplayName("직급 tempId 가 겹치면 400 으로 거절한다 — 막지 않으면 toMap 이 500 을 낸다")
+    void rejectsDuplicateJobPositionTempId() {
+        FakePosition position = new FakePosition();
+        FakeMemberCommand command = new FakeMemberCommand();
+
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                position, new FakeMemberQuery(), command)
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of())),
+                        List.of(position("p1", "팀장", Authority.LEADER),
+                                position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", null, "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_TEMP_ID_DUPLICATED);
+
+        assertThat(command.issuedIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부서 tempId 가 겹치면 거절한다 — 막지 않으면 예외 없이 부서 하나가 사라진다")
+    void rejectsDuplicateTeamTempId() {
+        FakeTeam team = new FakeTeam();
+
+        assertThatThrownBy(() -> committer(new FakeCompany(null), team, new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of()), teamNode("t1", "디자인팀", List.of())),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", null, "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_TEMP_ID_DUPLICATED);
+
+        assertThat(team.createdIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("역할 tempId 는 요청 전체에서 유일해야 한다 — 부서가 달라도 한 맵에 모인다")
+    void rejectsDuplicateSubTeamTempIdAcrossTeams() {
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of(subTeam("s1", "백엔드"))),
+                                teamNode("t2", "디자인팀", List.of(subTeam("s1", "UX")))),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", "s1", "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_TEMP_ID_DUPLICATED);
+    }
+
+    @Test
+    @DisplayName("배열이 다르면 같은 tempId 를 써도 통과한다 — 배열마다 1부터 번호 매기는 프런트를 막지 않는다")
+    void allowsSameTempIdAcrossDifferentArrays() {
+        CompanyOnboardingCommitter.CommitResult result = committer(new FakeCompany(null), new FakeTeam(),
+                new FakeRole(), new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("1", "개발팀", List.of(subTeam("1", "백엔드")))),
+                        List.of(position("1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "1", "1", "1", false))));
+
+        assertThat(result.issuedAccounts()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("부서명이 겹치면 400 으로 거절한다 — 막지 않으면 UK_TEAM_COMPANY_NAME 이 500 을 낸다")
+    void rejectsDuplicateTeamName() {
+        FakeTeam team = new FakeTeam();
+
+        assertThatThrownBy(() -> committer(new FakeCompany(null), team, new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of()), teamNode("t2", "개발팀", List.of())),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", null, "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_TEAM_NAME_DUPLICATED);
+
+        assertThat(team.createdIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부서명 중복은 대소문자·끝 공백을 무시하고 본다 — 인덱스 콜레이션(utf8mb4_unicode_ci)과 눈높이를 맞춘다")
+    void rejectsDuplicateTeamNameIgnoringCaseAndTrailingSpace() {
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "Dev", List.of()), teamNode("t2", "dev ", List.of())),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", null, "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_TEAM_NAME_DUPLICATED);
+    }
+
+    @Test
+    @DisplayName("직급명이 겹치면 400 으로 거절한다 — 막지 않으면 UK_POSITION_COMPANY_NAME 이 500 을 낸다")
+    void rejectsDuplicatePositionName() {
+        FakeMemberCommand command = new FakeMemberCommand();
+
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), command)
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of())),
+                        List.of(position("p1", "사원", Authority.MEMBER),
+                                position("p2", "사원", Authority.LEADER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", null, "p1", false)))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_POSITION_NAME_DUPLICATED);
+
+        assertThat(command.issuedIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부서가 달라도 역할명은 겹칠 수 있다 — role 테이블에 이름 UNIQUE 가 없다")
+    void allowsSameSubTeamNameAcrossTeams() {
+        CompanyOnboardingCommitter.CommitResult result = committer(new FakeCompany(null), new FakeTeam(),
+                new FakeRole(), new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of(subTeam("s1", "백엔드"))),
+                                teamNode("t2", "플랫폼팀", List.of(subTeam("s2", "백엔드")))),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of(invite("홍길동", "a@company.com", "t1", "s1", "p1", false))));
+
+        assertThat(result.subTeamCount()).isEqualTo(2);
+    }
+
     /* ── 조립 ─────────────────────────────────────────────────────────────── */
 
     private CompanyOnboardingCommitter committer(FakeCompany company, FakeTeam team, FakeRole role,
@@ -385,7 +510,7 @@ class CompanyOnboardingCommitterTest {
             for (int i = 0; i < currentSeats; i++) {
                 rows.add(new MemberRow((long) i, "기존" + i, "existing" + i + "@company.com", null, null,
                         null, null, null, Authority.MEMBER, false, MemberStatus.ACTIVE,
-                        LocalDate.now(), null));
+                        LocalDate.now(), null, null, null));
             }
             return rows;
         }

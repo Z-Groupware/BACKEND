@@ -1,5 +1,7 @@
 package com.module06.backend.identity.member.infrastructure.persistence;
 
+import java.time.LocalDateTime;
+
 import org.hibernate.annotations.Immutable;
 
 import jakarta.persistence.Column;
@@ -11,7 +13,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 구성원 목록의 WAITING 세분화(§7-1: LEAVE_PENDING vs OFFBOARDING_PENDING)용 읽기 전용 참조.
+ * 구성원 화면이 handover 테이블에서 읽어야 하는 두 가지 — WAITING 세분화(§7-1: LEAVE_PENDING vs
+ * OFFBOARDING_PENDING)와 휴직 기간(오너 대시보드 "팀장 현황") — 을 담는 읽기 전용 참조.
  * handover 도메인의 {@code handover} 테이블을 이 패키지 안에서만 읽는다 — TeamRefEntity·
  * PositionRefEntity와 같은 컨벤션이다(다른 도메인 테이블을 로컬 @Immutable 참조로 읽고, 그
  * 도메인의 실제 엔티티·서비스는 참조하지 않는다). 쓰기 금지.
@@ -21,7 +24,7 @@ import lombok.NoArgsConstructor;
 @Immutable
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class HandoverPendingRefEntity {
+public class HandoverRefEntity {
 
     @Id
     private Long id;
@@ -36,4 +39,12 @@ public class HandoverPendingRefEntity {
     /** SUBMITTED | REASSIGNED | FINALIZED | REJECTED. FINALIZED·REJECTED 는 더 이상 대기가 아니다. */
     @Column(name = "status")
     private String status;
+
+    /** 휴직 시작. handover_type 이 VACATION 일 때만 채워진다(V7.0). */
+    @Column(name = "leave_start_at")
+    private LocalDateTime leaveStartAt;
+
+    /** 휴직 종료. handover_type 이 VACATION 일 때만 채워진다(V7.0). */
+    @Column(name = "leave_end_at")
+    private LocalDateTime leaveEndAt;
 }

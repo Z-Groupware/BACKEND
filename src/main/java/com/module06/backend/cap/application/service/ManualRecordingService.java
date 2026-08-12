@@ -82,11 +82,23 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
         // sttTriggered=true로 등록 — 트리거 직후엔 stt_block이 아직 0건이라, CAP-15 삭제 차단 판정이
         // 이를 "완료"가 아니라 "진행 중"으로 읽게 한다.
         recordingRepository.save(Recording.register(command.meetingId(), fileName, s3Key, command.sizeBytes(), true));
-        meetingRecordingSttPort.triggerWholeFileStt(command.meetingId(), s3Key);
+        triggerWholeFileSttBestEffort(command.meetingId(), s3Key);
         reportStorageUsageBestEffort(companyId, command.meetingId(), command.sizeBytes());
 
         // durationMs=0(파이프라인이 채움), status="DONE"(제출=완료 리터럴, meeting.status는 D 소유라 쓰지 않음).
         return new Result(command.meetingId(), 0L, command.sizeBytes(), "DONE");
+    }
+
+    // 단일 블록 STT를 트리거한다 — 실패해도 등록 자체를 되돌리지 않는다(MeetingRecordingSttPort의
+    // 계약이 best-effort임을 SttBlockCreationService 주석이 명시 — "cap의 트리거는 best-effort라
+    // 실패하면 이번 회차 블록 생성을 건너뛴 것으로 취급한다"). 실 어댑터로 교체하기 전(스텁)엔 예외를
+    // 던진 적이 없어 이 보호막이 없어도 드러나지 않았을 뿐이다.
+    private void triggerWholeFileSttBestEffort(Long meetingId, String s3Key) {
+        try {
+            meetingRecordingSttPort.triggerWholeFileStt(meetingId, s3Key);
+        } catch (RuntimeException e) {
+            log.error("단일 블록 STT 트리거 실패 — 녹음 등록은 완료됨, STT만 누락. meetingId={}", meetingId, e);
+        }
     }
 
     // metering에 현재 사용량을 report한다 — 실패해도 등록 자체를 되돌리지 않는다

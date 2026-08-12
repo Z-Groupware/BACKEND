@@ -246,6 +246,8 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
                         action.sourceMeetingId(),
                         action.sourceMeetingTitle(),
                         action.content(),
+                        action.parentActionTitle(),
+                        action.startDate(),
                         !HandoverActionStatus.isComplete(action.status())
                 ))
                 .toList();

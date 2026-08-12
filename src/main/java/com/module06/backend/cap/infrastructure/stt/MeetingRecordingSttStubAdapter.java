@@ -3,13 +3,16 @@ package com.module06.backend.cap.infrastructure.stt;
 import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /* comment.
-    MeetingRecordingSttPort의 스텁 구현 — 실제 stt_block 생성·AWS Transcribe 호출(이태연 STT 도메인)이
-    배선되기 전까지 트리거를 로그로만 남긴다. RecordingAssemblyStubAdapter와 동일한 "실 어댑터 전 스텁" 패턴.
+    MeetingRecordingSttPort의 스텁 구현 — 로컬/테스트 전용(@Profile("!prod")). 운영은
+    MeetingRecordingSttTranscribeAdapter(capture의 CreateSttBlockPort 위임)를 쓴다.
+    RecordingAssemblyStubAdapter와 동일한 "스텁/실 어댑터" 짝 패턴.
 */
 @Component
+@Profile("!prod")
 public class MeetingRecordingSttStubAdapter implements MeetingRecordingSttPort {
 
     private static final Logger log = LoggerFactory.getLogger(MeetingRecordingSttStubAdapter.class);
