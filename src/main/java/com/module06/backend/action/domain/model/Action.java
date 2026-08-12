@@ -59,6 +59,11 @@ public class Action {
     // 진행 시작일. null이면 "할일"(TODO), 채워지면 "진행중"(IN_PROGRESS) — start()가 오늘 날짜로 채운다.
     // 채울 원천이 없어(due_date와 달리 기본값 유도 불가) 컬럼은 NULL 허용이다.
     private LocalDate startDate;
+    // 예정 시작일 — startDate와 분리된 순수 표시값(V2.6.10, 2026-08-12). 사람이 검토 화면에서
+    // 직접 지정하는 값이고, 도달해도 status 파생에는 아무 영향을 주지 않는다. 범위검증(익일~
+    // 프로젝트 마감일)은 applyHumanReview에서 한다 — domain은 다른 계층에 의존할 수 없어서
+    // (절대규칙 5항) 프로젝트 마감일은 호출자가 값으로 넘겨준다.
+    private LocalDate plannedStartDate;
     /*
      * 아래 넷은 final 이 아니다 — 사람의 검토 판정(applyHumanReview)이 바꾸는 값이다.
      * RVW-02 착수로 열었다(2026-08-06). 나머지 필드는 여전히 불변이다.
@@ -87,6 +92,7 @@ public class Action {
             String description,
             boolean isDone,
             LocalDate startDate,
+            LocalDate plannedStartDate,
             LocalDate dueDate,
             boolean dueDateDefaulted,
             ActionReviewStatus reviewStatus,
@@ -110,6 +116,7 @@ public class Action {
         this.description = description;
         this.isDone = isDone;
         this.startDate = startDate;
+        this.plannedStartDate = plannedStartDate;
         this.status = deriveStatus(isDone, startDate);
         this.dueDate = dueDate;
         this.dueDateDefaulted = dueDateDefaulted;
@@ -139,7 +146,7 @@ public class Action {
     ) {
         return new Action(
                 null, companyId, projectId, null, null, teamId, assigneeMemberId,
-                actionType, title, description, false, null, dueDate, false,
+                actionType, title, description, false, null, null, dueDate, false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true,
                 LocalDateTime.now(), null, null
         );
@@ -166,7 +173,7 @@ public class Action {
     ) {
         return new Action(
                 null, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                actionType, title, description, false, null, dueDate, dueDateDefaulted,
+                actionType, title, description, false, null, null, dueDate, dueDateDefaulted,
                 ActionReviewStatus.PENDING, assigneeSource, evidenceTranscriptId, gateSignals, isManual,
                 null, null, null
         );
@@ -187,6 +194,7 @@ public class Action {
             String description,
             boolean isDone,
             LocalDate startDate,
+            LocalDate plannedStartDate,
             LocalDate dueDate,
             boolean dueDateDefaulted,
             ActionReviewStatus reviewStatus,
@@ -200,7 +208,7 @@ public class Action {
     ) {
         return new Action(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                actionType, title, description, isDone, startDate, dueDate, dueDateDefaulted,
+                actionType, title, description, isDone, startDate, plannedStartDate, dueDate, dueDateDefaulted,
                 reviewStatus, assigneeSource, evidenceTranscriptId, gateSignals, isManual,
                 confirmedAt, createdAt, updatedAt
         );
@@ -234,10 +242,15 @@ public class Action {
      *
      * 2026-08-11 — newTitle·newDescription 추가(이홍근 요청, 검토 화면 인라인 제목·내용 수정
      * 지원). 담당자·기한과 같은 규칙 — null이면 안 바꾼다, 빈 문자열로 지우는 동작은 없다.
+     *
+     * 2026-08-12 — newPlannedStartDate 추가(이태연·홍근 합의, V2.6.10). 다른 넷과 같은 규칙
+     * (null이면 안 바꾼다)이되, 검증이 하나 더 붙는다: 익일~프로젝트 마감일 범위 안이어야 한다.
+     * 프로젝트 마감일은 domain이 다른 계층에 의존할 수 없어(절대규칙 5항) 호출자가 값으로
+     * 넘겨준다 — newPlannedStartDate가 null이면 범위 검증도 건너뛴다(projectDueDate 필요 없음).
      */
     public void applyHumanReview(
             Long newAssigneeMemberId, LocalDate newDueDate, ActionReviewStatus newReviewStatus,
-            String newTitle, String newDescription
+            String newTitle, String newDescription, LocalDate newPlannedStartDate, LocalDate projectDueDate
     ) {
         if (newReviewStatus == null) {
             throw new IllegalArgumentException("newReviewStatus는 null일 수 없습니다.");
@@ -254,6 +267,13 @@ public class Action {
         }
         if (newDescription != null) {
             this.description = newDescription;
+        }
+        if (newPlannedStartDate != null) {
+            LocalDate earliestAllowed = LocalDate.now().plusDays(1);
+            if (newPlannedStartDate.isBefore(earliestAllowed) || newPlannedStartDate.isAfter(projectDueDate)) {
+                throw new IllegalArgumentException("예정 시작일은 익일부터 프로젝트 마감일 사이여야 합니다.");
+            }
+            this.plannedStartDate = newPlannedStartDate;
         }
         this.reviewStatus = newReviewStatus;
         /*

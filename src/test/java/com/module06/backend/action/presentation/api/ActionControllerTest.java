@@ -178,7 +178,7 @@ class ActionControllerTest {
         authenticateAs(1L, 5L);
         Action inProgress = Action.reconstitute(
                 10L, 1L, 100L, null, null, null, 5L, ActionType.PERSONAL, "진행중 액션", "설명",
-                false, LocalDate.of(2026, 8, 5), LocalDate.of(2026, 12, 31), false,
+                false, LocalDate.of(2026, 8, 5), null, LocalDate.of(2026, 12, 31), false,
                 com.module06.backend.action.domain.model.ActionReviewStatus.HUMAN_CONFIRMED,
                 null, null, null, true, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now());
 

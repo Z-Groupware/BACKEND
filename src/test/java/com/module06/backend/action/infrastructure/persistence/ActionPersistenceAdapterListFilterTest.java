@@ -125,7 +125,7 @@ class ActionPersistenceAdapterListFilterTest {
         actionRepository.save(childUnderParent(parent.getId(), ActionStatus.DONE));
         Action otherCompanyChild = Action.reconstitute(
                 null, otherCompany, 1L, parent.getId(), null, null, ASSIGNEE, ActionType.PERSONAL,
-                "다른 회사 개인 액션", "설명", true, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), false,
+                "다른 회사 개인 액션", "설명", true, LocalDate.of(2026, 8, 1), null, LocalDate.of(2026, 12, 31), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
         actionRepository.save(otherCompanyChild);
 
@@ -157,7 +157,7 @@ class ActionPersistenceAdapterListFilterTest {
         boolean isDone = status == ActionStatus.DONE;
         return Action.reconstitute(
                 null, COMPANY, 1L, parentActionId, null, TEAM, ASSIGNEE, ActionType.PERSONAL, "하위 개인 액션", "설명",
-                isDone, startDate, LocalDate.of(2026, 12, 31), false,
+                isDone, startDate, null, LocalDate.of(2026, 12, 31), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
     }
 
@@ -186,7 +186,7 @@ class ActionPersistenceAdapterListFilterTest {
         Action ourTeamAction = actionRepository.save(team(ActionStatus.IN_PROGRESS));
         Action otherTeamAction = Action.reconstitute(
                 null, COMPANY, 1L, null, null, otherTeam, null, ActionType.TEAM, "다른 팀 액션", "설명",
-                true, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), false,
+                true, LocalDate.of(2026, 8, 1), null, LocalDate.of(2026, 12, 31), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
         otherTeamAction = actionRepository.save(otherTeamAction);
         actionRepository.save(personalUnderTeamAction(ourTeamAction.getId(), ActionStatus.TODO));
@@ -233,7 +233,7 @@ class ActionPersistenceAdapterListFilterTest {
         boolean isDone = status == ActionStatus.DONE;
         return Action.reconstitute(
                 null, COMPANY, 1L, parentActionId, null, null, ASSIGNEE, ActionType.PERSONAL, "개인 액션", "설명",
-                isDone, startDate, LocalDate.of(2026, 12, 31), false,
+                isDone, startDate, null, LocalDate.of(2026, 12, 31), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
     }
 
@@ -251,7 +251,7 @@ class ActionPersistenceAdapterListFilterTest {
         boolean isDone = status == ActionStatus.DONE;
         return Action.reconstitute(
                 null, COMPANY, 1L, null, null, TEAM, null, ActionType.TEAM, "팀 액션", "설명",
-                isDone, startDate, LocalDate.of(2026, 12, 31), false,
+                isDone, startDate, null, LocalDate.of(2026, 12, 31), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, true, null, null, null);
     }
 

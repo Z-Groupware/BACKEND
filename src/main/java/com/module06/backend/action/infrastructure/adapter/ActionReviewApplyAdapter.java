@@ -56,7 +56,10 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
         }
 
         // detail → Action.description. 파라미터명이 갈리는 이유는 ActionReviewApplyPort 주석 참고.
-        action.applyHumanReview(assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail);
+        // plannedStartDate·projectDueDate는 아직 null 고정 — ActionReviewApplyPort가 RVW 쪽
+        // plannedStartDate 배선(이태연 담당, 이슈 #386)을 받으면 이 자리도 같이 넓어진다.
+        action.applyHumanReview(
+                assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail, null, null);
         actionRepository.save(action);
     }
 }

@@ -26,7 +26,7 @@ class ActionHumanReviewTest {
         Action action = confirmedAction();
         assertThat(action.getConfirmedAt()).isNotNull();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.REJECTED, null, null);
+        action.applyHumanReview(null, null, ActionReviewStatus.REJECTED, null, null, null, null);
 
         assertThat(action.getReviewStatus()).isEqualTo(ActionReviewStatus.REJECTED);
         assertThat(action.getConfirmedAt()).isNull();
@@ -37,7 +37,7 @@ class ActionHumanReviewTest {
     void 확정은_시각을_찍는다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null);
+        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getConfirmedAt()).isNotNull();
     }
@@ -48,7 +48,7 @@ class ActionHumanReviewTest {
         Action action = pendingAction();
         assertThat(action.isDueDateDefaulted()).isTrue();
 
-        action.applyHumanReview(BOB, LocalDate.of(2026, 8, 20), ActionReviewStatus.HUMAN_CONFIRMED, null, null);
+        action.applyHumanReview(BOB, LocalDate.of(2026, 8, 20), ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(action.isDueDateDefaulted()).isFalse();
@@ -60,7 +60,7 @@ class ActionHumanReviewTest {
     void null_은_값을_비우지_않는다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null);
+        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getAssigneeMemberId()).isEqualTo(ALICE);
         assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 8));
@@ -79,8 +79,56 @@ class ActionHumanReviewTest {
     private static Action action(ActionReviewStatus reviewStatus, LocalDateTime confirmedAt) {
         return Action.reconstitute(
                 8821L, 7L, 3L, 8800L, 900L, 5L, ALICE,
-                ActionType.PERSONAL, "로드맵 초안 작성", null, false, null,
+                ActionType.PERSONAL, "로드맵 초안 작성", null, false, null, null,
                 LocalDate.of(2026, 8, 8), true, reviewStatus, AssigneeSource.EXPLICIT_CALL,
                 8812L, null, false, confirmedAt, null, null);
+    }
+
+    // ── 이슈 #386 plannedStartDate ─────────────────────────────────
+
+    @Test
+    @DisplayName("예정 시작일이 익일~프로젝트 마감일 범위 안이면 반영된다")
+    void 예정_시작일이_범위_안이면_반영된다() {
+        Action action = pendingAction();
+        LocalDate withinRange = LocalDate.now().plusDays(3);
+
+        action.applyHumanReview(
+                null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
+                withinRange, LocalDate.now().plusDays(10));
+
+        assertThat(action.getPlannedStartDate()).isEqualTo(withinRange);
+    }
+
+    @Test
+    @DisplayName("예정 시작일이 오늘이거나 과거면 거부된다 — 익일부터만 허용")
+    void 예정_시작일이_오늘이면_거부된다() {
+        Action action = pendingAction();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
+                null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
+                LocalDate.now(), LocalDate.now().plusDays(10))
+        ).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("예정 시작일이 프로젝트 마감일을 넘으면 거부된다")
+    void 예정_시작일이_프로젝트_마감일을_넘으면_거부된다() {
+        Action action = pendingAction();
+        LocalDate projectDueDate = LocalDate.now().plusDays(5);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
+                null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
+                projectDueDate.plusDays(1), projectDueDate)
+        ).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("예정 시작일이 null이면 프로젝트 마감일 없이도 그대로 둔다")
+    void 예정_시작일이_null이면_범위검증을_건너뛴다() {
+        Action action = pendingAction();
+
+        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+
+        assertThat(action.getPlannedStartDate()).isNull();
     }
 }

@@ -131,7 +131,7 @@ class CalendarQueryServiceTest {
     private Action action(Long id, Long companyId, ActionType actionType, LocalDate dueDate) {
         return Action.reconstitute(
                 id, companyId, null, null, null, null, MEMBER, actionType, "액션 " + id, "설명",
-                false, LocalDate.of(2026, 8, 1), dueDate, false,
+                false, LocalDate.of(2026, 8, 1), null, dueDate, false,
                 ActionReviewStatus.HUMAN_CONFIRMED, AssigneeSource.EXPLICIT_CALL, null,
                 null, true, null, LocalDateTime.now(), LocalDateTime.now());
     }
