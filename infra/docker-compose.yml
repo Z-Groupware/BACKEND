@@ -91,12 +91,20 @@ services:
     image: oliver006/redis_exporter:v1.66.0
     container_name: z-redis-exporter
 
-    env_file:
-      - path: "${RUNTIME_ENV_FILE:-./.env.runtime}"
-        format: raw
-
+    # redis_exporter만 필요한 REDIS_PASSWORD 하나 때문에 전체 시크릿이 담긴
+    # RUNTIME_ENV_FILE(.env.runtime)을 통째로 넘기지 않는다 (env_file 제거).
+    # REDIS_PASSWORD는 아래 Compose 변수 치환으로만 주입한다.
+    #
+    # 주의: 이 치환이 동작하려면 REDIS_PASSWORD가 `docker compose`를 실행하는
+    # 셸의 환경변수로 존재해야 한다. 현재 infra/deploy.sh는 SSM 값을
+    # RUNTIME_ENV_FILE(.env.runtime)에 파일로만 기록할 뿐, 그 값들을 셸
+    # 환경으로 export/source하지는 않는다 (deploy.sh 확인 결과). 따라서
+    # redis_exporter를 (재)기동하는 배포 도구는 별도로 REDIS_PASSWORD를
+    # 셸에 노출시켜야 한다 (예: `set -a; source .env.runtime; set +a` 또는
+    # `docker compose --env-file .env.runtime ...`).
     environment:
       REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
 
     depends_on:
       redis:
