@@ -71,6 +71,27 @@ class CompanyOnboardingCommitterTest {
     }
 
     @Test
+    @DisplayName("직급 설명은 null 이 아니라 빈 문자열로 만든다 — position.description 은 NOT NULL(V2.3.14)")
+    void createsPositionsWithEmptyDescription() {
+        FakePosition position = new FakePosition();
+
+        /*
+         * NOT NULL DEFAULT '' 의 DEFAULT 는 컬럼을 생략했을 때만 적용된다. JPA INSERT 는 항상
+         * 모든 컬럼을 쓰므로 null 을 넘기면 "Column 'description' cannot be null" 로 500(Z-003)이
+         * 된다 — 온보딩은 직급을 반드시 만들므로 모든 신규 회사가 여기서 막혔다.
+         */
+        committer(new FakeCompany(null), new FakeTeam(), new FakeRole(), position,
+                new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of())),
+                        List.of(position("p1", "팀장", Authority.LEADER),
+                                position("p2", "사원", Authority.MEMBER)),
+                        List.of()));
+
+        assertThat(position.createdDescriptions).containsExactly("", "");
+    }
+
+    @Test
     @DisplayName("이미 온보딩된 기업은 재호출을 막는다")
     void rejectsAlreadyOnboarded() {
         FakeCompany company = new FakeCompany(LocalDateTime.now());
@@ -469,6 +490,7 @@ class CompanyOnboardingCommitterTest {
     private static final class FakePosition implements PositionRepository {
 
         private long nextId = 300L;
+        private final List<String> createdDescriptions = new ArrayList<>();
 
         @Override
         public List<Position> findByCompanyId(Long companyId) {
@@ -482,6 +504,7 @@ class CompanyOnboardingCommitterTest {
 
         @Override
         public Position create(Long companyId, String name, Authority authority, String description) {
+            createdDescriptions.add(description);
             return new Position(nextId++, companyId, name, authority, description);
         }
 
