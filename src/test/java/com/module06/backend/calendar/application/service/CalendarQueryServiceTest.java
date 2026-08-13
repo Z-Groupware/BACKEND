@@ -86,6 +86,18 @@ class CalendarQueryServiceTest {
         assertThat(result).hasSize(2);
         assertThat(result).extracting(CalendarItem::type)
                 .containsExactlyInAnyOrder(CalendarItemType.ACTION, CalendarItemType.TODO);
+
+        CalendarItem todoItem = result.stream()
+                .filter(item -> item.type() == CalendarItemType.TODO)
+                .findFirst().orElseThrow();
+        assertThat(todoItem.id()).isEqualTo(10L);
+        assertThat(todoItem.isDone()).isFalse();
+
+        CalendarItem actionItem = result.stream()
+                .filter(item -> item.type() == CalendarItemType.ACTION)
+                .findFirst().orElseThrow();
+        assertThat(actionItem.id()).isNull();
+        assertThat(actionItem.isDone()).isNull();
     }
 
     @Test
