@@ -180,7 +180,11 @@ bash scripts/review-lesson-from-revert.sh --apply
   | `semgrep-query` (Gate 1) | PR 코드의 신규 `@Query`(QUERY_002) · 회사 경계 없는 파생 쿼리(TENANT_001) · `@PreAuthorize` 없는 엔드포인트(AUTHZ_001) | ✅ |
   | `gate2-deterministic` | **루프 자신의** 채점·근거검증 로직 (PR 코드 아님) | ✅ |
   | `gate2-review` | **PR 코드를 LLM 판정** — 훅과 동일한 `reviewLoop --gate` | ❌ 리포터(아래 정책) |
-  | `gate2-live-judge` | golden 씨앗 기준 어댑터 회귀(스모크, PR 코드 아님) | ❌ informational |
+
+  → `gate2-live-judge`(golden 씨앗 어댑터 회귀 스모크)는 2026-08-13에 CI에서 내렸다.
+    PR 코드를 보지 않으면서 매 PR마다 Gemini를 호출했고, `continue-on-error`라 실패해도
+    신호가 되지 못했다. 어댑터 확인이 필요하면 로컬에서 직접 돌린다:
+    `./gradlew test --tests "com.module06.backend.reviewloop.judge.Gemini*LiveTest"`
 
   → Minor는 로컬·CI 모두 차단하지 않는다(요청서만).
   → 단, 차단이 실제로 강제되려면 **GitHub 브랜치 보호에서 "Require status checks to pass"가 켜져 있어야 한다.**
