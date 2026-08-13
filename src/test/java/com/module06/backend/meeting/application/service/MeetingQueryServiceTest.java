@@ -1,7 +1,6 @@
 package com.module06.backend.meeting.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,10 +10,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
-import com.module06.backend.meeting.application.query.GetMeetingAttendeesQuery;
-import com.module06.backend.meeting.application.result.MeetingAttendeesResult;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
@@ -25,89 +21,10 @@ import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.Pro
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.UpcomingMeetingSnapshot;
 
 /*
- * RESULT-01 조회 서비스의 테넌트·열람 권한·참석자 변환 규칙을 검증하는 단위 테스트다.
+ * E·C가 사용하는 공개 MeetingQueryPort 구현의 배치 조회·참석자 변환 규칙을 검증하는 단위 테스트다.
  */
-@DisplayName("RESULT-01 회의 참석자 조회 서비스")
+@DisplayName("MeetingQueryPort 공개 조회 서비스")
 class MeetingQueryServiceTest {
-
-    /* 참석자인 요청자가 개설자 우선 전체 명단을 조회할 수 있는지 검증한다. */
-    @Test
-    @DisplayName("참석자는 개설자가 첫 번째인 전체 참석자 명단을 조회한다")
-    void attendeeReadsHostFirstRoster() {
-        /* 구성원 식별자 순서가 개설자 우선이 아닌 회의 조회 결과를 준비한다. */
-        MeetingQueryRepository repository = repository(Optional.of(meeting(List.of(7L, 3L, 11L))));
-        MeetingQueryService service = new MeetingQueryService(repository, memberPort());
-
-        /* 7번 참석자가 자신의 회의 명단을 조회한다. */
-        MeetingAttendeesResult result = service.getMeetingAttendees(
-                new GetMeetingAttendeesQuery(10L, 7L, "MEMBER", false, 91L)
-        );
-
-        /* 개설자 3번이 첫 번째이고 나머지 참석자는 조회 순서를 유지해야 한다. */
-        assertThat(result.meetingId()).isEqualTo(91L);
-        assertThat(result.attendees())
-                .extracting(MeetingAttendeesResult.Attendee::memberId)
-                .containsExactly(3L, 7L, 11L);
-
-        /* 개설자에게만 host 표시가 설정돼야 한다. */
-        assertThat(result.attendees())
-                .extracting(MeetingAttendeesResult.Attendee::host)
-                .containsExactly(true, false, false);
-    }
-
-    /* 회사 OWNER가 참석자가 아니어도 회사 내 회의 명단을 읽을 수 있는지 검증한다. */
-    @Test
-    @DisplayName("OWNER는 참석자가 아니어도 회사 내 회의 명단을 조회한다")
-    void ownerReadsCompanyMeetingRoster() {
-        /* 정상 회의와 구성원 정보를 반환하는 조회 서비스를 준비한다. */
-        MeetingQueryService service = new MeetingQueryService(
-                repository(Optional.of(meeting(List.of(3L, 7L, 11L)))),
-                memberPort()
-        );
-
-        /* 참석자가 아닌 99번 OWNER가 같은 회사 회의를 조회한다. */
-        MeetingAttendeesResult result = service.getMeetingAttendees(
-                new GetMeetingAttendeesQuery(10L, 99L, "OWNER", false, 91L)
-        );
-
-        /* 권한이 있는 회사 관리자는 전체 명단을 정상적으로 받아야 한다. */
-        assertThat(result.attendees()).hasSize(3);
-    }
-
-    /* 일반 비참석자가 회의 존재를 알아도 명단을 읽을 수 없는지 검증한다. */
-    @Test
-    @DisplayName("일반 비참석자는 MT-011로 거절한다")
-    void rejectsNonAttendee() {
-        /* 회의는 존재하지만 요청자가 참석자가 아닌 상황을 준비한다. */
-        MeetingQueryService service = new MeetingQueryService(
-                repository(Optional.of(meeting(List.of(3L, 7L, 11L)))),
-                memberPort()
-        );
-
-        /* 권한 없는 요청은 구성원 조회 전에 MT-011로 끝나야 한다. */
-        assertErrorCode(
-                () -> service.getMeetingAttendees(
-                        new GetMeetingAttendeesQuery(10L, 99L, "MEMBER", false, 91L)
-                ),
-                "MT-011"
-        );
-    }
-
-    /* 타 회사 또는 존재하지 않는 회의가 MT-001로 숨겨지는지 검증한다. */
-    @Test
-    @DisplayName("회사 범위에서 회의를 찾지 못하면 MT-001로 처리한다")
-    void hidesMissingOrOtherCompanyMeeting() {
-        /* 빈 결과를 반환하는 회사 범위 조회 저장소를 준비한다. */
-        MeetingQueryService service = new MeetingQueryService(repository(Optional.empty()), memberPort());
-
-        /* 회의가 없으면 열람 권한 판정 전에 MT-001이 발생해야 한다. */
-        assertErrorCode(
-                () -> service.getMeetingAttendees(
-                        new GetMeetingAttendeesQuery(10L, 7L, "MEMBER", false, 91L)
-                ),
-                "MT-001"
-        );
-    }
 
     /* E finalize 조회가 D 회의 메타와 B 참석자 표시 정보를 함께 반환하는지 검증한다. */
     @Test
@@ -199,7 +116,6 @@ class MeetingQueryServiceTest {
 
     /* 테스트에서 지정한 단건 회의를 반환하는 조회 저장소 대역을 만든다. */
     private MeetingQueryRepository repository(Optional<MeetingSnapshot> meeting) {
-        /* RESULT-01 외의 E 배치 메서드는 이 단위 테스트에서 빈 결과를 반환한다. */
         return new MeetingQueryRepository() {
             /* 회사 범위 회의 단건 결과를 그대로 반환한다. */
             @Override
@@ -228,7 +144,7 @@ class MeetingQueryServiceTest {
                 return Map.of(12L, 3L, 13L, 1L);
             }
 
-            /* MEET-03 조회는 RESULT-01 서비스 단위 테스트 대상이 아니므로 빈 목록을 반환한다. */
+            /* MEET-03 조회는 이 단위 테스트 대상이 아니므로 빈 목록을 반환한다. */
             @Override
             public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
                     Long companyId,
@@ -279,7 +195,6 @@ class MeetingQueryServiceTest {
 
     /* 정상 필드와 전달받은 참석자 식별자로 회의 조회 모델을 만든다. */
     private MeetingSnapshot meeting(List<Long> attendeeMemberIds) {
-        /* RESULT-01 권한과 명단 변환에 필요한 실제 회의 필드를 채운다. */
         return new MeetingSnapshot(
                 91L,
                 10L,
@@ -293,14 +208,5 @@ class MeetingQueryServiceTest {
                 null,
                 attendeeMemberIds
         );
-    }
-
-    /* 실행 결과가 예상 서비스 오류 코드인지 검증한다. */
-    private void assertErrorCode(Runnable execution, String expectedCode) {
-        /* 예외 타입과 외부 계약 코드를 한 번에 확인한다. */
-        assertThatThrownBy(execution::run)
-                .isInstanceOf(BusinessException.class)
-                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
-                .isEqualTo(expectedCode);
     }
 }
