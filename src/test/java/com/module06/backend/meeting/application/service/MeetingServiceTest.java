@@ -19,6 +19,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
+import com.module06.backend.meeting.application.event.MeetingAttendeesRemovedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionKind;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionTeamReference;
@@ -725,6 +726,12 @@ class MeetingServiceTest {
         /* MEET-09 참석자 추가 이벤트는 MEET-01 서비스 테스트에서 사용하지 않는다. */
         @Override
         public void publish(MeetingAttendeesAddedEvent event) {
+            /* 호출되지 않는 별도 이벤트 계약이므로 기록하지 않는다. */
+        }
+
+        /* MEET-09 참석자 제외 이벤트도 MEET-01 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public void publish(MeetingAttendeesRemovedEvent event) {
             /* 호출되지 않는 별도 이벤트 계약이므로 기록하지 않는다. */
         }
     }

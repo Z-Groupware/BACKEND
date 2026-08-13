@@ -16,5 +16,17 @@ public enum NotificationType {
     MEETING_CANCELED,
 
     /* 공지 등록 커밋 뒤 회사 구성원에게 저장 없이 실시간으로 보내는 배너 이벤트다. */
-    NOTICE_CREATED
+    NOTICE_CREATED,
+
+    /* MEET-09 교체로 새로 참석자 명단에 추가된 구성원에게 보내는 알림이다. */
+    MEETING_ATTENDEE_ADDED,
+
+    /* MEET-09 교체로 참석자 명단에서 빠진 구성원에게 보내는 알림이다. */
+    MEETING_ATTENDEE_REMOVED,
+
+    /* 회의 종료 후 백그라운드 요약·분석이 정상적으로 끝난 뒤 보내는 알림이다. */
+    ANALYSIS_COMPLETED,
+
+    /* 회의 종료 후 백그라운드 요약·분석이 실패한 뒤 보내는 알림이다. */
+    ANALYSIS_FAILED
 }
