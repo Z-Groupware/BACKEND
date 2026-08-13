@@ -34,6 +34,7 @@ class ActionReviewApplyAdapterTest {
     private static final long COMPANY = 1L;
     private static final long ACTION_ID = 10L;
     private static final Long PROJECT_ID = 100L;
+    private static final Long TEAM_ID = 5L;
 
     @Mock
     private ActionRepository actionRepository;
@@ -55,7 +56,7 @@ class ActionReviewApplyAdapterTest {
         when(actionReferenceRepository.findProjectReferences(List.of(PROJECT_ID)))
                 .thenReturn(List.of(new ProjectReference(PROJECT_ID, projectDueDate, "TAG", "이름")));
 
-        adapter().apply(COMPANY, ACTION_ID, null, dueDate, null, null, plannedStartDate, "HUMAN_CONFIRMED");
+        adapter().apply(COMPANY, ACTION_ID, null, null, dueDate, null, null, plannedStartDate, "HUMAN_CONFIRMED");
 
         // dueDate·plannedStartDate가 서로 안 바뀌었는지 — 포트 주석이 경고한 그 자리.
         assertThat(action.getDueDate()).isEqualTo(dueDate);
@@ -71,7 +72,7 @@ class ActionReviewApplyAdapterTest {
         // projectDueDateOf가 projectId==null이면 조회 없이 바로 null을 돌려주고,
         // Action.applyHumanReview가 그 null을 거절한다(도메인 쪽 검증, 여기선 위임 확인).
         assertThatThrownBy(() -> adapter().apply(
-                COMPANY, ACTION_ID, null, null, null, null, LocalDate.of(2026, 8, 20), "HUMAN_CONFIRMED")
+                COMPANY, ACTION_ID, null, null, null, null, null, LocalDate.of(2026, 8, 20), "HUMAN_CONFIRMED")
         ).isInstanceOf(IllegalArgumentException.class);
 
         verify(actionReferenceRepository, never()).findProjectReferences(any());
@@ -83,7 +84,7 @@ class ActionReviewApplyAdapterTest {
         Action action = personalAction(PROJECT_ID);
         when(actionRepository.findById(ACTION_ID)).thenReturn(Optional.of(action));
 
-        adapter().apply(COMPANY, ACTION_ID, null, LocalDate.of(2026, 9, 1), null, null, null, "HUMAN_CONFIRMED");
+        adapter().apply(COMPANY, ACTION_ID, null, null, LocalDate.of(2026, 9, 1), null, null, null, "HUMAN_CONFIRMED");
 
         // 예정 시작일과 무관한 판정에 프로젝트 조회를 얹지 않는다(어댑터 주석의 그 이유).
         verify(actionReferenceRepository, never()).findProjectReferences(any());
@@ -97,7 +98,7 @@ class ActionReviewApplyAdapterTest {
         when(actionRepository.findById(ACTION_ID)).thenReturn(Optional.of(action));
 
         assertThatThrownBy(() -> adapter().apply(
-                999L, ACTION_ID, null, null, null, null, null, "HUMAN_CONFIRMED")
+                999L, ACTION_ID, null, null, null, null, null, null, "HUMAN_CONFIRMED")
         ).isInstanceOf(BusinessException.class);
 
         verify(actionRepository, never()).save(any());
@@ -108,8 +109,39 @@ class ActionReviewApplyAdapterTest {
         when(actionRepository.findById(ACTION_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> adapter().apply(
-                COMPANY, ACTION_ID, null, null, null, null, null, "HUMAN_CONFIRMED")
+                COMPANY, ACTION_ID, null, null, null, null, null, null, "HUMAN_CONFIRMED")
         ).isInstanceOf(BusinessException.class);
+    }
+
+    // ── 2026-08-13 · 오너 회의 검토화면 부서선택(teamId → TEAM 전환) ─────────────────
+
+    @Test
+    void convertsToTeamWhenTeamIdBelongsToCompany() {
+        Action action = personalAction(PROJECT_ID);
+        when(actionRepository.findById(ACTION_ID)).thenReturn(Optional.of(action));
+        when(actionReferenceRepository.existsTeamInCompany(TEAM_ID, COMPANY)).thenReturn(true);
+
+        adapter().apply(COMPANY, ACTION_ID, null, TEAM_ID, null, null, null, null, "HUMAN_CONFIRMED");
+
+        assertThat(action.getActionType()).isEqualTo(ActionType.TEAM);
+        assertThat(action.getTeamId()).isEqualTo(TEAM_ID);
+        assertThat(action.getAssigneeMemberId()).isNull();
+        verify(actionRepository).save(action);
+    }
+
+    @Test
+    void rejectsTeamIdFromAnotherCompany() {
+        Action action = personalAction(PROJECT_ID);
+        when(actionRepository.findById(ACTION_ID)).thenReturn(Optional.of(action));
+        when(actionReferenceRepository.existsTeamInCompany(TEAM_ID, COMPANY)).thenReturn(false);
+
+        // A가 넘긴 teamId라도 다른 회사 팀이면 거절한다 — 이 포트가 공개된 인바운드 경계라
+        // 여기서도 회사 스코프를 다시 본다(클래스 주석).
+        assertThatThrownBy(() -> adapter().apply(
+                COMPANY, ACTION_ID, null, TEAM_ID, null, null, null, null, "HUMAN_CONFIRMED")
+        ).isInstanceOf(BusinessException.class);
+
+        verify(actionRepository, never()).save(any());
     }
 
     private Action personalAction(Long projectId) {

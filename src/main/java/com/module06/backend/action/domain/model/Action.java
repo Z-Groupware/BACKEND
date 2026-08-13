@@ -41,9 +41,10 @@ public class Action {
     private final Long projectId;
     private final Long parentActionId;
     private final Long sourceMeetingId;
-    private final Long teamId;
+    // 2026-08-13 — 오너 회의 검토화면 부서선택(convertToTeam) 지원을 위해 final을 내린다.
+    private Long teamId;
     private Long assigneeMemberId;
-    private final ActionType actionType;
+    private ActionType actionType;
     // 2026-08-11 — RVW-02 인라인 제목·내용 수정(applyHumanReview) 지원을 위해 final을 내린다.
     private String title;
     private String description;
@@ -230,6 +231,23 @@ public class Action {
     }
 
     /*
+     * 오너 회의 검토화면 부서선택(2026-08-13) — PERSONAL을 TEAM으로 전환한다. AI가 짚은 담당자
+     * 후보는 팀 개념과 무관하므로 버린다(TEAM은 담당자를 가질 수 없다, ActionTypeShapePolicy).
+     * 되돌리는 경로는 없다 — 마음이 바뀌면 반려(REJECT)로 간다.
+     */
+    public void convertToTeam(Long newTeamId) {
+        if (newTeamId == null) {
+            throw new IllegalArgumentException("newTeamId는 null일 수 없습니다.");
+        }
+        if (!isPersonal()) {
+            throw new IllegalStateException("PERSONAL 액션만 TEAM으로 전환할 수 있습니다.");
+        }
+        this.actionType = ActionType.TEAM;
+        this.teamId = newTeamId;
+        this.assigneeMemberId = null;
+    }
+
+    /*
      * 사람의 검토 판정을 반영한다 — review(A)의 RVW-02 가 ActionReviewApplyPort 로 부른다.
      * 클래스 주석의 "리뷰확정은 유스케이스 착수 시 추가한다"가 이 메서드다(2026-08-06).
      *
@@ -252,9 +270,13 @@ public class Action {
      * 던져도 그 앞에서 이미 담당자·기한·제목·내용이 이 객체에 반영된 채로 남는다("부분 반영"
      * 상태로 예외). 그래서 맨 앞으로 옮겨서 통과해야만 나머지를 건드리게 한다. projectDueDate가
      * null인데 newPlannedStartDate가 있으면 NPE 대신 이 예외로 명시적으로 막는다.
+     *
+     * 2026-08-13 — newTeamId 추가(오너 회의 검토화면 부서선택). newAssigneeMemberId와 상호
+     * 배타적이다(호출자가 보장 — ApplyReviewDecisionService#requireDecisionShape). null이면
+     * 전환하지 않는다, 다른 다섯과 같은 규칙.
      */
     public void applyHumanReview(
-            Long newAssigneeMemberId, LocalDate newDueDate, ActionReviewStatus newReviewStatus,
+            Long newAssigneeMemberId, Long newTeamId, LocalDate newDueDate, ActionReviewStatus newReviewStatus,
             String newTitle, String newDescription, LocalDate newPlannedStartDate, LocalDate projectDueDate
     ) {
         if (newReviewStatus == null) {
@@ -268,6 +290,9 @@ public class Action {
             if (newPlannedStartDate.isBefore(earliestAllowed) || newPlannedStartDate.isAfter(projectDueDate)) {
                 throw new IllegalArgumentException("예정 시작일은 익일부터 프로젝트 마감일 사이여야 합니다.");
             }
+        }
+        if (newTeamId != null) {
+            convertToTeam(newTeamId);
         }
         if (newAssigneeMemberId != null) {
             reassignTo(newAssigneeMemberId);
