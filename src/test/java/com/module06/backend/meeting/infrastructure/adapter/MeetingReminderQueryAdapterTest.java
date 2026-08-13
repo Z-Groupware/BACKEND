@@ -16,6 +16,8 @@ import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
 
 /*
@@ -36,6 +38,7 @@ class MeetingReminderQueryAdapterTest {
 
         /* 기술 저장소와 회의실 Port의 호출·반환을 제어하는 대역을 만든다. */
         SpringDataMeetingRepository repository = mock(SpringDataMeetingRepository.class);
+        SpringDataMeetingAttendeeRepository attendeeRepository = mock(SpringDataMeetingAttendeeRepository.class);
         MeetingRoomQueryPort meetingRoomQueryPort = mock(MeetingRoomQueryPort.class);
         when(repository.findAllByStatusAndStartAtGreaterThanEqualAndStartAtLessThanOrderByStartAtAscIdAsc(
                 MeetingStatus.SCHEDULED,
@@ -46,17 +49,29 @@ class MeetingReminderQueryAdapterTest {
                 .thenReturn(List.of(room(21L, "대회의실")));
         when(meetingRoomQueryPort.findMeetingRooms(2L, List.of(21L)))
                 .thenReturn(List.of(room(21L, "본사 회의실")));
+        when(attendeeRepository.findAllByMeetingIdInOrderByMeetingIdAscMemberIdAsc(List.of(501L, 502L)))
+                .thenReturn(List.of(
+                        attendee(501L, 3L),
+                        attendee(501L, 7L),
+                        attendee(502L, 9L)
+                ));
 
         /* 알림 Port 구현에 동일한 반개구간 조회를 요청한다. */
-        MeetingReminderQueryAdapter adapter = new MeetingReminderQueryAdapter(repository, meetingRoomQueryPort);
+        MeetingReminderQueryAdapter adapter = new MeetingReminderQueryAdapter(
+                repository,
+                attendeeRepository,
+                meetingRoomQueryPort
+        );
         var result = adapter.findScheduledMeetingsStartingBetween(from, to);
 
         /* 회사가 달라도 같은 회의실 식별자의 이름이 서로 섞이지 않아야 한다. */
         assertThat(result).hasSize(2);
         assertThat(result.get(0).companyId()).isEqualTo(1L);
         assertThat(result.get(0).meetingRoomName()).isEqualTo("대회의실");
+        assertThat(result.get(0).attendeeMemberIds()).containsExactly(3L, 7L);
         assertThat(result.get(1).companyId()).isEqualTo(2L);
         assertThat(result.get(1).meetingRoomName()).isEqualTo("본사 회의실");
+        assertThat(result.get(1).attendeeMemberIds()).containsExactly(9L);
 
         /* 저장소에는 상태와 시간 경계가 그대로 전달돼야 한다. */
         verify(repository).findAllByStatusAndStartAtGreaterThanEqualAndStartAtLessThanOrderByStartAtAscIdAsc(
@@ -74,6 +89,7 @@ class MeetingReminderQueryAdapterTest {
         LocalDateTime from = LocalDateTime.of(2026, 8, 10, 13, 30);
         LocalDateTime to = from.plusMinutes(1);
         SpringDataMeetingRepository repository = mock(SpringDataMeetingRepository.class);
+        SpringDataMeetingAttendeeRepository attendeeRepository = mock(SpringDataMeetingAttendeeRepository.class);
         MeetingRoomQueryPort meetingRoomQueryPort = mock(MeetingRoomQueryPort.class);
         when(repository.findAllByStatusAndStartAtGreaterThanEqualAndStartAtLessThanOrderByStartAtAscIdAsc(
                 MeetingStatus.SCHEDULED,
@@ -82,12 +98,17 @@ class MeetingReminderQueryAdapterTest {
         )).thenReturn(List.of());
 
         /* 빈 조회 결과를 그대로 반환받는다. */
-        MeetingReminderQueryAdapter adapter = new MeetingReminderQueryAdapter(repository, meetingRoomQueryPort);
+        MeetingReminderQueryAdapter adapter = new MeetingReminderQueryAdapter(
+                repository,
+                attendeeRepository,
+                meetingRoomQueryPort
+        );
         var result = adapter.findScheduledMeetingsStartingBetween(from, to);
 
         /* 결과가 비어 있어야 하며 회의실 대역에는 어떤 호출도 없어야 한다. */
         assertThat(result).isEmpty();
         org.mockito.Mockito.verifyNoInteractions(meetingRoomQueryPort);
+        org.mockito.Mockito.verifyNoInteractions(attendeeRepository);
     }
 
     /* 공개 getter를 가진 JPA 엔티티 대역으로 어댑터 매핑 입력을 준비한다. */
@@ -119,5 +140,11 @@ class MeetingReminderQueryAdapterTest {
                 LocalTime.of(9, 0),
                 LocalTime.of(18, 0)
         );
+    }
+
+    /* 회의와 회원 식별자만 가진 실제 참석자 JPA 엔티티를 만든다. */
+    private MeetingAttendeeJpaEntity attendee(Long meetingId, Long memberId) {
+        /* 공개 생성자로 두 식별자를 고정해 Mockito 중첩 stubbing을 피한다. */
+        return new MeetingAttendeeJpaEntity(meetingId, memberId);
     }
 }

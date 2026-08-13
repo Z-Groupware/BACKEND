@@ -1,6 +1,7 @@
 package com.module06.backend.notification.application.service;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -10,7 +11,6 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
-import com.module06.backend.notification.application.port.out.CompanyMemberQueryPort;
 import com.module06.backend.notification.application.port.out.NotificationEvent;
 import com.module06.backend.notification.application.port.out.NotificationPublishPort;
 import com.module06.backend.notification.domain.model.Notification;
@@ -18,8 +18,7 @@ import com.module06.backend.notification.domain.model.NotificationType;
 import com.module06.backend.notification.domain.repository.NotificationRepository;
 
 /*
- * 회의 예약 커밋 이후 같은 회사의 구성원 전체에게 회의 개설 알림을 저장하고 SSE로 발행한다.
- * 참석자 명단이 아니라 회사 구성원 조회 결과를 사용하므로 사내 공용 회의 개설 소식을 모두 받을 수 있다.
+ * 회의 예약 커밋 이후 최종 예약 참석자에게만 회의 개설 알림을 저장하고 SSE로 발행한다.
  */
 @Component
 public class MeetingCreatedNotificationTrigger {
@@ -30,9 +29,6 @@ public class MeetingCreatedNotificationTrigger {
     /* DB ENUM과 프론트 SSE 분기에서 함께 사용하는 회의 개설 알림 타입이다. */
     private static final String TYPE_MEETING_CREATED = NotificationType.MEETING_CREATED.name();
 
-    /* 동일 회사에서 알림을 받을 비삭제 구성원 식별자를 조회하는 Port다. */
-    private final CompanyMemberQueryPort companyMemberQueryPort;
-
     /* 회원별 알림을 중복 방지 제약과 함께 저장하는 저장소다. */
     private final NotificationRepository notificationRepository;
 
@@ -41,30 +37,19 @@ public class MeetingCreatedNotificationTrigger {
 
     /* 필요한 조회·저장·발행 의존성을 명시적으로 주입한다. */
     public MeetingCreatedNotificationTrigger(
-            CompanyMemberQueryPort companyMemberQueryPort,
             NotificationRepository notificationRepository,
             NotificationPublishPort notificationPublishPort
     ) {
         /* 각 협력자를 필드에 보관해 커밋 이후 알림 처리에 사용한다. */
-        this.companyMemberQueryPort = companyMemberQueryPort;
         this.notificationRepository = notificationRepository;
         this.notificationPublishPort = notificationPublishPort;
     }
 
-    /* 회의 생성 트랜잭션이 실제로 커밋된 경우에만 회사 구성원 알림 처리를 시작한다. */
+    /* 회의 생성 트랜잭션이 실제로 커밋된 경우에만 예약 참석자 알림 처리를 시작한다. */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMeetingCreated(MeetingReservedEvent event) {
-        /* AFTER_COMMIT 예외는 원본을 되돌릴 수 없으므로 조회 실패도 로그로 남기고 종료한다. */
-        List<Long> recipientMemberIds;
-        try {
-            /* 이벤트의 검증된 회사 식별자로 수신자 범위를 한 회사 안에 고정한다. */
-            recipientMemberIds = companyMemberQueryPort.findActiveMemberIds(event.companyId());
-        } catch (RuntimeException exception) {
-            /* 구성원 조회 실패가 이벤트 처리 스레드 밖으로 전파되지 않게 한다. */
-            log.error("회의 개설 알림 수신자 조회 실패 — meetingId={} companyId={}",
-                    event.meetingId(), event.companyId(), exception);
-            return;
-        }
+        /* 최종 예약 명단을 순서 보존 집합으로 정규화해 회사 전체 확산과 중복 발송을 막는다. */
+        List<Long> recipientMemberIds = List.copyOf(new LinkedHashSet<>(event.attendeeMemberIds()));
 
         /* 제목을 포함한 공통 메시지를 한 번 만들고 회원별 저장·발행에 재사용한다. */
         String message = event.title() + " 회의가 개설되었습니다.";

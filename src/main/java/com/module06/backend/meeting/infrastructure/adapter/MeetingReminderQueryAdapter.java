@@ -13,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
 import com.module06.backend.notification.application.port.out.MeetingReminderQueryPort;
 
@@ -25,6 +27,9 @@ public class MeetingReminderQueryAdapter implements MeetingReminderQueryPort {
 
     /* 예약 상태와 시작 시각으로 회의 후보를 조회하는 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
+
+    /* 대상 회의들의 최종 예약 참석자를 한 번에 조회하는 기술 저장소다. */
+    private final SpringDataMeetingAttendeeRepository springDataMeetingAttendeeRepository;
 
     /* 알림 payload의 회의실 이름을 회사별 배치 조회하는 D도메인 내부 Port다. */
     private final MeetingRoomQueryPort meetingRoomQueryPort;
@@ -51,6 +56,9 @@ public class MeetingReminderQueryAdapter implements MeetingReminderQueryPort {
         /* 테넌트별 회의실 배치 조회 결과를 회사와 회의실 식별자의 복합 키로 색인한다. */
         Map<MeetingRoomKey, String> meetingRoomNames = indexMeetingRoomNamesByCompany(meetings);
 
+        /* 회의별 반복 조회를 피하도록 모든 대상 회의의 참석자 명단을 한 번에 색인한다. */
+        Map<Long, List<Long>> attendeeMemberIdsByMeeting = indexAttendeeMemberIdsByMeeting(meetings);
+
         /* 저장소 정렬을 보존하며 알림 도메인에 필요한 값만 경계 밖으로 전달한다. */
         return meetings.stream()
                 .map(meeting -> new MeetingReminderTarget(
@@ -63,9 +71,29 @@ public class MeetingReminderQueryAdapter implements MeetingReminderQueryPort {
                         meetingRoomNames.get(new MeetingRoomKey(
                                 meeting.getCompanyId(),
                                 meeting.getMeetingRoomId()
-                        ))
+                        )),
+                        attendeeMemberIdsByMeeting.getOrDefault(meeting.getId(), List.of())
                 ))
                 .toList();
+    }
+
+    /* 대상 회의 식별자를 한 번에 조회하고 회의별 최종 참석자 목록으로 묶는다. */
+    private Map<Long, List<Long>> indexAttendeeMemberIdsByMeeting(List<MeetingJpaEntity> meetings) {
+        /* 동일 회의가 중복 후보로 들어와도 IN 조건에는 한 번만 전달한다. */
+        List<Long> meetingIds = meetings.stream()
+                .map(MeetingJpaEntity::getId)
+                .distinct()
+                .toList();
+
+        /* 저장소 정렬을 유지한 채 회의별 회원 식별자 목록을 만든다. */
+        return springDataMeetingAttendeeRepository
+                .findAllByMeetingIdInOrderByMeetingIdAscMemberIdAsc(meetingIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        MeetingAttendeeJpaEntity::getMeetingId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(MeetingAttendeeJpaEntity::getMemberId, Collectors.toList())
+                ));
     }
 
     /* 같은 회사 회의실은 한 번에 조회해 회의별 반복 조회와 테넌트 혼합을 방지한다. */
