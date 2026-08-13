@@ -8,7 +8,8 @@ import com.module06.backend.meeting.domain.model.MeetingStatus;
 /*
  * MEET-17 조회 결과를 프레젠테이션 계층에 전달하는 애플리케이션 결과 객체다.
  *
- * originLabel·hostLabel은 B의 findTeams 배치 계약이 연결되기 전까지 항상 null이다.
+ * originLabel은 owner=상수 "Owner", me=요청자 본인의 팀 이름으로 이미 채워진다.
+ * hostLabel만 B의 findTeams 배치 계약이 연결되기 전까지 항상 null이다.
  */
 public record DashboardMeetingListResult(List<MeetingItem> meetings) {
 

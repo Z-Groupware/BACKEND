@@ -300,6 +300,26 @@ class DashboardMeetingQueryServiceTest {
                 .isEqualTo(CommonErrorCode.ACCESS_DENIED);
     }
 
+    /* 팀이 없는 LEADER의 team 스코프 요청은 Z-001로 거절돼야 한다 — team_id IS NULL 새어나감 방지. */
+    @Test
+    @DisplayName("팀이 없는 LEADER의 scope=team 요청은 Z-001 공통 입력 오류로 거절한다")
+    void rejectsTeamScopeForLeaderWithoutTeam() {
+        DashboardMeetingQueryService service = new DashboardMeetingQueryService(
+                neverCalledDashboardMeetingRepository(),
+                neverCalledMeetingQueryRepository(),
+                neverCalledMeetingRoomPort(),
+                neverCalledProjectPort(),
+                neverCalledMemberPort()
+        );
+
+        assertThatThrownBy(() -> service.getDashboardMeetings(new GetDashboardMeetingsQuery(
+                10L, 3L, null, "LEADER", DashboardMeetingScope.TEAM, 5
+        )))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_INPUT_VALUE);
+    }
+
     /* 테스트가 아는 회사 10의 회의실 표시 정보만 반환하는 Port다. */
     private MeetingRoomQueryPort meetingRoomPort() {
         return new MeetingRoomQueryPort() {

@@ -161,8 +161,16 @@ public class DashboardMeetingQueryService implements GetDashboardMeetingsUseCase
         if (query.scope() == DashboardMeetingScope.OWNER && !"OWNER".equals(query.requesterRole())) {
             throw new BusinessException(CommonErrorCode.ACCESS_DENIED);
         }
-        if (query.scope() == DashboardMeetingScope.TEAM && !"LEADER".equals(query.requesterRole())) {
-            throw new BusinessException(CommonErrorCode.ACCESS_DENIED);
+        if (query.scope() == DashboardMeetingScope.TEAM) {
+            if (!"LEADER".equals(query.requesterRole())) {
+                throw new BusinessException(CommonErrorCode.ACCESS_DENIED);
+            }
+
+            /* teamId가 없으면 저장소의 team_id = ? 조건이 team_id IS NULL로 번역될 수 있어
+               팀 없는 회의까지 새어 들어올 수 있다 — 역할 검사만으로는 이 값을 보장하지 않는다. */
+            if (query.requesterTeamId() == null) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+            }
         }
     }
 
