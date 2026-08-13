@@ -1,6 +1,8 @@
 package com.module06.backend.meetingroom.presentation.api;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -8,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.meetingroom.application.result.MeetingRoomCreationResult;
 import com.module06.backend.meetingroom.application.usecase.CreateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.application.usecase.DeactivateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.application.usecase.UpdateMeetingRoomUseCase;
@@ -100,8 +104,23 @@ class MeetingRoomCommandSecurityTest {
      * 기반 Authentication을 직접 주입해 실제 인증 형태를 재현한다.
      */
     private Authentication authenticationOf(String role) {
-        AuthPrincipal principal = new AuthPrincipal(1L, 10L, role, false, null);
-        return new TestingAuthenticationToken(principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+        return authenticationOf(role, false);
+    }
+
+    /*
+     * JwtAuthenticationFilter는 isAdmin() 플래그가 있으면 base role 권한에 ROLE_ADMIN을
+     * 더해 부여한다(어드민은 Authority 값이 아니라 member.is_admin 겸직 플래그이기 때문).
+     * hasAnyRole('OWNER', 'ADMIN') 같은 식은 이 ROLE_ADMIN으로 매칭되므로, 겸직 사용자를
+     * 재현하려면 base role과 ROLE_ADMIN을 함께 부여해야 한다.
+     */
+    private Authentication authenticationOf(String role, boolean isAdmin) {
+        AuthPrincipal principal = new AuthPrincipal(1L, 10L, role, isAdmin, null);
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+        if (isAdmin) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+        }
+        return new TestingAuthenticationToken(principal, null, authorities);
     }
 
     /* 로그인했지만 관리 역할이 아닌 사용자가 ROOM-03을 호출할 수 없는지 검증한다. */
@@ -148,6 +167,33 @@ class MeetingRoomCommandSecurityTest {
 
         /* @PreAuthorize에서 거절된 요청은 ROOM-03 유스케이스에 도달하면 안 된다. */
         verifyNoInteractions(createMeetingRoomUseCase);
+    }
+
+    /*
+     * 어드민 겸직 MEMBER가 ROOM-03을 호출할 수 있는지 검증한다. ADMIN은 Authority 값이
+     * 아니라 member.is_admin 겸직 플래그이므로, hasAnyRole('OWNER', 'ADMIN')이 base role과
+     * 무관하게 ROLE_ADMIN 겸직자를 통과시키는지가 핵심이다.
+     */
+    @Test
+    @DisplayName("어드민 겸직 MEMBER의 POST 요청을 유스케이스까지 통과시킨다")
+    void allowsAdminFlaggedMemberCreateRequest() throws Exception {
+        /* 등록 유스케이스가 정상 결과를 반환하도록 스텁을 준비한다. */
+        when(createMeetingRoomUseCase.createMeetingRoom(any()))
+                .thenReturn(new MeetingRoomCreationResult(101L));
+
+        /* 어드민 겸직 MEMBER 인증을 가진 상태에서 정상 등록 본문을 전송한다. */
+        mockMvc.perform(post("/api/rooms")
+                        .with(authentication(authenticationOf("MEMBER", true)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "대회의실",
+                                  "location": "박애관 421호",
+                                  "availableFrom": "09:00",
+                                  "availableTo": "18:00"
+                                }
+                                """))
+                .andExpect(status().isCreated());
     }
 
     /* 로그인했지만 관리 역할이 아닌 사용자가 ROOM-04를 호출할 수 없는지 검증한다. */

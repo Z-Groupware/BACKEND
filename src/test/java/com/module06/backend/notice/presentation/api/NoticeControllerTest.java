@@ -194,7 +194,7 @@ class NoticeControllerTest {
 
         /* 작성 권한은 OWNER만 포함하고 실제 HTTP 상태는 201이어야 한다. */
         assertThat(preAuthorize).isNotNull();
-        assertThat(preAuthorize.value()).contains("OWNER").doesNotContain("ADMIN", "LEADER", "MEMBER");
+        assertThat(preAuthorize.value()).isEqualTo("hasRole('OWNER')");
         assertThat(responseStatus).isNotNull();
         assertThat(responseStatus.value().value()).isEqualTo(201);
     }
@@ -295,7 +295,7 @@ class NoticeControllerTest {
 
         /* 수정 권한에는 OWNER만 있고 경로는 공지 식별자를 포함해야 한다. */
         assertThat(preAuthorize).isNotNull();
-        assertThat(preAuthorize.value()).contains("OWNER").doesNotContain("ADMIN", "LEADER", "MEMBER");
+        assertThat(preAuthorize.value()).isEqualTo("hasRole('OWNER')");
         assertThat(putMapping).isNotNull();
         assertThat(putMapping.value()).containsExactly("/{noticeId}");
     }
@@ -378,7 +378,7 @@ class NoticeControllerTest {
 
         /* 삭제 권한에는 OWNER만 있고 경로는 공지 식별자를 포함해야 한다. */
         assertThat(preAuthorize).isNotNull();
-        assertThat(preAuthorize.value()).contains("OWNER").doesNotContain("ADMIN", "LEADER", "MEMBER");
+        assertThat(preAuthorize.value()).isEqualTo("hasRole('OWNER')");
         assertThat(deleteMapping).isNotNull();
         assertThat(deleteMapping.value()).containsExactly("/{noticeId}");
     }
