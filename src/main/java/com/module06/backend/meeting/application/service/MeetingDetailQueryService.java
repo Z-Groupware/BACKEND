@@ -13,15 +13,20 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.UndispatchedActionMeeting;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort.ProjectSnapshot;
+import com.module06.backend.meeting.application.port.out.SummaryStatusQueryPort;
 import com.module06.backend.meeting.application.query.GetMeetingDetailQuery;
 import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingDetailUseCase;
+import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
@@ -49,6 +54,12 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
 
     /* 개설자와 참석자의 이름·팀·직급 표시 정보를 조회하는 B 연동 Port다. */
     private final MemberQueryPort memberQueryPort;
+
+    /* 미확정 액션 배너에 쓸 회의별 분배 대기 건수를 조회하는 C 연동 Port다. */
+    private final ActionQueryPort actionQueryPort;
+
+    /* 요약 중단·실패 배너에 쓸 회의별 요약 상태를 조회하는 A 연동 Port다. */
+    private final SummaryStatusQueryPort summaryStatusQueryPort;
 
     /* 열람 권한을 검증하고 회의 메타와 연결 리소스 표시 정보를 상세 결과로 조립한다. */
     @Override
@@ -94,7 +105,11 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         );
         MemberSnapshot host = members.get(meeting.hostMemberId());
 
-        /* D 회의 메타와 세 Port의 표시 정보를 외부 응답과 독립적인 애플리케이션 결과로 만든다. */
+        /* 종료 전 회의는 액션·요약 자체가 없으므로 C·A Port를 부르지 않고 기본값으로 확정한다. */
+        long pendingActionCount = resolvePendingActionCount(meeting);
+        MeetingSummaryStatus summaryStatus = resolveSummaryStatus(meeting);
+
+        /* D 회의 메타와 다섯 Port의 표시 정보를 외부 응답과 독립적인 애플리케이션 결과로 만든다. */
         return new MeetingDetailResult(
                 meeting.meetingId(),
                 meeting.title(),
@@ -104,6 +119,8 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 meeting.startedAt(),
                 meeting.endedAt(),
                 meeting.recordingConsent(),
+                pendingActionCount,
+                summaryStatus,
                 new MeetingDetailResult.Project(
                         project.projectId(),
                         project.tag(),
@@ -127,6 +144,38 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                         .toList(),
                 meeting.createdAt()
         );
+    }
+
+    /* 회의가 끝나지 않았으면 분배할 액션 자체가 없으므로 C Port 없이 0건으로 확정한다. */
+    private long resolvePendingActionCount(MeetingDetailSnapshot meeting) {
+        if (meeting.status() != MeetingStatus.DONE) {
+            return 0L;
+        }
+
+        /* MEET-10과 같은 계약이다 — 회의 ID 하나짜리 목록을 넘기면 분배 대기 건수만 있는 행이 온다. */
+        return actionQueryPort
+                .findMeetingsWithUndispatchedActions(meeting.companyId(), List.of(meeting.meetingId()))
+                .stream()
+                .findFirst()
+                .map(UndispatchedActionMeeting::undispatchedCount)
+                .orElse(0L);
+    }
+
+    /* 회의가 끝나지 않았으면 요약 자체가 없으므로 A Port 없이 NONE으로 확정한다. */
+    private MeetingSummaryStatus resolveSummaryStatus(MeetingDetailSnapshot meeting) {
+        if (meeting.status() != MeetingStatus.DONE) {
+            return MeetingSummaryStatus.NONE;
+        }
+
+        /* MEET-15와 같은 계약이다 — 중단·실패가 아니면 회의 ID가 결과에 아예 없다. */
+        boolean stalled = summaryStatusQueryPort
+                .findStalledSummaries(meeting.companyId(), List.of(meeting.meetingId()))
+                .stream()
+                .findAny()
+                .isPresent();
+
+        /* 종료됐고 중단도 아니면 A가 PROCESSING·DONE을 구분해 주지 않아 실제 상태를 모른다 — 추측 대신 null. */
+        return stalled ? MeetingSummaryStatus.STALLED : null;
     }
 
     /* Controller 밖의 내부 호출에서도 인증 식별자와 회의 식별자의 기본 계약을 지킨다. */
