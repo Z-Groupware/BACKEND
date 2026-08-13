@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.module06.backend.identity.company.domain.model.Company;
 
-/** §4-2·4-3 공통 응답. {@code plan}은 결제 연동이 없어 "FREE" 고정이다. */
+/** §4-2·4-3 공통 응답. {@code subscriptionStatus}는 구독 도메인이 채워 준다(호출자가 주입). */
 @Schema(description = "기업 기본 정보")
 public record CompanyProfileResponse(
         Long companyId,
@@ -23,13 +23,13 @@ public record CompanyProfileResponse(
         Double longitude,
 
         String phone,
-        String plan,
+        String subscriptionStatus,
         LocalDateTime onboardedAt
 ) {
-    public static CompanyProfileResponse from(Company company) {
+    public static CompanyProfileResponse from(Company company, String subscriptionStatus) {
         return new CompanyProfileResponse(
                 company.id(), company.code(), company.name(), company.registrationNo(),
                 company.representativeName(), company.address(), company.latitude(), company.longitude(),
-                company.mainPhone(), "FREE", company.onboardedAt());
+                company.mainPhone(), subscriptionStatus, company.onboardedAt());
     }
 }

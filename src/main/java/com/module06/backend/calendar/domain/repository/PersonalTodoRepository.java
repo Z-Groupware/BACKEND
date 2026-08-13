@@ -16,6 +16,7 @@ public interface PersonalTodoRepository {
 
     Optional<PersonalTodo> findById(Long id);
 
-    // 캘린더 월별 조회 — 호출자 본인 소유분만, 날짜 범위로 스코프한다.
-    List<PersonalTodo> findAllByMemberIdAndDateBetween(Long memberId, LocalDate from, LocalDate to);
+    // 캘린더 월별 조회 — 호출자 본인 소유분만, [date, endDate] 구간이 [periodStart, periodEnd]와
+    // 겹치는 Todo를 전부 반환한다(시작일이 이전 달이어도 종료일이 조회 월에 걸치면 포함).
+    List<PersonalTodo> findAllByMemberIdOverlappingPeriod(Long memberId, LocalDate periodStart, LocalDate periodEnd);
 }

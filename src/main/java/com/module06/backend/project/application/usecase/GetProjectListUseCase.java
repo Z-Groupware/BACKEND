@@ -16,11 +16,13 @@ import com.module06.backend.project.domain.model.ProjectStatus;
     무관하게 전체 건수라 ProjectListResult로 함께 반환한다.
 
     2026-08-10 필터/정렬 추가(이홍근 요청) — status는 null이면 필터 안 함. sort/order는
-    presentation 계층이 화이트리스트로 정제해서 넘긴다(dueDate·createdAt만 허용).
+    presentation 계층이 화이트리스트로 정제해서 넘긴다(dueDate·createdAt·name만 허용).
+
+    2026-08-13 keyword 검색 추가(이홍근 요청, 종준님 확정) — null/빈문자열이면 필터 안 함.
 */
 public interface GetProjectListUseCase {
 
-    ProjectListResult list(Long companyId, ProjectStatus status, String sort, String order, int page, int size);
+    ProjectListResult list(Long companyId, String keyword, ProjectStatus status, String sort, String order, int page, int size);
 
     record ProjectListItem(
             Project project,
