@@ -3,6 +3,7 @@ package com.module06.backend.project.infrastructure.persistence;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -120,7 +121,7 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
                 predicates.add(cb.equal(root.get("status"), status));
             }
             if (keyword != null && !keyword.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("name")), "%" + keyword.toLowerCase() + "%"));
+                predicates.add(cb.like(cb.lower(root.get("name")), "%" + keyword.toLowerCase(Locale.ROOT) + "%"));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };

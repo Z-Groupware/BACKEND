@@ -78,6 +78,10 @@ class ProjectPersistenceAdapterListFilterTest {
         List<Project> result = projectRepository.findAllByCompanyId(COMPANY, "ZEBRA", null, null, "desc", 0, 20);
 
         assertThat(result).hasSize(2);
+        // CodeRabbit 지적(PR #452) — 개수·count만 보면 조건이 틀려도 우연히 2건이 나오면 통과한다.
+        // 실제로 어떤 프로젝트가 반환됐는지까지 확인한다.
+        assertThat(result).extracting(Project::getName)
+                .containsExactlyInAnyOrder("프로젝트 Zebra Groupware", "프로젝트 zebra internal tools");
         assertThat(projectRepository.countByCompanyId(COMPANY, "ZEBRA", null)).isEqualTo(2L);
     }
 

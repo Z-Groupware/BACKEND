@@ -176,6 +176,20 @@ class ProjectServiceTest {
         assertThat(result.totalElements()).isEqualTo(1L);
     }
 
+    // CodeRabbit 지적(PR #452) — 기존 list 테스트가 전부 keyword=null만 써서, 비어있지 않은
+    // keyword가 목록·count 조회 양쪽에 동일하게 전달되는지는 검증된 적이 없었다.
+    @Test
+    void listPassesNonEmptyKeywordToContentAndCountQueries() {
+        projectService = service();
+        when(projectRepository.findAllByCompanyId(COMPANY, "zebra", null, null, "desc", 0, 20)).thenReturn(List.of());
+        when(projectRepository.countByCompanyId(COMPANY, "zebra", null)).thenReturn(0L);
+
+        projectService.list(COMPANY, "zebra", null, null, "desc", 0, 20);
+
+        verify(projectRepository).findAllByCompanyId(COMPANY, "zebra", null, null, "desc", 0, 20);
+        verify(projectRepository).countByCompanyId(COMPANY, "zebra", null);
+    }
+
     @Test
     void listAttachesActionAndMeetingCountsFromBatchQueries() {
         projectService = service();
