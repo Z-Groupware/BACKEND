@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -21,8 +22,15 @@ import com.module06.backend.meeting.application.query.GetMeetingDetailQuery;
 import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingAttendeeReference;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.ProjectMeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.UpcomingMeetingSnapshot;
 
 /*
  * MEET-04 상세 조회 서비스의 테넌트·권한·외부 표시 정보 조합 규칙을 검증한다.
@@ -61,6 +69,10 @@ class MeetingDetailQueryServiceTest {
         /* 미확정 액션이 없고 요약도 중단되지 않았으면 0건과 알 수 없음(null)이어야 한다. */
         assertThat(result.pendingActionCount()).isZero();
         assertThat(result.summaryStatus()).isNull();
+        assertThat(result.teamId()).isEqualTo(100L);
+        assertThat(result.originLabel()).isEqualTo("TEAM");
+        assertThat(result.agenda().mainTopic()).isEqualTo("Main agenda");
+        assertThat(result.agenda().subTopics()).containsExactly("First sub agenda", "Second sub agenda");
     }
 
     /* 종료된 회의에서 C·A Port가 돌려준 값이 그대로 반영되는지 검증한다. */
@@ -239,8 +251,52 @@ class MeetingDetailQueryServiceTest {
                 meetingRoomPort,
                 memberPort,
                 actionQueryPort,
-                summaryStatusQueryPort
+                summaryStatusQueryPort,
+                meetingQueryRepository()
         );
+    }
+
+    private MeetingQueryRepository meetingQueryRepository() {
+        return new MeetingQueryRepository() {
+            @Override
+            public Optional<MeetingSnapshot> findMeeting(Long companyId, Long meetingId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId) {
+                return List.of();
+            }
+
+            @Override
+            public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+                return Map.of();
+            }
+
+            @Override
+            public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
+                    Long companyId,
+                    Long memberId,
+                    LocalDateTime now,
+                    int limit
+            ) {
+                return List.of();
+            }
+
+            @Override
+            public List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds) {
+                return List.of(
+                        new MeetingTopicSnapshot(91L, 1L, null, MeetingTopicType.MAIN, "Main agenda", 1),
+                        new MeetingTopicSnapshot(91L, 2L, 1L, MeetingTopicType.SUB, "First sub agenda", 2),
+                        new MeetingTopicSnapshot(91L, 3L, 1L, MeetingTopicType.SUB, "Second sub agenda", 3)
+                );
+            }
+
+            @Override
+            public List<MeetingAttendeeReference> findMeetingAttendees(Long companyId, List<Long> meetingIds) {
+                return List.of();
+            }
+        };
     }
 
     /* 미확정 액션이 없다고 답하는 C Port 대역을 만든다. */

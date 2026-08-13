@@ -8,6 +8,7 @@ import com.module06.backend.metering.domain.exception.BillingErrorCode;
 import com.module06.backend.metering.domain.model.BillingPaymentMethod;
 import com.module06.backend.metering.domain.model.BillingPaymentRecord;
 import com.module06.backend.metering.domain.model.BillingPaymentStatus;
+import com.module06.backend.metering.domain.model.BillingDefaults;
 import com.module06.backend.metering.domain.model.BillingSubscription;
 import com.module06.backend.metering.domain.model.BillingSubscriptionStatus;
 import com.module06.backend.metering.domain.model.CompanyBillingConfig;
@@ -89,6 +90,27 @@ class BillingCommandServiceTest {
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.failureCode()).isEqualTo("NO_PAYMENT_METHOD");
         verify(subscriptionRepository, never()).save(any());
+        verify(paymentRecordRepository, never()).save(any());
+    }
+
+    @Test
+    void payCreatesUnpaidSubscriptionWhenMissingAndPaymentMethodIsMissing() {
+        when(subscriptionRepository.findByCompanyId(COMPANY)).thenReturn(Optional.empty());
+        when(subscriptionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentMethodRepository.findByCompanyId(COMPANY)).thenReturn(Optional.empty());
+
+        BillingPaymentActionResult result = service.pay(owner());
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.failureCode()).isEqualTo("NO_PAYMENT_METHOD");
+
+        ArgumentCaptor<BillingSubscription> subscriptionCaptor = ArgumentCaptor.forClass(BillingSubscription.class);
+        verify(subscriptionRepository).save(subscriptionCaptor.capture());
+        BillingSubscription created = subscriptionCaptor.getValue();
+        assertThat(created.getPlanCode()).isEqualTo(BillingDefaults.PLAN_CODE);
+        assertThat(created.getSeats()).isEqualTo(1);
+        assertThat(created.getStatus()).isEqualTo(BillingSubscriptionStatus.UNPAID);
+        assertThat(created.getStartedOn()).isEqualTo(LocalDate.of(2026, 8, 12));
         verify(paymentRecordRepository, never()).save(any());
     }
 

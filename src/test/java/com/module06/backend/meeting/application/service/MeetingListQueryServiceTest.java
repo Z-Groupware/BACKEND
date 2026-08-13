@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -21,11 +22,19 @@ import com.module06.backend.meeting.application.port.out.ActionQueryPort;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
+import com.module06.backend.meeting.application.port.out.SummaryStatusQueryPort;
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingAttendeeReference;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.ProjectMeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.UpcomingMeetingSnapshot;
 
 /*
  * MEET-02 서비스의 기본 기간·페이지·외부 표시값 조합과 오류 계약을 검증한다.
@@ -69,6 +78,8 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 actionQueryPort,
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 memberQueryPort,
                 FIXED_CLOCK
         );
@@ -80,7 +91,7 @@ class MeetingListQueryServiceTest {
 
         /* 생략 기간은 2026-05-07 00시부터 2026-08-07 마지막 순간까지여야 한다. */
         assertThat(repository.criteria.fromInclusive()).isEqualTo(LocalDateTime.of(2026, 5, 7, 0, 0));
-        assertThat(repository.criteria.toInclusive().toLocalDate()).isEqualTo(LocalDate.of(2026, 8, 7));
+        assertThat(repository.criteria.toInclusive().toLocalDate()).isEqualTo(LocalDate.of(2026, 11, 7));
 
         /* 생략 페이지 값은 0번 페이지와 20건으로, scope 생략은 null로 저장소에 전달돼야 한다. */
         assertThat(repository.criteria.page()).isZero();
@@ -98,6 +109,17 @@ class MeetingListQueryServiceTest {
         assertThat(result.meetings())
                 .extracting(MeetingListResult.MeetingItem::actionCount)
                 .containsExactly(3L, 0L);
+        assertThat(result.meetings())
+                .extracting(item -> item.summaryStatus() == null ? null : item.summaryStatus().name())
+                .containsExactly(null, "STALLED");
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::teamId)
+                .containsExactly(null, null);
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::originLabel)
+                .containsExactly("OWNER", "OWNER");
+        assertThat(result.meetings().get(0).agendaPreview().mainTopic()).isEqualTo("Main agenda");
+        assertThat(result.meetings().get(0).agendaPreview().firstSubTopic()).isEqualTo("First sub agenda");
         assertThat(result.page().totalElements()).isEqualTo(37L);
         assertThat(result.page().totalPages()).isEqualTo(2);
 
@@ -144,7 +166,7 @@ class MeetingListQueryServiceTest {
         RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
                 new MeetingListRepository.MeetingPage(
                         List.of(new MeetingListRepository.MeetingListSnapshot(
-                                50L, 12L, 2L, "진행 중 회의", MeetingStatus.IN_PROGRESS,
+                                50L, 12L, null, 2L, "진행 중 회의", MeetingStatus.IN_PROGRESS,
                                 startAt, startAt.plusMinutes(35), 99L, List.of(99L, 3L)
                         )),
                         1L,
@@ -160,6 +182,8 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 new RecordingActionQueryPort(List.of()),
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 memberQueryPort,
                 FIXED_CLOCK
         );
@@ -185,11 +209,11 @@ class MeetingListQueryServiceTest {
                 new MeetingListRepository.MeetingPage(
                         List.of(
                                 new MeetingListRepository.MeetingListSnapshot(
-                                        60L, 12L, 2L, "취소된 회의", MeetingStatus.CANCELED,
+                                        60L, 12L, null, 2L, "취소된 회의", MeetingStatus.CANCELED,
                                         startAt, startAt.plusMinutes(35), 3L, List.of(3L)
                                 ),
                                 new MeetingListRepository.MeetingListSnapshot(
-                                        61L, 12L, 2L, "일찍 끝난 회의", MeetingStatus.DONE,
+                                        61L, 12L, null, 2L, "일찍 끝난 회의", MeetingStatus.DONE,
                                         startAt, startAt.plusMinutes(35), 3L, List.of(3L)
                                 )
                         ),
@@ -205,6 +229,8 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 new RecordingActionQueryPort(List.of()),
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 memberQueryPort,
                 FIXED_CLOCK
         );
@@ -231,6 +257,8 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 new RecordingActionQueryPort(List.of()),
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 neverCalledMemberPort(),
                 FIXED_CLOCK
         );
@@ -261,6 +289,8 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 actionQueryPort,
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 neverCalledMemberPort(),
                 FIXED_CLOCK
         );
@@ -305,6 +335,8 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 new RecordingActionQueryPort(List.of()),
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 neverCalledMemberPort(),
                 FIXED_CLOCK
         );
@@ -343,6 +375,8 @@ class MeetingListQueryServiceTest {
                 emptyMeetingRoomPort(),
                 emptyProjectPort(),
                 new RecordingActionQueryPort(List.of()),
+                summaryStatusPort(),
+                meetingQueryRepository(),
                 neverCalledMemberPort(),
                 FIXED_CLOCK
         );
@@ -445,6 +479,57 @@ class MeetingListQueryServiceTest {
     }
 
     /* 빈 페이지 테스트에서 참석자 배치 조회가 호출되면 즉시 실패하는 Port 대역이다. */
+    private SummaryStatusQueryPort summaryStatusPort() {
+        return (companyId, meetingIds) -> meetingIds.contains(91L)
+                ? List.of(new SummaryStatusQueryPort.StalledSummaryMeeting(91L, true))
+                : List.of();
+    }
+
+    private MeetingQueryRepository meetingQueryRepository() {
+        return new MeetingQueryRepository() {
+            @Override
+            public Optional<MeetingSnapshot> findMeeting(Long companyId, Long meetingId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId) {
+                return List.of();
+            }
+
+            @Override
+            public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+                return Map.of();
+            }
+
+            @Override
+            public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
+                    Long companyId,
+                    Long memberId,
+                    LocalDateTime now,
+                    int limit
+            ) {
+                return List.of();
+            }
+
+            @Override
+            public List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds) {
+                if (!meetingIds.contains(92L)) {
+                    return List.of();
+                }
+                return List.of(
+                        new MeetingTopicSnapshot(92L, 1L, null, MeetingTopicType.MAIN, "Main agenda", 1),
+                        new MeetingTopicSnapshot(92L, 2L, 1L, MeetingTopicType.SUB, "First sub agenda", 2)
+                );
+            }
+
+            @Override
+            public List<MeetingAttendeeReference> findMeetingAttendees(Long companyId, List<Long> meetingIds) {
+                return List.of();
+            }
+        };
+    }
+
     private MemberQueryPort neverCalledMemberPort() {
         return new MemberQueryPort() {
             @Override
@@ -477,6 +562,7 @@ class MeetingListQueryServiceTest {
         return new MeetingListRepository.MeetingListSnapshot(
                 meetingId,
                 projectId,
+                null,
                 meetingRoomId,
                 title,
                 MeetingStatus.DONE,

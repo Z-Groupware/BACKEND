@@ -17,6 +17,7 @@ import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingListUseCase;
 import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
 import com.module06.backend.meeting.presentation.api.response.MeetingListResponse;
 
 /*
@@ -75,6 +76,10 @@ class MeetingListControllerTest {
         var meeting = response.getData().meetings().get(0);
         assertThat(meeting.startAt()).isEqualTo("2026-08-04T14:00:00");
         assertThat(meeting.actionCount()).isEqualTo(5L);
+        assertThat(meeting.teamId()).isEqualTo(100L);
+        assertThat(meeting.originLabel()).isEqualTo("TEAM");
+        assertThat(meeting.summaryStatus()).isEqualTo("STALLED");
+        assertThat(meeting.agendaPreview().mainTopic()).isEqualTo("Main agenda");
         assertThat(meeting.isHost()).isTrue();
         assertThat(meeting.entryAvailable()).isFalse();
         assertThat(meeting.durationMinutes()).isEqualTo(60);
@@ -154,6 +159,9 @@ class MeetingListControllerTest {
                         91L,
                         "A커머스 온보딩 킥오프",
                         MeetingStatus.DONE,
+                        100L,
+                        "TEAM",
+                        MeetingSummaryStatus.STALLED,
                         LocalDateTime.of(2026, 8, 4, 14, 0),
                         LocalDateTime.of(2026, 8, 4, 15, 0),
                         4,
@@ -165,6 +173,7 @@ class MeetingListControllerTest {
                                 new MeetingListResult.Attendee(3L, "지우"),
                                 new MeetingListResult.Attendee(7L, "이든")
                         ),
+                        new MeetingListResult.AgendaPreview("Main agenda", "First sub agenda"),
                         new MeetingListResult.MeetingRoom(2L, "회의실 B"),
                         new MeetingListResult.Project(12L, "acommerce", "A커머스 온보딩")
                 )),

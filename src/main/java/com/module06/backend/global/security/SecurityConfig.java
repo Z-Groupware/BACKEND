@@ -100,6 +100,9 @@ public class SecurityConfig {
                         // Prometheus 서버가 JWT 없이 지표를 수집하므로 prometheus 경로도 공개한다.
                         // 외부 노출 범위는 애플리케이션 인증이 아니라 VPC·보안그룹에서 제한한다.
                         .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/billing-config").permitAll()
+                        .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/actuator/prometheus",

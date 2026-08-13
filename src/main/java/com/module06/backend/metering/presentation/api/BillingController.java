@@ -57,17 +57,19 @@ public class BillingController {
 
     @PreAuthorize("hasRole('OWNER') or principal.isAdmin()")
     @PostMapping("/subscription/pay")
-    public BillingPaymentActionResult pay(@AuthenticationPrincipal AuthPrincipal principal) {
-        return manageBillingSubscriptionUseCase.pay(principal);
+    public ApiResponse<BillingPaymentActionResult> pay(@AuthenticationPrincipal AuthPrincipal principal) {
+        BillingPaymentActionResult result = manageBillingSubscriptionUseCase.pay(principal);
+        return ApiResponse.success("Billing payment processed.", result);
     }
 
     @PreAuthorize("hasRole('OWNER') or principal.isAdmin()")
     @PostMapping("/payment-methods")
-    public BillingOverviewResponse.PaymentMethodResponse registerPaymentMethod(
+    public ApiResponse<BillingOverviewResponse.PaymentMethodResponse> registerPaymentMethod(
             @AuthenticationPrincipal AuthPrincipal principal,
             @RequestBody RegisterPaymentMethodRequest request) {
-        return BillingOverviewResponse.PaymentMethodResponse.from(
+        BillingOverviewResponse.PaymentMethodResponse response = BillingOverviewResponse.PaymentMethodResponse.from(
                 manageBillingPaymentMethodUseCase.register(principal, request.authKey(), request.customerKey()));
+        return ApiResponse.success("Payment method registered.", response);
     }
 
     @PreAuthorize("hasRole('OWNER') or principal.isAdmin()")

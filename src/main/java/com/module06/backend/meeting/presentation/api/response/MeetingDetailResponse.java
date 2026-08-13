@@ -20,6 +20,9 @@ public record MeetingDetailResponse(
         boolean recordingConsent,
         long pendingActionCount,
         String summaryStatus,
+        Long teamId,
+        String originLabel,
+        AgendaResponse agenda,
         ProjectResponse project,
         MeetingRoomResponse meetingRoom,
         HostResponse host,
@@ -51,6 +54,12 @@ public record MeetingDetailResponse(
                 result.recordingConsent(),
                 result.pendingActionCount(),
                 result.summaryStatus() == null ? null : result.summaryStatus().name(),
+                result.teamId(),
+                result.originLabel(),
+                result.agenda() == null ? null : new AgendaResponse(
+                        result.agenda().mainTopic(),
+                        result.agenda().subTopics()
+                ),
                 new ProjectResponse(
                         result.project().projectId(),
                         result.project().tag(),
@@ -100,5 +109,11 @@ public record MeetingDetailResponse(
             String teamName,
             String jobPosition
     ) {
+    }
+
+    public record AgendaResponse(String mainTopic, List<String> subTopics) {
+        public AgendaResponse {
+            subTopics = List.copyOf(subTopics);
+        }
     }
 }
