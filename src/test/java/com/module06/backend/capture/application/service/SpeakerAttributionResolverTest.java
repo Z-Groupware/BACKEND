@@ -41,6 +41,20 @@ class SpeakerAttributionResolverTest {
     }
 
     @Test
+    @DisplayName("창 안 후보가 둘 이상이면 확정하지 않는다 — HashMap 반복 순서로 화자를 고르면 안 된다")
+    void 후보가_둘_이상이면_포기한다() {
+        // host-only 전환 이전에 저장된 참석자 자막이 남아 있거나, 명단·전송 경로 문제로
+        // 같은 창 안에 두 사람 이상의 자막이 잡히는 상황이다.
+        List<Attribution> result = resolver.resolve(
+                List.of(utterance(1L, 10_000, 12_000)),
+                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
+                        caption(BOB, 10_000, 12_000, "-19.00")),
+                Set.of(ALICE, BOB));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     @DisplayName("자막을 안 켠 참석자가 있으면 후보가 한 명이어도 포기한다")
     void 전원이_자막을_보내지_않으면_단독_후보를_믿지_않는다() {
         // 참석자 3명, 자막은 앨리스만 보낸다. 이때 모든 구간의 유일한 후보가 앨리스가 되고,

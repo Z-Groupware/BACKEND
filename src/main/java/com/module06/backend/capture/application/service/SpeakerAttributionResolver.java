@@ -128,8 +128,13 @@ public class SpeakerAttributionResolver {
 
         Map<Long, BigDecimal> loudestByMember = loudestByMember(utterance, captions);
 
-        // host-only 자막이라 창 안 후보는 0명 아니면 1명(host)뿐이다 — 2명 이상 비교할 일이 없다.
-        if (loudestByMember.isEmpty()) {
+        /*
+         * host-only 전환 이후에는 창 안 후보가 0명 아니면 1명(host)이어야 정상이다. 하지만
+         * 전환 이전에 저장된 참석자 자막이 아직 남아 있거나, 명단·전송 경로에 다른 문제가
+         * 생기면 2명 이상이 잡힐 수 있다 — 그때 HashMap 반복 순서로 하나를 골라 확정하면
+         * 안 된다. 그건 코드가 화자를 정한 게 아니라 반복 순서가 정한 것이다.
+         */
+        if (loudestByMember.size() != 1) {
             return null;
         }
 

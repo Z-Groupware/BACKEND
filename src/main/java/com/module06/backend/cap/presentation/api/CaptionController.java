@@ -85,7 +85,8 @@ public class CaptionController {
     // 자막 실시간 구독 SSE (CAP-13)
     @Operation(
             summary = "자막 실시간 구독(SSE)",
-            description = "이 회의로 들어오는 자막(CAP-11)을 실시간으로 받는다. JSON 단발 응답이 아니라 SSE "
+            description = "host만 구독할 수 있다. host가 아닌 요청자는 CAP_NOT_HOST(403)로 거절된다. "
+                    + "이 회의로 들어오는 자막(CAP-11)을 실시간으로 받는다. JSON 단발 응답이 아니라 SSE "
                     + "스트림이다. event: caption·participant·heartbeat 세 종류를 내려준다. "
                     + "구독 시점 이전 자막은 안 내려주므로, 자막 전체 조회(CAP-12)로 먼저 백필해야 한다."
     )
