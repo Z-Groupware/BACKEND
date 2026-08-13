@@ -37,14 +37,14 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
     /* 공지 저장과 알림 구현을 분리한 채 등록 완료 사실을 발행하는 Port다. */
     private final NoticeEventPublisher noticeEventPublisher;
 
-    /* 인증 회사에 OWNER·ADMIN 작성자의 공지를 저장하고 생성 식별자를 반환한다. */
+    /* 인증 회사에 OWNER 작성자의 공지를 저장하고 생성 식별자를 반환한다. */
     @Override
     @Transactional
     public NoticeCreationResult createNotice(CreateNoticeCommand command) {
         /* Controller를 거치지 않는 내부 호출에서도 인증 식별자와 제목·본문 계약을 검증한다. */
         validateRequiredValues(command);
 
-        /* 애노테이션 인가를 우회한 내부 호출도 OWNER·ADMIN이 아니면 공지 작성을 거절한다. */
+        /* 애노테이션 인가를 우회한 내부 호출도 OWNER가 아니면 공지 작성을 거절한다. */
         if (!isNoticeManager(command.requesterRole())) {
             throw new BusinessException(NoticeErrorCode.NOTICE_MANAGEMENT_FORBIDDEN);
         }
@@ -78,7 +78,7 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
         /* 웹 계층을 거치지 않는 내부 호출에도 식별자·권한·본문 계약을 동일하게 적용한다. */
         validateUpdateCommand(command);
 
-        /* 애노테이션 인가 우회 호출도 OWNER·ADMIN이 아니면 공지 수정을 거절한다. */
+        /* 애노테이션 인가 우회 호출도 OWNER가 아니면 공지 수정을 거절한다. */
         if (!isNoticeManager(command.requesterRole())) {
             throw new BusinessException(NoticeErrorCode.NOTICE_MANAGEMENT_FORBIDDEN);
         }
@@ -107,7 +107,7 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
         /* 내부 호출도 인증 식별자와 삭제 경로 계약을 준수하도록 저장소 접근 전에 검증한다. */
         validateDeleteCommand(command);
 
-        /* 애노테이션 인가 우회 호출도 OWNER·ADMIN이 아니면 공지 삭제를 거절한다. */
+        /* 애노테이션 인가 우회 호출도 OWNER가 아니면 공지 삭제를 거절한다. */
         if (!isNoticeManager(command.requesterRole())) {
             throw new BusinessException(NoticeErrorCode.NOTICE_MANAGEMENT_FORBIDDEN);
         }
@@ -180,9 +180,9 @@ public class NoticeCommandService implements CreateNoticeUseCase, UpdateNoticeUs
         }
     }
 
-    /* 인증 역할이 공지 작성 권한을 가진 OWNER 또는 ADMIN인지 판단한다. */
+    /* 인증 역할이 공지 작성 권한을 가진 OWNER인지 판단한다. */
     private boolean isNoticeManager(String role) {
-        /* 명세에 확정된 두 역할만 쓰기 권한으로 인정한다. */
-        return "OWNER".equals(role) || "ADMIN".equals(role);
+        /* Authority에는 ADMIN이 없다(어드민은 member.is_admin 겸직 플래그) — OWNER만 쓰기 권한이다. */
+        return "OWNER".equals(role);
     }
 }

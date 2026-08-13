@@ -41,7 +41,7 @@ import com.module06.backend.notice.presentation.api.response.NoticeDetailRespons
 import com.module06.backend.notice.presentation.api.response.NoticeListResponse;
 import com.module06.backend.notice.presentation.api.response.UpdateNoticeResponse;
 
-/* NOTI-01~05 회사 공지 CRUD REST API의 진입점이다. */
+/* NOTI-01~05 회사 공지 CRUD REST API의 진입점이다. 작성·수정·삭제는 OWNER만 가능하다. */
 @Tag(name = "Notice", description = "회사 공지 조회 및 관리 API")
 @RestController
 @RequestMapping("/api/notices")
@@ -102,9 +102,9 @@ public class NoticeController {
         );
     }
 
-    /* OWNER·ADMIN이 인증된 자기 회사에 새로운 공지를 작성한다. */
-    @Operation(summary = "공지 작성", description = "관리자가 로그인한 회사에 제목과 본문을 가진 공지를 작성합니다.")
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    /* OWNER가 인증된 자기 회사에 새로운 공지를 작성한다. */
+    @Operation(summary = "공지 작성", description = "OWNER가 로그인한 회사에 제목과 본문을 가진 공지를 작성합니다.")
+    @PreAuthorize("hasRole('OWNER')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public ApiResponse<CreateNoticeResponse> createNotice(
@@ -125,9 +125,9 @@ public class NoticeController {
         );
     }
 
-    /* OWNER·ADMIN이 인증된 자기 회사의 활성 공지 제목과 본문을 전체 수정한다. */
-    @Operation(summary = "공지 수정", description = "관리자가 공지의 제목과 본문을 전체 수정합니다.")
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    /* OWNER가 인증된 자기 회사의 활성 공지 제목과 본문을 전체 수정한다. */
+    @Operation(summary = "공지 수정", description = "OWNER가 공지의 제목과 본문을 전체 수정합니다.")
+    @PreAuthorize("hasRole('OWNER')")
     @PutMapping("/{noticeId}")
     public ApiResponse<UpdateNoticeResponse> updateNotice(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
@@ -149,9 +149,9 @@ public class NoticeController {
         );
     }
 
-    /* OWNER·ADMIN이 인증된 자기 회사의 활성 공지를 소프트 삭제한다. */
-    @Operation(summary = "공지 삭제", description = "관리자가 공지를 소프트 삭제해 조회 대상에서 제외합니다.")
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    /* OWNER가 인증된 자기 회사의 활성 공지를 소프트 삭제한다. */
+    @Operation(summary = "공지 삭제", description = "OWNER가 공지를 소프트 삭제해 조회 대상에서 제외합니다.")
+    @PreAuthorize("hasRole('OWNER')")
     @DeleteMapping("/{noticeId}")
     public ApiResponse<Void> deleteNotice(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
