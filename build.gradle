@@ -17,6 +17,30 @@ repositories {
 	mavenCentral()
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 취약점 때문에 BOM 보다 올려 박는 전이 의존성.
+//
+// 둘 다 우리가 직접 적은 것이 아니다 — 남이 끌고 오고, Spring Boot 4.1.0 의 BOM 이
+// 취약한 버전으로 못 박아둔다. BOM 이 정한 값을 property 로 덮어써서 올린다.
+//
+// ⚠️ Spring Boot 를 올릴 때 이 블록을 함께 볼 것. BOM 이 아래 버전 이상을 물어오게 되면
+//    그 줄은 지워야 한다 — 남겨두면 BOM 보다 낮은 버전에 묶어버리는 반대 효과가 난다.
+//
+// 둘 다 Dependency Review 가 잡았다(PR #469, 도입 첫 실행). 목록 기능이 리포에서
+// 꺼져 있던 동안에는 아무도 이것들을 몰랐다.
+// ════════════════════════════════════════════════════════════════════════════
+
+// netty — Bzip2Decoder 의 RLE 상태 기계가 무한 루프에 빠져 이벤트 루프 스레드가 통째로
+// 멈춘다(GHSA-558v-64gr-wgg4, high). BOM 은 4.2.15.Final, 4.2.16.Final 에서 고쳐졌다.
+// 끌고 오는 쪽: AWS SDK 의 netty-nio-client (s3 · transcribe 양쪽).
+ext['netty.version'] = '4.2.16.Final'
+
+// httpcore5 — HTTP/1 헤더 파싱이 메모리를 고갈시켜 DoS 가 된다
+// (GHSA-hf6x-8p5f-cgmf, high). BOM 은 5.4.2, 5.4.3 에서 고쳐졌다.
+// 끌고 오는 쪽: com.anthropic:anthropic-java → anthropic-java-core → httpclient5.
+// 즉 Gate 2 판정용 라이브러리가 데려오는 것이고, implementation 스코프라 런타임에 실린다.
+ext['httpcore5.version'] = '5.4.3'
+
 // AWS SDK v2 — S3 프로덕션 어댑터(CapS3ObjectStorageAdapter, presigned PUT/GET) 버전 관리용.
 // 팀 내 첫 AWS SDK 도입이라 기존에 맞출 버전 고정이 없어 새로 잡는다(2026-08 기준 최신 안정판).
 // ⚠️ s3-presigner는 더 이상 별도 아티팩트가 아니다 — S3Presigner가 s3 모듈 안에 번들돼 있다
