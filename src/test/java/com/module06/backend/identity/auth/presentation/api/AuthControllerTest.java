@@ -146,42 +146,9 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("재발급은 refreshToken·keepSignedIn 을 그대로 넘긴다")
+    @DisplayName("재발급은 refreshToken 만 넘긴다 — 수명 선택은 표에서 읽으므로 바디에서 받지 않는다")
     void passesReissueKeysThrough() throws Exception {
-        when(reissueTokenUseCase.reissue(any(), org.mockito.ArgumentMatchers.anyBoolean()))
-                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("access", "refresh"));
-
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"refreshToken":"eyJold","keepSignedIn":true}
-                                """))
-                .andExpect(status().isOk());
-
-        verify(reissueTokenUseCase).reissue("eyJold", true);
-    }
-
-    @Test
-    @DisplayName("재발급 응답에 새 토큰 두 개를 담는다 — 착지 경로는 담지 않는다(재발급은 화면을 옮기지 않는다)")
-    void returnsReissuedTokens() throws Exception {
-        when(reissueTokenUseCase.reissue(any(), org.mockito.ArgumentMatchers.anyBoolean()))
-                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("eyJnewAccess", "eyJnewRefresh"));
-
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"refreshToken":"eyJold","keepSignedIn":false}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.accessToken").value("eyJnewAccess"))
-                .andExpect(jsonPath("$.data.refreshToken").value("eyJnewRefresh"))
-                .andExpect(jsonPath("$.data.landingPath").doesNotExist());
-    }
-
-    @Test
-    @DisplayName("재발급도 keepSignedIn 을 빼면 false 로 본다 — 원시 boolean 이면 여기서 400 이 난다")
-    void missingKeepSignedInOnReissueDefaultsToFalse() throws Exception {
-        when(reissueTokenUseCase.reissue(any(), org.mockito.ArgumentMatchers.anyBoolean()))
+        when(reissueTokenUseCase.reissue(any()))
                 .thenReturn(new ReissueTokenUseCase.ReissuedTokens("access", "refresh"));
 
         mockMvc.perform(post("/api/auth/refresh")
@@ -191,7 +158,45 @@ class AuthControllerTest {
                                 """))
                 .andExpect(status().isOk());
 
-        verify(reissueTokenUseCase).reissue("eyJold", false);
+        verify(reissueTokenUseCase).reissue("eyJold");
+    }
+
+    @Test
+    @DisplayName("재발급 응답에 새 토큰 두 개를 담는다 — 착지 경로는 담지 않는다(재발급은 화면을 옮기지 않는다)")
+    void returnsReissuedTokens() throws Exception {
+        when(reissueTokenUseCase.reissue(any()))
+                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("eyJnewAccess", "eyJnewRefresh"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"eyJold"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").value("eyJnewAccess"))
+                .andExpect(jsonPath("$.data.refreshToken").value("eyJnewRefresh"))
+                .andExpect(jsonPath("$.data.landingPath").doesNotExist());
+    }
+
+    /*
+     * 프론트는 아직 keepSignedIn 을 실어 보낸다. 그 키가 400 을 만들면 FE 배포 전까지 재발급이
+     * 통째로 멈추므로, 무시하고 통과하는지 못박아 둔다(Jackson 기본값에 기대는 동작이라
+     * 설정이 바뀌면 여기서 먼저 깨진다). 값은 서버가 표에서 읽은 것이 이긴다.
+     */
+    @Test
+    @DisplayName("프론트가 keepSignedIn 을 계속 보내도 무시하고 200 — FE 배포를 기다리지 않아도 된다")
+    void ignoresLegacyKeepSignedInField() throws Exception {
+        when(reissueTokenUseCase.reissue(any()))
+                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("access", "refresh"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"eyJold","keepSignedIn":true}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(reissueTokenUseCase).reissue("eyJold");
     }
 
     @Test
@@ -204,8 +209,7 @@ class AuthControllerTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(reissueTokenUseCase, org.mockito.Mockito.never())
-                .reissue(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(reissueTokenUseCase, org.mockito.Mockito.never()).reissue(any());
     }
 
     @Test

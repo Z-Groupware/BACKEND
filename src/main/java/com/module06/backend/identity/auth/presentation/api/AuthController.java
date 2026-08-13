@@ -53,7 +53,7 @@ public class AuthController {
     @PostMapping("/refresh")
     public ApiResponse<ReissuedTokenResponse> refresh(@Valid @RequestBody ReissueTokenRequest request) {
         ReissuedTokenResponse response = ReissuedTokenResponse.from(
-                reissueTokenUseCase.reissue(request.refreshToken(), request.keepSignedInOrFalse()));
+                reissueTokenUseCase.reissue(request.refreshToken()));
         return ApiResponse.success("토큰을 재발급했습니다", response);
     }
 

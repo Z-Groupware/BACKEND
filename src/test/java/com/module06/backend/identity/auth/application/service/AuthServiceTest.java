@@ -37,9 +37,8 @@ class AuthServiceTest {
     private static final String PASSWORD = "Abcd1234";
 
     private final PasswordEncoder encoder = new BCryptPasswordEncoder();
-    private final JwtTokenProvider tokenProvider = new JwtTokenProvider(new JwtProperties(
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14)));
+    private final JwtTokenProvider tokenProvider = new JwtTokenProvider(new JwtProperties("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
 
     @Test
     @DisplayName("로그인하면 토큰 두 개와 착지 경로를 준다")
