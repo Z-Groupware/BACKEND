@@ -3,6 +3,9 @@ package com.module06.backend.notice.infrastructure.persistence.adapter;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
@@ -20,15 +23,25 @@ public class NoticeQueryPersistenceAdapter implements NoticeQueryRepository {
     /* notice 테이블에 회사·삭제·정렬 조건을 적용하는 기술 저장소다. */
     private final SpringDataNoticeRepository springDataNoticeRepository;
 
-    /* 회사의 활성 공지를 최신 생성 시각과 식별자 순으로 읽어 목록 스냅샷으로 변환한다. */
+    /* 회사의 활성 공지를 최신 생성 시각과 식별자 순으로 한 페이지만 읽어 목록 스냅샷으로 변환한다. */
     @Override
-    public List<NoticeListSnapshot> findActiveNoticesByCompanyId(Long companyId) {
-        /* 파생 쿼리가 적용한 테넌트·소프트 삭제·정렬 조건을 유지하며 최소 필드만 반환한다. */
-        return springDataNoticeRepository
-                .findAllProjectedByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(companyId)
-                .stream()
+    public NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size) {
+        /* 같은 생성 시각에도 결과가 흔들리지 않도록 식별자를 두 번째 내림차순 키로 사용한다. */
+        PageRequest pageRequest = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
+        );
+
+        /* 파생 쿼리가 적용한 테넌트·소프트 삭제 조건을 유지하며 요청한 페이지만 조회한다. */
+        Page<NoticeListProjection> noticePage = springDataNoticeRepository
+                .findAllProjectedByCompanyIdAndDeletedAtIsNull(companyId, pageRequest);
+
+        List<NoticeListSnapshot> notices = noticePage.getContent().stream()
                 .map(this::toSnapshot)
                 .toList();
+
+        return new NoticePage(notices, noticePage.getTotalElements(), noticePage.getTotalPages());
     }
 
     /* 회사와 식별자가 일치하는 활성 공지 한 건을 상세 읽기 모델로 조회한다. */

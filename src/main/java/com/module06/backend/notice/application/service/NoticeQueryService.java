@@ -27,10 +27,19 @@ import com.module06.backend.notice.exception.NoticeErrorCode;
 @RequiredArgsConstructor
 public class NoticeQueryService implements GetNoticeListUseCase, GetNoticeDetailUseCase {
 
+    /* 페이지 번호가 생략됐을 때 적용하는 첫 페이지 번호다. */
+    private static final int DEFAULT_PAGE = 0;
+
+    /* 페이지 크기가 생략됐을 때 적용하는 기본 공지 개수다. */
+    private static final int DEFAULT_SIZE = 10;
+
+    /* 한 페이지에서 허용하는 최대 공지 개수다. */
+    private static final int MAX_SIZE = 100;
+
     /* 회사별 활성 공지를 최신순으로 읽는 도메인 저장소다. */
     private final NoticeQueryRepository noticeQueryRepository;
 
-    /* 로그인 사용자의 회사에서 삭제되지 않은 공지를 목록 응답용 결과로 반환한다. */
+    /* 로그인 사용자의 회사에서 삭제되지 않은 공지를 페이지 단위 목록 응답용 결과로 반환한다. */
     @Override
     @Transactional(readOnly = true)
     public NoticeListResult getNotices(GetNoticeListQuery query) {
@@ -39,10 +48,19 @@ public class NoticeQueryService implements GetNoticeListUseCase, GetNoticeDetail
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
 
-        /* 저장소의 최신순 결과를 목록 화면에 필요한 최소 애플리케이션 모델로 변환한다. */
-        List<NoticeListResult.NoticeItem> notices = noticeQueryRepository
-                .findActiveNoticesByCompanyId(query.companyId())
-                .stream()
+        /* 내부 호출에서 페이지 값이 생략돼도 REST 기본값(page=0, size=10)과 동일하게 처리한다. */
+        int page = query.page() == null ? DEFAULT_PAGE : query.page();
+        int size = query.size() == null ? DEFAULT_SIZE : query.size();
+
+        /* 음수 페이지나 1~100 범위를 벗어난 페이지 크기는 공통 입력 오류로 거절한다. */
+        if (page < 0 || size < 1 || size > MAX_SIZE) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+        }
+
+        /* 저장소가 반환한 현재 페이지를 목록 화면에 필요한 최소 애플리케이션 모델로 변환한다. */
+        NoticeQueryRepository.NoticePage noticePage = noticeQueryRepository
+                .findActiveNoticesByCompanyId(query.companyId(), page, size);
+        List<NoticeListResult.NoticeItem> notices = noticePage.notices().stream()
                 .map(notice -> new NoticeListResult.NoticeItem(
                         notice.noticeId(),
                         notice.title(),
@@ -50,8 +68,11 @@ public class NoticeQueryService implements GetNoticeListUseCase, GetNoticeDetail
                 ))
                 .toList();
 
-        /* 조회 결과가 없어도 null 대신 빈 notices 배열을 가진 정상 결과를 반환한다. */
-        return new NoticeListResult(notices);
+        /* 조회 결과가 없어도 null 대신 빈 notices 배열과 페이지 메타를 가진 정상 결과를 반환한다. */
+        return new NoticeListResult(
+                notices,
+                new NoticeListResult.Page(page, size, noticePage.totalElements(), noticePage.totalPages())
+        );
     }
 
     /* 같은 회사의 삭제되지 않은 공지 한 건을 상세 결과로 반환한다. */

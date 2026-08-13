@@ -1,11 +1,12 @@
 package com.module06.backend.notice.infrastructure.persistence.repository;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 
@@ -14,10 +15,8 @@ import com.module06.backend.notice.infrastructure.persistence.entity.NoticeJpaEn
 /* notice 테이블의 파생 조회를 수행하는 Spring Data JPA 기술 저장소다. */
 public interface SpringDataNoticeRepository extends JpaRepository<NoticeJpaEntity, Long> {
 
-    /* 회사와 활성 상태를 적용하고 본문을 제외한 목록 필드만 최신순으로 조회한다. */
-    List<NoticeListProjection> findAllProjectedByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(
-            Long companyId
-    );
+    /* 회사와 활성 상태를 적용하고 본문을 제외한 목록 필드만 Pageable의 정렬·페이지로 조회한다. */
+    Page<NoticeListProjection> findAllProjectedByCompanyIdAndDeletedAtIsNull(Long companyId, Pageable pageable);
 
     /* 공지 식별자·회사·활성 조건을 함께 적용해 타 회사와 삭제 공지를 빈 결과로 숨긴다. */
     Optional<NoticeJpaEntity> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
