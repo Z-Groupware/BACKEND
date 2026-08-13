@@ -20,7 +20,7 @@ import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
 
 /*
- * CAP-11 자막 청크 배치 전송 서비스의 회의 존재·참석자 검증, rms 필수(422), 저장·브로드캐스트 규칙을 검증한다.
+ * CAP-11 자막 청크 배치 전송 서비스의 회의 존재·host 검증, rms 필수(422), 저장·브로드캐스트 규칙을 검증한다.
  */
 @DisplayName("CAP-11 자막 청크 배치 전송 서비스")
 class SubmitCaptionsServiceTest {
@@ -42,13 +42,13 @@ class SubmitCaptionsServiceTest {
         assertThat(savedChunks).isEmpty();
     }
 
-    /* 참석자가 아니면 CAP-010으로 거절하는지 검증한다. */
+    /* host가 아니면 CAP-013으로 거절하는지 검증한다. */
     @Test
-    @DisplayName("참석자가 아니면 CAP-010으로 거절한다")
-    void rejectsWhenNotAttendee() {
+    @DisplayName("host가 아니면 CAP-013으로 거절한다")
+    void rejectsWhenNotHost() {
         SubmitCaptionsService service = service(true, false);
 
-        assertErrorCode(() -> service.submitCaptions(command(chunk(1, "-12.4"))), "CAP-010");
+        assertErrorCode(() -> service.submitCaptions(command(chunk(1, "-12.4"))), "CAP-013");
         assertThat(savedChunks).isEmpty();
     }
 
@@ -97,8 +97,8 @@ class SubmitCaptionsServiceTest {
         return new SubmitCaptionsCommand(MEETING_ID, MEMBER_ID, List.of(chunks));
     }
 
-    // 회의 존재·참석자 여부를 지정해 서비스를 조립한다. 저장·브로드캐스트 호출을 기록한다(재전송 스킵 없음 — 매번 신규 저장).
-    private SubmitCaptionsService service(boolean meetingExists, boolean attendee) {
+    // 회의 존재·host 여부를 지정해 서비스를 조립한다. 저장·브로드캐스트 호출을 기록한다(재전송 스킵 없음 — 매번 신규 저장).
+    private SubmitCaptionsService service(boolean meetingExists, boolean host) {
         savedChunks.clear();
         broadcastChunks.clear();
 
@@ -110,12 +110,12 @@ class SubmitCaptionsServiceTest {
 
             @Override
             public boolean isAttendee(Long meetingId, Long memberId) {
-                return attendee;
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
 
             @Override
             public boolean isHost(Long meetingId, Long memberId) {
-                return false;
+                return host;
             }
 
             @Override

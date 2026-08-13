@@ -16,8 +16,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 
-// 자막 청크 배치 전송(CAP-11): 회의 존재 → 참석자 검증 → 배치 전체 유효성(rms 등) 검증 → 저장(재전송은
+// 자막 청크 배치 전송(CAP-11): 회의 존재 → host 검증 → 배치 전체 유효성(rms 등) 검증 → 저장(재전송은
 // 조용히 건너뜀) → 새로 저장된 조각만 브로드캐스트. 정본 아님 — 실시간 표시 + STT 실패 폴백용.
+//
+// host 전용인 이유 — 녹음이 host 한 명의 기기로만 이뤄지기로 확정되면서(좁은 회의실 음성 섞임
+// 문제), 화자를 여러 참석자 중에서 rms로 가려내는 전제 자체가 성립하지 않게 됐다(capture
+// SpeakerAttributionResolver와 함께 정리). memberId 필드 자체는 남아있지만(멱등 키·발신자 표시용),
+// 이제 그 값은 항상 host 자신이므로 참석자 전원에게 제출을 열어둘 이유가 없다.
 @Service
 @Transactional
 public class SubmitCaptionsService implements SubmitCaptionsUseCase {
@@ -39,12 +44,12 @@ public class SubmitCaptionsService implements SubmitCaptionsUseCase {
 
     @Override
     public void submitCaptions(SubmitCaptionsCommand command) {
-        // 인가: 회의 존재(404) → 참석자(403). 참석자 전원 가능 — Host 전용 아님.
+        // 인가: 회의 존재(404) → host(403). 녹음자와 동일하게 host만 자막을 보낼 수 있다.
         if (!meetingReferenceRepository.existsById(command.meetingId())) {
             throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
         }
-        if (!accessGuard.isAttendee(command.meetingId(), command.memberId())) {
-            throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);
+        if (!accessGuard.isHost(command.meetingId(), command.memberId())) {
+            throw new BusinessException(CapErrorCode.CAP_NOT_HOST);
         }
 
         // 배치 전체를 먼저 도메인 객체로 변환한다 — 하나라도 유효하지 않으면(예: rms 누락) 여기서 예외가 터져
