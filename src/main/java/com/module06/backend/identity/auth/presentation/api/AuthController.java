@@ -48,8 +48,18 @@ public class AuthController {
         return ApiResponse.success("로그인되었습니다", response);
     }
 
+    /*
+     * 공개를 명시한다(Gate 1 · AUTHZ_001). 이 엔드포인트는 인증을 요구할 수 없다 — 액세스 토큰이
+     * 만료돼서 부르는 자리인데 유효한 액세스 토큰을 요구하면 재발급 자체가 불가능해진다.
+     * 대신 갱신표의 서명·저장소 존재 여부·절대 수명이 인가를 대신한다(AuthService.reissue).
+     *
+     * 어노테이션을 생략해도 동작은 같지만, 그러면 "공개로 정했다"와 "붙이는 것을 잊었다"를
+     * 리뷰에서 구분할 수 없다. 그래서 규칙이 생략을 잡고, 공개는 이렇게 적어 둔다
+     * (PublicBillingConfigController 와 같은 방식).
+     */
     @Operation(summary = "토큰 재발급",
             description = "갱신표로 새 액세스 토큰을 받습니다. 갱신표도 함께 교체됩니다(로테이션).")
+    @PreAuthorize("permitAll()")
     @PostMapping("/refresh")
     public ApiResponse<ReissuedTokenResponse> refresh(@Valid @RequestBody ReissueTokenRequest request) {
         ReissuedTokenResponse response = ReissuedTokenResponse.from(
