@@ -84,8 +84,12 @@ app:
 jwt:
   secret: ${JWT_SECRET}
   access-ttl: 30m
-  refresh-ttl-default: 1d      # keepSignedIn = false
-  refresh-ttl-extended: 14d    # keepSignedIn = true
+  refresh-ttl-default: 1d      # keepSignedIn = false — 표 한 장의 수명
+  refresh-ttl-extended: 14d    # keepSignedIn = true  — 표 한 장의 수명
+  # 최초 로그인 이후 표를 이어붙일 수 있는 총 기간. 위 두 값은 재발급마다 새로 계산되므로
+  # 이 상한이 없으면 14일마다 한 번 갱신하는 것만으로 세션이 영원히 산다 — 탈취된 갱신표가
+  # 영구 세션이 된다는 뜻이다. 넘기면 재로그인을 요구한다.
+  refresh-absolute-max: 30d
 
 # ── AI EC2 (Python 계층 서버) ──
 # 인스턴스 간 호출이라 localhost 가 아니다. 보안그룹이 Spring EC2 에서만 인바운드를

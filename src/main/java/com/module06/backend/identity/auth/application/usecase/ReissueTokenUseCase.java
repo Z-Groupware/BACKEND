@@ -9,11 +9,14 @@ package com.module06.backend.identity.auth.application.usecase;
 public interface ReissueTokenUseCase {
 
     /**
-     * @param keepSignedIn 새 갱신표의 수명을 가른다(1일 ↔ 14일). 재발급마다 다시 받는 이유는,
-     *                     로그인할 때의 선택을 서버가 들고 있지 않기 때문이다 — 갱신표에는
-     *                     memberId 와 jti 만 실린다.
+     * 새 갱신표의 수명(1일 ↔ 14일)은 <b>로그인할 때의 선택</b>을 그대로 따른다. 그 선택은 갱신표의
+     * {@code kis} 클레임에 실려 있으므로 여기서 받지 않는다 — 받으면 1일짜리 세션을 재발급 한 번으로
+     * 14일로 승급시킬 수 있다.
+     *
+     * <p>{@code authTime} 클레임(최초 로그인 시각)도 함께 승계되어, 갱신을 반복해도 세션의 절대
+     * 나이가 리셋되지 않는다. 상한({@code jwt.refresh-absolute-max})을 넘으면 재로그인을 요구한다.
      */
-    ReissuedTokens reissue(String refreshToken, boolean keepSignedIn);
+    ReissuedTokens reissue(String refreshToken);
 
     record ReissuedTokens(String accessToken, String refreshToken) {
     }
