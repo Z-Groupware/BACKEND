@@ -121,6 +121,60 @@ class AuthzAuditLoggerTest {
         assertThat(loggedLine()).contains("actor=-").contains("tenant=-");
     }
 
+    /*
+     * 아래 두 건이 SECURITY_AUDIT_HANDOVER.md P1 #5 가 가리키던 자리다 — 401 계열 인증 실패는
+     * 어디에도 남지 않았다. 특히 재사용 탐지는 코드 주석이 "탈취 정황"이라고 명시하면서도
+     * 알림이 없어, 발생해도 아무도 모르는 상태였다.
+     */
+
+    @Test
+    @DisplayName("재사용 탐지는 ERROR 로 남긴다 — 이 목록에서 유일하게 사람이 즉시 봐야 하는 사건이다")
+    void 재사용탐지_ERROR레벨() {
+        AuthzAuditLogger.refreshTokenReused(42L, "AU-005");
+
+        assertThat(appender.list).hasSize(1);
+        assertThat(appender.list.get(0).getLevel()).isEqualTo(Level.ERROR);
+    }
+
+    @Test
+    @DisplayName("재사용 탐지는 누구의 표였는지를 남긴다 — 재발급은 공개라 주체가 없어 memberId 를 직접 받는다")
+    void 재사용탐지_행위자기록() {
+        MDC.put("traceId", "trace-reuse");
+
+        AuthzAuditLogger.refreshTokenReused(42L, "AU-005");
+
+        assertThat(loggedLine())
+                .contains("outcome=TOKEN_REUSED")
+                .contains("actor=42")
+                .contains("code=AU-005")
+                .contains("trace=trace-reuse");
+    }
+
+    @Test
+    @DisplayName("인증된 주체가 있으면 그 memberId 가 이긴다 — 넘겨받은 값으로 actor 를 덮어쓸 수 없다")
+    void 행위자는_위조되지_않는다() {
+        authenticateAs(new AuthPrincipal(7L, 1L, "MEMBER", false, null));
+
+        AuthzAuditLogger.refreshTokenReused(999L, "AU-005");
+
+        assertThat(loggedLine()).contains("actor=7").doesNotContain("actor=999");
+    }
+
+    @Test
+    @DisplayName("로그인 실패는 WARN 으로 남기고 시도한 계정은 남기지 않는다 — 감사 로그가 계정 목록이 되면 안 된다")
+    void 로그인실패_기록() {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login");
+
+        AuthzAuditLogger.loginFailed(request, "AU-002");
+
+        assertThat(appender.list.get(0).getLevel()).isEqualTo(Level.WARN);
+        assertThat(loggedLine())
+                .contains("outcome=AUTH_FAILED")
+                .contains("actor=-")
+                .contains("path=/api/auth/login")
+                .contains("code=AU-002");
+    }
+
     private void authenticateAs(AuthPrincipal principal) {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));

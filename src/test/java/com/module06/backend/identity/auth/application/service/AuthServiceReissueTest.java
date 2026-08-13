@@ -9,8 +9,15 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
@@ -116,6 +123,36 @@ class AuthServiceReissueTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(AuthErrorCode.REFRESH_TOKEN_REUSED);
         assertThat(store.exists(MEMBER_ID, "jti-other-device")).isFalse();
+    }
+
+    /*
+     * 끊는 것과 알리는 것은 다른 일이다. 위 테스트는 표가 전부 폐기되는 것까지만 보는데,
+     * 폐기만 하고 기록을 안 남기면 "탈취 정황"이 발생해도 아무도 모른다(P1 #5 가 지적한 자리다).
+     * 여기서는 감사 로그가 실제로 나가는지, 그리고 누구의 표였는지가 담기는지를 본다.
+     */
+    @Test
+    @DisplayName("재사용을 탐지하면 감사 로그를 ERROR 로 남긴다 — 폐기만 하고 알리지 않으면 아무도 모른다")
+    void recordsAuditLogOnReuse() {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger(AuthzAuditLogger.LOGGER_NAME);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        auditLogger.addAppender(appender);
+        try {
+            String token = issuedRefreshToken("jti-audit");
+            AuthService service = service();
+            service.reissue(token);
+
+            assertThatThrownBy(() -> service.reissue(token)).isInstanceOf(BusinessException.class);
+
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.get(0).getLevel()).isEqualTo(Level.ERROR);
+            assertThat(appender.list.get(0).getFormattedMessage())
+                    .contains("outcome=TOKEN_REUSED")
+                    .contains("actor=" + MEMBER_ID)
+                    .contains("code=AU-005");
+        } finally {
+            auditLogger.detachAppender(appender);
+        }
     }
 
     @Test
