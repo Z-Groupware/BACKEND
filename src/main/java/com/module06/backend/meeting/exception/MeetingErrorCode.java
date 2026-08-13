@@ -34,9 +34,6 @@ public enum MeetingErrorCode implements ErrorCode {
     /* 회의 담당자가 아닌 사용자가 관리 기능을 호출한 경우다. */
     MEETING_HOST_ONLY(HttpStatus.FORBIDDEN, "MT-006", "회의 담당자만 수행할 수 있습니다."),
 
-    /* 예약된 참석자가 아닌 사용자가 입장한 경우다. */
-    ATTENDEE_ONLY(HttpStatus.FORBIDDEN, "MT-007", "예약된 참석자만 입장할 수 있습니다."),
-
     /* 입장 허용 시각보다 먼저 입장을 시도한 경우다. */
     ENTRY_NOT_AVAILABLE(HttpStatus.CONFLICT, "MT-008", "아직 입장할 수 없는 회의입니다."),
 
