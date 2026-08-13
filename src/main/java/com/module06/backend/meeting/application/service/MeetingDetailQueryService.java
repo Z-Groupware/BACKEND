@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,7 +77,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 .findMeetingDetail(query.companyId(), query.meetingId())
                 .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
 
-        /* 회사 관리자·개설자·참석자·같은 팀 LEADER가 아니면 상세 열람을 거절한다. */
+        /* MEMBER이면서 개설자·참석자도 아니면 상세 열람을 거절한다. */
         if (!canReadMeeting(query, meeting)) {
             throw new BusinessException(MeetingErrorCode.MEETING_READ_FORBIDDEN);
         }
@@ -227,20 +226,24 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
 
     /* 인증 사용자가 상세 회의를 읽을 수 있는 권한 범위에 속하는지 판단한다. */
     private boolean canReadMeeting(GetMeetingDetailQuery query, MeetingDetailSnapshot meeting) {
-        /* OWNER 또는 관리자 플래그가 있는 사용자는 같은 회사의 전체 회의를 열람한다. */
-        boolean companyWideRead = query.requesterAdmin() || "OWNER".equals(query.requesterRole());
-
         /* 개설자와 참석자는 역할과 관계없이 자신이 포함된 회의를 열람한다. */
         boolean host = meeting.hostMemberId().equals(query.requesterMemberId());
         boolean attendee = meeting.attendeeMemberIds().contains(query.requesterMemberId());
 
-        /* LEADER는 자신의 팀에서 개설된 회의에 한해 팀 범위 열람 권한을 가진다. */
-        boolean teamLeader = "LEADER".equals(query.requesterRole())
-                && query.requesterTeamId() != null
-                && Objects.equals(query.requesterTeamId(), meeting.teamId());
+        /*
+         * OWNER·LEADER는 팀·개설자 무관하게 같은 회사의 전체 회의를 열람한다. Authority에는
+         * ADMIN이 없고 어드민은 member.is_admin 겸직 플래그라, MEMBER이면서 어드민 겸직인
+         * 사람도 이 경로로 전체 열람이 가능해야 한다.
+         *
+         * "MEMBER가 아니면 통과"라는 부정형 대신 알려진 역할만 명시적으로 허용한다 —
+         * requesterRole()이 null이거나 향후 예상 못한 값이 들어와도 안전하게 거절되도록
+         * 하기 위함이다.
+         */
+        boolean elevated = query.requesterAdmin()
+                || "OWNER".equals(query.requesterRole())
+                || "LEADER".equals(query.requesterRole());
 
-        /* 확정된 네 가지 열람 경로 중 하나라도 충족하면 상세 조회를 허용한다. */
-        return companyWideRead || host || attendee || teamLeader;
+        return elevated || host || attendee;
     }
 
     /* 개설자를 첫 번째로 두고 저장된 나머지 참석자 순서를 유지한다. */

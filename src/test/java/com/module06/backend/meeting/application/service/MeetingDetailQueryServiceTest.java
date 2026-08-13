@@ -131,17 +131,71 @@ class MeetingDetailQueryServiceTest {
         assertThat(result.meetingId()).isEqualTo(91L);
     }
 
-    /* 일반 비참석자가 같은 회사의 다른 회의를 읽지 못하는지 검증한다. */
+    /* MEMBER를 제외한 나머지 역할은 팀이 달라도 회사 전체 회의를 읽을 수 있는지 검증한다. */
     @Test
-    @DisplayName("열람 범위 밖의 구성원은 MT-011로 거절한다")
-    void rejectsMemberOutsideReadScope() {
-        /* 회의는 존재하지만 요청자가 참석자·개설자·같은 팀 LEADER가 아닌 서비스를 준비한다. */
+    @DisplayName("다른 팀 LEADER도 개설 회의를 조회한다")
+    void otherTeamLeaderReadsMeeting() {
+        /* 팀 식별자 100의 회의를 반환하는 상세 조회 서비스를 준비한다. */
         MeetingDetailQueryService service = service(Optional.of(meeting()));
 
-        /* 일반 비참석자의 상세 조회가 외부 표시 Port 호출 전에 거절되는지 검증한다. */
+        /* 비참석자 99번이 다른 팀(999) LEADER 권한으로 상세 조회한다. */
+        MeetingDetailResult result = service.getMeetingDetail(
+                new GetMeetingDetailQuery(10L, 99L, 999L, "LEADER", false, 91L)
+        );
+
+        /* 팀이 달라도 MEMBER가 아니므로 회의 한 건이 정상 반환돼야 한다. */
+        assertThat(result.meetingId()).isEqualTo(91L);
+    }
+
+    /* 어드민 겸직 플래그를 가진 MEMBER도 자신이 속하지 않은 회의를 읽을 수 있는지 검증한다. */
+    @Test
+    @DisplayName("어드민 겸직 MEMBER도 개설 회의를 조회한다")
+    void adminFlaggedMemberReadsMeeting() {
+        /* 팀 식별자 100의 회의를 반환하는 상세 조회 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* 비참석자 99번이 다른 팀·MEMBER 역할이지만 어드민 겸직 플래그로 상세 조회한다. */
+        MeetingDetailResult result = service.getMeetingDetail(
+                new GetMeetingDetailQuery(10L, 99L, 999L, "MEMBER", true, 91L)
+        );
+
+        /* 어드민 겸직이므로 회의 한 건이 정상 반환돼야 한다. */
+        assertThat(result.meetingId()).isEqualTo(91L);
+    }
+
+    /* 일반 비참석자 MEMBER가 같은 회사의 다른 회의를 읽지 못하는지 검증한다. */
+    @Test
+    @DisplayName("열람 범위 밖의 MEMBER는 MT-011로 거절한다")
+    void rejectsMemberOutsideReadScope() {
+        /* 회의는 존재하지만 요청자가 참석자·개설자·어드민이 아닌 MEMBER인 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* 일반 비참석자 MEMBER의 상세 조회가 외부 표시 Port 호출 전에 거절되는지 검증한다. */
         assertErrorCode(
                 () -> service.getMeetingDetail(
                         new GetMeetingDetailQuery(10L, 99L, 999L, "MEMBER", false, 91L)
+                ),
+                "MT-011"
+        );
+    }
+
+    /* null이거나 알려지지 않은 역할 문자열이 부정형 비교로 실수로 통과되지 않는지 검증한다. */
+    @Test
+    @DisplayName("알려지지 않은 역할의 비참석자는 MT-011로 거절한다")
+    void rejectsUnknownRoleOutsideReadScope() {
+        /* 회의는 존재하지만 요청자가 참석자·개설자·어드민이 아닌 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* requesterRole()이 null이거나 Authority에 없는 값이어도 elevated로 취급되면 안 된다. */
+        assertErrorCode(
+                () -> service.getMeetingDetail(
+                        new GetMeetingDetailQuery(10L, 99L, 999L, null, false, 91L)
+                ),
+                "MT-011"
+        );
+        assertErrorCode(
+                () -> service.getMeetingDetail(
+                        new GetMeetingDetailQuery(10L, 99L, 999L, "GUEST", false, 91L)
                 ),
                 "MT-011"
         );
