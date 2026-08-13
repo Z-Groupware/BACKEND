@@ -43,10 +43,10 @@ public class CaptionController {
     // 자막 청크 배치 전송 (CAP-11)
     @Operation(
             summary = "자막 청크 배치 전송",
-            description = "참석자 브라우저가 인식한 자막 조각을 배치로 전송한다. 정본 아님 — 실시간 표시 + "
+            description = "host 브라우저가 인식한 자막 조각을 배치로 전송한다. 정본 아님 — 실시간 표시 + "
                     + "STT 실패 폴백용. 이미 전송된 (meetingId, memberId, seq) 조합은 재전송으로 보고 조용히 건너뛴다."
     )
-    // 참석자 전원 가능(Host 전용 아님) — 서비스의 isAttendee가 검증한다.
+    // host 전용 — 녹음이 host 한 명의 기기로만 이뤄지므로 자막도 host만 보낸다. 서비스의 isHost가 검증한다.
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -89,7 +89,7 @@ public class CaptionController {
                     + "스트림이다. event: caption·participant·heartbeat 세 종류를 내려준다. "
                     + "구독 시점 이전 자막은 안 내려주므로, 자막 전체 조회(CAP-12)로 먼저 백필해야 한다."
     )
-    // 참석자 전원 가능(owner/admin 우회 없음, 스펙) — 서비스의 isAttendee가 검증한다.
+    // host 전용 — 서비스의 isHost가 검증한다.
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(

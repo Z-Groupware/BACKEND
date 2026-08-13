@@ -15,7 +15,7 @@ import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
 
 /*
- * CAP-13 자막 실시간 구독 서비스의 회의 존재·참석자 검증, 통과 시 CaptionStreamPort로 위임하는지 검증한다.
+ * CAP-13 자막 실시간 구독 서비스의 회의 존재·host 검증, 통과 시 CaptionStreamPort로 위임하는지 검증한다.
  */
 @DisplayName("CAP-13 자막 실시간 구독 서비스")
 class SubscribeToCaptionsServiceTest {
@@ -29,19 +29,19 @@ class SubscribeToCaptionsServiceTest {
         assertErrorCode(() -> service.subscribeToCaptions(500L, 7L), "CAP-002");
     }
 
-    /* 참석자가 아니면 CAP-010으로 거절하는지 검증한다. */
+    /* host가 아니면 CAP-013으로 거절하는지 검증한다. */
     @Test
-    @DisplayName("참석자가 아니면 CAP-010으로 거절한다")
-    void rejectsWhenNotAttendee() {
+    @DisplayName("host가 아니면 CAP-013으로 거절한다")
+    void rejectsWhenNotHost() {
         SubscribeToCaptionsService service = service(true, false);
 
-        assertErrorCode(() -> service.subscribeToCaptions(500L, 7L), "CAP-010");
+        assertErrorCode(() -> service.subscribeToCaptions(500L, 7L), "CAP-013");
     }
 
-    /* 참석자면 CaptionStreamPort에 위임해 그 결과 emitter를 그대로 반환하는지 검증한다. */
+    /* host면 CaptionStreamPort에 위임해 그 결과 emitter를 그대로 반환하는지 검증한다. */
     @Test
-    @DisplayName("참석자면 CaptionStreamPort가 만든 emitter를 그대로 반환한다")
-    void delegatesToStreamPortForAttendee() {
+    @DisplayName("host면 CaptionStreamPort가 만든 emitter를 그대로 반환한다")
+    void delegatesToStreamPortForHost() {
         Long[] capturedMeeting = new Long[1];
         Long[] capturedMember = new Long[1];
         SseEmitter expected = new SseEmitter(0L);
@@ -61,7 +61,7 @@ class SubscribeToCaptionsServiceTest {
         assertThat(result).isSameAs(expected);
     }
 
-    private MeetingReferenceRepository meetingRef(boolean exists, boolean attendee) {
+    private MeetingReferenceRepository meetingRef(boolean exists, boolean host) {
         return new MeetingReferenceRepository() {
             @Override
             public boolean existsById(Long meetingId) {
@@ -70,12 +70,12 @@ class SubscribeToCaptionsServiceTest {
 
             @Override
             public boolean isAttendee(Long meetingId, Long memberId) {
-                return attendee;
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
 
             @Override
             public boolean isHost(Long meetingId, Long memberId) {
-                return false;
+                return host;
             }
 
             @Override
@@ -95,11 +95,11 @@ class SubscribeToCaptionsServiceTest {
         };
     }
 
-    private SubscribeToCaptionsService service(boolean meetingExists, boolean attendee) {
+    private SubscribeToCaptionsService service(boolean meetingExists, boolean host) {
         CaptionStreamPort failingStreamPort = (meetingId, memberId) -> {
             throw new AssertionError("인가를 통과하지 못했는데 스트림 포트가 호출되면 안 됩니다.");
         };
-        MeetingReferenceRepository meetingRef = meetingRef(meetingExists, attendee);
+        MeetingReferenceRepository meetingRef = meetingRef(meetingExists, host);
         return new SubscribeToCaptionsService(meetingRef, accessGuard(meetingRef), failingStreamPort);
     }
 
