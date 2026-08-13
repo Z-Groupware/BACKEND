@@ -3,6 +3,7 @@ package com.module06.backend.project.infrastructure.persistence;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -70,8 +71,8 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     }
 
     @Override
-    public List<Project> findAllByCompanyId(Long companyId, ProjectStatus status, String sort, String order, int page, int size) {
-        Specification<ProjectJpaEntity> specification = buildProjectSpecification(companyId, status);
+    public List<Project> findAllByCompanyId(Long companyId, String keyword, ProjectStatus status, String sort, String order, int page, int size) {
+        Specification<ProjectJpaEntity> specification = buildProjectSpecification(companyId, keyword, status);
         PageRequest pageRequest = PageRequest.of(page, size, buildProjectSort(sort, order));
 
         List<ProjectJpaEntity> entities = springDataProjectRepository.findAll(specification, pageRequest).getContent();
@@ -89,8 +90,8 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     }
 
     @Override
-    public long countByCompanyId(Long companyId, ProjectStatus status) {
-        return springDataProjectRepository.count(buildProjectSpecification(companyId, status));
+    public long countByCompanyId(Long companyId, String keyword, ProjectStatus status) {
+        return springDataProjectRepository.count(buildProjectSpecification(companyId, keyword, status));
     }
 
     // 2026-08-11 — 오너 대시보드 KPI "마감 D-7" 카드. buildProjectSpecification을 그대로 쓰지
@@ -110,7 +111,8 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     // 2026-08-10 필터/정렬 도입(이홍근 요청) — status가 null이면 조건에서 빠진다(필터 안 함).
     // content 쿼리와 count 쿼리가 항상 같은 조건을 쓰도록 이 메서드 하나로 통일한다
     // (totalElements가 필터링 전 기준이면 화면이 거짓말을 하게 된다).
-    private Specification<ProjectJpaEntity> buildProjectSpecification(Long companyId, ProjectStatus status) {
+    // 2026-08-13 keyword 검색 추가 — null/빈문자열이면 조건에서 빠진다. name에 대소문자 무시 LIKE.
+    private Specification<ProjectJpaEntity> buildProjectSpecification(Long companyId, String keyword, ProjectStatus status) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("companyId"), companyId));
@@ -118,16 +120,20 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));
             }
+            if (keyword != null && !keyword.isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("name")), "%" + keyword.toLowerCase(Locale.ROOT) + "%"));
+            }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
     }
 
-    // 정렬 화이트리스트 — dueDate·createdAt만 허용. 그 외 값(오타·미지원 필드)은 기본 정렬로 조용히
+    // 정렬 화이트리스트 — dueDate·createdAt·name만 허용. 그 외 값(오타·미지원 필드)은 기본 정렬로 조용히
     // 대체한다(400 대신) — 목록 화면이 정렬 파라미터 하나 때문에 통째로 깨지는 것을 막기 위함.
     private Sort buildProjectSort(String sort, String order) {
         String field = switch (sort == null ? "" : sort) {
             case "dueDate" -> "dueDate";
             case "createdAt" -> "createdAt";
+            case "name" -> "name";
             default -> "createdAt";
         };
         Sort.Direction direction = "asc".equalsIgnoreCase(order) ? Sort.Direction.ASC : Sort.Direction.DESC;

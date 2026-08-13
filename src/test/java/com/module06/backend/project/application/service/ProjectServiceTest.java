@@ -126,7 +126,7 @@ class ProjectServiceTest {
     @Test
     void getOwnerDashboardSummaryReturnsTotalAndDueSoonProjectCounts() {
         projectService = service();
-        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(3L);
+        when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(3L);
         when(projectRepository.countDueSoonByCompanyId(eq(COMPANY), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(1L);
 
@@ -144,7 +144,7 @@ class ProjectServiceTest {
     @Test
     void getOwnerDashboardSummaryReturnsZerosWhenCompanyHasNoProjects() {
         projectService = service();
-        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(0L);
+        when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(0L);
         when(projectRepository.countDueSoonByCompanyId(eq(COMPANY), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(0L);
 
@@ -161,19 +161,33 @@ class ProjectServiceTest {
         projectService = service();
         Project project = Project.reconstitute(1L, COMPANY, "TAG", "이름", "설명", "#16A34A",
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
-        when(projectRepository.findAllByCompanyId(COMPANY, null, null, "desc", 0, 20)).thenReturn(List.of(project));
-        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(1L);
+        when(projectRepository.findAllByCompanyId(COMPANY, null, null, null, "desc", 0, 20)).thenReturn(List.of(project));
+        when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(1L);
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of(
                 new TeamReferenceRepository.TeamName(1L, "개발팀"),
                 new TeamReferenceRepository.TeamName(2L, "마케팅팀")));
 
-        GetProjectListUseCase.ProjectListResult result = projectService.list(COMPANY, null, null, "desc", 0, 20);
+        GetProjectListUseCase.ProjectListResult result = projectService.list(COMPANY, null, null, null, "desc", 0, 20);
 
         assertThat(result.items()).containsExactly(
                 new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0, List.of("개발팀", "마케팅팀")));
         assertThat(result.totalElements()).isEqualTo(1L);
+    }
+
+    // CodeRabbit 지적(PR #452) — 기존 list 테스트가 전부 keyword=null만 써서, 비어있지 않은
+    // keyword가 목록·count 조회 양쪽에 동일하게 전달되는지는 검증된 적이 없었다.
+    @Test
+    void listPassesNonEmptyKeywordToContentAndCountQueries() {
+        projectService = service();
+        when(projectRepository.findAllByCompanyId(COMPANY, "zebra", null, null, "desc", 0, 20)).thenReturn(List.of());
+        when(projectRepository.countByCompanyId(COMPANY, "zebra", null)).thenReturn(0L);
+
+        projectService.list(COMPANY, "zebra", null, null, "desc", 0, 20);
+
+        verify(projectRepository).findAllByCompanyId(COMPANY, "zebra", null, null, "desc", 0, 20);
+        verify(projectRepository).countByCompanyId(COMPANY, "zebra", null);
     }
 
     @Test
@@ -183,14 +197,14 @@ class ProjectServiceTest {
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
         Project projectB = Project.reconstitute(2L, COMPANY, "TAG-B", "B", "설명", "#000000",
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
-        when(projectRepository.findAllByCompanyId(COMPANY, null, null, "desc", 0, 20)).thenReturn(List.of(projectA, projectB));
-        when(projectRepository.countByCompanyId(COMPANY, null)).thenReturn(2L);
+        when(projectRepository.findAllByCompanyId(COMPANY, null, null, null, "desc", 0, 20)).thenReturn(List.of(projectA, projectB));
+        when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(2L);
         when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of());
 
-        GetProjectListUseCase.ProjectListResult result = projectService.list(COMPANY, null, null, "desc", 0, 20);
+        GetProjectListUseCase.ProjectListResult result = projectService.list(COMPANY, null, null, null, "desc", 0, 20);
 
         assertThat(result.items()).containsExactly(
                 new GetProjectListUseCase.ProjectListItem(projectA, 5, 2, 3, List.of()),

@@ -3,15 +3,13 @@ package com.module06.backend.notification.application.service;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import com.module06.backend.notification.application.port.out.CompanyMemberQueryPort;
 import com.module06.backend.notification.application.port.out.MeetingReminderQueryPort;
 import com.module06.backend.notification.application.port.out.MeetingReminderQueryPort.MeetingReminderTarget;
 import com.module06.backend.notification.application.port.out.NotificationEvent;
@@ -22,7 +20,7 @@ import com.module06.backend.notification.domain.model.NotificationType;
 import com.module06.backend.notification.domain.repository.NotificationRepository;
 
 /*
- * 매분 현재 시각의 정확히 10분 뒤 시작하는 회의를 찾아 회사 활성 회원 전체에게 알림을 보낸다.
+ * 매분 현재 시각의 정확히 10분 뒤 시작하는 회의를 찾아 최종 예약 참석자에게만 알림을 보낸다.
  */
 @Service
 public class MeetingReminderService implements SendMeetingRemindersUseCase {
@@ -39,9 +37,6 @@ public class MeetingReminderService implements SendMeetingRemindersUseCase {
     /* 예약 상태와 시작 시각으로 알림 대상 회의를 조회하는 Port다. */
     private final MeetingReminderQueryPort meetingReminderQueryPort;
 
-    /* 대상 회사의 비삭제 회원 전체를 조회하는 Port다. */
-    private final CompanyMemberQueryPort companyMemberQueryPort;
-
     /* 회원별 알림 이력을 중복 방지 제약과 함께 저장하는 저장소다. */
     private final NotificationRepository notificationRepository;
 
@@ -51,17 +46,15 @@ public class MeetingReminderService implements SendMeetingRemindersUseCase {
     /* 시스템 기본 타임존과 테스트 실행 시각에 의존하지 않는 현재 시각 공급자다. */
     private final Clock clock;
 
-    /* 회의 조회·회원 조회·저장·발행·시간 의존성을 명시적으로 주입한다. */
+    /* 회의 조회·저장·발행·시간 의존성을 명시적으로 주입한다. */
     public MeetingReminderService(
             MeetingReminderQueryPort meetingReminderQueryPort,
-            CompanyMemberQueryPort companyMemberQueryPort,
             NotificationRepository notificationRepository,
             NotificationPublishPort notificationPublishPort,
             Clock clock
     ) {
         /* 각 협력자를 필드에 저장해 스케줄 실행마다 재사용한다. */
         this.meetingReminderQueryPort = meetingReminderQueryPort;
-        this.companyMemberQueryPort = companyMemberQueryPort;
         this.notificationRepository = notificationRepository;
         this.notificationPublishPort = notificationPublishPort;
         this.clock = clock;
@@ -90,44 +83,16 @@ public class MeetingReminderService implements SendMeetingRemindersUseCase {
             return;
         }
 
-        /* 같은 회사의 여러 회의가 있어도 활성 회원 조회는 실행당 한 번만 수행한다. */
-        Map<Long, List<Long>> recipientCache = new HashMap<>();
         for (MeetingReminderTarget target : targets) {
-            /* 회사별 수신자 조회 실패는 해당 회사 회의만 건너뛰고 다른 회사는 계속 처리한다. */
-            List<Long> recipientMemberIds = findRecipients(target, recipientCache);
-            if (recipientMemberIds == null) {
-                continue;
-            }
+            /* 회의별 최종 예약 명단을 순서 보존 집합으로 정규화해 중복 발송을 막는다. */
+            List<Long> recipientMemberIds = List.copyOf(new LinkedHashSet<>(target.attendeeMemberIds()));
 
-            /* 제목을 포함한 메시지를 회의별 한 번만 만들고 모든 회사 회원에게 재사용한다. */
+            /* 제목을 포함한 메시지를 회의별 한 번만 만들고 모든 예약 참석자에게 재사용한다. */
             String message = target.title() + " 회의가 10분 후 시작됩니다.";
             for (Long memberId : recipientMemberIds) {
                 /* 한 회원의 저장 또는 발행 실패가 나머지 수신자를 막지 않도록 개별 처리한다. */
                 notifyOneMember(target, memberId, message);
             }
-        }
-    }
-
-    /* 회사의 활성 회원 목록을 조회하고 같은 실행 안의 후속 회의에서 재사용한다. */
-    private List<Long> findRecipients(
-            MeetingReminderTarget target,
-            Map<Long, List<Long>> recipientCache
-    ) {
-        /* 이미 성공적으로 조회한 회사는 추가 외부 조회 없이 캐시 결과를 반환한다. */
-        if (recipientCache.containsKey(target.companyId())) {
-            return recipientCache.get(target.companyId());
-        }
-
-        try {
-            /* 회의가 속한 회사 식별자로 수신자 범위를 테넌트 안에 고정한다. */
-            List<Long> recipientMemberIds = companyMemberQueryPort.findActiveMemberIds(target.companyId());
-            recipientCache.put(target.companyId(), recipientMemberIds);
-            return recipientMemberIds;
-        } catch (RuntimeException exception) {
-            /* 다른 회사 알림은 계속 보낼 수 있도록 실패한 회사만 건너뛴다. */
-            log.error("회의 10분 전 알림 수신자 조회 실패 — meetingId={} companyId={}",
-                    target.meetingId(), target.companyId(), exception);
-            return null;
         }
     }
 

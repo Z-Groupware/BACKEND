@@ -59,7 +59,7 @@ public class TodoController {
             @Valid @RequestBody CreateTodoRequest request
     ) {
         PersonalTodo todo = createTodoUseCase.create(
-                new CreateTodoCommand(companyId, memberId, request.title(), request.date()));
+                new CreateTodoCommand(companyId, memberId, request.title(), request.date(), request.endDate()));
 
         return ApiResponse.created("Todo를 추가했습니다.", TodoResponse.from(todo));
     }

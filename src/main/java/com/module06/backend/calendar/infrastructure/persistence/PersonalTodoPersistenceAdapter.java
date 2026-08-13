@@ -32,8 +32,10 @@ public class PersonalTodoPersistenceAdapter implements PersonalTodoRepository {
     }
 
     @Override
-    public List<PersonalTodo> findAllByMemberIdAndDateBetween(Long memberId, LocalDate from, LocalDate to) {
-        return springDataPersonalTodoRepository.findAllByMemberIdAndDateBetween(memberId, from, to).stream()
+    public List<PersonalTodo> findAllByMemberIdOverlappingPeriod(Long memberId, LocalDate periodStart, LocalDate periodEnd) {
+        return springDataPersonalTodoRepository
+                .findAllByMemberIdAndDateLessThanEqualAndEndDateGreaterThanEqual(memberId, periodEnd, periodStart)
+                .stream()
                 .map(this::toDomain)
                 .toList();
     }
@@ -45,6 +47,7 @@ public class PersonalTodoPersistenceAdapter implements PersonalTodoRepository {
                 .memberId(todo.getMemberId())
                 .title(todo.getTitle())
                 .date(todo.getDate())
+                .endDate(todo.getEndDate())
                 .isDone(todo.isDone())
                 .build();
     }
@@ -56,6 +59,7 @@ public class PersonalTodoPersistenceAdapter implements PersonalTodoRepository {
                 entity.getMemberId(),
                 entity.getTitle(),
                 entity.getDate(),
+                entity.getEndDate(),
                 entity.isDone(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()

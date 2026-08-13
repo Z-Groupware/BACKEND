@@ -44,6 +44,7 @@ import com.module06.backend.identity.company.application.usecase.RegisterCompany
 import com.module06.backend.identity.company.application.usecase.UpdateCompanyProfileUseCase;
 import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.member.domain.model.Authority;
+import com.module06.backend.metering.domain.repository.BillingSubscriptionRepository;
 
 /*
  * 프론트가 이 키 이름으로 보내고 받는다. 온보딩 요청은 필드 12개에 3단 중첩이고 예전 명세에서
@@ -71,6 +72,8 @@ class CompanyControllerTest {
     private GetCompanyProfileUseCase getCompanyProfileUseCase;
     @MockitoBean
     private UpdateCompanyProfileUseCase updateCompanyProfileUseCase;
+    @MockitoBean
+    private BillingSubscriptionRepository billingSubscriptionRepository;
 
     @AfterEach
     void clearAuthentication() {
@@ -233,15 +236,17 @@ class CompanyControllerTest {
                 /* 내부 필드명은 registrationNo·mainPhone 이다 — JSON 으로는 이 이름이어야 한다. */
                 .andExpect(jsonPath("$.data.businessNumber").value("123-45-67890"))
                 .andExpect(jsonPath("$.data.phone").value("02-1234-5678"))
-                .andExpect(jsonPath("$.data.representativeName").value("김서준"))
+                                .andExpect(jsonPath("$.data.representativeName").value("김서준"))
                 .andExpect(jsonPath("$.data.address").value("서울시 강남구 테헤란로 123"))
                 .andExpect(jsonPath("$.data.latitude").value(37.5006))
                 .andExpect(jsonPath("$.data.longitude").value(127.0366))
-                .andExpect(jsonPath("$.data.plan").value("FREE"))
+                .andExpect(jsonPath("$.data.subscriptionStatus").value("UNPAID"))
                 .andExpect(jsonPath("$.data.onboardedAt").value("2026-08-08T10:22:00"))
                 /* 내부 이름이 새어 나가면 프론트가 둘 다 읽으려 든다. */
                 .andExpect(jsonPath("$.data.registrationNo").doesNotExist())
-                .andExpect(jsonPath("$.data.mainPhone").doesNotExist());
+                .andExpect(jsonPath("$.data.mainPhone").doesNotExist())
+                .andExpect(jsonPath("$.data.plan").doesNotExist());
+    }
     }
 
     @Test

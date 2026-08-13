@@ -22,6 +22,7 @@ import com.module06.backend.action.application.usecase.BulkUpdateActionStatusUse
 import com.module06.backend.action.application.usecase.CreateActionUseCase;
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetActionsByMeetingUseCase;
+import com.module06.backend.action.application.usecase.GetCompanyMemberActionsUseCase;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
@@ -78,7 +79,8 @@ public class ActionService implements
         GetMyActionsUseCase,
         GetActionDetailUseCase,
         BulkUpdateActionStatusUseCase,
-        GetActionsByMeetingUseCase {
+        GetActionsByMeetingUseCase,
+        GetCompanyMemberActionsUseCase {
 
     // 상태 없는 순수 규칙이라 빈으로 띄우지 않는다 — domain 계층에 스프링 애노테이션을 넣지 않기 위함(절대규칙 5항).
     private static final ActionTypeShapePolicy ACTION_TYPE_SHAPE_POLICY = new ActionTypeShapePolicy();
@@ -154,6 +156,60 @@ public class ActionService implements
         }
 
         // 담당자는 호출자 본인 한 명뿐이라 단건 조회로 충분하다.
+        String assigneeName = actionReferenceRepository.findMemberReferences(List.of(assigneeMemberId)).stream()
+                .findFirst().map(MemberReference::name).orElse(null);
+
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
+        Map<Long, String> teamNameById = toDisplayMap(
+                actionReferenceRepository.findTeamReferences(distinctNonNull(actions, Action::getTeamId)),
+                TeamReference::teamId, TeamReference::name);
+        Map<Long, String> meetingTitleById = toDisplayMap(
+                actionReferenceRepository.findMeetingReferences(distinctNonNull(actions, Action::getSourceMeetingId)),
+                MeetingReference::meetingId, MeetingReference::title);
+        Map<Long, String> parentTitleById = actionRepository.findAllByIds(distinctNonNull(actions, Action::getParentActionId))
+                .stream().collect(Collectors.toMap(Action::getId, Action::getTitle));
+
+        List<GetMyActionsUseCase.ActionListItem> items = actions.stream()
+                .map(action -> new GetMyActionsUseCase.ActionListItem(
+                        action,
+                        assigneeName,
+                        projectTagById.get(action.getProjectId()),
+                        projectNameById.get(action.getProjectId()),
+                        action.getTeamId() == null ? null : teamNameById.get(action.getTeamId()),
+                        action.getSourceMeetingId() == null ? null : meetingTitleById.get(action.getSourceMeetingId()),
+                        action.getParentActionId() == null ? null : parentTitleById.get(action.getParentActionId())
+                ))
+                .toList();
+
+        return new GetMyActionsUseCase.ActionListResult(items, totalElements);
+    }
+
+    // 2026-08-13, 종준님 확정 — OWNER·ADMIN이 회사 전체에서 특정 구성원의 개인 액션을 조회한다
+    // (Figma "회원 관리" 화면, GetMyActionsUseCase 주석의 2026-08-11 보류분). 권한(OWNER/isAdmin)은
+    // 컨트롤러 @PreAuthorize에서 이미 걸렀으므로 여기서는 대상이 같은 회사 소속인지만 검증한다
+    // (IDOR 방지 — create()의 existsMemberInCompany 검증과 동일 판단).
+    @Override
+    @Transactional(readOnly = true)
+    public GetMyActionsUseCase.ActionListResult getCompanyMemberActions(
+            Long companyId, Long assigneeMemberId, ActionStatus status, Boolean overdue,
+            String sort, String order, int page, int size) {
+        if (assigneeMemberId == null) {
+            throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_MEMBER_ID_REQUIRED);
+        }
+        if (!actionReferenceRepository.existsMemberInCompany(assigneeMemberId, companyId)) {
+            throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+        }
+
+        long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
+        List<Action> actions = actionRepository.findAllByAssigneeMemberId(
+                assigneeMemberId, status, overdue, sort, order, page, size);
+        if (actions.isEmpty()) {
+            return new GetMyActionsUseCase.ActionListResult(List.of(), totalElements);
+        }
+
         String assigneeName = actionReferenceRepository.findMemberReferences(List.of(assigneeMemberId)).stream()
                 .findFirst().map(MemberReference::name).orElse(null);
 
