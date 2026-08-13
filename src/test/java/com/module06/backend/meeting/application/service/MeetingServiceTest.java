@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
+import com.module06.backend.meeting.application.command.CreateOnlineMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
 import com.module06.backend.meeting.application.event.MeetingAttendeesRemovedEvent;
@@ -30,6 +31,7 @@ import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort.ProjectSnapshot;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
+import com.module06.backend.meeting.application.result.OnlineMeetingCreationResult;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.model.MeetingAgenda;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
@@ -89,6 +91,71 @@ class MeetingServiceTest {
         assertThat(eventPublisher.events).hasSize(1);
         assertThat(eventPublisher.events.get(0).meetingId()).isEqualTo(91L);
         assertThat(eventPublisher.events.get(0).attendeeMemberIds()).containsExactly(3L, 7L, 11L);
+    }
+
+    /* MEET-18 유효한 요청이 회의실·시간 없이 개설되고 알림을 발행하지 않는지 검증한다. */
+    @Test
+    @DisplayName("MEET-18 유효한 요청을 회의실 없이 개설하고 알림을 발행하지 않는다")
+    void createsOnlineMeetingReservation() {
+        /* 저장된 회의와 발행 이벤트를 확인할 수 있는 대역을 준비한다. */
+        RecordingMeetingRepository repository = new RecordingMeetingRepository();
+        RecordingMeetingTopicRepository topicRepository = new RecordingMeetingTopicRepository();
+        RecordingMeetingEventPublisher eventPublisher = new RecordingMeetingEventPublisher();
+        MeetingService service = service(
+                repository,
+                topicRepository,
+                eventPublisher,
+                activeRoom(),
+                validMembers(),
+                true,
+                true
+        );
+
+        /* 회의실·시간 필드 자체가 없는 정상 온라인 회의 개설 요청을 실행한다. */
+        OnlineMeetingCreationResult result = service.createOnlineMeeting(validOnlineCommand());
+
+        /* 저장된 회의는 생성 ID와 SCHEDULED 상태를 가지고 회의실·시간이 없어야 한다. */
+        assertThat(result.meetingId()).isEqualTo(91L);
+        assertThat(result.status().name()).isEqualTo("SCHEDULED");
+        assertThat(repository.savedMeeting).isNotNull();
+        assertThat(repository.savedMeeting.getMeetingRoomId()).isNull();
+        assertThat(repository.savedMeeting.getStartAt()).isNull();
+        assertThat(repository.savedMeeting.getEndAt()).isNull();
+        assertThat(repository.savedMeeting.isOnline()).isTrue();
+
+        /* 저장된 회의 식별자 아래에 안건도 함께 저장돼야 한다. */
+        assertThat(topicRepository.savedMeetingId).isEqualTo(91L);
+
+        /* 개설자가 첫 번째 참석자로 자동 포함돼야 한다. */
+        assertThat(result.host().memberId()).isEqualTo(3L);
+        assertThat(result.attendees())
+                .extracting(OnlineMeetingCreationResult.Attendee::memberId)
+                .containsExactly(3L, 7L, 11L);
+
+        /* 비대면 회의 개설은 합의된 정책에 따라 예약 완료 알림을 발행하지 않는다. */
+        assertThat(eventPublisher.events).isEmpty();
+    }
+
+    /* MEET-18도 MEET-01과 같은 안건 검증을 공유하는지 확인한다. */
+    @Test
+    @DisplayName("MEET-18 필수 안건이 없으면 MT-015로 거절한다")
+    void rejectsOnlineMeetingWithoutAgenda() {
+        /* 대주제는 있지만 소주제 목록이 빈 온라인 회의 명령을 만든다. */
+        CreateOnlineMeetingCommand command = onlineCommand("LEADER", 305L, List.of(7L), "대주제", List.of());
+
+        /* 회의실이 없는 경로에서도 안건 오류가 먼저 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createOnlineMeeting(command), "MT-015");
+    }
+
+    /* MEET-18도 상위 팀 액션 정책을 공유하는지 확인한다. */
+    @Test
+    @DisplayName("MEET-18 OWNER가 관련 액션을 지정하면 MT-016으로 거절한다")
+    void rejectsOnlineMeetingRelatedActionFromOwner() {
+        /* 정상 온라인 명령에서 역할만 OWNER로 바꿔 금지된 액션 입력 조합을 만든다. */
+        CreateOnlineMeetingCommand command = onlineCommand("OWNER", 305L, List.of(7L), "대주제", List.of("소주제"));
+
+        /* 외부 포트를 호출하기 전에 역할 정책 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createOnlineMeeting(command), "MT-016");
     }
 
     /* 종료가 시작보다 늦지 않은 요청이 MT-003으로 거절되는지 검증한다. */
@@ -567,6 +634,36 @@ class MeetingServiceTest {
         );
     }
 
+    /* 명세 예시와 같은 정상 온라인 회의 개설 명령을 만든다. */
+    private CreateOnlineMeetingCommand validOnlineCommand() {
+        /* 회의실·시간 필드 자체가 없는 정상 형식의 온라인 회의 명령을 사용한다. */
+        return onlineCommand("LEADER", 305L, List.of(7L, 11L), "스프린트 진행 상황", List.of("개발 진행률 점검"));
+    }
+
+    /* 역할·액션·참석자·안건만 바꾼 온라인 회의 개설 명령을 만든다. */
+    private CreateOnlineMeetingCommand onlineCommand(
+            String hostRole,
+            Long relatedActionId,
+            List<Long> attendeeMemberIds,
+            String mainTopic,
+            List<String> subTopics
+    ) {
+        /* 나머지 식별자는 MEET-01 정상값과 동일하게 고정해 해당 정책만 검증한다. */
+        return new CreateOnlineMeetingCommand(
+                10L,
+                3L,
+                100L,
+                hostRole,
+                "A커머스 온보딩 킥오프",
+                12L,
+                true,
+                relatedActionId,
+                attendeeMemberIds,
+                mainTopic,
+                subTopics
+        );
+    }
+
     /* 인증 principal의 팀 식별자만 바꾼 정상 형식 명령을 만든다. */
     private CreateMeetingCommand commandWithHostTeamId(Long hostTeamId) {
         /* B 도메인의 실제 팀과 다른 인증 팀을 전달하는 회귀 상황을 재현한다. */
@@ -680,6 +777,37 @@ class MeetingServiceTest {
                     meeting.getAttendeeMemberIds(),
                     null,
                     null,
+                    persistedAt,
+                    persistedAt
+            );
+        }
+
+        /* MEET-18 신규 온라인 회의 저장을 기록하고 91번 식별자가 생성된 저장 결과를 반환한다. */
+        @Override
+        public Meeting saveOnlineReservation(Meeting meeting) {
+            /* 저장 전 상태를 검증할 수 있도록 입력 회의를 기록한다. */
+            this.savedMeeting = meeting;
+
+            /* 실제 DB가 ID와 생성·수정 시각을 채운 것처럼 도메인을 복원한다. */
+            LocalDateTime persistedAt = LocalDateTime.of(2026, 8, 5, 9, 0);
+            return Meeting.reconstitute(
+                    91L,
+                    meeting.getCompanyId(),
+                    meeting.getProjectId(),
+                    meeting.getTeamId(),
+                    meeting.getMeetingRoomId(),
+                    meeting.getHostMemberId(),
+                    meeting.getTitle(),
+                    meeting.getStatus(),
+                    meeting.getStartAt(),
+                    meeting.getEndAt(),
+                    meeting.isRecordingConsent(),
+                    meeting.getRelatedActionId(),
+                    meeting.getAttendeeMemberIds(),
+                    null,
+                    null,
+                    null,
+                    meeting.isOnline(),
                     persistedAt,
                     persistedAt
             );

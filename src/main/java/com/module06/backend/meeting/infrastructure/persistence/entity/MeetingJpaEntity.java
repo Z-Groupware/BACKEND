@@ -49,8 +49,8 @@ public class MeetingJpaEntity {
     @Column(name = "team_id")
     private Long teamId;
 
-    /* 예약한 회의실 식별자다. */
-    @Column(name = "meeting_room_id", nullable = false)
+    /* 예약한 회의실 식별자이며 비대면 회의(MEET-18)에서는 null이다. */
+    @Column(name = "meeting_room_id")
     private Long meetingRoomId;
 
     /* 회의 개설자 식별자다. */
@@ -66,13 +66,17 @@ public class MeetingJpaEntity {
     @Column(name = "status", nullable = false)
     private MeetingStatus status;
 
-    /* 예약 시작 일시다. */
-    @Column(name = "start_at", nullable = false)
+    /* 예약 시작 일시이며 비대면 회의(MEET-18)에서는 null이다. */
+    @Column(name = "start_at")
     private LocalDateTime startAt;
 
-    /* 예약 종료 일시다. */
-    @Column(name = "end_at", nullable = false)
+    /* 예약 종료 일시이며 비대면 회의(MEET-18)에서는 null이다. */
+    @Column(name = "end_at")
     private LocalDateTime endAt;
+
+    /* 회의실 예약 없이 개설된 비대면 회의인지 나타낸다(MEET-18). */
+    @Column(name = "is_online", nullable = false)
+    private boolean isOnline;
 
     /* 녹음 동의 안내 여부다. */
     @Column(name = "recording_consent", nullable = false)
@@ -117,6 +121,7 @@ public class MeetingJpaEntity {
         this.status = meeting.getStatus();
         this.startAt = meeting.getStartAt();
         this.endAt = meeting.getEndAt();
+        this.isOnline = meeting.isOnline();
         this.recordingConsent = meeting.isRecordingConsent();
         this.startedAt = meeting.getStartedAt();
         this.endedAt = meeting.getEndedAt();
@@ -150,6 +155,7 @@ public class MeetingJpaEntity {
                 startedAt,
                 endedAt,
                 canceledAt,
+                isOnline,
                 createdAt,
                 updatedAt
         );
