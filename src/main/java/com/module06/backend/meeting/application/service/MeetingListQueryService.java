@@ -29,6 +29,7 @@ import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingListUseCase;
 import com.module06.backend.meeting.domain.model.MeetingEntryPolicy;
 import com.module06.backend.meeting.domain.model.MeetingListScope;
+import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingListCriteria;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingListSnapshot;
@@ -358,12 +359,24 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meeting.attendeeMemberIds().size(),
                 actionCount,
                 meeting.hostMemberId().equals(requesterMemberId),
-                MeetingEntryPolicy.isEntryAvailable(meeting.startAt(), meeting.endAt(), now),
+                isEntryAvailable(meeting, now),
                 (int) Duration.between(meeting.startAt(), meeting.endAt()).toMinutes(),
                 attendees,
                 new MeetingListResult.MeetingRoom(meetingRoom.meetingRoomId(), meetingRoom.name()),
                 new MeetingListResult.Project(project.projectId(), project.tag(), project.name())
         );
+    }
+
+    /*
+     * MeetingEntryPolicy는 MEET-03·CAP-01처럼 SCHEDULED·IN_PROGRESS만 걸러진 조회를 전제로
+     * 시간 창만 본다. MEET-02는 DONE·CANCELED도 그대로 반환하므로, 취소되거나 일찍 끝난
+     * 회의가 원래 예약 시간 창 안에 있으면 시간 창만으로는 잘못 true가 나온다 — 상태로 먼저 막는다.
+     */
+    private boolean isEntryAvailable(MeetingListSnapshot meeting, LocalDateTime now) {
+        if (meeting.status() != MeetingStatus.SCHEDULED && meeting.status() != MeetingStatus.IN_PROGRESS) {
+            return false;
+        }
+        return MeetingEntryPolicy.isEntryAvailable(meeting.startAt(), meeting.endAt(), now);
     }
 
     /* 검증과 기본값 처리가 끝난 서비스 내부 조회 조건이다. */

@@ -175,6 +175,50 @@ class MeetingListQueryServiceTest {
         assertThat(item.durationMinutes()).isEqualTo(35);
     }
 
+    /* 취소되거나 일찍 끝난 회의는 예약 시간 창 안에 있어도 entryAvailable이 false여야 한다. */
+    @Test
+    @DisplayName("CANCELED·DONE 회의는 예약 시간 창 안에 있어도 entryAvailable=false를 계산한다")
+    void restrictsEntryAvailableToScheduledAndInProgressStatuses() {
+        /* MeetingEntryPolicy의 시간 창(08:45~09:30)만 보면 true가 나올 예약 구간을 그대로 쓴다. */
+        LocalDateTime startAt = LocalDateTime.of(2026, 8, 7, 8, 55);
+        RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
+                new MeetingListRepository.MeetingPage(
+                        List.of(
+                                new MeetingListRepository.MeetingListSnapshot(
+                                        60L, 12L, 2L, "취소된 회의", MeetingStatus.CANCELED,
+                                        startAt, startAt.plusMinutes(35), 3L, List.of(3L)
+                                ),
+                                new MeetingListRepository.MeetingListSnapshot(
+                                        61L, 12L, 2L, "일찍 끝난 회의", MeetingStatus.DONE,
+                                        startAt, startAt.plusMinutes(35), 3L, List.of(3L)
+                                )
+                        ),
+                        2L,
+                        1
+                )
+        );
+        RecordingMemberQueryPort memberQueryPort = new RecordingMemberQueryPort(List.of(
+                new MemberQueryPort.MemberSnapshot(3L, "지우", 1L, "기획")
+        ));
+        MeetingListQueryService service = new MeetingListQueryService(
+                repository,
+                meetingRoomPort(),
+                projectPort(),
+                new RecordingActionQueryPort(List.of()),
+                memberQueryPort,
+                FIXED_CLOCK
+        );
+
+        MeetingListResult result = service.getMeetings(new GetMeetingListQuery(
+                10L, 3L, false, null, null, null, null, null, null, null, null
+        ));
+
+        /* 상태로 먼저 막혀 시간 창과 무관하게 두 회의 모두 entryAvailable=false여야 한다. */
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::entryAvailable)
+                .containsExactly(false, false);
+    }
+
     /* scope 필터가 companyWideRead와 별개로 저장소 조건에 그대로 전달되는지 검증한다. */
     @Test
     @DisplayName("scope=HOSTED·ATTENDING을 저장소 조건에 그대로 전달한다")
