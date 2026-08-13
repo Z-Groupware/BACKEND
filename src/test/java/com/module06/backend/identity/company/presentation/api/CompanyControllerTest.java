@@ -223,7 +223,7 @@ class CompanyControllerTest {
     /* ── 기업 기본 정보 ──────────────────────────────────────────────────────── */
 
     @Test
-    @DisplayName("기업 정보 응답 키 9개 — 내부 이름이 아니라 businessNumber·phone 으로 나간다")
+    @DisplayName("기업 정보 응답 키 11개 — 내부 이름이 아니라 businessNumber·phone 으로 나간다")
     void returnsCompanyProfileKeys() throws Exception {
         authenticateAs(1L);
         when(getCompanyProfileUseCase.getProfile(1L)).thenReturn(company());
@@ -236,7 +236,7 @@ class CompanyControllerTest {
                 /* 내부 필드명은 registrationNo·mainPhone 이다 — JSON 으로는 이 이름이어야 한다. */
                 .andExpect(jsonPath("$.data.businessNumber").value("123-45-67890"))
                 .andExpect(jsonPath("$.data.phone").value("02-1234-5678"))
-                                .andExpect(jsonPath("$.data.representativeName").value("김서준"))
+                .andExpect(jsonPath("$.data.representativeName").value("김서준"))
                 .andExpect(jsonPath("$.data.address").value("서울시 강남구 테헤란로 123"))
                 .andExpect(jsonPath("$.data.latitude").value(37.5006))
                 .andExpect(jsonPath("$.data.longitude").value(127.0366))
@@ -246,7 +246,6 @@ class CompanyControllerTest {
                 .andExpect(jsonPath("$.data.registrationNo").doesNotExist())
                 .andExpect(jsonPath("$.data.mainPhone").doesNotExist())
                 .andExpect(jsonPath("$.data.plan").doesNotExist());
-    }
     }
 
     @Test
