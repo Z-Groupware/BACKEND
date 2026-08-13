@@ -221,7 +221,7 @@ class ActionServiceTest {
     @Test
     void getCompanyMemberActionsReturnsEnrichedListWhenTargetIsInCompany() {
         ActionService service = actionService();
-        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 300L, ActionStatus.TODO);
+        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 300L, ActionStatus.TODO, 9L);
         when(actionReferenceRepository.existsMemberInCompany(9L, COMPANY)).thenReturn(true);
         when(actionRepository.countByAssigneeMemberId(9L, null, null)).thenReturn(1L);
         when(actionRepository.findAllByAssigneeMemberId(9L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
@@ -240,6 +240,9 @@ class ActionServiceTest {
 
         assertThat(result.items()).hasSize(1);
         assertThat(result.totalElements()).isEqualTo(1L);
+        // CodeRabbit 지적(PR #454) — assigneeName 표시값만 보면, 다른 구성원 액션이 섞여도
+        // 통과할 수 있었다. 반환된 액션의 실제 담당자가 요청 대상(9L)과 같은지 직접 확인한다.
+        assertThat(result.items().get(0).action().getAssigneeMemberId()).isEqualTo(9L);
         assertThat(result.items().get(0).assigneeName()).isEqualTo("박종준");
     }
 

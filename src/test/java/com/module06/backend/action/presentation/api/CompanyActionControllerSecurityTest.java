@@ -55,7 +55,8 @@ class CompanyActionControllerSecurityTest {
         String bearer = bearerFor(new AuthPrincipal(3L, 1L, "LEADER", false, 7L));
 
         mockMvc.perform(get("/api/company/actions").param("assigneeMemberId", "9").header("Authorization", bearer))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("AC-015"));
     }
 
     @Test
@@ -74,7 +75,8 @@ class CompanyActionControllerSecurityTest {
         String bearer = bearerFor(new AuthPrincipal(3L, 1L, "MEMBER", false, 7L));
 
         mockMvc.perform(get("/api/company/actions").param("assigneeMemberId", "9").header("Authorization", bearer))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("AC-015"));
     }
 
     private String bearerFor(AuthPrincipal principal) {
