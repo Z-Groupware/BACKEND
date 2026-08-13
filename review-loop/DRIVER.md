@@ -183,8 +183,18 @@ bash scripts/review-lesson-from-revert.sh --apply
 
   → `gate2-live-judge`(golden 씨앗 어댑터 회귀 스모크)는 2026-08-13에 CI에서 내렸다.
     PR 코드를 보지 않으면서 매 PR마다 Gemini를 호출했고, `continue-on-error`라 실패해도
-    신호가 되지 못했다. 어댑터 확인이 필요하면 로컬에서 직접 돌린다:
-    `./gradlew test --tests "com.module06.backend.reviewloop.judge.Gemini*LiveTest"`
+    신호가 되지 못했다. 어댑터 확인이 필요하면 로컬에서 직접 돌린다 — **키를 먼저 넣어야 한다**:
+
+    ```bash
+    GEMINI_API_KEY=... ./gradlew test --tests "com.module06.backend.reviewloop.judge.Gemini*LiveTest"
+    # 실제로 호출됐는지 확인 — skipped="0" 이어야 한다
+    grep -o 'skipped="[0-9]*"' build/test-results/test/TEST-*Gemini*LiveTest.xml
+    ```
+
+    ⚠️ 키 없이 돌리면 `@EnabledIfEnvironmentVariable`이 클래스를 통째로 skip 하고 Gradle은
+    `BUILD SUCCESSFUL`(exit 0)을 낸다 — 2026-08-14 확인, 5건 전부 SKIPPED였다.
+    **초록불은 "어댑터가 살아있다"는 증거가 아니다.** provider 불가·쿼터 초과도 같은 방식으로
+    조용히 지나가므로 반드시 skipped 수를 본다.
 
   → Minor는 로컬·CI 모두 차단하지 않는다(요청서만).
   → 단, 차단이 실제로 강제되려면 **GitHub 브랜치 보호에서 "Require status checks to pass"가 켜져 있어야 한다.**

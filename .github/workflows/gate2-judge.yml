@@ -10,8 +10,14 @@ name: Gate 2 · LLM Judge
 #
 # gate2-live-judge(어댑터·프롬프트 회귀 스모크)는 2026-08-13에 걷어냈다 — PR 코드를 리뷰하지
 # 않으면서 매 PR마다 Gemini를 호출했고, continue-on-error라 실패해도 아무 신호가 되지 못했다.
-# 어댑터가 살아있는지 확인이 필요하면 로컬에서 직접 돌린다:
-#   ./gradlew test --tests "com.module06.backend.reviewloop.judge.Gemini*LiveTest"
+# 어댑터가 살아있는지 확인이 필요하면 로컬에서 직접 돌린다 — 키를 반드시 먼저 넣는다:
+#   GEMINI_API_KEY=... ./gradlew test --tests "com.module06.backend.reviewloop.judge.Gemini*LiveTest"
+#
+# ⚠️ 키 없이 돌리면 @EnabledIfEnvironmentVariable 이 클래스를 통째로 skip 하고 Gradle 은
+#    BUILD SUCCESSFUL(exit 0)을 낸다 — 2026-08-14 확인, 5건 전부 SKIPPED 였다.
+#    즉 초록불은 "어댑터가 살아있다"는 증거가 아니다. 실제로 호출됐는지는 리포트로 본다:
+#      grep -o 'skipped="[0-9]*"' build/test-results/test/TEST-*Gemini*LiveTest.xml
+#    skipped="0" 이어야 실제로 돈 것이다(provider 불가·쿼터 초과도 같은 방식으로 조용히 지나간다).
 
 on:
   pull_request:

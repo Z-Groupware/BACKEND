@@ -105,12 +105,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 위 image 스캔은 develop push 에서만 돈다(이미지를 빌드하는 잡이 거기뿐이다). 이 잡은
-  # PR 에서 돌면서 이미지를 만들지 않고 Dockerfile 만 본다 — 잘못된 설정을 머지 전에 잡는다.
-  # 빌드가 없어서 몇 초면 끝난다.
+  # 이 잡은 이미지를 만들지 않고 IaC·컨테이너 설정 파일만 정적으로 본다 — 잘못된 설정을
+  # 머지 전에 잡는다. 빌드가 없어서 몇 초면 끝난다.
   #
-  # ⚠️ compose.yml 은 검사되지 않는다. Trivy 의 misconfig 스캐너에 compose 룰이 없어서
-  #    실제로 잡히는 파일은 Dockerfile 하나뿐이다(로그의 "Detected config files num=1").
+  # ★ scan-ref 는 리포 전체(.)다 — 의도적이다.
+  #   CodeRabbit(PR #478)이 "Dockerfile 하나로 좁혀라, 안 그러면 나중에 Terraform·Kubernetes·
+  #   Helm 이 들어올 때 검사 범위와 판정이 바뀐다"고 지적했으나 반영하지 않았다. 좁히면
+  #   그 파일들이 조용히 검사 밖으로 빠지는데, 그게 이 게이트로 막으려던 바로 그 상황이다.
+  #   새 IaC 가 HIGH 를 물고 들어오면 빨개지는 것이 맞다 — 범위가 늘어 판정이 바뀌는 건
+  #   결함이 아니라 목적이다. 대신 스텝 이름을 실제 동작(리포 전체)에 맞춰 고쳤다.
+  #
+  # ⚠️ 지금 실제로 잡히는 파일은 Dockerfile 하나뿐이다(로그의 "Detected config files num=1").
+  #    compose.yml 은 Trivy misconfig 스캐너에 compose 룰이 없어 검사되지 않는다 —
   #    compose 의 실수는 파일 자신의 가드로 막는다(REDIS_PASSWORD 미설정 시 기동 실패).
   #
   # ★ 차단이다(exit-code 1). 첫 실행에서 findings 0 을 확인했다
@@ -124,7 +130,7 @@ jobs:
         with:
           persist-credentials: false   # 러너에 git 자격증명을 남기지 않는다
 
-      - name: Trivy — Dockerfile 설정 검사
+      - name: Trivy — IaC·컨테이너 설정 검사 (리포 전체)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: config
