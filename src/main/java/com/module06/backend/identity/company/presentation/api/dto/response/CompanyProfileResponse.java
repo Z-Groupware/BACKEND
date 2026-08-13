@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.module06.backend.identity.company.domain.model.Company;
 
-/** §4-2·4-3 공통 응답. {@code subscriptionStatus}는 컨트롤러가 주입한다. */
+/** §4-2·4-3 공통 응답. {@code subscriptionStatus}는 구독 도메인이 채워 준다(호출자가 주입). */
 @Schema(description = "기업 기본 정보")
 public record CompanyProfileResponse(
         Long companyId,

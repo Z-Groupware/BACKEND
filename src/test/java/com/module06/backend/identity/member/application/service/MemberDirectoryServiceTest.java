@@ -29,6 +29,7 @@ import com.module06.backend.identity.member.application.dto.MemberDetail;
 import com.module06.backend.identity.member.application.dto.MemberListFilter;
 import com.module06.backend.identity.member.application.dto.MemberPage;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
+import com.module06.backend.identity.member.application.dto.TeamRosterMember;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
@@ -72,6 +73,31 @@ class MemberDirectoryServiceTest {
         MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, "김서", 0, 20);
 
         assertThat(page.content()).extracting(m -> m.name()).containsExactly("김서준");
+    }
+
+    @Test
+    @DisplayName("이메일로도 검색한다 — 동명이인은 이메일로만 특정된다")
+    void searchesByEmail() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActiveWithEmail(COMPANY_ID, "김서준", "seojun@company.kr", null, null, Authority.MEMBER);
+        directory.addActiveWithEmail(COMPANY_ID, "김서준", "seojun.kim@company.kr", null, null, Authority.MEMBER);
+        directory.addActiveWithEmail(COMPANY_ID, "박민재", "minjae@company.kr", null, null, Authority.MEMBER);
+
+        MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, "seojun.kim", 0, 20);
+
+        assertThat(page.totalElements()).isEqualTo(1);
+        assertThat(page.content()).extracting(m -> m.name()).containsExactly("김서준");
+    }
+
+    @Test
+    @DisplayName("이메일 검색도 대소문자를 가리지 않는다")
+    void searchesByEmailIgnoringCase() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActiveWithEmail(COMPANY_ID, "김서준", "Seojun@Company.kr", null, null, Authority.MEMBER);
+
+        MemberPage page = service(directory).getMembers(COMPANY_ID, MemberListFilter.ALL, "SEOJUN@company", 0, 20);
+
+        assertThat(page.totalElements()).isEqualTo(1);
     }
 
     @Test
@@ -160,6 +186,52 @@ class MemberDirectoryServiceTest {
         assertThat(chart).hasSize(1);
         assertThat(chart.get(0).subTeams()).extracting(s -> s.roleLabel()).containsExactly("백엔드", "프론트엔드");
         assertThat(chart.get(0).subTeams().get(0).members()).extracting(m -> m.name()).containsExactly("김서준");
+    }
+
+    @Test
+    @DisplayName("내 팀 로스터는 같은 팀 재직자만 담는다 — 다른 팀·다른 회사는 빠진다")
+    void teamRosterContainsOnlyOwnTeam() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActive(COMPANY_ID, "우리팀김서준", 2L, "개발팀");
+        directory.addActive(COMPANY_ID, "우리팀박민수", 2L, "개발팀");
+        directory.addActive(COMPANY_ID, "옆팀이하윤", 3L, "디자인팀");
+        directory.addActive(COMPANY_ID, "팀없는오너", null, null);
+        directory.addActive(2L, "타사구성원", 2L, "개발팀");
+
+        List<TeamRosterMember> roster = service(directory).getTeamRoster(COMPANY_ID, 2L);
+
+        assertThat(roster).extracting(TeamRosterMember::name)
+                .containsExactly("우리팀김서준", "우리팀박민수");
+    }
+
+    /*
+     * 회의에 부를 수 없는 사람은 픽커에 뜨면 안 된다. 휴직자와 대기자(휴직·오프보딩 승인 대기)는
+     * 목록에서 뺀다 — 재직자 스냅샷에는 둘 다 들어 있으므로 상태로 한 번 더 거른다.
+     */
+    @Test
+    @DisplayName("내 팀 로스터에서 휴직자와 대기자는 빠진다")
+    void teamRosterExcludesOnLeaveAndPending() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActive(COMPANY_ID, "재직자", 2L, "개발팀");
+        directory.addOnLeave(COMPANY_ID, "휴직자", 2L, "개발팀", Authority.MEMBER,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        directory.addWaitingInTeam(COMPANY_ID, "휴직대기자", 2L, PendingHandoverType.VACATION);
+        directory.addWaitingInTeam(COMPANY_ID, "퇴사대기자", 2L, PendingHandoverType.OFFBOARDING);
+
+        List<TeamRosterMember> roster = service(directory).getTeamRoster(COMPANY_ID, 2L);
+
+        assertThat(roster).extracting(TeamRosterMember::name).containsExactly("재직자");
+    }
+
+    /* 팀 미배정(온보딩 전 오너)은 오류가 아니다 — 회의를 못 여는 것뿐이라 빈 목록으로 답한다. */
+    @Test
+    @DisplayName("teamId 가 없으면 빈 목록이다 — 예외가 아니다")
+    void teamRosterWithoutTeamIsEmpty() {
+        FakeDirectory directory = new FakeDirectory();
+        directory.addActive(COMPANY_ID, "김서준", 2L, "개발팀");
+        directory.addActive(COMPANY_ID, "팀없는오너", null, null);
+
+        assertThat(service(directory).getTeamRoster(COMPANY_ID, null)).isEmpty();
     }
 
     @Test
@@ -651,6 +723,14 @@ class MemberDirectoryServiceTest {
                     authority, false, MemberStatus.VACATION, null);
             row.leaveStartDate = leaveStartDate;
             row.leaveEndDate = leaveEndDate;
+            rows.put(id, row);
+            return id;
+        }
+
+        Long addWaitingInTeam(Long companyId, String name, Long teamId, PendingHandoverType pendingType) {
+            long id = nextId++;
+            MutableRow row = new MutableRow(id, companyId, name, name + "@company.kr", teamId, null, null,
+                    Authority.MEMBER, false, MemberStatus.WAITING, pendingType);
             rows.put(id, row);
             return id;
         }
