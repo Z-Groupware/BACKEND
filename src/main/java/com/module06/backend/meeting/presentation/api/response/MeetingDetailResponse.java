@@ -67,6 +67,7 @@ public record MeetingDetailResponse(
                         .map(attendee -> new AttendeeResponse(
                                 attendee.memberId(),
                                 attendee.name(),
+                                attendee.teamId(),
                                 attendee.teamName(),
                                 attendee.jobPosition()
                         ))
@@ -97,6 +98,7 @@ public record MeetingDetailResponse(
     public record AttendeeResponse(
             Long memberId,
             String name,
+            Long teamId,
             String teamName,
             String jobPosition
     ) {
