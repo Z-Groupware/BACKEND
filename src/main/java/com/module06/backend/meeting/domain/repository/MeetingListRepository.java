@@ -37,6 +37,7 @@ public interface MeetingListRepository {
     record MeetingListSnapshot(
             Long meetingId,
             Long projectId,
+            Long teamId,
             Long meetingRoomId,
             String title,
             MeetingStatus status,

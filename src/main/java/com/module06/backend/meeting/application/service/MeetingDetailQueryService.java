@@ -27,8 +27,11 @@ import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingDetailUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 import com.module06.backend.project.exception.ProjectErrorCode;
@@ -60,6 +63,8 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
 
     /* 요약 중단·실패 배너에 쓸 회의별 요약 상태를 조회하는 A 연동 Port다. */
     private final SummaryStatusQueryPort summaryStatusQueryPort;
+
+    private final MeetingQueryRepository meetingQueryRepository;
 
     /* 열람 권한을 검증하고 회의 메타와 연결 리소스 표시 정보를 상세 결과로 조립한다. */
     @Override
@@ -108,6 +113,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         /* 종료 전 회의는 액션·요약 자체가 없으므로 C·A Port를 부르지 않고 기본값으로 확정한다. */
         long pendingActionCount = resolvePendingActionCount(meeting);
         MeetingSummaryStatus summaryStatus = resolveSummaryStatus(meeting);
+        MeetingDetailResult.Agenda agenda = resolveAgenda(meeting);
 
         /* D 회의 메타와 다섯 Port의 표시 정보를 외부 응답과 독립적인 애플리케이션 결과로 만든다. */
         return new MeetingDetailResult(
@@ -121,6 +127,9 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 meeting.recordingConsent(),
                 pendingActionCount,
                 summaryStatus,
+                meeting.teamId(),
+                originLabel(meeting.teamId()),
+                agenda,
                 new MeetingDetailResult.Project(
                         project.projectId(),
                         project.tag(),
@@ -147,6 +156,30 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
     }
 
     /* 회의가 끝나지 않았으면 분배할 액션 자체가 없으므로 C Port 없이 0건으로 확정한다. */
+    private MeetingDetailResult.Agenda resolveAgenda(MeetingDetailSnapshot meeting) {
+        List<MeetingTopicSnapshot> topics = meetingQueryRepository.findMeetingTopics(
+                meeting.companyId(),
+                List.of(meeting.meetingId())
+        );
+        String mainTopic = topics.stream()
+                .filter(topic -> topic.type() == MeetingTopicType.MAIN)
+                .map(MeetingTopicSnapshot::content)
+                .findFirst()
+                .orElse(null);
+        List<String> subTopics = topics.stream()
+                .filter(topic -> topic.type() == MeetingTopicType.SUB)
+                .map(MeetingTopicSnapshot::content)
+                .toList();
+        if (mainTopic == null && subTopics.isEmpty()) {
+            return null;
+        }
+        return new MeetingDetailResult.Agenda(mainTopic, subTopics);
+    }
+
+    private String originLabel(Long teamId) {
+        return teamId == null ? "OWNER" : "TEAM";
+    }
+
     private long resolvePendingActionCount(MeetingDetailSnapshot meeting) {
         if (meeting.status() != MeetingStatus.DONE) {
             return 0L;

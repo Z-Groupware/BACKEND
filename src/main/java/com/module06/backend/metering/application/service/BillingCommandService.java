@@ -11,6 +11,7 @@ import com.module06.backend.metering.domain.exception.BillingErrorCode;
 import com.module06.backend.metering.domain.model.BillingPaymentMethod;
 import com.module06.backend.metering.domain.model.BillingPaymentRecord;
 import com.module06.backend.metering.domain.model.BillingPaymentStatus;
+import com.module06.backend.metering.domain.model.BillingDefaults;
 import com.module06.backend.metering.domain.model.BillingSubscription;
 import com.module06.backend.metering.domain.model.BillingSubscriptionStatus;
 import com.module06.backend.metering.domain.repository.BillingPaymentMethodRepository;
@@ -53,7 +54,7 @@ public class BillingCommandService implements ManageBillingSubscriptionUseCase, 
     @Transactional
     public BillingPaymentActionResult pay(AuthPrincipal principal) {
         requireBillingManager(principal);
-        BillingSubscription subscription = findSubscription(principal.companyId());
+        BillingSubscription subscription = getOrCreateSubscription(principal.companyId());
         if (subscription.getStatus() == BillingSubscriptionStatus.ACTIVE) {
             return BillingPaymentActionResult.success();
         }
@@ -137,6 +138,24 @@ public class BillingCommandService implements ManageBillingSubscriptionUseCase, 
     private BillingSubscription findSubscription(Long companyId) {
         return subscriptionRepository.findByCompanyId(companyId)
                 .orElseThrow(() -> new BusinessException(BillingErrorCode.BIL_SUBSCRIPTION_NOT_FOUND));
+    }
+
+    private BillingSubscription getOrCreateSubscription(Long companyId) {
+        return subscriptionRepository.findByCompanyId(companyId)
+                .orElseGet(() -> {
+                    LocalDate today = LocalDate.now(clock);
+                    return subscriptionRepository.save(BillingSubscription.create(
+                            companyId,
+                            BillingDefaults.PLAN_CODE,
+                            1,
+                            BillingSubscriptionStatus.UNPAID,
+                            today,
+                            today,
+                            null,
+                            null,
+                            0
+                    ));
+                });
     }
 
     private void requireBillingManager(AuthPrincipal principal) {

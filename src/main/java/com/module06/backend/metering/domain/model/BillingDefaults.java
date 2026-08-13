@@ -5,6 +5,7 @@ package com.module06.backend.metering.domain.model;
  */
 public final class BillingDefaults {
 
+    public static final String PLAN_CODE = "STANDARD";
     public static final int BASE_FEE = 150_000;
     public static final long INCLUDED_TOKENS = 1_500_000L;
     public static final long INCLUDED_STORAGE_GB = 50L;

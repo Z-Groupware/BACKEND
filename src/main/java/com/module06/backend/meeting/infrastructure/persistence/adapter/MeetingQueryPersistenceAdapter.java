@@ -201,6 +201,7 @@ public class MeetingQueryPersistenceAdapter
         return new MeetingListSnapshot(
                 meeting.getId(),
                 meeting.getProjectId(),
+                meeting.getTeamId(),
                 meeting.getMeetingRoomId(),
                 meeting.getTitle(),
                 meeting.getStatus(),

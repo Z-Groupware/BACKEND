@@ -52,6 +52,9 @@ public record MeetingListResponse(
                 meeting.meetingId(),
                 meeting.title(),
                 meeting.status().name(),
+                meeting.teamId(),
+                meeting.originLabel(),
+                meeting.summaryStatus() == null ? null : meeting.summaryStatus().name(),
                 formatDateTime(meeting.startAt()),
                 formatDateTime(meeting.endAt()),
                 meeting.attendeeCount(),
@@ -62,6 +65,10 @@ public record MeetingListResponse(
                 meeting.attendees().stream()
                         .map(attendee -> new AttendeeResponse(attendee.memberId(), attendee.name()))
                         .toList(),
+                meeting.agendaPreview() == null ? null : new AgendaPreviewResponse(
+                        meeting.agendaPreview().mainTopic(),
+                        meeting.agendaPreview().firstSubTopic()
+                ),
                 new MeetingRoomResponse(
                         meeting.meetingRoom().meetingRoomId(),
                         meeting.meetingRoom().name()
@@ -85,6 +92,9 @@ public record MeetingListResponse(
             Long meetingId,
             String title,
             String status,
+            Long teamId,
+            String originLabel,
+            String summaryStatus,
             String startAt,
             String endAt,
             int attendeeCount,
@@ -93,6 +103,7 @@ public record MeetingListResponse(
             boolean entryAvailable,
             int durationMinutes,
             List<AttendeeResponse> attendees,
+            AgendaPreviewResponse agendaPreview,
             MeetingRoomResponse meetingRoom,
             ProjectResponse project
     ) {
@@ -108,6 +119,9 @@ public record MeetingListResponse(
 
     /* 카드 아바타에 표시할 참석자 식별자와 이름이다. */
     public record AttendeeResponse(Long memberId, String name) {
+    }
+
+    public record AgendaPreviewResponse(String mainTopic, String firstSubTopic) {
     }
 
     /* 페이지 이동과 전체 결과 표시를 위한 외부 페이지 메타데이터다. */
