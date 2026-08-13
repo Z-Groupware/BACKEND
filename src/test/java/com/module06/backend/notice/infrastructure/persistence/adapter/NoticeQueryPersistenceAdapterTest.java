@@ -79,8 +79,13 @@ class NoticeQueryPersistenceAdapterTest {
         entityManager.flush();
         entityManager.clear();
 
-        /* 인증 회사 10의 활성 공지 목록을 조회한다. */
-        var result = noticeQueryRepository.findActiveNoticesByCompanyId(10L);
+        /* 인증 회사 10의 활성 공지 목록을 1페이지(10건) 크기로 조회한다. */
+        var page = noticeQueryRepository.findActiveNoticesByCompanyId(10L, 0, 10);
+        var result = page.notices();
+
+        /* 총 건수·페이지 메타도 실제 활성 공지 두 건만 반영해야 한다. */
+        assertThat(page.totalElements()).isEqualTo(2L);
+        assertThat(page.totalPages()).isEqualTo(1);
 
         /* 두 결과의 생성 시각이 실제로 동일해야 id DESC 보조 정렬 검증이 유효하다. */
         assertThat(result)
@@ -104,7 +109,7 @@ class NoticeQueryPersistenceAdapterTest {
         springDataNoticeRepository.saveAndFlush(notice(20L, "다른 회사 공지", null));
 
         /* 회사 10 범위 조회는 예외 없이 빈 목록이어야 한다. */
-        assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L)).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L, 0, 10).notices()).isEmpty();
     }
 
     /* 공지 상세 조회가 회사·활성 조건을 모두 적용하는지 검증한다. */
@@ -242,7 +247,7 @@ class NoticeQueryPersistenceAdapterTest {
                 .isEqualTo(deletedAt);
         assertThat(noticeCommandRepository.findActiveNotice(10L, active.getId())).isEmpty();
         assertThat(noticeQueryRepository.findActiveNotice(10L, active.getId())).isEmpty();
-        assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L)).isEmpty();
+        assertThat(noticeQueryRepository.findActiveNoticesByCompanyId(10L, 0, 10).notices()).isEmpty();
     }
 
     /* 영속성 테스트에 사용할 신규 또는 삭제 공지 엔티티를 만든다. */

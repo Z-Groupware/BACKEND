@@ -37,7 +37,7 @@ class NoticeQueryServiceTest {
         NoticeQueryService service = new NoticeQueryService(repository);
 
         /* 인증 회사 10의 공지 목록을 조회한다. */
-        NoticeListResult result = service.getNotices(new GetNoticeListQuery(10L));
+        NoticeListResult result = service.getNotices(new GetNoticeListQuery(10L, null, null));
 
         /* 요청 회사만 저장소에 전달되고 저장소의 최신순이 결과에서도 유지돼야 한다. */
         assertThat(capturedCompanyId[0]).isEqualTo(10L);
@@ -57,7 +57,7 @@ class NoticeQueryServiceTest {
         NoticeQueryService service = new NoticeQueryService(repositoryForList(companyId -> List.of()));
 
         /* 공지가 없는 회사 10의 목록을 조회한다. */
-        NoticeListResult result = service.getNotices(new GetNoticeListQuery(10L));
+        NoticeListResult result = service.getNotices(new GetNoticeListQuery(10L, null, null));
 
         /* NOTI-01은 404 대신 빈 notices 배열로 표현할 수 있는 결과를 반환해야 한다. */
         assertThat(result.notices()).isEmpty();
@@ -74,8 +74,65 @@ class NoticeQueryServiceTest {
 
         /* null Query와 양수가 아닌 회사 식별자는 모두 공통 입력 오류여야 한다. */
         assertInvalidInput(() -> service.getNotices(null));
-        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(null)));
-        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(0L)));
+        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(null, null, null)));
+        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(0L, null, null)));
+    }
+
+    /* 페이지 값이 생략되면 기본값 page=0, size=10이 저장소와 응답 페이지 메타에 채워지는지 검증한다. */
+    @Test
+    @DisplayName("생략된 페이지는 기본값 page=0, size=10으로 저장소에 전달한다")
+    void resolvesDefaultPageAndSize() {
+        /* 고정된 빈 페이지를 반환하며 실제 전달된 조건을 기록하는 저장소 대역을 만든다. */
+        RecordingNoticeQueryRepository repository = new RecordingNoticeQueryRepository(
+                new NoticeQueryRepository.NoticePage(List.of(), 0L, 0)
+        );
+        NoticeQueryService service = new NoticeQueryService(repository);
+
+        /* page·size를 생략한 회사 10의 목록을 조회한다. */
+        NoticeListResult result = service.getNotices(new GetNoticeListQuery(10L, null, null));
+
+        /* 서비스가 채운 기본값이 저장소 호출과 응답 페이지 메타 모두에 반영돼야 한다. */
+        assertThat(repository.requestedPage).isZero();
+        assertThat(repository.requestedSize).isEqualTo(10);
+        assertThat(result.page().page()).isZero();
+        assertThat(result.page().size()).isEqualTo(10);
+    }
+
+    /* 명시한 페이지와 크기가 서비스 기본값 대신 저장소에 그대로 전달되는지 검증한다. */
+    @Test
+    @DisplayName("지정한 페이지와 크기를 저장소에 그대로 전달한다")
+    void passesThroughExplicitPageAndSize() {
+        /* 전체 37건 중 2페이지를 표현하는 고정 페이지를 반환하는 저장소 대역을 만든다. */
+        RecordingNoticeQueryRepository repository = new RecordingNoticeQueryRepository(
+                new NoticeQueryRepository.NoticePage(List.of(), 37L, 8)
+        );
+        NoticeQueryService service = new NoticeQueryService(repository);
+
+        /* 회사 10의 3번째 페이지(0-base 2)를 5건 크기로 조회한다. */
+        NoticeListResult result = service.getNotices(new GetNoticeListQuery(10L, 2, 5));
+
+        /* 지정한 값이 그대로 저장소에 전달되고 응답 페이지 메타도 그 값을 반영해야 한다. */
+        assertThat(repository.requestedPage).isEqualTo(2);
+        assertThat(repository.requestedSize).isEqualTo(5);
+        assertThat(result.page().page()).isEqualTo(2);
+        assertThat(result.page().size()).isEqualTo(5);
+        assertThat(result.page().totalElements()).isEqualTo(37L);
+        assertThat(result.page().totalPages()).isEqualTo(8);
+    }
+
+    /* 음수 페이지와 범위를 벗어난 크기가 저장소 접근 전에 거절되는지 검증한다. */
+    @Test
+    @DisplayName("잘못된 페이지 범위는 Z-001로 거절한다")
+    void rejectsInvalidPageRange() {
+        /* 검증 실패 뒤 저장소가 호출되면 실패하도록 만든다. */
+        NoticeQueryService service = new NoticeQueryService(repositoryForList(companyId -> {
+            throw new AssertionError("잘못된 페이지 범위로 저장소를 호출하면 안 됩니다.");
+        }));
+
+        /* 음수 페이지, 0 이하 크기, 최대 100을 초과한 크기 모두 공통 입력 오류여야 한다. */
+        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(10L, -1, 10)));
+        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(10L, 0, 0)));
+        assertInvalidInput(() -> service.getNotices(new GetNoticeListQuery(10L, 0, 101)));
     }
 
     /* 같은 회사의 활성 공지 상세가 그대로 반환되는지 검증한다. */
@@ -86,7 +143,7 @@ class NoticeQueryServiceTest {
         NoticeQueryRepository repository = new NoticeQueryRepository() {
             /* NOTI-02 테스트에서는 목록 조회를 사용하지 않는다. */
             @Override
-            public List<NoticeListSnapshot> findActiveNoticesByCompanyId(Long companyId) {
+            public NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size) {
                 /* 상세 조회 외 호출은 테스트 실패로 처리한다. */
                 throw new AssertionError("상세 조회에서 목록 저장소를 호출하면 안 됩니다.");
             }
@@ -121,7 +178,7 @@ class NoticeQueryServiceTest {
         NoticeQueryRepository repository = new NoticeQueryRepository() {
             /* NOTI-02 테스트에서는 목록 조회를 사용하지 않는다. */
             @Override
-            public List<NoticeListSnapshot> findActiveNoticesByCompanyId(Long companyId) {
+            public NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size) {
                 /* 상세 조회 외 호출은 테스트 실패로 처리한다. */
                 throw new AssertionError("상세 조회에서 목록 저장소를 호출하면 안 됩니다.");
             }
@@ -152,7 +209,7 @@ class NoticeQueryServiceTest {
         NoticeQueryRepository repository = new NoticeQueryRepository() {
             /* 잘못된 상세 Query에서는 목록 조회도 호출되지 않아야 한다. */
             @Override
-            public List<NoticeListSnapshot> findActiveNoticesByCompanyId(Long companyId) {
+            public NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size) {
                 /* 저장소 접근은 선행 검증 누락이므로 테스트를 실패시킨다. */
                 throw new AssertionError("잘못된 상세 Query로 저장소를 호출하면 안 됩니다.");
             }
@@ -201,11 +258,12 @@ class NoticeQueryServiceTest {
     ) {
         /* 목록 함수만 위임하고 상세 조회는 이 테스트에서 사용하지 않는 빈 결과로 둔다. */
         return new NoticeQueryRepository() {
-            /* 테스트가 전달한 목록 조회 함수를 실행한다. */
+            /* 테스트가 전달한 목록 조회 함수를 실행하고 단일 페이지로 감싼다. */
             @Override
-            public List<NoticeListSnapshot> findActiveNoticesByCompanyId(Long companyId) {
+            public NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size) {
                 /* 회사 식별자 기록과 결과 준비 책임을 호출자 함수에 맡긴다. */
-                return finder.apply(companyId);
+                List<NoticeListSnapshot> notices = finder.apply(companyId);
+                return new NoticePage(notices, notices.size(), notices.isEmpty() ? 0 : 1);
             }
 
             /* 목록 테스트에서는 상세 조회가 호출되지 않아야 한다. */
@@ -215,6 +273,38 @@ class NoticeQueryServiceTest {
                 return Optional.empty();
             }
         };
+    }
+
+    /* 서비스가 저장소에 실제 전달한 page·size 조건을 기록하는 목록 저장소 대역이다. */
+    private static final class RecordingNoticeQueryRepository implements NoticeQueryRepository {
+
+        /* 호출마다 반환할 고정 공지 페이지다. */
+        private final NoticePage noticePage;
+
+        /* 서비스가 전달한 페이지 번호다. */
+        private Integer requestedPage;
+
+        /* 서비스가 전달한 페이지 크기다. */
+        private Integer requestedSize;
+
+        /* 테스트가 지정한 고정 페이지 결과로 저장소 대역을 만든다. */
+        private RecordingNoticeQueryRepository(NoticePage noticePage) {
+            this.noticePage = noticePage;
+        }
+
+        /* 회사 식별자는 사용하지 않고 실제 전달된 page·size만 기록한다. */
+        @Override
+        public NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size) {
+            this.requestedPage = page;
+            this.requestedSize = size;
+            return noticePage;
+        }
+
+        /* 페이지 테스트에서는 상세 조회가 호출되지 않아야 한다. */
+        @Override
+        public Optional<NoticeDetailSnapshot> findActiveNotice(Long companyId, Long noticeId) {
+            return Optional.empty();
+        }
     }
 
     /* 실행 결과가 Z-001 BusinessException인지 공통으로 검증한다. */

@@ -1,6 +1,7 @@
 package com.module06.backend.notice.presentation.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -51,11 +52,14 @@ class NoticeControllerTest {
         GetNoticeListQuery[] capturedQuery = new GetNoticeListQuery[1];
         GetNoticeListUseCase useCase = query -> {
             capturedQuery[0] = query;
-            return new NoticeListResult(List.of(new NoticeListResult.NoticeItem(
-                    1L,
-                    "회의실 예약과 참석 안내",
-                    LocalDateTime.of(2026, 8, 3, 10, 12)
-            )));
+            return new NoticeListResult(
+                    List.of(new NoticeListResult.NoticeItem(
+                            1L,
+                            "회의실 예약과 참석 안내",
+                            LocalDateTime.of(2026, 8, 3, 10, 12)
+                    )),
+                    new NoticeListResult.Page(0, 10, 1, 1)
+            );
         };
         NoticeController controller = new NoticeController(
                 useCase,
@@ -66,18 +70,24 @@ class NoticeControllerTest {
         );
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", false, 100L);
 
-        /* 요청 회사 파라미터 없이 인증 principal만으로 Controller 메서드를 호출한다. */
-        ApiResponse<NoticeListResponse> response = controller.getNotices(principal);
+        /* 요청 회사 파라미터 없이 인증 principal과 기본 page·size로 Controller 메서드를 호출한다. */
+        ApiResponse<NoticeListResponse> response = controller.getNotices(principal, "0", "10");
 
-        /* 인증 회사 식별자가 변형 없이 애플리케이션 Query로 전달돼야 한다. */
+        /* 인증 회사 식별자와 파싱된 페이지 값이 변형 없이 애플리케이션 Query로 전달돼야 한다. */
         assertThat(capturedQuery[0].companyId()).isEqualTo(10L);
+        assertThat(capturedQuery[0].page()).isEqualTo(0);
+        assertThat(capturedQuery[0].size()).isEqualTo(10);
 
-        /* 명세의 200 상태·메시지·초 단위 생성 일시를 포함한 목록을 반환해야 한다. */
+        /* 명세의 200 상태·메시지·초 단위 생성 일시와 페이지 메타를 포함한 목록을 반환해야 한다. */
         assertThat(response.getHttpStatus()).isEqualTo(200);
         assertThat(response.getMessage()).isEqualTo("공지 목록 조회에 성공했습니다.");
         assertThat(response.getData().notices()).hasSize(1);
         assertThat(response.getData().notices().get(0).noticeId()).isEqualTo(1L);
         assertThat(response.getData().notices().get(0).createdAt()).isEqualTo("2026-08-03T10:12:00");
+        assertThat(response.getData().page().page()).isZero();
+        assertThat(response.getData().page().size()).isEqualTo(10);
+        assertThat(response.getData().page().totalElements()).isEqualTo(1L);
+        assertThat(response.getData().page().totalPages()).isEqualTo(1);
     }
 
     /* 유스케이스 빈 결과가 null이 아닌 빈 배열 응답으로 유지되는지 검증한다. */
@@ -86,7 +96,7 @@ class NoticeControllerTest {
     void returnsEmptyNoticeArray() {
         /* 빈 공지 결과를 반환하는 유스케이스로 Controller를 구성한다. */
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
                 unusedUpdateUseCase(),
@@ -95,11 +105,36 @@ class NoticeControllerTest {
         AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", false, 100L);
 
         /* 공지가 없는 회사의 목록을 조회한다. */
-        ApiResponse<NoticeListResponse> response = controller.getNotices(principal);
+        ApiResponse<NoticeListResponse> response = controller.getNotices(principal, "0", "10");
 
         /* HTTP 200과 함께 직렬화 가능한 빈 notices 목록이 반환돼야 한다. */
         assertThat(response.getHttpStatus()).isEqualTo(200);
         assertThat(response.getData().notices()).isEmpty();
+    }
+
+    /* 정수가 아닌 page·size 문자열이 유스케이스 전에 IllegalArgumentException으로 거절되는지 검증한다. */
+    @Test
+    @DisplayName("정수가 아닌 page·size는 IllegalArgumentException으로 거절한다")
+    void rejectsNonIntegerPageParameters() {
+        /* 호출되면 실패하는 유스케이스로 Controller 선행 파싱을 검증한다. */
+        NoticeController controller = new NoticeController(
+                query -> {
+                    throw new AssertionError("잘못된 페이지 파라미터는 유스케이스까지 전달되면 안 됩니다.");
+                },
+                unusedDetailUseCase(),
+                unusedCreateUseCase(),
+                unusedUpdateUseCase(),
+                unusedDeleteUseCase()
+        );
+        AuthPrincipal principal = new AuthPrincipal(3L, 10L, "MEMBER", false, 100L);
+
+        /* 숫자가 아닌 page와 size 모두 같은 입력 오류 계열이어야 한다. */
+        assertThatThrownBy(() -> controller.getNotices(principal, "abc", "10"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("page은 정수여야 합니다.");
+        assertThatThrownBy(() -> controller.getNotices(principal, "0", "ten"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("size은 정수여야 합니다.");
     }
 
     /* 인증 회사와 경로 공지 식별자가 전달되고 상세 응답이 변환되는지 검증한다. */
@@ -119,7 +154,7 @@ class NoticeControllerTest {
             );
         };
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 detailUseCase,
                 unusedCreateUseCase(),
                 unusedUpdateUseCase(),
@@ -154,7 +189,7 @@ class NoticeControllerTest {
             return new NoticeCreationResult(31L);
         };
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 unusedDetailUseCase(),
                 createUseCase,
                 unusedUpdateUseCase(),
@@ -205,7 +240,7 @@ class NoticeControllerTest {
     void returnsNoticeValidationError() throws Exception {
         /* 잘못된 요청이 유스케이스에 도달하면 실패하는 Controller와 공지 전용 Advice를 구성한다. */
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 unusedDetailUseCase(),
                 command -> {
                     throw new AssertionError("검증 실패 요청은 작성 UseCase까지 전달되면 안 됩니다.");
@@ -248,7 +283,7 @@ class NoticeControllerTest {
             );
         };
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
                 updateUseCase,
@@ -306,7 +341,7 @@ class NoticeControllerTest {
     void returnsUpdateNoticeValidationError() throws Exception {
         /* 잘못된 요청이 수정 유스케이스에 도달하면 실패하도록 Controller와 Advice를 구성한다. */
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
                 command -> {
@@ -340,7 +375,7 @@ class NoticeControllerTest {
         DeleteNoticeCommand[] capturedCommand = new DeleteNoticeCommand[1];
         DeleteNoticeUseCase deleteUseCase = command -> capturedCommand[0] = command;
         NoticeController controller = new NoticeController(
-                query -> new NoticeListResult(List.of()),
+                query -> new NoticeListResult(List.of(), new NoticeListResult.Page(0, 10, 0, 0)),
                 unusedDetailUseCase(),
                 unusedCreateUseCase(),
                 unusedUpdateUseCase(),

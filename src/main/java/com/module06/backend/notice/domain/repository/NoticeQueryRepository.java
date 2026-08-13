@@ -11,8 +11,8 @@ import java.util.Optional;
  */
 public interface NoticeQueryRepository {
 
-    /* 회사의 삭제되지 않은 공지를 최신 생성 순서로 조회한다. */
-    List<NoticeListSnapshot> findActiveNoticesByCompanyId(Long companyId);
+    /* 회사의 삭제되지 않은 공지를 최신 생성 순서로 페이지 단위 조회한다. */
+    NoticePage findActiveNoticesByCompanyId(Long companyId, int page, int size);
 
     /* 회사와 공지 식별자가 일치하는 삭제되지 않은 공지 상세를 조회한다. */
     Optional<NoticeDetailSnapshot> findActiveNotice(Long companyId, Long noticeId);
@@ -29,5 +29,15 @@ public interface NoticeQueryRepository {
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
+    }
+
+    /* 현재 페이지의 공지와 전체 결과 규모를 함께 반환하는 저장소 결과다. */
+    record NoticePage(List<NoticeListSnapshot> notices, long totalElements, int totalPages) {
+
+        /* 영속성 결과 목록을 외부에서 변경하지 못하도록 불변 복사한다. */
+        public NoticePage {
+            /* 빈 페이지는 허용하되 null 목록은 저장소 계약 위반으로 처리한다. */
+            notices = List.copyOf(notices);
+        }
     }
 }
