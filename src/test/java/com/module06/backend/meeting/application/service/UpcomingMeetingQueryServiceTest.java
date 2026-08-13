@@ -265,7 +265,7 @@ class UpcomingMeetingQueryServiceTest {
             this.meetings = List.copyOf(meetings);
         }
 
-        /* RESULT-01 단건 조회는 MEET-03 테스트에서 사용하지 않는다. */
+        /* 단건 회의 조회는 MEET-03 테스트에서 사용하지 않는다. */
         @Override
         public Optional<MeetingSnapshot> findMeeting(Long companyId, Long meetingId) {
             /* 호출되지 않는 기존 계약을 빈 결과로 만족시킨다. */
