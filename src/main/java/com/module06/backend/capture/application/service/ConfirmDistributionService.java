@@ -199,7 +199,7 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
              */
             applyReviewDecisionUseCase.apply(new ReviewDecisionCommand(
                     command.companyId(), command.meetingId(), action.actionId(), command.requestedBy(),
-                    ReviewDecision.CONFIRM, null, null, null, null, null, null));
+                    ReviewDecision.CONFIRM, null, null, null, null, null, null, null));
             confirmed++;
         }
         return confirmed;

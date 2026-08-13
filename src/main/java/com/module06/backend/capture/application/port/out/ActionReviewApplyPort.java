@@ -35,6 +35,10 @@ public interface ActionReviewApplyPort {
      * @param assigneeMemberId 새 담당자. **null 이면 담당자를 바꾸지 않는다** — 비우라는 뜻이
      *                         아니다. 담당자 지우기는 검토 화면에 없는 동작이고, PERSONAL
      *                         액션은 담당자가 필수다
+     * @param teamId           2026-08-13 추가(오너 회의 검토화면 부서선택) — 채워지면 이
+     *                         액션을 PERSONAL에서 TEAM으로 전환한다. assigneeMemberId와
+     *                         상호 배타적이다(둘 다 채워 보내면 호출자가 이미 거절했어야 한다).
+     *                         null이면 전환하지 않는다
      * @param dueDate          새 기한. null 이면 바꾸지 않는다. 사람이 기한을 고쳤다면
      *                         due_date_defaulted 는 false 가 되어야 한다 —
      *                         프로젝트 마감일로 채운 값이 아니게 되므로
@@ -59,6 +63,6 @@ public interface ActionReviewApplyPort {
      * 호출자는 순서를 반드시 확인할 것 — 바뀌면 기한과 예정 시작일이 서로 뒤집혀 저장되고,
      * 둘 다 유효한 날짜라 아무 예외도 나지 않는다. 파라미터가 더 늘면 record 로 묶어야 한다.
      */
-    void apply(long companyId, long actionId, Long assigneeMemberId, LocalDate dueDate,
+    void apply(long companyId, long actionId, Long assigneeMemberId, Long teamId, LocalDate dueDate,
                String title, String detail, LocalDate plannedStartDate, String reviewStatus);
 }

@@ -405,7 +405,14 @@ public enum CaptureErrorCode implements ErrorCode {
      * "왜 반려했는지"를 더 이상 정확히 말하지 못한다(RejectReason.isHumanSelectable()).
      */
     REVIEW_REASON_NOT_SELECTABLE(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_10",
-            "이 사유는 반려 사유로 고를 수 없습니다.");
+            "이 사유는 반려 사유로 고를 수 없습니다."),
+
+    /*
+     * RVW-02 — 2026-08-13 추가(오너 회의 검토화면 부서선택). 담당자(사람)와 팀(부서)은 같은
+     * 액션에 동시에 성립할 수 없다(ActionTypeShapePolicy) — 화면도 둘 중 하나만 보여준다.
+     */
+    REVIEW_ASSIGNEE_TEAM_CONFLICT(HttpStatus.UNPROCESSABLE_ENTITY, "MEETING_422_11",
+            "담당자와 부서를 동시에 지정할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
