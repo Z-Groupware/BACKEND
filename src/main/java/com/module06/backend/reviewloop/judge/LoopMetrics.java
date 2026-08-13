@@ -143,7 +143,7 @@ public final class LoopMetrics {
     }
 
     /**
-     * 사람이 읽는 진단표. {@code previous}가 null이면 델타 칸을 비운다(첫 실행).
+     * 사람이 읽는 진단표. {@code previous}가 null이면 이전·변화 칸을 비운다(첫 실행).
      * 임계 위반은 반드시 <b>돌릴 손잡이</b>와 함께 적는다 — 숫자만 보여주는 리포트는 아무것도 바꾸지 않는다.
      */
     static String render(Snapshot now, Snapshot previous, List<RuleAccuracy.Stat> ruleStats, int passThreshold) {
@@ -151,7 +151,7 @@ public final class LoopMetrics {
         sb.append("최적화 루프 — 루프 자신의 지표 (감사 로그 ")
           .append(now.judged() + now.skipRuns()).append("행 기준 · 팀 누적)\n\n");
 
-        sb.append(String.format("%-14s %10s %10s %10s%n", "지표", "현재", "이전", "기준"));
+        sb.append(String.format("%-14s %10s %10s %10s %10s%n", "지표", "현재", "이전", "변화", "기준"));
         sb.append(row("커버리지", now.coverage(), previous == null ? null : previous.coverage(), COVERAGE_FLOOR));
         sb.append(row("판정 수율", now.yield(), previous == null ? null : previous.yield(), YIELD_FLOOR));
         sb.append(row("학습 전환율", now.closure(), previous == null ? null : previous.closure(), CLOSURE_FLOOR));
@@ -238,8 +238,30 @@ public final class LoopMetrics {
     }
 
     private static String row(String name, double now, Double previous, double floor) {
-        return String.format("%-14s %10s %10s %10s%n",
-                name, pct(now), previous == null ? "-" : pct(previous), String.format("≥%.0f%%", floor * 100));
+        return String.format("%-14s %10s %10s %10s %10s%n",
+                name, pct(now), previous == null ? "-" : pct(previous), delta(now, previous),
+                String.format("≥%.0f%%", floor * 100));
+    }
+
+    /**
+     * 기준선 대비 변화(%p). 비교할 수 없으면 "-"(첫 실행 · 어느 한쪽이 미정의).
+     *
+     * <p><b>표시된 값끼리 뺀다</b>(원값이 아니라). 원값으로 빼면 19.6%→26.4%가 표에는 20%·26%로 찍히는데
+     * 변화는 +7%p가 되어 한 줄 안에서 숫자가 서로 맞지 않는다 — 표를 못 믿게 되는 순간 지표 전체를
+     * 안 보게 된다.
+     *
+     * <p>세 지표가 모두 하한(≥)이라 ▲가 곧 개선이다. 상한 지표(오탐률 등)를 이 표에 넣게 되면 기호의
+     * 뜻이 지표마다 달라지므로, 그때는 방향을 지표에서 받아야 한다.
+     */
+    private static String delta(double now, Double previous) {
+        if (previous == null || now < 0 || previous < 0) {
+            return "-";
+        }
+        long diff = Math.round(now * 100) - Math.round(previous * 100);
+        if (diff == 0) {
+            return "→ 0%p";
+        }
+        return String.format("%s %d%%p", diff > 0 ? "▲" : "▼", Math.abs(diff));
     }
 
     private static String pct(double v) {

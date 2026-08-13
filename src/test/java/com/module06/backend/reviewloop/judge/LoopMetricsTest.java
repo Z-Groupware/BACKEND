@@ -106,7 +106,7 @@ class LoopMetricsTest {
     }
 
     @Test
-    @DisplayName("임계를 넘기면 '돌릴 손잡이'가 함께 나온다 — 숫자만 있는 리포트는 아무것도 바꾸지 않는다")
+    @DisplayName("기준에 미달하면 '돌릴 손잡이'가 함께 나온다 — 숫자만 있는 리포트는 아무것도 바꾸지 않는다")
     void eachViolationNamesTheKnob() {
         // 판정 6회 중 신호 1회(수율 17%) · 리뷰 못 한 .java 10개(커버리지 38%) · finding 4건에 사람 판정 1건(25%)
         LoopMetrics.Snapshot s = measure(
@@ -160,6 +160,35 @@ class LoopMetricsTest {
         assertThat(LoopMetrics.render(after, null, List.of(), THRESHOLD))
                 .contains("커버리지")
                 .doesNotContain("25%");
+    }
+
+    @Test
+    @DisplayName("변화는 계산해서 준다 — 두 값을 나란히 놓기만 하면 사람이 매번 빼야 한다")
+    void rendersComputedDeltaNotJustTwoNumbers() {
+        LoopMetrics.Snapshot before = measure(List.of(judged(1, 100, 0), skipped("2026-08-11T09:00:00", 3)), List.of());
+        LoopMetrics.Snapshot after = measure(List.of(judged(1, 100, 0), judged(2, 100, 0)), List.of());
+
+        // 커버리지 25% → 100%. 방향(▲)과 폭(75%p)이 한눈에 나와야 '개선/악화'가 답이 된다.
+        assertThat(LoopMetrics.render(after, before, List.of(), THRESHOLD)).contains("▲ 75%p");
+        // 악화도 같은 자리에서 읽혀야 한다 — 방향만 뒤집힌다.
+        assertThat(LoopMetrics.render(before, after, List.of(), THRESHOLD)).contains("▼ 75%p");
+        // 변화 없음을 빈칸으로 두면 '측정 못 함'과 구분되지 않는다.
+        assertThat(LoopMetrics.render(after, after, List.of(), THRESHOLD)).contains("→ 0%p");
+    }
+
+    @Test
+    @DisplayName("변화는 표시된 값끼리 뺀다 — 원값으로 빼면 표 안에서 숫자가 서로 맞지 않는다")
+    void deltaIsComputedFromDisplayedValues() {
+        // 커버리지 1/3 = 33.3% → 2/3 = 66.7%. 원값 차는 33.3%p 이지만 표에 찍히는 값은 33%·67%다.
+        // 표시값 기준이면 34%p 로 나와 33 + 34 = 67 이 맞는다(원값 기준이면 33 + 33 = 66 으로 어긋난다).
+        LoopMetrics.Snapshot before = measure(List.of(judged(1, 100, 0), skipped("2026-08-11T09:00:00", 2)), List.of());
+        LoopMetrics.Snapshot after = measure(
+                List.of(judged(1, 100, 0), judged(2, 100, 0), skipped("2026-08-12T09:00:00", 1)), List.of());
+
+        assertThat(before.coverage()).isCloseTo(1.0 / 3, within(1e-9));
+        assertThat(after.coverage()).isCloseTo(2.0 / 3, within(1e-9));
+        assertThat(LoopMetrics.render(after, before, List.of(), THRESHOLD))
+                .contains("33%").contains("67%").contains("▲ 34%p");
     }
 
     @Test

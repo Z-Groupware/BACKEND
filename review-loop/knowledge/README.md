@@ -17,7 +17,8 @@
 ```json
 {"timestamp":"...","judged":119,"withFinding":8,"findings":8,"skipRuns":44,"unreviewed":512,"humanJudged":1}
 ```
-- 기록: `./gradlew reviewOptimize --args="--snapshot"` · 조회(델타 포함): `./gradlew reviewOptimize`
+- 기록: `./gradlew reviewOptimize --args="--snapshot"` · 조회: `./gradlew reviewOptimize`
+  (조회 시 이 파일의 최신 줄이 `이전` 칸이 되고, `변화` 칸에 차이가 %p로 찍힌다)
 - **비율은 적지 않는다** — 커버리지·수율·전환율은 읽을 때 계산한다. 비율을 파일에 남기면 정의를 바꿨을 때
   과거 줄과 새 줄의 뜻이 달라지고, 그 차이는 파일만 봐서는 보이지 않는다.
 - 최신 줄 판정은 **파일 위치가 아니라 timestamp** 기준(union 머지가 순서를 흔든다).

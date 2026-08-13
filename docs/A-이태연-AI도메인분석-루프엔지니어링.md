@@ -81,7 +81,7 @@ AI 기능 개발(STT·VAD·요약 등 제품 쪽 AI)은 별도 산출물이다 �
 
 ### 제어 반전
 
-```
+```text
 [AS-IS · 자율]  배치 ──호출──> Gemini fixer            (자기 승인, 사람 없음)
 [AS-IS · 드라이버] Claude Code ──읽음──> 요청서         (격리·검증 없음)
 
@@ -203,15 +203,19 @@ AI 기능 개발(STT·VAD·요약 등 제품 쪽 AI)은 별도 산출물이다 �
 
 ### 지표 세 개 + 조치 (`LoopMetrics` · `./gradlew reviewOptimize`)
 
-| 지표 | 정의 | 기준 | 넘기면 돌릴 손잡이 |
+| 지표 | 정의 | 기준 | 미달이면 돌릴 손잡이 |
 |---|---|---|---|
 | **커버리지** | 리뷰된 `.java` ÷ (리뷰된 + 리뷰되지 않은) | ≥90% | 키 주입·쿼터 → 그 구간은 소급 리뷰 |
 | **판정 수율** | finding을 낸 판정 ÷ 전체 판정 | ≥20% | 대상 좁히기(core 유형) 또는 judge 규칙 추가 |
-| **학습 전환율** | 사람이 판정한 finding ÷ 전체 finding | ≥50% | `DRIVER.md` 8번 — `reviewLesson` 1줄 |
+| **학습 전환율** | 사람이 판정해 **교훈으로 기록한** finding ÷ 전체 finding | ≥50% | `DRIVER.md` 8번 — `reviewLesson` 1줄 |
 
-임계를 넘긴 지표는 **반드시 조치와 함께** 출력된다 — 숫자만 보여주는 리포트는 아무것도 바꾸지 않는다.
+전환율이 기록까지를 세는 이유는 **기록된 교훈만 다음 판정의 프롬프트에 실리기 때문**이다. 머릿속 판정은
+루프를 닫지 않는다.
+
+기준에 미달한 지표는 **반드시 조치와 함께** 출력된다 — 숫자만 보여주는 리포트는 아무것도 바꾸지 않는다.
 `--snapshot`이면 원시 카운터를 `knowledge/loop-metrics.jsonl`에 한 줄 적재하고, 다음 실행이 '이전' 칸에
-그 값을 써서 **개선/악화를 델타로** 보여준다. **이 적재가 있어서 한 번 보는 리포트가 아니라 루프가 된다.**
+그 값을 쓴 뒤 **`변화` 칸에 차이를 %p로 계산해**(▲ 개선 · ▼ 악화) 보여준다.
+**이 적재가 있어서 한 번 보는 리포트가 아니라 루프가 된다.**
 
 측정 → 진단 → (사람이) 조치 → 재측정 → 델타. **자동 튜닝은 하지 않는다** — §2의 불변식과 같은 이유다.
 
@@ -308,5 +312,6 @@ bash scripts/review-verify.sh [--with-test]                # 검증(결정론)
 ./gradlew reviewLesson --args="--rule R --kind CONFIRMED"  # 학습 루프 닫기
 ./gradlew reviewAccuracy                                   # 규칙 품질
 bash scripts/review-score-domains.sh                       # 코드 품질(도메인 랭킹)
-./gradlew reviewOptimize [--args="--snapshot"]              # 루프 자신의 지표 ← 최적화 루프
+./gradlew reviewOptimize                                   # 루프 자신의 지표 ← 최적화 루프
+./gradlew reviewOptimize --args="--snapshot"               # 위 + 기준선 적재(다음 실행의 '이전' 칸)
 ```
