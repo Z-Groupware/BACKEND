@@ -54,7 +54,18 @@ public enum ActionErrorCode implements ErrorCode {
     // 2026-08-11 — 팀장이 다른 팀 팀원의 개인 액션 목록을 조회하려 했다(팀원 관리 화면,
     // GET /api/actions?assigneeMemberId= IDOR 방지). 대상 memberId 자체는 같은 회사 소속이라
     // 존재를 숨길 이유가 없어 404가 아니라 403 — NOT_TEAM_LEADER·NOT_ACTION_ASSIGNEE와 같은 성격.
-    ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE(HttpStatus.FORBIDDEN, "AC-013", "같은 팀 소속 담당자만 조회할 수 있습니다.");
+    ACTION_ASSIGNEE_OUT_OF_TEAM_SCOPE(HttpStatus.FORBIDDEN, "AC-013", "같은 팀 소속 담당자만 조회할 수 있습니다."),
+
+    // 2026-08-13 — OWNER·ADMIN 회사 전체 조회(GET /api/company/actions)는 항상 특정 구성원 한
+    // 명을 보는 화면이라 assigneeMemberId가 없으면 의미가 없다. MissingServletRequestParameterException은
+    // GlobalExceptionHandler가 개별로 안 잡아 500으로 새므로, required=false + 명시적 검증으로
+    // 이 코드베이스의 다른 컨트롤러들과 동일하게 400을 낸다.
+    ACTION_ASSIGNEE_MEMBER_ID_REQUIRED(HttpStatus.BAD_REQUEST, "AC-014", "assigneeMemberId는 필수입니다."),
+
+    // 2026-08-13 — GET /api/company/actions의 @PreAuthorize 거절 전용. 공통 GlobalExceptionHandler는
+    // AuthorizationDeniedException을 개별로 안 잡아 500으로 새므로(CompanyActionSecurityExceptionHandler
+    // 주석·MeetingRoomSecurityExceptionHandler와 동일 이유), 도메인 전용 핸들러가 이 코드로 변환한다.
+    ACTION_COMPANY_VIEW_FORBIDDEN(HttpStatus.FORBIDDEN, "AC-015", "OWNER 또는 ADMIN만 조회할 수 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
