@@ -146,6 +146,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                         .map(member -> new MeetingDetailResult.Attendee(
                                 member.memberId(),
                                 member.name(),
+                                member.teamId(),
                                 member.teamName(),
                                 member.positionName()
                         ))

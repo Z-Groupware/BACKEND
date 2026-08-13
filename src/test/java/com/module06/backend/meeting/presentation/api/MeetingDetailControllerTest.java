@@ -71,6 +71,7 @@ class MeetingDetailControllerTest {
         assertThat(response.getData().meetingRoom().location()).isEqualTo("박애관 422호");
         assertThat(response.getData().host().name()).isEqualTo("지우");
         assertThat(response.getData().attendees().get(0).jobPosition()).isEqualTo("팀장");
+        assertThat(response.getData().attendees().get(0).teamId()).isEqualTo(12L);
     }
 
     /* Controller 응답 변환에 사용할 전체 중첩 표시 정보를 가진 예약 회의 결과를 만든다. */
@@ -98,7 +99,7 @@ class MeetingDetailControllerTest {
                 ),
                 new MeetingDetailResult.MeetingRoom(2L, "회의실 B", "박애관 422호"),
                 new MeetingDetailResult.Host(3L, "지우"),
-                List.of(new MeetingDetailResult.Attendee(3L, "지우", "기획", "팀장")),
+                List.of(new MeetingDetailResult.Attendee(3L, "지우", 12L, "기획", "팀장")),
                 LocalDateTime.of(2026, 8, 1, 10, 12)
         );
     }

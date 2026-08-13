@@ -52,6 +52,7 @@ public record MeetingDetailResult(
     public record Attendee(
             Long memberId,
             String name,
+            Long teamId,
             String teamName,
             String jobPosition
     ) {

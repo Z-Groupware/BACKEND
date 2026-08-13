@@ -65,6 +65,9 @@ class MeetingDetailQueryServiceTest {
         assertThat(result.attendees())
                 .extracting(MeetingDetailResult.Attendee::jobPosition)
                 .containsExactly("팀장", "시니어", "디자이너");
+        assertThat(result.attendees())
+                .extracting(MeetingDetailResult.Attendee::teamId)
+                .containsExactly(100L, 200L, 300L);
 
         /* 미확정 액션이 없고 요약도 중단되지 않았으면 0건과 알 수 없음(null)이어야 한다. */
         assertThat(result.pendingActionCount()).isZero();
