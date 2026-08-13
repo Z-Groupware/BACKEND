@@ -65,10 +65,12 @@ public class CalendarQueryService implements GetCalendarUseCase {
     private CalendarItem toProjectItem(Project project) {
         return new CalendarItem(
                 CalendarItemType.PROJECT,
+                null,
                 project.getName(),
                 project.getTag(),
                 project.getCreatedAt().toLocalDate(),
-                project.getDueDate()
+                project.getDueDate(),
+                null
         );
     }
 
@@ -84,7 +86,7 @@ public class CalendarQueryService implements GetCalendarUseCase {
                 .toList();
 
         List<CalendarItem> todoItems = personalTodoRepository
-                .findAllByMemberIdAndDateBetween(memberId, monthStart, monthEnd).stream()
+                .findAllByMemberIdOverlappingPeriod(memberId, monthStart, monthEnd).stream()
                 .map(this::toTodoItem)
                 .toList();
 
@@ -98,20 +100,24 @@ public class CalendarQueryService implements GetCalendarUseCase {
     private CalendarItem toActionItem(Action action) {
         return new CalendarItem(
                 CalendarItemType.ACTION,
+                null,
                 action.getTitle(),
                 null,
                 action.getDueDate(),
-                action.getDueDate()
+                action.getDueDate(),
+                null
         );
     }
 
     private CalendarItem toTodoItem(PersonalTodo todo) {
         return new CalendarItem(
                 CalendarItemType.TODO,
+                todo.getId(),
                 todo.getTitle(),
                 null,
                 todo.getDate(),
-                todo.getDate()
+                todo.getEndDate(),
+                todo.isDone()
         );
     }
 }

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -25,8 +26,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.identity.member.application.command.DeleteMemberCommand;
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.dto.IssuedMember;
+import com.module06.backend.identity.member.application.usecase.DeleteMemberUseCase;
 import com.module06.backend.identity.member.application.usecase.IssueMemberUseCase;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
@@ -45,6 +48,9 @@ class ManageMemberControllerTest {
 
     @MockitoBean
     private IssueMemberUseCase issueMemberUseCase;
+
+    @MockitoBean
+    private DeleteMemberUseCase deleteMemberUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -152,6 +158,25 @@ class ManageMemberControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(issueMemberUseCase, never()).issue(any());
+    }
+
+    @Test
+    @DisplayName("삭제 대상·삭제하는 사람·회사가 전부 토큰과 경로에서 온다 — 바디가 없다")
+    void deletePassesPathAndTokenThrough() throws Exception {
+        authenticateAs(55L);
+
+        mockMvc.perform(delete("/api/manage/members/7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        ArgumentCaptor<DeleteMemberCommand> captor = ArgumentCaptor.forClass(DeleteMemberCommand.class);
+        verify(deleteMemberUseCase).delete(captor.capture());
+        DeleteMemberCommand command = captor.getValue();
+
+        assertThat(command.companyId()).isEqualTo(55L);
+        assertThat(command.targetMemberId()).isEqualTo(7L);
+        /* 본인 삭제 차단이 서비스에서 걸리려면 "누가 눌렀는지"가 토큰에서 실려야 한다. */
+        assertThat(command.actingMemberId()).isEqualTo(3L);
     }
 
     private static IssuedMember issued() {

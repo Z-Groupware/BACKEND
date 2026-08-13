@@ -406,7 +406,7 @@ class CompanyOnboardingCommitterTest {
 
         @Override
         public Optional<Company> findById(Long id) {
-            return Optional.of(new Company(id, "NOVA-7K3D", "(주)테크스타트", null, null, null, null, onboardedAt));
+            return Optional.of(new Company(id, "NOVA-7K3D", "(주)테크스타트", null, null, null, null, null, null, onboardedAt));
         }
 
         @Override
@@ -420,7 +420,7 @@ class CompanyOnboardingCommitterTest {
 
         @Override
         public void updateProfile(Long id, String name, String registrationNo, String representativeName,
-                                   String address, String mainPhone) {
+                                   String address, Double latitude, Double longitude, String mainPhone) {
         }
 
         @Override
@@ -552,6 +552,11 @@ class CompanyOnboardingCommitterTest {
         public Optional<Plan> findActivePlan(Long companyId) {
             return Optional.empty();
         }
+
+        @Override
+        public Optional<Long> findRoleIdByLabel(Long companyId, String label) {
+            return Optional.empty();
+        }
     }
 
     private static final class FakeMemberCommand implements MemberDirectoryCommandPort {
@@ -561,7 +566,11 @@ class CompanyOnboardingCommitterTest {
         private final Map<Long, Boolean> adminUpdates = new HashMap<>();
 
         @Override
-        public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId) {
+        public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId, Long roleId) {
+        }
+
+        @Override
+        public void softDelete(Long memberId) {
         }
 
         @Override

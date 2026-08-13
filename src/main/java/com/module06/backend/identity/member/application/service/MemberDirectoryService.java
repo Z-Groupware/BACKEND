@@ -18,6 +18,7 @@ import com.module06.backend.identity.company.application.port.out.AccountMailPor
 import com.module06.backend.identity.company.domain.model.Company;
 import com.module06.backend.identity.company.domain.policy.PasswordGenerator;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
+import com.module06.backend.identity.member.application.command.DeleteMemberCommand;
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberRoleCommand;
@@ -30,15 +31,18 @@ import com.module06.backend.identity.member.application.dto.OrgChartMember;
 import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
 import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
+import com.module06.backend.identity.member.application.dto.TeamRosterMember;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort.MemberRow;
+import com.module06.backend.identity.member.application.usecase.DeleteMemberUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
 import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamRosterUseCase;
 import com.module06.backend.identity.member.application.usecase.IssueMemberUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
@@ -61,7 +65,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgChartUseCase,
         GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase,
-        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase {
+        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase, DeleteMemberUseCase,
+        GetTeamRosterUseCase {
 
     private final MemberDirectoryQueryPort queryPort;
     private final MemberDirectoryCommandPort commandPort;
@@ -109,7 +114,13 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         };
     }
 
-    /** roleLabel 은 검색 대상이 아니다(§7-1) — 이름·부서·직급만 본다. */
+    /**
+     * 이름·부서·직급·이메일을 본다. roleLabel 은 검색 대상이 아니다(§7-1).
+     *
+     * <p>이메일을 넣는 이유: 동명이인이 있는 회사에서 이름만으로는 대상을 특정할 수 없고,
+     * 관리자가 손에 쥔 유일한 고유값이 이메일이다(계정 발급도 이메일로 한다). 목록 응답에
+     * 이미 이메일이 나가는 관리자 전용 화면이라 검색으로 열어도 새로 새는 정보는 없다.
+     */
     private boolean matchesQuery(MemberRow row, String q) {
         if (q == null || q.isBlank()) {
             return true;
@@ -117,7 +128,8 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         String needle = q.toLowerCase(Locale.ROOT);
         return containsIgnoreCase(row.name(), needle)
                 || containsIgnoreCase(row.teamName(), needle)
-                || containsIgnoreCase(row.positionName(), needle);
+                || containsIgnoreCase(row.positionName(), needle)
+                || containsIgnoreCase(row.email(), needle);
     }
 
     private boolean containsIgnoreCase(String haystack, String needle) {
@@ -151,6 +163,32 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
                                 .sorted(Comparator.comparing(MemberRow::memberId))
                                 .map(row -> new OrgChartMember(row.memberId(), row.name(), row.positionName(), row.authority()))
                                 .toList()))
+                .toList();
+    }
+
+    /**
+     * 회의 참석자 픽커가 쓰는 내 팀 로스터(2026-08-13, 회의 도메인 요청). 조직도와 달리 전사가 아니라
+     * 한 팀만 담는다 — 다른 팀 로스터를 못 보게 하는 것이 요건이라, 응답을 잘라 주는 쪽이 프론트엔드
+     * 필터링에 맡기는 것보다 맞다.
+     *
+     * <p>{@code ACTIVE} 만 남긴다. 휴직자(VACATION)와 대기자(WAITING — 휴직·오프보딩 승인 대기)는
+     * 부를 수 없는 사람이라 픽커에 뜨면 안 된다. 아직 {@code deleted_at} 이 찍히기 전인 RESIGNED 행도
+     * 같은 조건에서 함께 빠진다.
+     *
+     * <p>본인도 걸러내지 않는다. 개설자를 뺄지는 화면의 결정이고, 서버가 미리 빼면 프론트엔드가
+     * "나"를 참석자로 넣고 싶어도 목록에 없다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<TeamRosterMember> getTeamRoster(Long companyId, Long teamId) {
+        if (teamId == null) {
+            return List.of();
+        }
+        return queryPort.findActiveByCompany(companyId).stream()
+                .filter(row -> teamId.equals(row.teamId()))
+                .filter(row -> row.status() == MemberStatus.ACTIVE)
+                .sorted(Comparator.comparing(MemberRow::memberId))
+                .map(row -> new TeamRosterMember(row.memberId(), row.name()))
                 .toList();
     }
 
@@ -227,12 +265,58 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         }
         positionRepository.findByIdAndCompanyId(command.jobPositionId(), command.companyId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.POSITION_NOT_FOUND));
+        Long roleId = resolveRoleLabel(command.companyId(), command.roleLabel());
 
         applyLeaderSideEffects(command.companyId(), target, command.role());
-        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId());
+        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId(), roleId);
         refreshTokenStore.revokeAllByMember(command.targetMemberId());
 
         return getDetail(command.companyId(), command.targetMemberId());
+    }
+
+    /**
+     * 역할 라벨은 선택 값이라 안 보내면(null) 그대로 둔다. 보냈으면 회사 안에 실제로 있는 이름이어야
+     * 한다 — 없는 이름을 조용히 "없음"으로 접으면 사용자가 고른 역할이 사라진 채 200 이 나간다.
+     *
+     * <p>직급 검증과 같은 자리에서, 쓰기 전에 끝낸다. 나중에 확인하면 이미 권한이 바뀐 뒤에 실패해
+     * 트랜잭션이 롤백되더라도 팀장 교체 부수효과의 순서 가정이 흐트러진다.
+     */
+    private Long resolveRoleLabel(Long companyId, String roleLabel) {
+        if (roleLabel == null) {
+            return null;
+        }
+        return queryPort.findRoleIdByLabel(companyId, roleLabel)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND));
+    }
+
+    /**
+     * §7 사원 삭제. 물리 삭제하지 않는다 — 상태를 DELETED 로 바꾸고 {@code deleted_at} 을 찍는다.
+     *
+     * <p>차단 규칙은 §7-4 와 같다. 오너는 지울 수 없고(소유자 이관은 별도 절차다), 본인도 지울 수
+     * 없다 — 마지막 관리자가 자기 계정을 닫아 회사가 잠기는 경로를 없앤다.
+     *
+     * <p>부수효과 두 가지가 §7-4·오프보딩과 같은 이유로 붙는다. 팀장 자리를 비우지 않으면 후임
+     * 승급이 {@code MEMBER_TEAM_LEADER_ALREADY_EXISTS} 로 막히고(권한 강등만으로는 부족하다 —
+     * 검사가 보는 것은 {@code team.leader_member_id} 다), 갱신표를 폐기하지 않으면 삭제된 계정이
+     * 남은 TTL 동안 스스로 액세스 토큰을 다시 받아 간다.
+     */
+    @Override
+    @Transactional
+    public void delete(DeleteMemberCommand command) {
+        MemberRow target = queryPort.findActiveById(command.companyId(), command.targetMemberId())
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
+
+        if (target.authority() == Authority.OWNER) {
+            throw new BusinessException(AuthErrorCode.MEMBER_CANNOT_MODIFY_OWNER);
+        }
+        if (command.targetMemberId().equals(command.actingMemberId())) {
+            throw new BusinessException(AuthErrorCode.MEMBER_CANNOT_MODIFY_SELF);
+        }
+
+        commandPort.softDelete(command.targetMemberId());
+        teamRepository.findByLeaderMemberId(command.targetMemberId())
+                .ifPresent(team -> teamRepository.updateLeader(team.id(), null));
+        refreshTokenStore.revokeAllByMember(command.targetMemberId());
     }
 
     private void applyLeaderSideEffects(Long companyId, MemberRow target, Authority newRole) {

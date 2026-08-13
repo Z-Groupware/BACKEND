@@ -46,7 +46,8 @@ public class CompanyProfileService implements GetCompanyProfileUseCase, UpdateCo
         }
 
         companyProfileRepository.updateProfile(command.companyId(), command.name(), command.registrationNo(),
-                command.representativeName(), command.address(), command.mainPhone());
+                command.representativeName(), command.address(), command.latitude(), command.longitude(),
+                command.mainPhone());
 
         return findCompany(command.companyId());
     }

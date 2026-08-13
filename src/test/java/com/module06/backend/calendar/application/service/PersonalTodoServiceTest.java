@@ -42,7 +42,7 @@ class PersonalTodoServiceTest {
         when(personalTodoRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         PersonalTodo result = service.create(
-                new CreateTodoCommand(COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20)));
+                new CreateTodoCommand(COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), null));
 
         assertThat(result.getCompanyId()).isEqualTo(COMPANY);
         assertThat(result.getMemberId()).isEqualTo(MEMBER);
@@ -52,10 +52,45 @@ class PersonalTodoServiceTest {
     }
 
     @Test
+    void endDateDefaultsToDateWhenOmitted() {
+        PersonalTodoService service = service();
+        when(personalTodoRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PersonalTodo result = service.create(
+                new CreateTodoCommand(COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), null));
+
+        assertThat(result.getEndDate()).isEqualTo(LocalDate.of(2026, 8, 20));
+    }
+
+    @Test
+    void savesExplicitEndDateWhenProvided() {
+        PersonalTodoService service = service();
+        when(personalTodoRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PersonalTodo result = service.create(new CreateTodoCommand(
+                COMPANY, MEMBER, "여행", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 25)));
+
+        assertThat(result.getDate()).isEqualTo(LocalDate.of(2026, 8, 20));
+        assertThat(result.getEndDate()).isEqualTo(LocalDate.of(2026, 8, 25));
+    }
+
+    @Test
+    void createThrowsWhenEndDateIsBeforeDate() {
+        PersonalTodoService service = service();
+
+        assertThatThrownBy(() -> service.create(new CreateTodoCommand(
+                COMPANY, MEMBER, "여행", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 19))))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CalendarErrorCode.TODO_INVALID_DATE_RANGE);
+
+        verify(personalTodoRepository, never()).save(any());
+    }
+
+    @Test
     void togglesUndoneTodoToDone() {
         PersonalTodoService service = service();
         PersonalTodo existing = PersonalTodo.reconstitute(
-                TODO_ID, COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), false, null, null);
+                TODO_ID, COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), false, null, null);
         when(personalTodoRepository.findById(TODO_ID)).thenReturn(Optional.of(existing));
         when(personalTodoRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -68,7 +103,7 @@ class PersonalTodoServiceTest {
     void togglesDoneTodoBackToUndone() {
         PersonalTodoService service = service();
         PersonalTodo existing = PersonalTodo.reconstitute(
-                TODO_ID, COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), true, null, null);
+                TODO_ID, COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), true, null, null);
         when(personalTodoRepository.findById(TODO_ID)).thenReturn(Optional.of(existing));
         when(personalTodoRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -91,7 +126,7 @@ class PersonalTodoServiceTest {
     void toggleThrowsWhenCallerIsNotTheOwner() {
         PersonalTodoService service = service();
         PersonalTodo ownedByAnother = PersonalTodo.reconstitute(
-                TODO_ID, COMPANY, 999L, "남의 Todo", LocalDate.of(2026, 8, 20), false, null, null);
+                TODO_ID, COMPANY, 999L, "남의 Todo", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), false, null, null);
         when(personalTodoRepository.findById(TODO_ID)).thenReturn(Optional.of(ownedByAnother));
 
         assertThatThrownBy(() -> service.toggleComplete(COMPANY, MEMBER, TODO_ID))
@@ -105,7 +140,7 @@ class PersonalTodoServiceTest {
     void toggleThrowsWhenTodoBelongsToAnotherCompany() {
         PersonalTodoService service = service();
         PersonalTodo otherCompanyTodo = PersonalTodo.reconstitute(
-                TODO_ID, 999L, MEMBER, "다른 회사 Todo", LocalDate.of(2026, 8, 20), false, null, null);
+                TODO_ID, 999L, MEMBER, "다른 회사 Todo", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), false, null, null);
         when(personalTodoRepository.findById(TODO_ID)).thenReturn(Optional.of(otherCompanyTodo));
 
         assertThatThrownBy(() -> service.toggleComplete(COMPANY, MEMBER, TODO_ID))

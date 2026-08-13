@@ -147,7 +147,12 @@ class MyProfileQueryAdapterTest {
     }
 
     private void insertSubscription(Long id, Long companyId, String plan, String status) {
-        em.createNativeQuery("INSERT INTO subscription (id, company_id, plan, status) VALUES (?, ?, ?, ?)")
+        // billing(BIL-0)이 subscription 테이블에 NOT NULL 컬럼(seats·started_on·current_period_start·
+        // carried_overage_amount)을 추가해, Hibernate 생성 스키마상 이 값들을 채워야 한다. 프로필 조회는
+        // plan·status만 보므로 나머지는 기본값으로 둔다.
+        em.createNativeQuery("INSERT INTO subscription "
+                        + "(id, company_id, plan, status, seats, started_on, current_period_start, carried_overage_amount) "
+                        + "VALUES (?, ?, ?, ?, 0, CURRENT_DATE, CURRENT_DATE, 0)")
                 .setParameter(1, id).setParameter(2, companyId)
                 .setParameter(3, plan).setParameter(4, status).executeUpdate();
     }

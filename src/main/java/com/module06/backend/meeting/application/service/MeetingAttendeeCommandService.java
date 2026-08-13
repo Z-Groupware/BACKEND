@@ -15,6 +15,7 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.exception.CommonErrorCode;
 import com.module06.backend.meeting.application.command.ReplaceMeetingAttendeesCommand;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
+import com.module06.backend.meeting.application.event.MeetingAttendeesRemovedEvent;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
@@ -30,7 +31,8 @@ import com.module06.backend.meeting.exception.MeetingErrorCode;
  * MEET-09 참석자 명단 전체 교체를 조율하는 애플리케이션 서비스다.
  *
  * 회의 열람 저장소로 회사·권한·상태를 확인하고, B 구성원 Port로 최종 명단을 검증한 뒤
- * 기존 명단과 목표 명단의 차이를 원자적으로 저장하고 새 참석자만 알림 이벤트로 발행한다.
+ * 기존 명단과 목표 명단의 차이를 원자적으로 저장하고 추가·제외된 구성원 각각에게
+ * 별도 알림 이벤트를 발행한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -83,10 +85,14 @@ public class MeetingAttendeeCommandService implements ReplaceMeetingAttendeesUse
                 finalMemberIds
         );
 
-        /* 기존 명단에 없던 구성원만 교체 완료 후 초대 알림 대상으로 계산한다. */
+        /* 기존 명단과 목표 명단의 차이로 추가·제외 대상을 각각 계산한다. */
         Set<Long> existingMemberIds = Set.copyOf(meeting.attendeeMemberIds());
+        Set<Long> finalMemberIdSet = Set.copyOf(finalMemberIds);
         List<Long> addedMemberIds = finalMemberIds.stream()
                 .filter(memberId -> !existingMemberIds.contains(memberId))
+                .toList();
+        List<Long> removedMemberIds = meeting.attendeeMemberIds().stream()
+                .filter(memberId -> !finalMemberIdSet.contains(memberId))
                 .toList();
 
         /* 기존과 목표 명단의 차이를 같은 트랜잭션에서 반영해 즉시 입장 권한을 갱신한다. */
@@ -99,6 +105,19 @@ public class MeetingAttendeeCommandService implements ReplaceMeetingAttendeesUse
                     meeting.companyId(),
                     meeting.hostMemberId(),
                     addedMemberIds,
+                    meeting.title(),
+                    meeting.startAt(),
+                    meeting.endAt()
+            ));
+        }
+
+        /* 제외된 참석자가 있을 때만 AFTER_COMMIT 소비용 제외 이벤트를 발행한다. */
+        if (!removedMemberIds.isEmpty()) {
+            meetingEventPublisher.publish(new MeetingAttendeesRemovedEvent(
+                    meeting.meetingId(),
+                    meeting.companyId(),
+                    meeting.hostMemberId(),
+                    removedMemberIds,
                     meeting.title(),
                     meeting.startAt(),
                     meeting.endAt()

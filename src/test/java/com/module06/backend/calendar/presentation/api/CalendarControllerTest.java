@@ -52,14 +52,32 @@ class CalendarControllerTest {
         authenticateAs(MEMBER, COMPANY, "OWNER");
         when(getCalendarUseCase.getCalendar(eq(COMPANY), eq(MEMBER), eq("OWNER"), eq(YearMonth.of(2026, 8))))
                 .thenReturn(List.of(new CalendarItem(
-                        CalendarItemType.PROJECT, "프로젝트A", "TAG",
-                        LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 20))));
+                        CalendarItemType.PROJECT, null, "프로젝트A", "TAG",
+                        LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 20), null)));
 
         mockMvc.perform(get("/api/calendar").param("month", "2026-08"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].type").value("PROJECT"))
                 .andExpect(jsonPath("$.data[0].title").value("프로젝트A"))
-                .andExpect(jsonPath("$.data[0].tag").value("TAG"));
+                .andExpect(jsonPath("$.data[0].tag").value("TAG"))
+                .andExpect(jsonPath("$.data[0].id").doesNotExist())
+                .andExpect(jsonPath("$.data[0].isDone").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("TODO 항목은 id·isDone을 응답에 그대로 실어 보낸다")
+    void includesIdAndIsDoneForTodoItems() throws Exception {
+        authenticateAs(MEMBER, COMPANY, "MEMBER");
+        when(getCalendarUseCase.getCalendar(eq(COMPANY), eq(MEMBER), eq("MEMBER"), eq(YearMonth.of(2026, 8))))
+                .thenReturn(List.of(new CalendarItem(
+                        CalendarItemType.TODO, 10L, "우유 사기", null,
+                        LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), false)));
+
+        mockMvc.perform(get("/api/calendar").param("month", "2026-08"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].type").value("TODO"))
+                .andExpect(jsonPath("$.data[0].id").value(10))
+                .andExpect(jsonPath("$.data[0].isDone").value(false));
     }
 
     @Test

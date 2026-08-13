@@ -10,6 +10,8 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import jakarta.persistence.criteria.AbstractQuery;
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.repository.DashboardMeetingRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingLockRepository;
@@ -37,7 +40,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingTopicRepository;
 
 /*
- * RESULT-01과 E 인수인계·C 프로젝트 연동의 회의 읽기 계약을 JPA로 구현하는 어댑터다.
+ * E 인수인계·C 프로젝트 연동의 회의 읽기 계약을 JPA로 구현하는 어댑터다.
  *
  * 모든 회의 조회에 companyId 조건을 포함하고, 참석자는 파생 쿼리의 IN 조회로 일괄 로딩해
  * 타 회사 데이터 노출과 회의별 반복 조회를 방지한다.
@@ -46,7 +49,8 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class MeetingQueryPersistenceAdapter
         implements MeetingQueryRepository, MeetingDetailRepository, MeetingLockRepository,
-        MeetingListRepository, PendingActionMeetingRepository, StalledSummaryMeetingRepository {
+        MeetingListRepository, PendingActionMeetingRepository, StalledSummaryMeetingRepository,
+        DashboardMeetingRepository {
 
     /* E 배치 계약에서 한 번의 IN 조건에 허용하는 최대 회의 식별자 개수다. */
     private static final int MEETING_ID_BATCH_SIZE = 200;
@@ -63,7 +67,7 @@ public class MeetingQueryPersistenceAdapter
     /* meeting_topic 테이블에서 회의별 대주제와 소주제를 배치 조회하는 기술 저장소다. */
     private final SpringDataMeetingTopicRepository springDataMeetingTopicRepository;
 
-    /* 회사·권한·필터를 한 번의 페이징 쿼리에 적용하고 참석자 수를 페이지 단위로 일괄 계산한다. */
+    /* 회사·권한·필터를 한 번의 페이징 쿼리에 적용하고 참석자 식별자를 페이지 단위로 일괄 조회한다. */
     @Override
     public MeetingPage findMeetings(MeetingListCriteria criteria) {
         /* 동적 조건을 JPA Specification으로 구성해 필터 조합마다 별도 @Query를 만들지 않는다. */
@@ -84,23 +88,24 @@ public class MeetingQueryPersistenceAdapter
             return new MeetingPage(List.of(), meetingPage.getTotalElements(), meetingPage.getTotalPages());
         }
 
-        /* 현재 페이지 회의 식별자의 참석자를 한 번에 읽어 회의별 인원수를 계산한다. */
+        /* 현재 페이지 회의 식별자의 참석자를 한 번에 읽어 회의별 식별자 목록으로 묶는다. */
         List<Long> meetingIds = meetingPage.getContent().stream()
                 .map(MeetingJpaEntity::getId)
                 .toList();
-        Map<Long, Long> attendeeCounts = springDataMeetingAttendeeRepository
+        Map<Long, List<Long>> attendeeMemberIdsByMeeting = springDataMeetingAttendeeRepository
                 .findAllByMeetingIdInOrderByMeetingIdAscMemberIdAsc(meetingIds)
                 .stream()
                 .collect(Collectors.groupingBy(
                         MeetingAttendeeJpaEntity::getMeetingId,
-                        Collectors.counting()
+                        LinkedHashMap::new,
+                        Collectors.mapping(MeetingAttendeeJpaEntity::getMemberId, Collectors.toList())
                 ));
 
         /* 엔티티 페이지 순서를 유지하며 애플리케이션에 필요한 최소 읽기 모델로 변환한다. */
         List<MeetingListSnapshot> meetings = meetingPage.getContent().stream()
                 .map(meeting -> toMeetingListSnapshot(
                         meeting,
-                        attendeeCounts.getOrDefault(meeting.getId(), 0L).intValue()
+                        attendeeMemberIdsByMeeting.getOrDefault(meeting.getId(), List.of())
                 ))
                 .toList();
 
@@ -139,15 +144,27 @@ public class MeetingQueryPersistenceAdapter
                 predicates.add(criteriaBuilder.equal(meeting.get("status"), criteria.status()));
             }
 
-            /* 회사 전체 열람자가 아니면 자신이 개설했거나 참석자로 등록된 회의로 제한한다. */
-            if (!criteria.companyWideRead()) {
-                Subquery<Long> attendeeSubquery = criteriaQuery.subquery(Long.class);
-                Root<MeetingAttendeeJpaEntity> attendee = attendeeSubquery.from(MeetingAttendeeJpaEntity.class);
-                attendeeSubquery.select(attendee.get("meetingId"));
-                attendeeSubquery.where(
-                        criteriaBuilder.equal(attendee.get("meetingId"), meeting.get("id")),
-                        criteriaBuilder.equal(attendee.get("memberId"), criteria.requesterMemberId())
-                );
+            /* scope는 회의 화면의 개인 탭이라 역할 기반 열람 범위보다 우선한다 — OWNER·ADMIN도 예외 없다. */
+            if (criteria.scope() != null) {
+                switch (criteria.scope()) {
+                    case HOSTED -> predicates.add(
+                            criteriaBuilder.equal(meeting.get("hostMemberId"), criteria.requesterMemberId())
+                    );
+                    case ATTENDING -> {
+                        /* host 본인은 뺀다 — 안 빼면 개설자 화면에 두 탭이 같은 회의를 중복 표시한다. */
+                        predicates.add(criteriaBuilder.notEqual(
+                                meeting.get("hostMemberId"),
+                                criteria.requesterMemberId()
+                        ));
+                        predicates.add(criteriaBuilder.exists(
+                                attendeeExistsSubquery(meeting, criteriaQuery, criteriaBuilder, criteria.requesterMemberId())
+                        ));
+                    }
+                }
+            } else if (!criteria.companyWideRead()) {
+                /* 회사 전체 열람자가 아니면 자신이 개설했거나 참석자로 등록된 회의로 제한한다. */
+                Subquery<Long> attendeeSubquery =
+                        attendeeExistsSubquery(meeting, criteriaQuery, criteriaBuilder, criteria.requesterMemberId());
 
                 /* 개설자 조건과 참석자 EXISTS 조건 중 하나라도 만족하면 목록에 포함한다. */
                 predicates.add(criteriaBuilder.or(
@@ -161,18 +178,37 @@ public class MeetingQueryPersistenceAdapter
         };
     }
 
-    /* 회의 엔티티와 배치 계산한 참석자 수를 MEET-02 목록 읽기 모델로 변환한다. */
-    private MeetingListSnapshot toMeetingListSnapshot(MeetingJpaEntity meeting, int attendeeCount) {
+    /* 지정한 구성원이 해당 회의의 참석자로 등록돼 있는지 확인하는 EXISTS 서브쿼리를 만든다. */
+    private Subquery<Long> attendeeExistsSubquery(
+            Root<MeetingJpaEntity> meeting,
+            AbstractQuery<?> criteriaQuery,
+            CriteriaBuilder criteriaBuilder,
+            Long memberId
+    ) {
+        Subquery<Long> attendeeSubquery = criteriaQuery.subquery(Long.class);
+        Root<MeetingAttendeeJpaEntity> attendee = attendeeSubquery.from(MeetingAttendeeJpaEntity.class);
+        attendeeSubquery.select(attendee.get("meetingId"));
+        attendeeSubquery.where(
+                criteriaBuilder.equal(attendee.get("meetingId"), meeting.get("id")),
+                criteriaBuilder.equal(attendee.get("memberId"), memberId)
+        );
+        return attendeeSubquery;
+    }
+
+    /* 회의 엔티티와 배치 조회한 참석자 식별자를 MEET-02 목록 읽기 모델로 변환한다. */
+    private MeetingListSnapshot toMeetingListSnapshot(MeetingJpaEntity meeting, List<Long> attendeeMemberIds) {
         /* 외부 표시 정보 조합에 필요한 식별자와 회의 메타만 저장소 경계 밖으로 전달한다. */
         return new MeetingListSnapshot(
                 meeting.getId(),
                 meeting.getProjectId(),
+                meeting.getTeamId(),
                 meeting.getMeetingRoomId(),
                 meeting.getTitle(),
                 meeting.getStatus(),
                 meeting.getStartAt(),
                 meeting.getEndAt(),
-                attendeeCount
+                meeting.getHostMemberId(),
+                attendeeMemberIds
         );
     }
 
@@ -419,7 +455,7 @@ public class MeetingQueryPersistenceAdapter
                 .toList();
     }
 
-    /* 회의 엔티티와 참석자 식별자를 RESULT-01 및 E 단건 조회용 모델로 변환한다. */
+    /* 회의 엔티티와 참석자 식별자를 E 단건 조회용 모델로 변환한다. */
     private MeetingSnapshot toMeetingSnapshot(MeetingJpaEntity meeting, List<Long> attendeeMemberIds) {
         /* 회의 테이블의 실제 필드와 별도 조회한 참석자 식별자를 손실 없이 전달한다. */
         return new MeetingSnapshot(
@@ -544,6 +580,65 @@ public class MeetingQueryPersistenceAdapter
                         meeting.getStartAt()
                 ))
                 .toList();
+    }
+
+    /* MEET-17 대시보드 카드 후보로 회사·스코프 조건을 만족하는 최근 회의를 상한 개수만큼 조회한다. */
+    @Override
+    public List<DashboardMeetingCandidate> findDashboardMeetings(DashboardMeetingCriteria criteria) {
+        /* 스코프별 조건을 Specification으로 구성해 조합마다 별도 @Query를 만들지 않는다. */
+        Specification<MeetingJpaEntity> specification = buildDashboardMeetingSpecification(criteria);
+
+        /* 카드는 총 건수가 필요 없으므로 페이지 메타 없이 상한 개수만큼만 데이터베이스에서 자른다. */
+        PageRequest pageRequest = PageRequest.of(
+                0,
+                criteria.limit(),
+                Sort.by(Sort.Order.desc("startAt"), Sort.Order.desc("id"))
+        );
+
+        return springDataMeetingRepository.findAll(specification, pageRequest)
+                .getContent()
+                .stream()
+                .map(this::toDashboardMeetingCandidate)
+                .toList();
+    }
+
+    /* MEET-17의 회사·취소 제외·스코프 조건을 Specification으로 만든다. */
+    private Specification<MeetingJpaEntity> buildDashboardMeetingSpecification(DashboardMeetingCriteria criteria) {
+        return (meeting, criteriaQuery, criteriaBuilder) -> {
+            /* 모든 스코프가 회사 범위와 취소 회의 제외를 공통으로 적용한다. */
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(criteriaBuilder.equal(meeting.get("companyId"), criteria.companyId()));
+            predicates.add(criteriaBuilder.notEqual(meeting.get("status"), MeetingStatus.CANCELED));
+
+            /* 스코프별로 정확히 하나의 소유·소속 조건만 추가한다. */
+            switch (criteria.scope()) {
+                case OWNER -> predicates.add(
+                        criteriaBuilder.equal(meeting.get("hostMemberId"), criteria.requesterMemberId())
+                );
+                case TEAM -> {
+                    /* 팀장이 직접 개설한 회의만 보이지 않도록 관련 액션이 있는 회의로 한정한다. */
+                    predicates.add(criteriaBuilder.equal(meeting.get("teamId"), criteria.requesterTeamId()));
+                    predicates.add(criteriaBuilder.isNotNull(meeting.get("relatedActionId")));
+                }
+                case ME -> predicates.add(criteriaBuilder.exists(
+                        attendeeExistsSubquery(meeting, criteriaQuery, criteriaBuilder, criteria.requesterMemberId())
+                ));
+            }
+
+            return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
+        };
+    }
+
+    /* 회의 엔티티를 MEET-17 대시보드 카드 조립에 필요한 최소 읽기 모델로 변환한다. */
+    private DashboardMeetingCandidate toDashboardMeetingCandidate(MeetingJpaEntity meeting) {
+        return new DashboardMeetingCandidate(
+                meeting.getId(),
+                meeting.getTitle(),
+                meeting.getProjectId(),
+                meeting.getStatus(),
+                meeting.getMeetingRoomId(),
+                meeting.getStartAt()
+        );
     }
 
 }

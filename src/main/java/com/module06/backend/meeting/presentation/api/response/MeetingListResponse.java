@@ -45,17 +45,30 @@ public record MeetingListResponse(
         return new MeetingListResponse(meetings, page);
     }
 
-    /* 애플리케이션 결과 한 건을 회의실·프로젝트 중첩 응답으로 변환한다. */
+    /* 애플리케이션 결과 한 건을 회의실·프로젝트·참석자 중첩 응답으로 변환한다. */
     private static MeetingResponse toMeetingResponse(MeetingListResult.MeetingItem meeting) {
         /* enum 상태와 로컬 일시를 외부 문자열 계약으로 변환하고 중첩 표시값을 조립한다. */
         return new MeetingResponse(
                 meeting.meetingId(),
                 meeting.title(),
                 meeting.status().name(),
+                meeting.teamId(),
+                meeting.originLabel(),
+                meeting.summaryStatus() == null ? null : meeting.summaryStatus().name(),
                 formatDateTime(meeting.startAt()),
                 formatDateTime(meeting.endAt()),
                 meeting.attendeeCount(),
                 meeting.actionCount(),
+                meeting.isHost(),
+                meeting.entryAvailable(),
+                meeting.durationMinutes(),
+                meeting.attendees().stream()
+                        .map(attendee -> new AttendeeResponse(attendee.memberId(), attendee.name()))
+                        .toList(),
+                meeting.agendaPreview() == null ? null : new AgendaPreviewResponse(
+                        meeting.agendaPreview().mainTopic(),
+                        meeting.agendaPreview().firstSubTopic()
+                ),
                 new MeetingRoomResponse(
                         meeting.meetingRoom().meetingRoomId(),
                         meeting.meetingRoom().name()
@@ -79,10 +92,18 @@ public record MeetingListResponse(
             Long meetingId,
             String title,
             String status,
+            Long teamId,
+            String originLabel,
+            String summaryStatus,
             String startAt,
             String endAt,
             int attendeeCount,
             long actionCount,
+            boolean isHost,
+            boolean entryAvailable,
+            int durationMinutes,
+            List<AttendeeResponse> attendees,
+            AgendaPreviewResponse agendaPreview,
             MeetingRoomResponse meetingRoom,
             ProjectResponse project
     ) {
@@ -94,6 +115,13 @@ public record MeetingListResponse(
 
     /* 목록 행에 표시할 프로젝트 식별자와 태그·이름이다. */
     public record ProjectResponse(Long projectId, String tag, String name) {
+    }
+
+    /* 카드 아바타에 표시할 참석자 식별자와 이름이다. */
+    public record AttendeeResponse(Long memberId, String name) {
+    }
+
+    public record AgendaPreviewResponse(String mainTopic, String firstSubTopic) {
     }
 
     /* 페이지 이동과 전체 결과 표시를 위한 외부 페이지 메타데이터다. */

@@ -12,7 +12,6 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.CaptureSession;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.CaptureSessionControlRepository;
-import com.module06.backend.meeting.domain.repository.CaptureSessionQueryRepository;
 import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.exception.CaptureSessionErrorCode;
 import com.module06.backend.meeting.infrastructure.persistence.entity.CaptureSessionJpaEntity;
@@ -29,8 +28,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class CaptureSessionPersistenceAdapter implements
         CaptureSessionRepository,
-        CaptureSessionControlRepository,
-        CaptureSessionQueryRepository {
+        CaptureSessionControlRepository {
 
     /* 회사 범위 회의 행을 잠금 조회하는 기존 회의 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -97,10 +95,10 @@ public class CaptureSessionPersistenceAdapter implements
                 .map(CaptureSessionJpaEntity::toDomain);
     }
 
-    /* 회의당 하나인 현재 캡처 세션을 CAP-10 조회용 비잠금 경로로 읽는다. */
+    /* 회의당 하나인 기존 캡처 세션을 CAP-01 재호출 멱등 판정을 위해 비잠금으로 읽는다. */
     @Override
     public Optional<CaptureSession> findByMeetingId(Long meetingId) {
-        /* 상태 제어용 findByMeetingId와 분리된 파생 쿼리로 읽고 순수 도메인으로 변환한다. */
+        /* 상태 제어용 findByMeetingIdForUpdate와 분리된 파생 쿼리로 읽고 순수 도메인으로 변환한다. */
         return springDataCaptureSessionRepository.findFirstByMeetingId(meetingId)
                 .map(CaptureSessionJpaEntity::toDomain);
     }
