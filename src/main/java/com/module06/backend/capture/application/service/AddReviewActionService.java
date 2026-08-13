@@ -68,20 +68,34 @@ public class AddReviewActionService implements AddReviewActionUseCase {
                 command.meetingId(),
                 projectId,
                 command.assigneeMemberId(),
+                command.teamId(),
                 command.title(),
                 command.detail(),
                 command.dueDate(),
                 command.evidenceTranscriptId()));
 
-        log.info("액션 직접 추가 — meetingId={} actionId={} 담당자={} 추가한사람={}",
-                command.meetingId(), actionId, command.assigneeMemberId(), command.requestedBy());
+        log.info("액션 직접 추가 — meetingId={} actionId={} 담당자={} 부서={} 추가한사람={}",
+                command.meetingId(), actionId, command.assigneeMemberId(), command.teamId(), command.requestedBy());
 
         return new ReviewActionAdded(actionId, true, STATUS_HUMAN_CONFIRMED);
     }
 
-    /* 담당자·기한은 필수다. 비워두면 아무의 보드에도 가지 않는 액션이 조용히 쌓인다. */
+    /*
+     * 담당자·기한은 필수다. 비워두면 아무의 보드에도 가지 않는 액션이 조용히 쌓인다.
+     *
+     * 2026-08-13 — teamId 는 담당자의 대체재다(이홍근 요청). ReviewValue.teamId(RVW-02)와
+     * 같은 판단으로, 상호 배타적이고 최소 하나는 필수다 — 같은 액션이 사람 하나와 부서 하나를
+     * 동시에 가질 수 없고(ActionTypeShapePolicy), 담당자·부서 둘 다 없으면 여전히 아무의
+     * 보드에도 가지 않는다.
+     */
     private void requireManualShape(AddReviewActionCommand command) {
-        if (command.assigneeMemberId() == null || command.dueDate() == null) {
+        if (command.assigneeMemberId() != null && command.teamId() != null) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_ASSIGNEE_TEAM_CONFLICT);
+        }
+        if (command.assigneeMemberId() == null && command.teamId() == null) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_MANUAL_FIELD_REQUIRED);
+        }
+        if (command.dueDate() == null) {
             throw new BusinessException(CaptureErrorCode.REVIEW_MANUAL_FIELD_REQUIRED);
         }
     }
@@ -116,8 +130,15 @@ public class AddReviewActionService implements AddReviewActionUseCase {
      *
      * 명단 밖 탈출구(personId=null)는 후보에서 뺀다. 그건 "명단에 없는 사람"을 나타내는
      * 자리이고 실제 사람이 아니다.
+     *
+     * teamId 로 만드는 액션은 대상이 아니다 — 담당자 개념이 없으므로(ActionTypeShapePolicy)
+     * 참석자 명단 검사 자체가 성립하지 않는다. requireManualShape 가 이미 둘 중 하나만
+     * 오도록 막아 뒀으므로 여기 오면 assigneeMemberId 가 null 이 아니라는 뜻이다.
      */
     private void requireInRoster(AddReviewActionCommand command) {
+        if (command.teamId() != null) {
+            return;
+        }
         List<AiLayerPort.Participant> roster =
                 meetingParticipantProvider.participantsOf(command.meetingId());
 

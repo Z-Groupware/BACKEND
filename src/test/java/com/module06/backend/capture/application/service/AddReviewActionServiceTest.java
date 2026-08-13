@@ -87,6 +87,30 @@ class AddReviewActionServiceTest {
     }
 
     @Test
+    @DisplayName("담당자와 부서를 동시에 보내면 막는다 — 같은 액션이 사람 하나와 부서 하나를 동시에 가질 수 없다")
+    void 담당자와_부서를_함께_보내면_추가하지_않는다() {
+        RecordingCreatePort actions = new RecordingCreatePort();
+
+        assertThatThrownBy(() -> service(actions).add(command(ATTENDEE, 3L, DUE)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_ASSIGNEE_TEAM_CONFLICT);
+        assertThat(actions.created).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부서만 보내면 담당자 없이도 추가된다 — 부서는 담당자의 대체재다")
+    void 부서만_보내면_담당자_없이_추가한다() {
+        RecordingCreatePort actions = new RecordingCreatePort();
+
+        service(actions).add(command(null, 3L, DUE));
+
+        assertThat(actions.created).hasSize(1);
+        ReviewActionCreatePort.ManualAction manual = actions.created.get(0);
+        assertThat(manual.teamId()).isEqualTo(3L);
+        assertThat(manual.assigneeMemberId()).isNull();
+    }
+
+    @Test
     @DisplayName("참석자 명단 밖 담당자는 막는다 — RVW-02 와 같은 규칙이다")
     void 명단_밖_담당자는_추가하지_않는다() {
         RecordingCreatePort actions = new RecordingCreatePort();
@@ -220,7 +244,7 @@ class AddReviewActionServiceTest {
 
     private AddReviewActionCommand commandWithEvidence(Long evidenceTranscriptId) {
         return new AddReviewActionCommand(
-                COMPANY, MEETING, ATTENDEE, "결제 실패 케이스 정리", null, DUE,
+                COMPANY, MEETING, ATTENDEE, null, "결제 실패 케이스 정리", null, DUE,
                 evidenceTranscriptId, ME);
     }
 
@@ -236,8 +260,12 @@ class AddReviewActionServiceTest {
     }
 
     private AddReviewActionCommand command(Long assignee, LocalDate dueDate) {
+        return command(assignee, null, dueDate);
+    }
+
+    private AddReviewActionCommand command(Long assignee, Long teamId, LocalDate dueDate) {
         return new AddReviewActionCommand(
-                COMPANY, MEETING, assignee, "결제 실패 케이스 정리", null, dueDate, null, ME);
+                COMPANY, MEETING, assignee, teamId, "결제 실패 케이스 정리", null, dueDate, null, ME);
     }
 
     /* 무엇을 실어 넘겼는지가 검증 대상이다 — 특히 회의·프로젝트다. */

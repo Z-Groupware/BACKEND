@@ -279,7 +279,8 @@ public class AnalysisController {
             summary = "액션 직접 추가 (RVW-03)",
             description = "검토 화면에서 사람이 액션을 직접 추가한다. 만들어지는 액션은 "
                     + "isManual=true · HUMAN_CONFIRMED 이며, AI 입력이 없어 few-shot 예시로는 "
-                    + "쓰이지 않는다. 담당자와 기한은 필수다(422)."
+                    + "쓰이지 않는다. 담당자(assigneeMemberId) 또는 부서(teamId) 중 하나는 "
+                    + "필수이며 둘 다 보내면 422다. 기한도 필수다(422)."
     )
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @ResponseStatus(HttpStatus.CREATED)

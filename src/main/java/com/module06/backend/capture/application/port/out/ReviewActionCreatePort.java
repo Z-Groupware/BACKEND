@@ -26,12 +26,18 @@ public interface ReviewActionCreatePort {
     /*
      * @param sourceMeetingId **빠지면 검토 화면에서 사라진다.** RVW-01 이 회의로 액션을 찾으므로,
      *                        이 값이 없는 액션은 방금 만든 사람 눈에도 보이지 않는다.
+     * @param assigneeMemberId teamId 와 상호 배타적이다(2026-08-13, RVW-03 teamId 지원).
+     *                         A(AddReviewActionService)가 이미 최소 하나를 보장해 넘긴다.
+     * @param teamId 채워지면 TEAM 액션을 만든다. 회사 소속 검증은 여기(C)가 한다 — A가 넘긴
+     *               값이라도 신뢰하지 않는다(ActionReviewApplyAdapter의 existsTeamInCompany와
+     *               같은 판단, #100).
      */
     record ManualAction(
             long companyId,
             long meetingId,
             long projectId,
-            long assigneeMemberId,
+            Long assigneeMemberId,
+            Long teamId,
             String title,
             String detail,
             LocalDate dueDate,

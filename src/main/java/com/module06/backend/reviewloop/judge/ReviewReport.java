@@ -93,8 +93,20 @@ public final class ReviewReport {
 
     /** error_log.jsonl + lessons.jsonl을 읽어 리포트를 만든다(각 파일은 없으면 빈 것으로 취급). */
     public static String fromFiles(Path errorLog, Path lessonsLog) throws IOException {
+        List<Lesson> lessons = Files.exists(lessonsLog) ? new KnowledgeStore(lessonsLog).lessons() : List.of();
+        return render(records(errorLog), lessons);
+    }
+
+    /**
+     * 감사 로그 판독 — 중복 제거 + 시각순(§normalize). 판정 라운드와 생략 행을 섞어 돌려준다.
+     *
+     * <p>{@link LoopMetrics}가 같은 판독을 쓴다. 각자 파싱하면 <b>같은 파일에서 서로 다른 숫자가</b>
+     * 나오고(union 중복을 한쪽만 걸러도 그렇게 된다), 그러면 리포트와 지표가 어긋나 둘 다 신뢰를 잃는다.
+     * 루프 자신의 규칙 CONV_001(재발명 금지)이 가리키는 자리이기도 하다.
+     */
+    static List<AuditRecord> records(Path errorLog) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
-        List<AuditRecord> records = new ArrayList<>();   // 판정 라운드 + 생략 행 — render 가 갈라 쓴다
+        List<AuditRecord> records = new ArrayList<>();   // 판정 라운드 + 생략 행 — 호출부가 갈라 쓴다
         if (Files.exists(errorLog)) {
             for (String line : Files.readAllLines(errorLog)) {
                 if (line.isBlank()) {
@@ -108,8 +120,7 @@ public final class ReviewReport {
                 }
             }
         }
-        List<Lesson> lessons = Files.exists(lessonsLog) ? new KnowledgeStore(lessonsLog).lessons() : List.of();
-        return render(normalize(records), lessons);
+        return normalize(records);
     }
 
     /*

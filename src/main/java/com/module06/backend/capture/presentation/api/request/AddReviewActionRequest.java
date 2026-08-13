@@ -18,9 +18,16 @@ import com.module06.backend.capture.application.usecase.AddReviewActionUseCase.A
  * <h2>title 은 여기서 막는다</h2>
  * 조합 규칙이 아니라 값 자체의 문제이고(빈 제목), action.title 이 VARCHAR(200) NOT NULL 이라
  * 길이를 넘기면 DB 까지 내려가 500 이 된다.
+ *
+ * <h2>2026-08-13 — teamId 추가(이홍근 요청)</h2>
+ * assigneeMemberId 와 상호 배타적이고, 최소 하나는 필수다 — ReviewValue.teamId(RVW-02, 오너
+ * 회의 검토화면 부서선택)와 같은 규칙이다. 검토 화면에 AI 초안 행뿐 아니라 [액션 직접 추가]로
+ * 사람이 새 액션을 만드는 경로가 있는데, 이 필드가 없으면 그 경로로는 팀 액션을 만들 방법이
+ * 없었다. 조합 검증은 여기서 하지 않는다 — 위 이유와 같다(AddReviewActionService).
  */
 public record AddReviewActionRequest(
         Long assigneeMemberId,
+        Long teamId,
 
         @NotBlank(message = "제목은 필수입니다.")
         @Size(max = 200, message = "제목은 200자를 넘을 수 없습니다.")
@@ -33,7 +40,7 @@ public record AddReviewActionRequest(
 
     public AddReviewActionCommand toCommand(long companyId, long meetingId, long requestedBy) {
         return new AddReviewActionCommand(
-                companyId, meetingId, assigneeMemberId, title, detail, dueDate,
+                companyId, meetingId, assigneeMemberId, teamId, title, detail, dueDate,
                 evidenceTranscriptId, requestedBy);
     }
 }

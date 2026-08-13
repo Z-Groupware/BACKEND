@@ -16,3 +16,10 @@
 # *.jsonl 로 넓게 걸지 않는다 — 이 디렉터리에 append-only 가 아닌 jsonl(상태 스냅샷 등)이
 # 생기면 그것까지 union 이 되어 조용히 망가진다.
 review-loop/logs/error_log.jsonl merge=union
+
+# ── 최적화 루프 지표 기준선 ─────────────────────────────────────────────────
+# 같은 성격(append-only · 브랜치마다 끝에 한 줄)이라 같은 처방이다. 다만 이쪽은 knowledge/ 라
+# 팀이 공유·커밋한다 — 브랜치별 기준선이 갈리면 "개선됐나"의 답이 사람마다 달라진다.
+# union 은 줄 순서를 시간순으로 만들어 주지 않으므로 LoopMetrics.lastSnapshot 은 '마지막 줄'이
+# 아니라 timestamp 가 가장 큰 줄을 최신으로 본다(정렬 근거는 파일 위치가 아니라 줄 자신이다).
+review-loop/knowledge/loop-metrics.jsonl merge=union
