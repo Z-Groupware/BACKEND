@@ -179,9 +179,9 @@ class NoticeControllerTest {
         assertThat(response.getData().noticeId()).isEqualTo(31L);
     }
 
-    /* NOTI-03 메서드가 실제 201 상태와 OWNER·ADMIN 권한을 선언하는지 검증한다. */
+    /* NOTI-03 메서드가 실제 201 상태와 OWNER 전용 권한을 선언하는지 검증한다. */
     @Test
-    @DisplayName("공지 작성은 OWNER·ADMIN에게만 열리고 실제 HTTP 201을 선언한다")
+    @DisplayName("공지 작성은 OWNER에게만 열리고 실제 HTTP 201을 선언한다")
     void declaresCreateNoticeAuthorizationAndStatus() throws NoSuchMethodException {
         /* Controller 작성 메서드의 권한과 응답 상태 애노테이션을 조회한다. */
         var method = NoticeController.class.getDeclaredMethod(
@@ -192,9 +192,9 @@ class NoticeControllerTest {
         PreAuthorize preAuthorize = method.getAnnotation(PreAuthorize.class);
         ResponseStatus responseStatus = method.getAnnotation(ResponseStatus.class);
 
-        /* 작성 권한은 OWNER·ADMIN만 포함하고 실제 HTTP 상태는 201이어야 한다. */
+        /* 작성 권한은 OWNER만 포함하고 실제 HTTP 상태는 201이어야 한다. */
         assertThat(preAuthorize).isNotNull();
-        assertThat(preAuthorize.value()).contains("OWNER", "ADMIN").doesNotContain("LEADER", "MEMBER");
+        assertThat(preAuthorize.value()).contains("OWNER").doesNotContain("ADMIN", "LEADER", "MEMBER");
         assertThat(responseStatus).isNotNull();
         assertThat(responseStatus.value().value()).isEqualTo(201);
     }
@@ -233,7 +233,7 @@ class NoticeControllerTest {
 
     /* 인증 principal·경로·본문이 수정 Command로 전달되고 최종 공지 전체가 반환되는지 검증한다. */
     @Test
-    @DisplayName("ADMIN이 공지를 수정하고 최종 공지 전체를 반환한다")
+    @DisplayName("OWNER가 공지를 수정하고 최종 공지 전체를 반환한다")
     void updatesNoticeWithAuthenticatedPrincipal() {
         /* 수정 Command를 기록하고 최종 공지 결과를 반환하는 유스케이스 대역을 만든다. */
         UpdateNoticeCommand[] capturedCommand = new UpdateNoticeCommand[1];
@@ -254,9 +254,9 @@ class NoticeControllerTest {
                 updateUseCase,
                 unusedDeleteUseCase()
         );
-        AuthPrincipal principal = new AuthPrincipal(4L, 10L, "ADMIN", false, 100L);
+        AuthPrincipal principal = new AuthPrincipal(4L, 10L, "OWNER", false, 100L);
 
-        /* 인증 ADMIN과 공지 41 및 전체 수정 본문으로 Controller 메서드를 호출한다. */
+        /* 인증 OWNER와 공지 41 및 전체 수정 본문으로 Controller 메서드를 호출한다. */
         var response = controller.updateNotice(
                 principal,
                 41L,
@@ -267,7 +267,7 @@ class NoticeControllerTest {
         assertThat(capturedCommand[0].companyId()).isEqualTo(10L);
         assertThat(capturedCommand[0].noticeId()).isEqualTo(41L);
         assertThat(capturedCommand[0].requesterMemberId()).isEqualTo(4L);
-        assertThat(capturedCommand[0].requesterRole()).isEqualTo("ADMIN");
+        assertThat(capturedCommand[0].requesterRole()).isEqualTo("OWNER");
 
         /* 수정 응답은 200 메시지와 최종 본문·초 단위 생명주기 시각을 제공해야 한다. */
         assertThat(response.getHttpStatus()).isEqualTo(200);
@@ -279,9 +279,9 @@ class NoticeControllerTest {
         assertThat(response.getData().updatedAt()).isEqualTo("2026-08-09T13:40:02");
     }
 
-    /* NOTI-04 메서드가 PUT 경로와 OWNER·ADMIN 권한만 선언하는지 검증한다. */
+    /* NOTI-04 메서드가 PUT 경로와 OWNER 전용 권한만 선언하는지 검증한다. */
     @Test
-    @DisplayName("공지 수정은 OWNER·ADMIN에게만 열린 PUT API다")
+    @DisplayName("공지 수정은 OWNER에게만 열린 PUT API다")
     void declaresUpdateNoticeAuthorizationAndMethod() throws NoSuchMethodException {
         /* Controller 수정 메서드의 권한과 PUT 매핑 애노테이션을 조회한다. */
         var method = NoticeController.class.getDeclaredMethod(
@@ -293,9 +293,9 @@ class NoticeControllerTest {
         PreAuthorize preAuthorize = method.getAnnotation(PreAuthorize.class);
         var putMapping = method.getAnnotation(org.springframework.web.bind.annotation.PutMapping.class);
 
-        /* 수정 권한에는 OWNER·ADMIN만 있고 경로는 공지 식별자를 포함해야 한다. */
+        /* 수정 권한에는 OWNER만 있고 경로는 공지 식별자를 포함해야 한다. */
         assertThat(preAuthorize).isNotNull();
-        assertThat(preAuthorize.value()).contains("OWNER", "ADMIN").doesNotContain("LEADER", "MEMBER");
+        assertThat(preAuthorize.value()).contains("OWNER").doesNotContain("ADMIN", "LEADER", "MEMBER");
         assertThat(putMapping).isNotNull();
         assertThat(putMapping.value()).containsExactly("/{noticeId}");
     }
@@ -363,9 +363,9 @@ class NoticeControllerTest {
         assertThat(response.getData()).isNull();
     }
 
-    /* NOTI-05 메서드가 DELETE 경로와 OWNER·ADMIN 권한만 선언하는지 검증한다. */
+    /* NOTI-05 메서드가 DELETE 경로와 OWNER 전용 권한만 선언하는지 검증한다. */
     @Test
-    @DisplayName("공지 삭제는 OWNER·ADMIN에게만 열린 DELETE API다")
+    @DisplayName("공지 삭제는 OWNER에게만 열린 DELETE API다")
     void declaresDeleteNoticeAuthorizationAndMethod() throws NoSuchMethodException {
         /* Controller 삭제 메서드의 권한과 DELETE 매핑 애노테이션을 조회한다. */
         var method = NoticeController.class.getDeclaredMethod(
@@ -376,9 +376,9 @@ class NoticeControllerTest {
         PreAuthorize preAuthorize = method.getAnnotation(PreAuthorize.class);
         var deleteMapping = method.getAnnotation(org.springframework.web.bind.annotation.DeleteMapping.class);
 
-        /* 삭제 권한에는 OWNER·ADMIN만 있고 경로는 공지 식별자를 포함해야 한다. */
+        /* 삭제 권한에는 OWNER만 있고 경로는 공지 식별자를 포함해야 한다. */
         assertThat(preAuthorize).isNotNull();
-        assertThat(preAuthorize.value()).contains("OWNER", "ADMIN").doesNotContain("LEADER", "MEMBER");
+        assertThat(preAuthorize.value()).contains("OWNER").doesNotContain("ADMIN", "LEADER", "MEMBER");
         assertThat(deleteMapping).isNotNull();
         assertThat(deleteMapping.value()).containsExactly("/{noticeId}");
     }
