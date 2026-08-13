@@ -2,6 +2,7 @@ package com.module06.backend.meeting.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -17,10 +18,12 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 
@@ -30,22 +33,22 @@ import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 @DisplayName("MEET-02 회의 목록 조회 서비스")
 class MeetingListQueryServiceTest {
 
-    /* 현재 날짜를 2026년 8월 7일 KST로 고정하는 테스트 시계다. */
+    /* 현재 시각을 2026년 8월 7일 09시 KST로 고정하는 테스트 시계다. */
     private static final Clock FIXED_CLOCK = Clock.fixed(
             Instant.parse("2026-08-07T00:00:00Z"),
             ZoneId.of("Asia/Seoul")
     );
 
-    /* 기본 기간과 페이지가 적용되고 회의실·프로젝트·액션 수가 배치 조립되는지 검증한다. */
+    /* 기본 기간과 페이지가 적용되고 회의실·프로젝트·액션 수·참석자가 배치 조립되는지 검증한다. */
     @Test
-    @DisplayName("기본 최근 3개월 회의에 회의실과 프로젝트 표시값을 조립한다")
+    @DisplayName("기본 최근 3개월 회의에 회의실·프로젝트·참석자 표시값을 조립한다")
     void appliesDefaultsAndAssemblesMeetingList() {
-        /* 회의 두 건과 전체 37건인 저장소 페이지를 준비한다. */
+        /* host 3번이 개설한 회의 두 건과 전체 37건인 저장소 페이지를 준비한다. */
         RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
                 new MeetingListRepository.MeetingPage(
                         List.of(
-                                meeting(92L, 13L, 4L, "최근 회의", 8, 6, 2),
-                                meeting(91L, 12L, 2L, "이전 회의", 8, 4, 4)
+                                meeting(92L, 13L, 4L, "최근 회의", 8, 6, 3L, List.of(3L, 7L)),
+                                meeting(91L, 12L, 2L, "이전 회의", 8, 4, 3L, List.of(3L, 7L, 11L, 15L))
                         ),
                         37L,
                         2
@@ -55,27 +58,35 @@ class MeetingListQueryServiceTest {
                 new ActionQueryPort.MeetingActionCount(92L, 3L),
                 new ActionQueryPort.MeetingActionCount(999L, 7L)
         ));
+        RecordingMemberQueryPort memberQueryPort = new RecordingMemberQueryPort(List.of(
+                new MemberQueryPort.MemberSnapshot(3L, "지우", 1L, "기획"),
+                new MemberQueryPort.MemberSnapshot(7L, "이든", 2L, "개발"),
+                new MemberQueryPort.MemberSnapshot(11L, "소민", 2L, "개발"),
+                new MemberQueryPort.MemberSnapshot(15L, "다인", 2L, "개발")
+        ));
         MeetingListQueryService service = new MeetingListQueryService(
                 repository,
                 meetingRoomPort(),
                 projectPort(),
                 actionQueryPort,
+                memberQueryPort,
                 FIXED_CLOCK
         );
 
-        /* 기간과 페이지를 모두 생략한 OWNER 회사 전체 조회를 실행한다. */
+        /* 기간과 페이지를 모두 생략한 개설자 본인(OWNER)의 회사 전체 조회를 실행한다. */
         MeetingListResult result = service.getMeetings(new GetMeetingListQuery(
-                10L, 3L, true, null, null, null, null, null, null, null
+                10L, 3L, true, null, null, null, null, null, null, null, null
         ));
 
         /* 생략 기간은 2026-05-07 00시부터 2026-08-07 마지막 순간까지여야 한다. */
         assertThat(repository.criteria.fromInclusive()).isEqualTo(LocalDateTime.of(2026, 5, 7, 0, 0));
         assertThat(repository.criteria.toInclusive().toLocalDate()).isEqualTo(LocalDate.of(2026, 8, 7));
 
-        /* 생략 페이지 값은 0번 페이지와 20건으로 저장소에 전달돼야 한다. */
+        /* 생략 페이지 값은 0번 페이지와 20건으로, scope 생략은 null로 저장소에 전달돼야 한다. */
         assertThat(repository.criteria.page()).isZero();
         assertThat(repository.criteria.size()).isEqualTo(20);
         assertThat(repository.criteria.companyWideRead()).isTrue();
+        assertThat(repository.criteria.scope()).isNull();
 
         /* 저장소 순서와 참석자 수 및 전체 페이지 메타가 손실 없이 반환돼야 한다. */
         assertThat(result.meetings())
@@ -94,10 +105,102 @@ class MeetingListQueryServiceTest {
         assertThat(result.meetings().get(0).meetingRoom().name()).isEqualTo("회의실 D");
         assertThat(result.meetings().get(1).project().tag()).isEqualTo("acommerce");
 
+        /* 요청자가 두 회의 모두의 host이므로 isHost는 true, 이미 끝난 회의라 entryAvailable은 false여야 한다. */
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::isHost)
+                .containsExactly(true, true);
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::entryAvailable)
+                .containsExactly(false, false);
+        assertThat(result.meetings())
+                .extracting(MeetingListResult.MeetingItem::durationMinutes)
+                .containsExactly(60, 60);
+
+        /* 참석자는 저장소가 반환한 memberId 순서 그대로 이름이 채워져야 한다. */
+        assertThat(result.meetings().get(0).attendees())
+                .extracting(MeetingListResult.Attendee::memberId, MeetingListResult.Attendee::name)
+                .containsExactly(tuple(3L, "지우"), tuple(7L, "이든"));
+        assertThat(result.meetings().get(1).attendees())
+                .extracting(MeetingListResult.Attendee::memberId)
+                .containsExactly(3L, 7L, 11L, 15L);
+
         /* 액션 도메인은 현재 페이지 회의 ID만 회사 범위와 함께 정확히 한 번 호출해야 한다. */
         assertThat(actionQueryPort.companyId).isEqualTo(10L);
         assertThat(actionQueryPort.meetingIds).containsExactly(92L, 91L);
         assertThat(actionQueryPort.callCount).isEqualTo(1);
+
+        /* 구성원 도메인은 페이지 전체에서 중복 제거된 참석자 ID로 정확히 한 번만 호출해야 한다. */
+        assertThat(memberQueryPort.callCount).isEqualTo(1);
+        assertThat(memberQueryPort.companyId).isEqualTo(10L);
+        assertThat(memberQueryPort.memberIds).containsExactly(3L, 7L, 11L, 15L);
+    }
+
+    /* host가 아닌 요청자의 isHost·entryAvailable·durationMinutes 계산을 검증한다. */
+    @Test
+    @DisplayName("host가 아닌 요청자에게는 isHost=false, 진행 중 회의는 entryAvailable=true를 계산한다")
+    void computesHostEntryAndDurationForNonHostRequester() {
+        /* host는 99번이고 요청자 3번은 참석자로만 등록된, 지금 진행 중인 35분 회의를 준비한다. */
+        LocalDateTime startAt = LocalDateTime.of(2026, 8, 7, 8, 55);
+        RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
+                new MeetingListRepository.MeetingPage(
+                        List.of(new MeetingListRepository.MeetingListSnapshot(
+                                50L, 12L, 2L, "진행 중 회의", MeetingStatus.IN_PROGRESS,
+                                startAt, startAt.plusMinutes(35), 99L, List.of(99L, 3L)
+                        )),
+                        1L,
+                        1
+                )
+        );
+        RecordingMemberQueryPort memberQueryPort = new RecordingMemberQueryPort(List.of(
+                new MemberQueryPort.MemberSnapshot(99L, "김서준", 1L, "기획"),
+                new MemberQueryPort.MemberSnapshot(3L, "지우", 1L, "기획")
+        ));
+        MeetingListQueryService service = new MeetingListQueryService(
+                repository,
+                meetingRoomPort(),
+                projectPort(),
+                new RecordingActionQueryPort(List.of()),
+                memberQueryPort,
+                FIXED_CLOCK
+        );
+
+        MeetingListResult result = service.getMeetings(new GetMeetingListQuery(
+                10L, 3L, false, null, null, null, null, null, null, null, null
+        ));
+
+        /* 요청자가 host가 아니므로 isHost는 false, 지금 시각이 회의 진행 구간 안이므로 entryAvailable은 true다. */
+        MeetingListResult.MeetingItem item = result.meetings().get(0);
+        assertThat(item.isHost()).isFalse();
+        assertThat(item.entryAvailable()).isTrue();
+        assertThat(item.durationMinutes()).isEqualTo(35);
+    }
+
+    /* scope 필터가 companyWideRead와 별개로 저장소 조건에 그대로 전달되는지 검증한다. */
+    @Test
+    @DisplayName("scope=HOSTED·ATTENDING을 저장소 조건에 그대로 전달한다")
+    void passesScopeToRepositoryCriteria() {
+        RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
+                new MeetingListRepository.MeetingPage(List.of(), 0L, 0)
+        );
+        MeetingListQueryService service = new MeetingListQueryService(
+                repository,
+                meetingRoomPort(),
+                projectPort(),
+                new RecordingActionQueryPort(List.of()),
+                neverCalledMemberPort(),
+                FIXED_CLOCK
+        );
+
+        /* OWNER가 scope=HOSTED로 호출해도 역할이 아닌 scope 조건이 그대로 전달돼야 한다. */
+        service.getMeetings(new GetMeetingListQuery(
+                10L, 3L, true, null, null, null, null, null, MeetingListScope.HOSTED, null, null
+        ));
+        assertThat(repository.criteria.scope()).isEqualTo(MeetingListScope.HOSTED);
+
+        service.getMeetings(new GetMeetingListQuery(
+                10L, 3L, true, null, null, null, null, null, MeetingListScope.ATTENDING, null, null
+        ));
+        assertThat(repository.criteria.scope()).isEqualTo(MeetingListScope.ATTENDING);
     }
 
     /* 일반 구성원의 제한 열람 조건과 선택 필터가 저장소까지 유지되는지 검증한다. */
@@ -114,6 +217,7 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 actionQueryPort,
+                neverCalledMemberPort(),
                 FIXED_CLOCK
         );
 
@@ -127,6 +231,7 @@ class MeetingListQueryServiceTest {
                 LocalDate.of(2026, 8, 1),
                 LocalDate.of(2026, 8, 5),
                 MeetingStatus.DONE,
+                null,
                 2,
                 50
         ));
@@ -156,6 +261,7 @@ class MeetingListQueryServiceTest {
                 meetingRoomPort(),
                 projectPort(),
                 new RecordingActionQueryPort(List.of()),
+                neverCalledMemberPort(),
                 FIXED_CLOCK
         );
 
@@ -169,16 +275,17 @@ class MeetingListQueryServiceTest {
                 LocalDate.of(2026, 8, 6),
                 LocalDate.of(2026, 8, 5),
                 null,
+                null,
                 0,
                 20
         )), "Z-001");
 
         /* 음수 페이지와 최대 100을 초과한 크기도 같은 입력 오류여야 한다. */
         assertErrorCode(() -> service.getMeetings(new GetMeetingListQuery(
-                10L, 3L, true, null, null, null, null, null, -1, 20
+                10L, 3L, true, null, null, null, null, null, null, -1, 20
         )), "Z-001");
         assertErrorCode(() -> service.getMeetings(new GetMeetingListQuery(
-                10L, 3L, true, null, null, null, null, null, 0, 101
+                10L, 3L, true, null, null, null, null, null, null, 0, 101
         )), "Z-001");
     }
 
@@ -192,17 +299,18 @@ class MeetingListQueryServiceTest {
                 emptyMeetingRoomPort(),
                 emptyProjectPort(),
                 new RecordingActionQueryPort(List.of()),
+                neverCalledMemberPort(),
                 FIXED_CLOCK
         );
 
         /* 회사 범위에 없는 프로젝트 필터는 프로젝트 표준 not-found 오류여야 한다. */
         assertErrorCode(() -> service.getMeetings(new GetMeetingListQuery(
-                10L, 3L, true, 999L, null, null, null, null, 0, 20
+                10L, 3L, true, 999L, null, null, null, null, null, 0, 20
         )), "PJ-001");
 
         /* 프로젝트를 생략하고 없는 회의실을 지정하면 회의실 표준 not-found 오류여야 한다. */
         assertErrorCode(() -> service.getMeetings(new GetMeetingListQuery(
-                10L, 3L, true, null, 999L, null, null, null, 0, 20
+                10L, 3L, true, null, 999L, null, null, null, null, 0, 20
         )), "MR-001");
     }
 
@@ -292,6 +400,23 @@ class MeetingListQueryServiceTest {
         };
     }
 
+    /* 빈 페이지 테스트에서 참석자 배치 조회가 호출되면 즉시 실패하는 Port 대역이다. */
+    private MemberQueryPort neverCalledMemberPort() {
+        return new MemberQueryPort() {
+            @Override
+            public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
+                /* MEET-02는 활성 전용 계약을 호출하지 않는다. */
+                throw new AssertionError("MEET-02는 활성 구성원 전용 조회를 호출하면 안 됩니다.");
+            }
+
+            @Override
+            public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+                /* 빈 페이지에서는 조회할 참석자 자체가 없어야 한다. */
+                throw new AssertionError("빈 페이지에서는 참석자 배치 조회를 호출하면 안 됩니다.");
+            }
+        };
+    }
+
     /* 테스트 조건으로 MEET-02 저장소 읽기 모델 한 건을 만든다. */
     private MeetingListRepository.MeetingListSnapshot meeting(
             Long meetingId,
@@ -300,7 +425,8 @@ class MeetingListQueryServiceTest {
             String title,
             int month,
             int day,
-            int attendeeCount
+            Long hostMemberId,
+            List<Long> attendeeMemberIds
     ) {
         /* 오후 2시부터 한 시간 진행되는 완료 회의 목록 모델을 반환한다. */
         LocalDateTime startAt = LocalDateTime.of(2026, month, day, 14, 0);
@@ -312,7 +438,8 @@ class MeetingListQueryServiceTest {
                 MeetingStatus.DONE,
                 startAt,
                 startAt.plusHours(1),
-                attendeeCount
+                hostMemberId,
+                attendeeMemberIds
         );
     }
 
@@ -391,6 +518,41 @@ class MeetingListQueryServiceTest {
             this.companyId = companyId;
             this.meetingIds = List.copyOf(meetingIds);
             return actionCounts;
+        }
+    }
+
+    /* MEET-02가 참석자 이름을 페이지 단위로 한 번만 요청하는지 기록하는 Port 대역이다. */
+    private static final class RecordingMemberQueryPort implements MemberQueryPort {
+
+        /* 서비스 호출에 반환할 구성원 표시 정보 전체다. */
+        private final List<MemberSnapshot> members;
+
+        /* 실제 배치 호출 횟수와 회사·참석자 식별자를 검증하기 위한 기록이다. */
+        private int callCount;
+        private Long companyId;
+        private List<Long> memberIds;
+
+        /* 테스트가 지정한 구성원 표시 정보로 Port 대역을 생성한다. */
+        private RecordingMemberQueryPort(List<MemberSnapshot> members) {
+            /* 변경 불가능한 목록으로 복사해 테스트 도중 반환값 변형을 막는다. */
+            this.members = List.copyOf(members);
+        }
+
+        /* MEET-02는 활성 전용 계약을 호출하지 않는다. */
+        @Override
+        public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
+            /* 잘못된 호출이 생기면 테스트가 즉시 실패하도록 한다. */
+            throw new AssertionError("MEET-02는 활성 구성원 전용 조회를 호출하면 안 됩니다.");
+        }
+
+        /* 현재 페이지의 배치 호출 조건을 기록하고 요청된 참석자의 표시 정보를 반환한다. */
+        @Override
+        public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+            /* 호출 횟수와 전달값을 보관해 N+1 방지 계약을 검증한다. */
+            this.callCount++;
+            this.companyId = companyId;
+            this.memberIds = List.copyOf(memberIds);
+            return members.stream().filter(member -> memberIds.contains(member.memberId())).toList();
         }
     }
 }
