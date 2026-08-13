@@ -167,6 +167,28 @@ class MeetingDetailQueryServiceTest {
         );
     }
 
+    /* null이거나 알려지지 않은 역할 문자열이 부정형 비교로 실수로 통과되지 않는지 검증한다. */
+    @Test
+    @DisplayName("알려지지 않은 역할의 비참석자는 MT-011로 거절한다")
+    void rejectsUnknownRoleOutsideReadScope() {
+        /* 회의는 존재하지만 요청자가 참석자·개설자·어드민이 아닌 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* requesterRole()이 null이거나 Authority에 없는 값이어도 elevated로 취급되면 안 된다. */
+        assertErrorCode(
+                () -> service.getMeetingDetail(
+                        new GetMeetingDetailQuery(10L, 99L, 999L, null, false, 91L)
+                ),
+                "MT-011"
+        );
+        assertErrorCode(
+                () -> service.getMeetingDetail(
+                        new GetMeetingDetailQuery(10L, 99L, 999L, "GUEST", false, 91L)
+                ),
+                "MT-011"
+        );
+    }
+
     /* 타 회사 또는 없는 회의의 존재 여부가 404로 숨겨지는지 검증한다. */
     @Test
     @DisplayName("회사 범위에서 찾지 못한 회의는 MT-001로 숨긴다")

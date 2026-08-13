@@ -198,11 +198,17 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         boolean attendee = meeting.attendeeMemberIds().contains(query.requesterMemberId());
 
         /*
-         * MEMBER를 제외한 나머지 역할(OWNER·LEADER)은 팀·개설자 무관하게 같은 회사의 전체
-         * 회의를 열람한다. Authority에는 ADMIN이 없고 어드민은 member.is_admin 겸직
-         * 플래그라, MEMBER이면서 어드민 겸직인 사람도 이 경로로 전체 열람이 가능해야 한다.
+         * OWNER·LEADER는 팀·개설자 무관하게 같은 회사의 전체 회의를 열람한다. Authority에는
+         * ADMIN이 없고 어드민은 member.is_admin 겸직 플래그라, MEMBER이면서 어드민 겸직인
+         * 사람도 이 경로로 전체 열람이 가능해야 한다.
+         *
+         * "MEMBER가 아니면 통과"라는 부정형 대신 알려진 역할만 명시적으로 허용한다 —
+         * requesterRole()이 null이거나 향후 예상 못한 값이 들어와도 안전하게 거절되도록
+         * 하기 위함이다.
          */
-        boolean elevated = query.requesterAdmin() || !"MEMBER".equals(query.requesterRole());
+        boolean elevated = query.requesterAdmin()
+                || "OWNER".equals(query.requesterRole())
+                || "LEADER".equals(query.requesterRole());
 
         return elevated || host || attendee;
     }
