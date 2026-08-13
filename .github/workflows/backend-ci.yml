@@ -40,8 +40,14 @@ jobs:
   migration-check:
     name: Schema Migration Validation (real MySQL)
     runs-on: ubuntu-latest
-    # 하드 게이트 — 실패 시 머지를 막는다. 위 test job은 H2로 돌아서 MySQL 전용 DDL 실패를
-    # 재현 못 하므로(docs/DB_MIGRATION_RULES.md §8-1/§8-2), 이 job이 유일한 검증 지점이다.
+    # 위 test job은 H2로 돌아서 MySQL 전용 DDL 실패를 재현 못 하므로
+    # (docs/DB_MIGRATION_RULES.md §8-1/§8-2), 이 job이 유일한 검증 지점이다.
+    #
+    # ⚠️ 이 잡이 실패해도 머지는 막히지 않는다 — 브랜치 보호의 필수 체크 목록에 없기 때문이다.
+    #    막으려면 Settings → Branches 에서 "Schema Migration Validation (real MySQL)" 을
+    #    필수 체크로 올려야 한다. 워크플로 파일만으로는 머지를 막을 수 없다.
+    #    (전에는 이 자리에 "하드 게이트 — 실패 시 머지를 막는다"고 적혀 있었는데 사실이 아니었다.)
+    #    다만 아래 docker job 이 이 잡을 needs 로 기다리므로, 실패하면 이미지 푸시는 막힌다.
 
     steps:
       - name: Checkout
@@ -65,7 +71,11 @@ jobs:
   docker:
     name: Build and Push Docker Image
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: test
+    # migration-check 도 기다린다. 전에는 test 만 기다려서, Flyway 마이그레이션이 실제 MySQL에서
+    # 깨져도 이미지가 그대로 Docker Hub 에 올라갔다 — 그 이미지는 뜨는 순간 부팅에 실패한다
+    # (ddl-auto=validate · validate-on-migrate=true).
+    # 배포될 수 없는 이미지를 레지스트리에 올리지 않는다.
+    needs: [test, migration-check]
     runs-on: ubuntu-latest
 
     steps:
