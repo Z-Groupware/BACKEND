@@ -23,6 +23,9 @@ import io.jsonwebtoken.security.Keys;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.global.ratelimit.InMemoryRateLimiter;
+import com.module06.backend.global.ratelimit.RateLimitProperties;
+import com.module06.backend.global.ratelimit.RateLimiter;
 import com.module06.backend.global.security.JwtProperties;
 import com.module06.backend.global.security.JwtTokenProvider;
 import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore;
@@ -63,6 +66,13 @@ class AuthServiceReissueTest {
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider(new JwtProperties(
             SECRET, Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), ABSOLUTE_MAX));
     private final RefreshTokenStore store = new InMemoryRefreshTokenStore();
+    private final RateLimiter rateLimiter = new InMemoryRateLimiter();
+    private final RateLimitProperties rateLimitProperties = new RateLimitProperties(
+            new RateLimitProperties.Rule(60, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)),
+            new RateLimitProperties.Rule(120, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(20, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)));
 
     @Test
     @DisplayName("갱신표를 새 토큰 쌍으로 교환한다")
@@ -317,7 +327,7 @@ class AuthServiceReissueTest {
     /** {@code credentials} 가 null 이면 "그 구성원이 없다" 는 뜻이다. */
     private AuthService service(MemberCredentials credentials, RefreshTokenStore refreshTokenStore) {
         return new AuthService(noCompany(), port(credentials), refreshTokenStore,
-                tokenProvider, new BCryptPasswordEncoder());
+                tokenProvider, new BCryptPasswordEncoder(), rateLimiter, rateLimitProperties);
     }
 
     /** 재발급·로그아웃은 기업 조회를 쓰지 않는다. 쓰면 이 구현 때문에 테스트가 깨져서 드러난다. */
