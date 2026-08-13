@@ -67,11 +67,15 @@ class CompanyPersistenceAdapterTest {
     @DisplayName("탭·줄바꿈만 있는 주소도 지우기다 — 눈에 안 보이는 문자가 주소로 남으면 안 된다")
     void whitespaceOnlyAddressIsAlsoClear() {
         Long companyId = register();
-        profileRepository.updateProfile(companyId, null, null, null, "서울시 강남구 테헤란로 123", null, null, null);
+        profileRepository.updateProfile(companyId, null, null, null,
+                "서울시 강남구 테헤란로 123", 37.5006, 127.0366, null);
 
         profileRepository.updateProfile(companyId, null, null, null, " \t\n ", null, null, null);
 
-        assertThat(find(companyId).address()).isNull();
+        Company company = find(companyId);
+        assertThat(company.address()).isNull();
+        assertThat(company.latitude()).isNull();
+        assertThat(company.longitude()).isNull();
     }
 
     @Test
