@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +19,8 @@ import com.module06.backend.global.exception.CommonErrorCode;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionKind;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionTeamReference;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
@@ -27,8 +30,10 @@ import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.application.usecase.CreateMeetingUseCase;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingAgenda;
 import com.module06.backend.meeting.domain.model.MeetingSlotGrid;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
+import com.module06.backend.meeting.domain.repository.MeetingTopicRepository;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 import com.module06.backend.project.exception.ProjectErrorCode;
@@ -45,6 +50,9 @@ public class MeetingService implements CreateMeetingUseCase {
 
     /* 회의와 슬롯, 참석자를 원자적으로 저장하는 도메인 저장소다. */
     private final MeetingRepository meetingRepository;
+
+    /* 저장된 회의 아래에 MAIN·SUB 안건 계층을 저장하는 도메인 저장소다. */
+    private final MeetingTopicRepository meetingTopicRepository;
 
     /* 활성 회의실과 이용 가능 시간을 조회하는 D도메인 내부 포트다. */
     private final MeetingRoomQueryPort meetingRoomQueryPort;
@@ -76,6 +84,13 @@ public class MeetingService implements CreateMeetingUseCase {
         /* Controller 밖에서 호출돼도 필수 계약이 깨지지 않도록 기본 입력을 재검증한다. */
         validateRequiredValues(command);
 
+        /* 역할별 상위 팀 액션 규칙과 host 외 참석자 최소 인원을 외부 조회 전에 검증한다. */
+        validateRelatedActionPolicy(command.hostRole(), command.relatedActionId());
+        validateInvitedAttendees(command.hostMemberId(), command.attendeeMemberIds());
+
+        /* 대주제와 소주제 계약을 검증하고 저장에 사용할 불변 안건 묶음을 만든다. */
+        MeetingAgenda agenda = MeetingAgenda.create(command.mainTopic(), command.subTopics());
+
         /* 시간 자체의 순서와 30분 그리드, 과거 예약 여부를 먼저 검증한다. */
         validateTime(command.startAt(), command.endAt());
 
@@ -90,17 +105,24 @@ public class MeetingService implements CreateMeetingUseCase {
             throw new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND);
         }
 
-        /* 관련 액션을 선택했다면 요청 회사의 실제 액션인지 확인한다. */
-        if (command.relatedActionId() != null
-                && !actionQueryPort.existsAction(command.companyId(), command.relatedActionId())) {
-            throw new BusinessException(ActionErrorCode.ACTION_NOT_FOUND);
-        }
+        /* 개설자를 포함한 중복 없는 최종 참석자 식별자를 먼저 만든다. */
+        List<Long> attendeeMemberIds = normalizeAttendeeMemberIds(
+                command.hostMemberId(),
+                command.attendeeMemberIds()
+        );
+
+        /* 참석자 전원이 같은 회사의 활성 구성원인지 확인하고 실제 개설자 소속 팀을 확보한다. */
+        Map<Long, MemberSnapshot> members = validateAndIndexMembers(command.companyId(), attendeeMemberIds);
+        MemberSnapshot host = members.get(command.hostMemberId());
+
+        /* 인증 토큰의 팀 값 대신 B 도메인에서 조회한 실제 개설자 팀으로 액션 정합성을 검증한다. */
+        validateRelatedActionTeam(command, host.teamId());
 
         /* 개설자를 자동 포함한 중복 없는 참석자 식별자 순서를 만든다. */
         Meeting meeting = Meeting.create(
                 command.companyId(),
                 command.projectId(),
-                command.hostTeamId(),
+                host.teamId(),
                 command.meetingRoomId(),
                 command.hostMemberId(),
                 command.title(),
@@ -111,14 +133,11 @@ public class MeetingService implements CreateMeetingUseCase {
                 command.attendeeMemberIds()
         );
 
-        /* 참석자 전원이 같은 회사의 삭제되지 않은 구성원인지 한 번의 배치 조회로 확인한다. */
-        Map<Long, MemberSnapshot> members = validateAndIndexMembers(
-                command.companyId(),
-                meeting.getAttendeeMemberIds()
-        );
-
         /* 슬롯 PK 충돌이 발생하면 저장소가 MT-002로 변환하고 전체 트랜잭션이 롤백된다. */
         Meeting savedMeeting = meetingRepository.saveReservation(meeting);
+
+        /* 회의와 MAIN·SUB 안건은 같은 트랜잭션으로 묶여 어느 한쪽만 커밋되지 않게 한다. */
+        meetingTopicRepository.saveAgenda(savedMeeting.getId(), agenda);
 
         /* 커밋 후 알림 소비자가 처리할 예약 완료 이벤트를 발행한다. */
         meetingEventPublisher.publish(new MeetingReservedEvent(
@@ -142,6 +161,8 @@ public class MeetingService implements CreateMeetingUseCase {
         if (command == null
                 || command.companyId() == null
                 || command.hostMemberId() == null
+                || command.hostRole() == null
+                || command.hostRole().isBlank()
                 || command.projectId() == null
                 || command.meetingRoomId() == null
                 || command.title() == null
@@ -150,6 +171,65 @@ public class MeetingService implements CreateMeetingUseCase {
                 || command.endAt() == null
                 || command.attendeeMemberIds() == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
+        }
+    }
+
+    /* OWNER와 그 외 역할의 상위 팀 액션 입력 규칙을 검증한다. */
+    private void validateRelatedActionPolicy(String hostRole, Long relatedActionId) {
+        /* OWNER는 상위 팀 액션을 지정할 수 없고 다른 역할은 반드시 지정해야 한다. */
+        boolean ownerWithAction = "OWNER".equals(hostRole) && relatedActionId != null;
+        boolean nonOwnerWithoutAction = !"OWNER".equals(hostRole) && relatedActionId == null;
+        if (ownerWithAction || nonOwnerWithoutAction) {
+            throw new BusinessException(MeetingErrorCode.INVALID_RELATED_ACTION_POLICY);
+        }
+    }
+
+    /* OWNER 외 개설자가 선택한 상위 액션이 같은 팀의 TEAM 액션인지 검증한다. */
+    private void validateRelatedActionTeam(CreateMeetingCommand command, Long actualHostTeamId) {
+        /* OWNER는 역할 정책상 액션이 없으므로 C 도메인을 조회하지 않는다. */
+        if (command.relatedActionId() == null) {
+            return;
+        }
+
+        /* 회사 범위에 존재하지 않는 액션은 기존 MEET-01 계약인 AC-001로 숨긴다. */
+        ActionTeamReference action = actionQueryPort
+                .findActionTeamReference(command.companyId(), command.relatedActionId())
+                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_NOT_FOUND));
+
+        /* 회의의 상위 액션은 팀 단위 액션이어야 하며 개인 액션은 연결할 수 없다. */
+        if (action.actionKind() != ActionKind.TEAM) {
+            throw new BusinessException(MeetingErrorCode.RELATED_ACTION_NOT_TEAM_ACTION);
+        }
+
+        /* 다른 팀의 액션을 연결하면 이후 개인 액션이 잘못된 팀 액션에 종속되므로 거절한다. */
+        if (actualHostTeamId == null || !actualHostTeamId.equals(action.teamId())) {
+            throw new BusinessException(MeetingErrorCode.RELATED_ACTION_TEAM_MISMATCH);
+        }
+    }
+
+    /* 개설자를 첫 번째로 포함하고 요청 명단의 중복을 제거한 최종 참석자 식별자 목록을 만든다. */
+    private List<Long> normalizeAttendeeMemberIds(Long hostMemberId, List<Long> attendeeMemberIds) {
+        /* 도메인 생성 규칙과 동일한 삽입 순서 집합으로 B 도메인 배치 조회 대상을 확정한다. */
+        LinkedHashSet<Long> normalizedMemberIds = new LinkedHashSet<>();
+        normalizedMemberIds.add(hostMemberId);
+        normalizedMemberIds.addAll(attendeeMemberIds);
+        return List.copyOf(normalizedMemberIds);
+    }
+
+    /* 개설자를 제외하고 실제 초대된 참석자가 한 명 이상인지 검증한다. */
+    private void validateInvitedAttendees(Long hostMemberId, List<Long> attendeeMemberIds) {
+        /* 서비스 직접 호출에서도 null 식별자가 정규화 과정의 500 오류로 번지지 않도록 거절한다. */
+        if (attendeeMemberIds.stream().anyMatch(memberId -> memberId == null)) {
+            throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+        }
+
+        /* host 중복 입력은 자동 제거되므로 host가 아닌 서로 다른 식별자를 기준으로 센다. */
+        long invitedAttendeeCount = attendeeMemberIds.stream()
+                .filter(memberId -> !hostMemberId.equals(memberId))
+                .distinct()
+                .count();
+        if (invitedAttendeeCount < 1) {
+            throw new BusinessException(MeetingErrorCode.MEETING_ATTENDEE_REQUIRED);
         }
     }
 

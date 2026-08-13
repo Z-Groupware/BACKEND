@@ -11,7 +11,7 @@ import com.module06.backend.meeting.domain.model.MeetingTopicType;
 /*
  * 회의와 참석자 읽기 모델을 조회하는 도메인 저장소 계약이다.
  *
- * MEET-01의 저장 계약과 RESULT-01·E 인수인계 연동의 조회 계약을 분리해
+ * MEET-01의 저장 계약과 E 인수인계 연동의 조회 계약을 분리해
  * 쓰기 로직이 늘어나도 읽기 전용 요구사항이 저장 애그리거트에 섞이지 않게 한다.
  */
 public interface MeetingQueryRepository {
@@ -39,7 +39,7 @@ public interface MeetingQueryRepository {
     /* 회사 범위 안의 여러 회의에 연결된 참석자 식별자를 한 번에 조회한다. */
     List<MeetingAttendeeReference> findMeetingAttendees(Long companyId, List<Long> meetingIds);
 
-    /* RESULT-01 권한 판정과 E 단건 조회에 필요한 회의 읽기 모델이다. */
+    /* E 단건 조회에 필요한 회의 읽기 모델이다. */
     record MeetingSnapshot(
             Long meetingId,
             Long companyId,

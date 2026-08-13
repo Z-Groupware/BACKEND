@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
@@ -31,11 +32,11 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingTopicRepository;
 
 /*
- * RESULT-01과 E·C 연동 기반의 회사 격리·정렬·배치 조회를 실제 JPA로 검증한다.
+ * E·C 연동 기반의 회사 격리·정렬·배치 조회를 실제 JPA로 검증한다.
  */
 @SpringBootTest
 @Transactional
-@DisplayName("RESULT-01 회의 조회 영속성 어댑터")
+@DisplayName("회의 조회 영속성 어댑터")
 class MeetingQueryPersistenceAdapterTest {
 
     /* 애플리케이션 계층이 사용하는 실제 회의 조회 저장소 계약이다. */
@@ -407,6 +408,7 @@ class MeetingQueryPersistenceAdapterTest {
                                 LocalDateTime.of(2026, 8, 1, 0, 0),
                                 LocalDateTime.of(2026, 8, 31, 23, 59, 59),
                                 MeetingStatus.SCHEDULED,
+                                null,
                                 0,
                                 20
                         )
@@ -418,8 +420,8 @@ class MeetingQueryPersistenceAdapterTest {
                 .containsExactly(visible.getId());
         assertThat(restrictedPage.totalElements()).isEqualTo(1L);
 
-        /* 참석자 수는 페이지 회의의 배치 조회 결과와 동일해야 한다. */
-        assertThat(restrictedPage.meetings().get(0).attendeeCount()).isEqualTo(3);
+        /* 참석자 식별자는 페이지 회의의 배치 조회 결과와 동일해야 한다. */
+        assertThat(restrictedPage.meetings().get(0).attendeeMemberIds()).containsExactly(3L, 7L, 11L);
 
         /* 회사 전체 권한으로 1건 페이지를 조회하면 최신 회의와 전체 2건 메타가 반환돼야 한다. */
         MeetingListRepository.MeetingPage companyWidePage =
@@ -433,6 +435,7 @@ class MeetingQueryPersistenceAdapterTest {
                                 LocalDateTime.of(2026, 8, 1, 0, 0),
                                 LocalDateTime.of(2026, 8, 31, 23, 59, 59),
                                 MeetingStatus.SCHEDULED,
+                                null,
                                 0,
                                 1
                         )
@@ -446,26 +449,83 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(companyWidePage.totalPages()).isEqualTo(2);
     }
 
-    /* 테스트 회의 조건으로 필수 컬럼을 모두 가진 영속성 엔티티를 만든다. */
+    /* scope=HOSTED·ATTENDING이 companyWideRead와 무관하게 요청자 본인 기준으로 좁히는지 검증한다. */
+    @Test
+    @DisplayName("scope=HOSTED·ATTENDING은 회사 전체 열람 권한과 무관하게 본인 기준으로 좁힌다")
+    void findsMeetingsByScopeRegardlessOfCompanyWideRead() {
+        /* 요청자 3번이 host인 회의와 참석자로만 등록된 회의, 그리고 타 회사에서 host인 회의를 저장한다. */
+        MeetingJpaEntity hosted = springDataMeetingRepository.save(
+                meeting(10L, 12L, "내가 개설한 회의", LocalDateTime.of(2026, 8, 6, 14, 0), 3L)
+        );
+        saveAttendees(hosted.getId(), 3L, 7L);
+
+        MeetingJpaEntity attending = springDataMeetingRepository.save(
+                meeting(10L, 12L, "내가 참석하는 회의", LocalDateTime.of(2026, 8, 5, 14, 0), 99L)
+        );
+        saveAttendees(attending.getId(), 99L, 3L);
+
+        MeetingJpaEntity otherCompanyHosted = springDataMeetingRepository.save(
+                meeting(20L, 12L, "다른 회사에서 내가 개설한 회의", LocalDateTime.of(2026, 8, 4, 14, 0), 3L)
+        );
+        saveAttendees(otherCompanyHosted.getId(), 3L);
+
+        /* OWNER의 companyWideRead=true를 함께 넘겨도 scope=HOSTED면 본인 host 회의만 나와야 한다. */
+        MeetingListRepository.MeetingPage hostedPage = meetingListRepository.findMeetings(
+                new MeetingListRepository.MeetingListCriteria(
+                        10L, 3L, true, null, null,
+                        LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 8, 31, 23, 59, 59),
+                        null, MeetingListScope.HOSTED, 0, 20
+                )
+        );
+        assertThat(hostedPage.meetings())
+                .extracting(MeetingListRepository.MeetingListSnapshot::meetingId)
+                .containsExactly(hosted.getId());
+
+        /* ATTENDING은 참석자이면서 host는 아닌 회의만 남기고 본인이 개설한 회의는 제외해야 한다. */
+        MeetingListRepository.MeetingPage attendingPage = meetingListRepository.findMeetings(
+                new MeetingListRepository.MeetingListCriteria(
+                        10L, 3L, true, null, null,
+                        LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 8, 31, 23, 59, 59),
+                        null, MeetingListScope.ATTENDING, 0, 20
+                )
+        );
+        assertThat(attendingPage.meetings())
+                .extracting(MeetingListRepository.MeetingListSnapshot::meetingId)
+                .containsExactly(attending.getId());
+    }
+
+    /* 3번을 개설자로 하는 기본 테스트 회의 엔티티를 만든다. */
     private MeetingJpaEntity meeting(
             Long companyId,
             Long projectId,
             String title,
             LocalDateTime startAt
     ) {
-        /* 한 시간 예약과 개설자 한 명을 가진 정상 도메인 회의를 생성한다. */
+        /* 개설자를 지정하지 않는 기존 호출부와의 호환을 위해 기본 개설자 3번을 사용한다. */
+        return meeting(companyId, projectId, title, startAt, 3L);
+    }
+
+    /* 테스트 회의 조건과 지정 개설자로 필수 컬럼을 모두 가진 영속성 엔티티를 만든다. */
+    private MeetingJpaEntity meeting(
+            Long companyId,
+            Long projectId,
+            String title,
+            LocalDateTime startAt,
+            Long hostMemberId
+    ) {
+        /* 한 시간 예약과 지정 개설자를 가진 정상 도메인 회의를 생성한다. */
         Meeting meeting = Meeting.create(
                 companyId,
                 projectId,
                 100L,
                 2L,
-                3L,
+                hostMemberId,
                 title,
                 startAt,
                 startAt.plusHours(1),
                 false,
                 null,
-                List.of(3L)
+                List.of(hostMemberId)
         );
 
         /* 도메인 회의를 테스트 DB에 저장 가능한 완전한 엔티티로 변환한다. */

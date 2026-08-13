@@ -104,7 +104,24 @@ public enum AuthErrorCode implements ErrorCode {
      */
     SUB_TEAM_NOT_IN_TEAM(HttpStatus.BAD_REQUEST, "AU-033", "선택한 역할이 해당 부서에 속하지 않습니다."),
     TEAM_LEADER_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-034", "부서마다 팀장 직급은 한 명만 지정할 수 있습니다."),
-    ALREADY_ONBOARDED(HttpStatus.CONFLICT, "AU-035", "이미 온보딩이 완료된 기업입니다.");
+    ALREADY_ONBOARDED(HttpStatus.CONFLICT, "AU-035", "이미 온보딩이 완료된 기업입니다."),
+
+    /*
+     * 온보딩 요청 안의 중복(§4-1). 막지 않으면 전부 500(Z-003)으로 샌다 — tempId 중복은
+     * Collectors.toMap 의 IllegalStateException 으로, 이름 중복은 UK_TEAM_COMPANY_NAME ·
+     * UK_POSITION_COMPANY_NAME 위반(DataIntegrityViolationException)으로 터진다.
+     * 둘 다 사용자가 화면에서 만들 수 있는 입력이므로 400 이어야 한다.
+     */
+    ONBOARDING_TEMP_ID_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-036", "임시 식별자가 중복되었습니다."),
+    ONBOARDING_TEAM_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-037", "부서명이 중복되었습니다."),
+    ONBOARDING_POSITION_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-038", "직급명이 중복되었습니다."),
+
+    /*
+     * 역할 라벨 변경(§7-4). MEMBER_ROLE_LABEL_NOT_SUPPORTED(AU-032)와 코드를 공유하지 않는다 —
+     * 그쪽은 계정 발급 요청이 아직 없는 기능을 부른 경우(400)고, 여기는 있는 기능에 없는 이름을
+     * 보낸 경우(404)다. 화면의 대응도 다르다(그쪽은 필드를 빼야 하고, 여기는 목록을 새로 고쳐야 한다).
+     */
+    MEMBER_ROLE_LABEL_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-039", "역할을 찾을 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

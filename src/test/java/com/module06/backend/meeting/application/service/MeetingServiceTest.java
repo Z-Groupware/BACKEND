@@ -19,7 +19,10 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.command.CreateMeetingCommand;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
+import com.module06.backend.meeting.application.event.MeetingAttendeesRemovedEvent;
 import com.module06.backend.meeting.application.port.out.ActionQueryPort;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionKind;
+import com.module06.backend.meeting.application.port.out.ActionQueryPort.ActionTeamReference;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
@@ -28,7 +31,9 @@ import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort.ProjectSnapshot;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.domain.model.Meeting;
+import com.module06.backend.meeting.domain.model.MeetingAgenda;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
+import com.module06.backend.meeting.domain.repository.MeetingTopicRepository;
 
 /*
  * MEET-01 애플리케이션 서비스의 정상 예약과 주요 검증 분기를 확인하는 단위 테스트다.
@@ -48,8 +53,17 @@ class MeetingServiceTest {
     void createsMeetingReservation() {
         /* 저장된 회의와 발행 이벤트를 확인할 수 있는 대역을 준비한다. */
         RecordingMeetingRepository repository = new RecordingMeetingRepository();
+        RecordingMeetingTopicRepository topicRepository = new RecordingMeetingTopicRepository();
         RecordingMeetingEventPublisher eventPublisher = new RecordingMeetingEventPublisher();
-        MeetingService service = service(repository, eventPublisher, activeRoom(), validMembers(), true, true);
+        MeetingService service = service(
+                repository,
+                topicRepository,
+                eventPublisher,
+                activeRoom(),
+                validMembers(),
+                true,
+                true
+        );
 
         /* 개설자를 목록에서 생략한 정상 예약 요청을 실행한다. */
         MeetingCreationResult result = service.createMeeting(validCommand());
@@ -58,6 +72,12 @@ class MeetingServiceTest {
         assertThat(result.meetingId()).isEqualTo(91L);
         assertThat(result.status().name()).isEqualTo("SCHEDULED");
         assertThat(repository.savedMeeting).isNotNull();
+        assertThat(repository.savedMeeting.getTeamId()).isEqualTo(100L);
+
+        /* 저장된 회의 식별자 아래에 정규화된 MAIN·SUB 안건이 함께 전달돼야 한다. */
+        assertThat(topicRepository.savedMeetingId).isEqualTo(91L);
+        assertThat(topicRepository.savedAgenda.mainTopic()).isEqualTo("스프린트 진행 상황");
+        assertThat(topicRepository.savedAgenda.subTopics()).containsExactly("개발 진행률 점검");
 
         /* 개설자가 첫 번째 참석자로 자동 포함되고 표시 정보가 조립돼야 한다. */
         assertThat(result.host().memberId()).isEqualTo(3L);
@@ -138,6 +158,21 @@ class MeetingServiceTest {
         assertErrorCode(() -> service.createMeeting(validCommand()), "MT-010");
     }
 
+    /* null 참석자 식별자가 정규화 과정의 500 오류로 번지지 않는지 검증한다. */
+    @Test
+    @DisplayName("참석자 목록에 null 식별자가 있으면 MT-010으로 거절한다")
+    void rejectsNullAttendeeIdentifier() {
+        /* Bean Validation을 거치지 않는 서비스 직접 호출 상황의 null 원소를 준비한다. */
+        CreateMeetingCommand command = command(
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                java.util.Arrays.asList(7L, null)
+        );
+
+        /* List.copyOf의 NullPointerException 대신 참석자 계약 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createMeeting(command), "MT-010");
+    }
+
     /* C도메인이 관련 액션을 찾지 못한 경우 MEET-01 외부 계약이 AC-001인지 검증한다. */
     @Test
     @DisplayName("관련 액션이 존재하지 않으면 AC-001로 거절한다")
@@ -162,16 +197,16 @@ class MeetingServiceTest {
         assertThat(eventPublisher.events).isEmpty();
     }
 
-    /* 액션을 선택하지 않은 회의가 ActionQueryPort 연동 전에도 진행 가능한지 검증한다. */
+    /* OWNER가 액션을 선택하지 않은 회의가 ActionQueryPort 조회 없이 진행 가능한지 검증한다. */
     @Test
-    @DisplayName("관련 액션을 선택하지 않으면 액션 조회 없이 회의를 예약한다")
+    @DisplayName("OWNER가 관련 액션을 선택하지 않으면 액션 조회 없이 회의를 예약한다")
     void createsMeetingWithoutRelatedAction() {
         /* 호출되는 순간 실패하는 액션 Port를 포함해 나머지 정상 의존성을 직접 조립한다. */
         ActionQueryPort pendingActionPort = new ActionQueryPort() {
-            /* 관련 액션이 없는 예약에서는 존재 확인이 호출되면 안 된다. */
+            /* OWNER의 액션 없는 경로에서는 팀 조회도 호출되면 안 된다. */
             @Override
-            public boolean existsAction(Long companyId, Long actionId) {
-                throw new AssertionError("relatedActionId가 없으면 ActionQueryPort를 호출하면 안 됩니다.");
+            public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                throw new AssertionError("relatedActionId가 없으면 액션 팀 조회를 호출하면 안 됩니다.");
             }
 
             /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */
@@ -199,6 +234,7 @@ class MeetingServiceTest {
                 10L,
                 3L,
                 100L,
+                "OWNER",
                 "A커머스 온보딩 킥오프",
                 12L,
                 2L,
@@ -206,12 +242,125 @@ class MeetingServiceTest {
                 LocalDateTime.of(2026, 8, 6, 15, 0),
                 true,
                 null,
-                List.of(7L, 11L)
+                List.of(7L, 11L),
+                "스프린트 진행 상황",
+                List.of("개발 진행률 점검")
         );
 
         /* 액션 Port를 호출하지 않고 예약이 완료되며 관련 액션은 null로 유지돼야 한다. */
         MeetingCreationResult result = service.createMeeting(command);
         assertThat(result.meetingId()).isEqualTo(91L);
+    }
+
+    /* OWNER가 상위 팀 액션을 보내면 역할 정책 오류로 거절되는지 검증한다. */
+    @Test
+    @DisplayName("OWNER가 관련 액션을 지정하면 MT-016으로 거절한다")
+    void rejectsRelatedActionFromOwner() {
+        /* 정상 명령에서 역할만 OWNER로 바꿔 금지된 액션 입력 조합을 만든다. */
+        CreateMeetingCommand command = command("OWNER", 305L, List.of(7L), "대주제", List.of("소주제"));
+
+        /* 외부 포트를 호출하기 전에 역할 정책 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createMeeting(command), "MT-016");
+    }
+
+    /* OWNER 외 역할이 상위 팀 액션을 생략하면 거절되는지 검증한다. */
+    @Test
+    @DisplayName("OWNER 외 역할이 관련 액션을 생략하면 MT-016으로 거절한다")
+    void rejectsMissingRelatedActionFromNonOwner() {
+        /* LEADER가 필수 상위 팀 액션을 보내지 않은 명령을 만든다. */
+        CreateMeetingCommand command = command("LEADER", null, List.of(7L), "대주제", List.of("소주제"));
+
+        /* 액션 존재 조회 전에 역할 정책 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createMeeting(command), "MT-016");
+    }
+
+    /* host만 참석자 목록에 들어온 요청이 거절되는지 검증한다. */
+    @Test
+    @DisplayName("host 외 참석자가 없으면 MT-017로 거절한다")
+    void rejectsMeetingWithoutInvitedAttendee() {
+        /* 자동 포함될 host만 중복 전달한 명령을 만든다. */
+        CreateMeetingCommand command = command("LEADER", 305L, List.of(3L), "대주제", List.of("소주제"));
+
+        /* 구성원 조회 전에 최소 참석자 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createMeeting(command), "MT-017");
+    }
+
+    /* 대주제 또는 소주제가 빠진 요청이 거절되는지 검증한다. */
+    @Test
+    @DisplayName("필수 안건이 없으면 MT-015로 거절한다")
+    void rejectsMissingAgenda() {
+        /* 대주제는 있지만 소주제 목록이 빈 명령을 만든다. */
+        CreateMeetingCommand command = command("LEADER", 305L, List.of(7L), "대주제", List.of());
+
+        /* 회의실과 프로젝트를 조회하기 전에 안건 오류가 반환돼야 한다. */
+        assertErrorCode(() -> defaultService().createMeeting(command), "MT-015");
+    }
+
+    /* PERSONAL 액션을 상위 팀 액션으로 지정할 수 없는지 검증한다. */
+    @Test
+    @DisplayName("PERSONAL 액션을 연결하면 MT-018로 거절한다")
+    void rejectsPersonalRelatedAction() {
+        /* 액션은 존재하지만 종류가 PERSONAL인 Port 대역을 준비한다. */
+        ActionQueryPort actionPort = actionPort(Optional.of(
+                new ActionTeamReference(null, ActionKind.PERSONAL)
+        ));
+
+        /* 개인 액션은 회의의 상위 팀 액션이 될 수 없어야 한다. */
+        assertErrorCode(() -> serviceWithActionPort(actionPort).createMeeting(validCommand()), "MT-018");
+    }
+
+    /* 다른 팀의 TEAM 액션을 연결할 수 없는지 검증한다. */
+    @Test
+    @DisplayName("다른 팀의 TEAM 액션을 연결하면 MT-019로 거절한다")
+    void rejectsRelatedActionFromAnotherTeam() {
+        /* host 팀 100과 다른 팀 200의 TEAM 액션을 반환하는 Port 대역을 준비한다. */
+        ActionQueryPort actionPort = actionPort(Optional.of(
+                new ActionTeamReference(200L, ActionKind.TEAM)
+        ));
+
+        /* 팀 경계가 다른 액션은 회의에 연결할 수 없어야 한다. */
+        assertErrorCode(() -> serviceWithActionPort(actionPort).createMeeting(validCommand()), "MT-019");
+    }
+
+    /* 인증 정보의 팀과 실제 구성원 팀이 다를 때 요청 팀으로 검증을 우회할 수 없는지 확인한다. */
+    @Test
+    @DisplayName("인증 팀과 실제 개설자 팀이 다르면 실제 팀을 기준으로 액션을 검증한다")
+    void validatesRelatedActionAgainstActualHostTeam() {
+        /* 인증 정보와 액션은 팀 200으로 맞지만 B 도메인의 실제 개설자 팀은 100인 상황을 준비한다. */
+        ActionQueryPort actionPort = actionPort(Optional.of(
+                new ActionTeamReference(200L, ActionKind.TEAM)
+        ));
+        CreateMeetingCommand command = commandWithHostTeamId(200L);
+
+        /* 조작되거나 오래된 인증 팀이 아니라 실제 구성원 팀 100을 기준으로 거절해야 한다. */
+        assertErrorCode(() -> serviceWithActionPort(actionPort).createMeeting(command), "MT-019");
+    }
+
+    /* 같은 팀의 TEAM 액션 읽기 결과를 바꿔 검증 테스트에 사용하는 Port 대역을 만든다. */
+    private ActionQueryPort actionPort(Optional<ActionTeamReference> reference) {
+        /* MEET-01 단건 조회 외 계약은 호출 여부를 명시적으로 확인한다. */
+        return new ActionQueryPort() {
+            /* 테스트가 준비한 액션 팀 읽기 결과를 반환한다. */
+            @Override
+            public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                return reference;
+            }
+
+            /* MEET-10 배치 계약은 회의 개설에서 사용하지 않는다. */
+            @Override
+            public List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
+                    Long companyId,
+                    List<Long> meetingIds
+            ) {
+                throw new AssertionError("회의 개설에서 분배 대기 배치 조회를 호출하면 안 됩니다.");
+            }
+
+            /* MEET-02 액션 수 계약은 회의 개설에서 사용하지 않는다. */
+            @Override
+            public List<MeetingActionCount> countActionsByMeetings(Long companyId, List<Long> meetingIds) {
+                throw new AssertionError("회의 개설에서 액션 수 배치 조회를 호출하면 안 됩니다.");
+            }
+        };
     }
 
     /* 정상 외부 리소스를 반환하는 기본 서비스를 생성한다. */
@@ -266,6 +415,7 @@ class MeetingServiceTest {
         /* 액션 Port 외에는 모두 정상값을 반환하는 실제 회의 서비스를 생성한다. */
         return new MeetingService(
                 new RecordingMeetingRepository(),
+                new RecordingMeetingTopicRepository(),
                 roomPort,
                 projectPort,
                 (companyId, memberIds) -> validMembers(),
@@ -278,6 +428,28 @@ class MeetingServiceTest {
     /* 테스트 조건에 따라 모든 아웃바운드 포트를 조립한 서비스를 생성한다. */
     private MeetingService service(
             MeetingRepository repository,
+            MeetingEventPublisher eventPublisher,
+            Optional<MeetingRoomQueryPort.MeetingRoomSnapshot> room,
+            List<MemberQueryPort.MemberSnapshot> members,
+            boolean projectExists,
+            boolean actionExists
+    ) {
+        /* 안건 기록 여부를 따로 확인하지 않는 테스트에는 기본 기록 대역을 사용한다. */
+        return service(
+                repository,
+                new RecordingMeetingTopicRepository(),
+                eventPublisher,
+                room,
+                members,
+                projectExists,
+                actionExists
+        );
+    }
+
+    /* 테스트 조건과 안건 저장 대역까지 전달받아 모든 의존성을 조립한다. */
+    private MeetingService service(
+            MeetingRepository repository,
+            MeetingTopicRepository topicRepository,
             MeetingEventPublisher eventPublisher,
             Optional<MeetingRoomQueryPort.MeetingRoomSnapshot> room,
             List<MemberQueryPort.MemberSnapshot> members,
@@ -323,10 +495,12 @@ class MeetingServiceTest {
 
         /* 테스트에서 정한 관련 액션 존재 결과를 반환하는 포트 대역이다. */
         ActionQueryPort actionPort = new ActionQueryPort() {
-            /* 테스트가 정한 관련 액션 존재 결과를 그대로 반환한다. */
+            /* 정상값은 host 팀과 같은 TEAM 액션이며 미존재 조건에서는 빈 결과를 반환한다. */
             @Override
-            public boolean existsAction(Long companyId, Long actionId) {
-                return actionExists;
+            public Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId) {
+                return actionExists
+                        ? Optional.of(new ActionTeamReference(100L, ActionKind.TEAM))
+                        : Optional.empty();
             }
 
             /* MEET-10 배치 조회는 회의 예약 경로에서 사용하지 않는다. */
@@ -351,6 +525,7 @@ class MeetingServiceTest {
         /* 고정 시계를 포함한 실제 서비스를 반환한다. */
         return new MeetingService(
                 repository,
+                topicRepository,
                 roomPort,
                 projectPort,
                 memberPort,
@@ -392,6 +567,28 @@ class MeetingServiceTest {
         );
     }
 
+    /* 인증 principal의 팀 식별자만 바꾼 정상 형식 명령을 만든다. */
+    private CreateMeetingCommand commandWithHostTeamId(Long hostTeamId) {
+        /* B 도메인의 실제 팀과 다른 인증 팀을 전달하는 회귀 상황을 재현한다. */
+        CreateMeetingCommand command = validCommand();
+        return new CreateMeetingCommand(
+                command.companyId(),
+                command.hostMemberId(),
+                hostTeamId,
+                command.hostRole(),
+                command.title(),
+                command.projectId(),
+                command.meetingRoomId(),
+                command.startAt(),
+                command.endAt(),
+                command.recordingConsent(),
+                command.relatedActionId(),
+                command.attendeeMemberIds(),
+                command.mainTopic(),
+                command.subTopics()
+        );
+    }
+
     /* 시간과 참석자만 바꾼 회의 예약 명령을 만든다. */
     private CreateMeetingCommand command(
             LocalDateTime startAt,
@@ -403,6 +600,7 @@ class MeetingServiceTest {
                 10L,
                 3L,
                 100L,
+                "LEADER",
                 "A커머스 온보딩 킥오프",
                 12L,
                 2L,
@@ -410,7 +608,36 @@ class MeetingServiceTest {
                 endAt,
                 true,
                 305L,
-                attendeeMemberIds
+                attendeeMemberIds,
+                "스프린트 진행 상황",
+                List.of("개발 진행률 점검")
+        );
+    }
+
+    /* 역할·액션·참석자·안건만 바꾼 회의 예약 명령을 만든다. */
+    private CreateMeetingCommand command(
+            String hostRole,
+            Long relatedActionId,
+            List<Long> attendeeMemberIds,
+            String mainTopic,
+            List<String> subTopics
+    ) {
+        /* 시간과 나머지 식별자는 정상값으로 고정해 해당 정책만 검증한다. */
+        return new CreateMeetingCommand(
+                10L,
+                3L,
+                100L,
+                hostRole,
+                "A커머스 온보딩 킥오프",
+                12L,
+                2L,
+                LocalDateTime.of(2026, 8, 6, 14, 0),
+                LocalDateTime.of(2026, 8, 6, 15, 0),
+                true,
+                relatedActionId,
+                attendeeMemberIds,
+                mainTopic,
+                subTopics
         );
     }
 
@@ -465,6 +692,24 @@ class MeetingServiceTest {
         }
     }
 
+    /* 서비스가 안건 저장 포트에 전달한 회의 식별자와 안건을 기록하는 대역이다. */
+    private static final class RecordingMeetingTopicRepository implements MeetingTopicRepository {
+
+        /* 안건이 저장된 회의 식별자다. */
+        private Long savedMeetingId;
+
+        /* 저장을 요청받은 대주제와 소주제 묶음이다. */
+        private MeetingAgenda savedAgenda;
+
+        /* 회의 식별자와 안건을 기록한다. */
+        @Override
+        public void saveAgenda(Long meetingId, MeetingAgenda agenda) {
+            /* 테스트가 원자 저장 호출 여부와 내용을 확인할 수 있게 보존한다. */
+            this.savedMeetingId = meetingId;
+            this.savedAgenda = agenda;
+        }
+    }
+
     /* 발행된 예약 완료 이벤트를 순서대로 기록하는 이벤트 포트 대역이다. */
     private static final class RecordingMeetingEventPublisher implements MeetingEventPublisher {
 
@@ -481,6 +726,12 @@ class MeetingServiceTest {
         /* MEET-09 참석자 추가 이벤트는 MEET-01 서비스 테스트에서 사용하지 않는다. */
         @Override
         public void publish(MeetingAttendeesAddedEvent event) {
+            /* 호출되지 않는 별도 이벤트 계약이므로 기록하지 않는다. */
+        }
+
+        /* MEET-09 참석자 제외 이벤트도 MEET-01 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public void publish(MeetingAttendeesRemovedEvent event) {
             /* 호출되지 않는 별도 이벤트 계약이므로 기록하지 않는다. */
         }
     }

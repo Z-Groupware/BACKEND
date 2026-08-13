@@ -92,6 +92,7 @@ class ActionServiceTest {
 
         assertThat(saved.getTeamId()).isEqualTo(7L);
         assertThat(saved.getAssigneeMemberId()).isNull();
+        assertThat(saved.getStatus()).isEqualTo(ActionStatus.TODO);
     }
 
     @Test
@@ -213,6 +214,59 @@ class ActionServiceTest {
 
         assertThat(service.getMyActions(5L, "MEMBER", null, null, null, null, null, "desc", 0, 20).items()).isEmpty();
         verify(actionReferenceRepository, never()).findMemberReferences(anyList());
+    }
+
+    // ── 2026-08-13 OWNER·ADMIN 회사 전체 구성원 액션 조회 ──────────────
+
+    @Test
+    void getCompanyMemberActionsReturnsEnrichedListWhenTargetIsInCompany() {
+        ActionService service = actionService();
+        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 300L, ActionStatus.TODO, 9L);
+        when(actionReferenceRepository.existsMemberInCompany(9L, COMPANY)).thenReturn(true);
+        when(actionRepository.countByAssigneeMemberId(9L, null, null)).thenReturn(1L);
+        when(actionRepository.findAllByAssigneeMemberId(9L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
+        when(actionReferenceRepository.findMemberReferences(List.of(9L)))
+                .thenReturn(List.of(new MemberReference(9L, "박종준", null)));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
+        when(actionReferenceRepository.findTeamReferences(List.of(7L)))
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
+        when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
+                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", null)));
+        when(actionRepository.findAllByIds(List.of(300L)))
+                .thenReturn(List.of(personalAction(300L, COMPANY, PROJECT, 7L, null, null, ActionStatus.TODO)));
+
+        var result = service.getCompanyMemberActions(COMPANY, 9L, null, null, null, "desc", 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(1L);
+        // CodeRabbit 지적(PR #454) — assigneeName 표시값만 보면, 다른 구성원 액션이 섞여도
+        // 통과할 수 있었다. 반환된 액션의 실제 담당자가 요청 대상(9L)과 같은지 직접 확인한다.
+        assertThat(result.items().get(0).action().getAssigneeMemberId()).isEqualTo(9L);
+        assertThat(result.items().get(0).assigneeName()).isEqualTo("박종준");
+    }
+
+    @Test
+    void getCompanyMemberActionsThrowsWhenAssigneeMemberIdIsMissing() {
+        ActionService service = actionService();
+
+        assertThatThrownBy(() -> service.getCompanyMemberActions(COMPANY, null, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_MEMBER_ID_REQUIRED);
+
+        verify(actionReferenceRepository, never()).existsMemberInCompany(any(), any());
+    }
+
+    @Test
+    void getCompanyMemberActionsThrowsWhenTargetIsOutsideCompany() {
+        ActionService service = actionService();
+        when(actionReferenceRepository.existsMemberInCompany(9L, COMPANY)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getCompanyMemberActions(COMPANY, 9L, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+
+        verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
     }
 
     // ── 2026-08-11 팀장의 팀원 목록 조회(assigneeMemberId) ──────────────
@@ -447,6 +501,136 @@ class ActionServiceTest {
         verify(actionRepository, never()).saveAll(any());
     }
 
+    // ── 이슈 #383 팀 액션 상태 자동 파생 ──────────────────────────────
+
+    @Test
+    void bulkUpdateStatusStartsParentTeamActionWhenFirstChildBecomesInProgress() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.TODO);
+        Action child = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO);
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(child));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L)).thenReturn(List.of(child));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS)
+        )));
+
+        assertThat(child.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(parent.getStartDate()).isEqualTo(LocalDate.now());
+    }
+
+    @Test
+    void bulkUpdateStatusCompletesParentTeamActionWhenAllChildrenBecomeDone() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.IN_PROGRESS);
+        Action alreadyDoneSibling = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.DONE);
+        Action lastChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findAllByIds(List.of(2L))).thenReturn(List.of(lastChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(alreadyDoneSibling, lastChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.DONE)
+        )));
+
+        assertThat(lastChild.getStatus()).isEqualTo(ActionStatus.DONE);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.DONE);
+    }
+
+    @Test
+    void bulkUpdateStatusKeepsParentTeamActionInProgressWhileSiblingStillPending() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.IN_PROGRESS);
+        Action pendingSibling = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.IN_PROGRESS);
+        Action finishingChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.IN_PROGRESS);
+        when(actionRepository.findAllByIds(List.of(2L))).thenReturn(List.of(finishingChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(pendingSibling, finishingChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.DONE)
+        )));
+
+        assertThat(finishingChild.getStatus()).isEqualTo(ActionStatus.DONE);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void bulkUpdateStatusReopensParentTeamActionWhenChildIsReopenedFromDone() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.DONE);
+        Action stillDoneSibling = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.DONE);
+        Action reopenedChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.DONE);
+        when(actionRepository.findAllByIds(List.of(2L))).thenReturn(List.of(reopenedChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(stillDoneSibling, reopenedChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.IN_PROGRESS)
+        )));
+
+        assertThat(reopenedChild.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
+    // CodeRabbit(PR #384) 지적 — findAllByParentActionId는 DB를 다시 읽어서, 이번 요청에서
+    // 방금 메모리로만 바꾼 형제의 새 상태가 그 조회에 안 잡힐 수 있었다. 여기서는 그 조회가
+    // 일부러 "옛날(stale) 상태"의 별개 객체를 돌려주게 만들어서, reconcileTeamActionStatus가
+    // 그 stale 값이 아니라 이번 요청에서 실제로 반영한 최신 값을 쓰는지 검증한다.
+    @Test
+    void bulkUpdateStatusReconcilesUsingFreshChildStatusNotStaleRepositoryRead() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.TODO);
+        Action child = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO);
+        // findAllByParentActionId가 돌려주는 건 command가 바꾸기 "전"의 상태를 담은 별개 객체다 —
+        // 실제 JPA 어댑터가 saveAll 이전에 DB를 다시 읽으면 이렇게 stale한 값을 준다.
+        Action staleChildFromRepository = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO);
+        when(actionRepository.findAllByIds(List.of(1L))).thenReturn(List.of(child));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L)).thenReturn(List.of(staleChildFromRepository));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS)
+        )));
+
+        // stale 객체만 보고 계산했다면 하위가 여전히 TODO로 보여 부모가 TODO에 그대로 남는다.
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void bulkUpdateStatusIncludesReconciledParentExactlyOnceInSaveAll() {
+        ActionService service = actionService();
+        Action parent = teamAction(100L, COMPANY, PROJECT, 7L, null, ActionStatus.TODO);
+        Action firstChild = personalAction(1L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO, 5L);
+        Action secondChild = personalAction(2L, COMPANY, PROJECT, null, null, 100L, ActionStatus.TODO, 5L);
+        when(actionRepository.findAllByIds(List.of(1L, 2L))).thenReturn(List.of(firstChild, secondChild));
+        when(actionRepository.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(actionRepository.findAllByParentActionId(COMPANY, 100L))
+                .thenReturn(List.of(firstChild, secondChild));
+        when(actionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.bulkUpdateStatus(new BulkUpdateActionStatusCommand(5L, List.of(
+                new BulkUpdateActionStatusCommand.Item(1L, ActionStatus.IN_PROGRESS),
+                new BulkUpdateActionStatusCommand.Item(2L, ActionStatus.IN_PROGRESS)
+        )));
+
+        org.mockito.ArgumentCaptor<List<Action>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(actionRepository).saveAll(captor.capture());
+        List<Action> saved = captor.getValue();
+        assertThat(saved.stream().filter(a -> a.getId().equals(100L)).count()).isEqualTo(1);
+        assertThat(parent.getStatus()).isEqualTo(ActionStatus.IN_PROGRESS);
+    }
+
     @Test
     void getActionsByMeetingReturnsMixedTeamAndPersonalActionsWithSeparateDisplayFields() {
         ActionService service = actionService();
@@ -506,7 +690,7 @@ class ActionServiceTest {
         LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
         return Action.reconstitute(
                 id, companyId, projectId, null, sourceMeetingId, teamId, null,
-                ActionType.TEAM, "팀 액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
+                ActionType.TEAM, "팀 액션 " + id, "설명", isDone, startDate, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );
@@ -523,7 +707,7 @@ class ActionServiceTest {
         LocalDate startDate = status == ActionStatus.TODO ? null : LocalDate.of(2026, 8, 1);
         return Action.reconstitute(
                 id, companyId, projectId, parentActionId, sourceMeetingId, teamId, assigneeMemberId,
-                ActionType.PERSONAL, "액션 " + id, "설명", isDone, startDate, LocalDate.of(2026, 8, 20), false,
+                ActionType.PERSONAL, "액션 " + id, "설명", isDone, startDate, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );

@@ -72,38 +72,17 @@ class NoticeCommandServiceTest {
         ));
     }
 
-    /* ADMIN도 OWNER와 동일하게 공지를 작성할 수 있는지 검증한다. */
+    /* OWNER를 제외한 나머지가 내부 호출로 작성 서비스를 우회하지 못하는지 검증한다. */
     @Test
-    @DisplayName("ADMIN도 공지를 작성할 수 있다")
-    void allowsAdminToCreateNotice() {
-        /* 저장된 공지에 식별자 32를 반영하는 단순 저장소 대역을 만든다. */
-        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
-        repository.generatedId = 32L;
-        NoticeCommandService service = service(repository);
-
-        /* 회사 10의 ADMIN 4가 정상 제목과 본문으로 공지를 작성한다. */
-        var result = service.createNotice(new CreateNoticeCommand(
-                10L,
-                4L,
-                "ADMIN",
-                "관리자 공지",
-                "관리자 공지 본문"
-        ));
-
-        /* ADMIN 요청도 정상 저장돼 생성 식별자를 받아야 한다. */
-        assertThat(result.noticeId()).isEqualTo(32L);
-    }
-
-    /* LEADER와 MEMBER가 내부 호출로 작성 서비스를 우회하지 못하는지 검증한다. */
-    @Test
-    @DisplayName("LEADER와 MEMBER의 공지 작성을 NT-002로 거절한다")
-    void rejectsNonManagerRoles() {
+    @DisplayName("OWNER가 아닌 역할의 공지 작성을 NT-002로 거절한다")
+    void rejectsNonOwnerRoles() {
         /* 권한 거절 전에 저장소가 호출되면 실패하도록 서비스 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
         NoticeCommandService service = service(repository);
 
-        /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
+        /* Authority에는 ADMIN이 없어 문자열로 넘어올 일이 없지만, 방어적으로 OWNER 외 전부 거절해야 한다. */
+        assertErrorCode(() -> service.createNotice(command("ADMIN", "제목", "본문")), "NT-002");
         assertErrorCode(() -> service.createNotice(command("LEADER", "제목", "본문")), "NT-002");
         assertErrorCode(() -> service.createNotice(command("MEMBER", "제목", "본문")), "NT-002");
     }
@@ -172,32 +151,17 @@ class NoticeCommandServiceTest {
         assertThat(result.updatedAt()).isEqualTo(LocalDateTime.of(2026, 8, 9, 13, 40, 2));
     }
 
-    /* ADMIN도 OWNER와 같은 공지 수정 권한을 갖는지 검증한다. */
+    /* OWNER가 아닌 역할이 서비스 직접 호출로 수정 권한을 우회하지 못하는지 검증한다. */
     @Test
-    @DisplayName("ADMIN도 공지를 수정할 수 있다")
-    void allowsAdminToUpdateNotice() {
-        /* 회사 10의 활성 공지를 반환하는 저장소와 공지 명령 서비스를 구성한다. */
-        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
-        repository.noticeToFind = Optional.of(activeNotice());
-        NoticeCommandService service = service(repository);
-
-        /* ADMIN 역할로 공지 수정 유스케이스를 호출한다. */
-        var result = service.updateNotice(updateCommand("ADMIN", "관리자 개정", "관리자 개정 본문"));
-
-        /* ADMIN 요청도 정상 저장돼 최종 제목을 반환해야 한다. */
-        assertThat(result.title()).isEqualTo("관리자 개정");
-    }
-
-    /* 비관리 역할이 서비스 직접 호출로 수정 권한을 우회하지 못하는지 검증한다. */
-    @Test
-    @DisplayName("LEADER와 MEMBER의 공지 수정을 NT-002로 거절한다")
-    void rejectsNonManagerRolesForUpdate() {
+    @DisplayName("OWNER가 아닌 역할의 공지 수정을 NT-002로 거절한다")
+    void rejectsNonOwnerRolesForUpdate() {
         /* 권한 검증 뒤 저장소에 접근하면 실패하도록 저장소 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
         NoticeCommandService service = service(repository);
 
-        /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
+        /* Authority에는 ADMIN이 없어 문자열로 넘어올 일이 없지만, 방어적으로 OWNER 외 전부 거절해야 한다. */
+        assertErrorCode(() -> service.updateNotice(updateCommand("ADMIN", "제목", "본문")), "NT-002");
         assertErrorCode(() -> service.updateNotice(updateCommand("LEADER", "제목", "본문")), "NT-002");
         assertErrorCode(() -> service.updateNotice(updateCommand("MEMBER", "제목", "본문")), "NT-002");
     }
@@ -261,32 +225,17 @@ class NoticeCommandServiceTest {
                 .isEqualTo(LocalDateTime.of(2026, 8, 9, 13, 40, 2));
     }
 
-    /* ADMIN도 OWNER와 동일한 소프트 삭제 권한을 갖는지 검증한다. */
+    /* OWNER가 아닌 역할이 서비스 직접 호출로 삭제 권한을 우회하지 못하는지 검증한다. */
     @Test
-    @DisplayName("ADMIN도 공지를 삭제할 수 있다")
-    void allowsAdminToDeleteNotice() {
-        /* 회사 10의 활성 공지를 반환하는 저장소와 공지 명령 서비스를 구성한다. */
-        StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
-        repository.noticeToFind = Optional.of(activeNotice());
-        NoticeCommandService service = service(repository);
-
-        /* ADMIN 역할로 공지 삭제 유스케이스를 호출한다. */
-        service.deleteNotice(deleteCommand("ADMIN"));
-
-        /* ADMIN 요청도 정상 저장돼 deletedAt이 기록되어야 한다. */
-        assertThat(repository.savedNotice.getDeletedAt()).isNotNull();
-    }
-
-    /* 비관리 역할이 서비스 직접 호출로 삭제 권한을 우회하지 못하는지 검증한다. */
-    @Test
-    @DisplayName("LEADER와 MEMBER의 공지 삭제를 NT-002로 거절한다")
-    void rejectsNonManagerRolesForDelete() {
+    @DisplayName("OWNER가 아닌 역할의 공지 삭제를 NT-002로 거절한다")
+    void rejectsNonOwnerRolesForDelete() {
         /* 권한 검증 뒤 저장소에 접근하면 실패하도록 저장소 대역을 구성한다. */
         StubNoticeCommandRepository repository = new StubNoticeCommandRepository();
         repository.failOnAccess = true;
         NoticeCommandService service = service(repository);
 
-        /* 두 비관리 역할 모두 공지 관리 권한 오류로 처리돼야 한다. */
+        /* Authority에는 ADMIN이 없어 문자열로 넘어올 일이 없지만, 방어적으로 OWNER 외 전부 거절해야 한다. */
+        assertErrorCode(() -> service.deleteNotice(deleteCommand("ADMIN")), "NT-002");
         assertErrorCode(() -> service.deleteNotice(deleteCommand("LEADER")), "NT-002");
         assertErrorCode(() -> service.deleteNotice(deleteCommand("MEMBER")), "NT-002");
     }

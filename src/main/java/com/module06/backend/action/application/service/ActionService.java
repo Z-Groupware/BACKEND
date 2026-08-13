@@ -2,9 +2,13 @@ package com.module06.backend.action.application.service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -18,6 +22,7 @@ import com.module06.backend.action.application.usecase.BulkUpdateActionStatusUse
 import com.module06.backend.action.application.usecase.CreateActionUseCase;
 import com.module06.backend.action.application.usecase.GetActionDetailUseCase;
 import com.module06.backend.action.application.usecase.GetActionsByMeetingUseCase;
+import com.module06.backend.action.application.usecase.GetCompanyMemberActionsUseCase;
 import com.module06.backend.action.application.usecase.GetMyActionsUseCase;
 import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
@@ -74,7 +79,8 @@ public class ActionService implements
         GetMyActionsUseCase,
         GetActionDetailUseCase,
         BulkUpdateActionStatusUseCase,
-        GetActionsByMeetingUseCase {
+        GetActionsByMeetingUseCase,
+        GetCompanyMemberActionsUseCase {
 
     // 상태 없는 순수 규칙이라 빈으로 띄우지 않는다 — domain 계층에 스프링 애노테이션을 넣지 않기 위함(절대규칙 5항).
     private static final ActionTypeShapePolicy ACTION_TYPE_SHAPE_POLICY = new ActionTypeShapePolicy();
@@ -181,6 +187,60 @@ public class ActionService implements
         return new GetMyActionsUseCase.ActionListResult(items, totalElements);
     }
 
+    // 2026-08-13, 종준님 확정 — OWNER·ADMIN이 회사 전체에서 특정 구성원의 개인 액션을 조회한다
+    // (Figma "회원 관리" 화면, GetMyActionsUseCase 주석의 2026-08-11 보류분). 권한(OWNER/isAdmin)은
+    // 컨트롤러 @PreAuthorize에서 이미 걸렀으므로 여기서는 대상이 같은 회사 소속인지만 검증한다
+    // (IDOR 방지 — create()의 existsMemberInCompany 검증과 동일 판단).
+    @Override
+    @Transactional(readOnly = true)
+    public GetMyActionsUseCase.ActionListResult getCompanyMemberActions(
+            Long companyId, Long assigneeMemberId, ActionStatus status, Boolean overdue,
+            String sort, String order, int page, int size) {
+        if (assigneeMemberId == null) {
+            throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_MEMBER_ID_REQUIRED);
+        }
+        if (!actionReferenceRepository.existsMemberInCompany(assigneeMemberId, companyId)) {
+            throw new BusinessException(ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+        }
+
+        long totalElements = actionRepository.countByAssigneeMemberId(assigneeMemberId, status, overdue);
+        List<Action> actions = actionRepository.findAllByAssigneeMemberId(
+                assigneeMemberId, status, overdue, sort, order, page, size);
+        if (actions.isEmpty()) {
+            return new GetMyActionsUseCase.ActionListResult(List.of(), totalElements);
+        }
+
+        String assigneeName = actionReferenceRepository.findMemberReferences(List.of(assigneeMemberId)).stream()
+                .findFirst().map(MemberReference::name).orElse(null);
+
+        List<ProjectReference> projectReferences =
+                actionReferenceRepository.findProjectReferences(distinct(actions, Action::getProjectId));
+        Map<Long, String> projectTagById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::tag);
+        Map<Long, String> projectNameById = toDisplayMap(projectReferences, ProjectReference::projectId, ProjectReference::name);
+        Map<Long, String> teamNameById = toDisplayMap(
+                actionReferenceRepository.findTeamReferences(distinctNonNull(actions, Action::getTeamId)),
+                TeamReference::teamId, TeamReference::name);
+        Map<Long, String> meetingTitleById = toDisplayMap(
+                actionReferenceRepository.findMeetingReferences(distinctNonNull(actions, Action::getSourceMeetingId)),
+                MeetingReference::meetingId, MeetingReference::title);
+        Map<Long, String> parentTitleById = actionRepository.findAllByIds(distinctNonNull(actions, Action::getParentActionId))
+                .stream().collect(Collectors.toMap(Action::getId, Action::getTitle));
+
+        List<GetMyActionsUseCase.ActionListItem> items = actions.stream()
+                .map(action -> new GetMyActionsUseCase.ActionListItem(
+                        action,
+                        assigneeName,
+                        projectTagById.get(action.getProjectId()),
+                        projectNameById.get(action.getProjectId()),
+                        action.getTeamId() == null ? null : teamNameById.get(action.getTeamId()),
+                        action.getSourceMeetingId() == null ? null : meetingTitleById.get(action.getSourceMeetingId()),
+                        action.getParentActionId() == null ? null : parentTitleById.get(action.getParentActionId())
+                ))
+                .toList();
+
+        return new GetMyActionsUseCase.ActionListResult(items, totalElements);
+    }
+
     // FR-AC-02 상세 — 전 구성원 공개, 회사 스코프만 다시 확인한다(IDOR 방지, #100과 동일 판단).
     @Override
     @Transactional(readOnly = true)
@@ -256,12 +316,87 @@ public class ActionService implements
             requireReachableTransition(action.getStatus(), item.status());
         }
 
-        // 반영 단계 — 목표 칸에 따라 실제로 쓰는 필드가 다르다.
+        // 반영 단계 — 목표 칸에 따라 실제로 쓰는 필드가 다르다. 실제로 상태가 바뀐 PERSONAL 액션의
+        // 부모(TEAM)는 이슈 #383 대상 — 이 요청이 끝나기 전에 같이 재평가한다.
+        Set<Long> touchedParentIds = new LinkedHashSet<>();
         for (BulkUpdateActionStatusCommand.Item item : command.items()) {
-            applyTransition(actionsById.get(item.actionId()), item.status());
+            Action action = actionsById.get(item.actionId());
+            ActionStatus before = action.getStatus();
+            applyTransition(action, item.status());
+            if (action.getStatus() != before && action.getParentActionId() != null) {
+                touchedParentIds.add(action.getParentActionId());
+            }
         }
 
-        actionRepository.saveAll(List.copyOf(actionsById.values()));
+        List<Action> toSave = new ArrayList<>(actionsById.values());
+        for (Long parentActionId : touchedParentIds) {
+            reconcileTeamActionStatus(parentActionId, actionsById).ifPresent(toSave::add);
+        }
+
+        actionRepository.saveAll(toSave);
+    }
+
+    /*
+     * 이슈 #383 — TEAM 액션은 담당자가 없어(ActionTypeShapePolicy) 보드에서 직접 상태를 바꿀
+     * 방법이 없다(PersonalActionAssigneeOnlyPolicy가 assigneeMemberId==null인 TEAM을 항상
+     * 막는다). 그래서 하위 PERSONAL 액션들의 상태로부터 매번 다시 계산해서 반영한다 — 시스템이
+     * 계산한 파생이라 ASSIGNEE_ONLY_POLICY를 거치지 않는다(거치면 항상 실패한다).
+     *
+     * 대칭 되돌리기 포함(홍근 확인, 2026-08-12): 하위 하나가 DONE에서 IN_PROGRESS로 reopen되면
+     * TEAM도 자동으로 IN_PROGRESS로 돌아간다 — 개인 액션 자신의 "자동 착수는 못 되돌린다"
+     * 규칙(requireReachableTransition의 case TODO -> false)과는 별개다. TEAM은 자기 상태를
+     * 갖지 않고 하위 집계를 그대로 반영하는 거울이라, 하위가 되돌아가면 거울도 같이 되돌아가야
+     * 값이 거짓말을 하지 않는다.
+     *
+     * CodeRabbit 지적(PR #384) — findAllByParentActionId는 DB를 다시 읽는다. 이 시점엔 아직
+     * saveAll을 안 해서, 이번 요청에서 방금 메모리로만 바꾼 하위 상태가 그 조회에 안 잡힌다.
+     * updatedActionsById(이번 요청에서 이미 전이 적용된 액션들)로 조회 결과를 덮어써서 채운다 —
+     * 이번 요청 밖의 형제는 DB 값 그대로(맞는 값), 이번 요청에서 바뀐 형제는 최신 값으로 교체.
+     */
+    private Optional<Action> reconcileTeamActionStatus(Long parentActionId, Map<Long, Action> updatedActionsById) {
+        Action parent = actionRepository.findById(parentActionId)
+                .orElseThrow(() -> new BusinessException(ActionErrorCode.ACTION_NOT_FOUND));
+        List<Action> children = actionRepository.findAllByParentActionId(parent.getCompanyId(), parentActionId).stream()
+                .map(child -> updatedActionsById.getOrDefault(child.getId(), child))
+                .toList();
+        ActionStatus target = deriveTeamStatusFromChildren(children);
+        if (parent.getStatus() == target) {
+            return Optional.empty();
+        }
+        applyDerivedTransition(parent, target);
+        return Optional.of(parent);
+    }
+
+    // 하위 0개 = 영원히 TODO(의도된 엣지케이스). 전부 DONE만 DONE, 하나라도 TODO 아니면 IN_PROGRESS.
+    private static ActionStatus deriveTeamStatusFromChildren(List<Action> children) {
+        if (children.isEmpty()) {
+            return ActionStatus.TODO;
+        }
+        if (children.stream().allMatch(child -> child.getStatus() == ActionStatus.DONE)) {
+            return ActionStatus.DONE;
+        }
+        boolean anyStarted = children.stream().anyMatch(child -> child.getStatus() != ActionStatus.TODO);
+        return anyStarted ? ActionStatus.IN_PROGRESS : ActionStatus.TODO;
+    }
+
+    // target=TODO는 도달 불가능하다 — 하위 PERSONAL이 IN_PROGRESS에서 TODO로 못 돌아가는 이상
+    // (case TODO -> false) 이 자리에 절대 안 들어와야 한다. 들어오면 호출부 계산이 잘못된 것.
+    private static void applyDerivedTransition(Action parent, ActionStatus target) {
+        if (target == ActionStatus.IN_PROGRESS) {
+            if (parent.getStatus() == ActionStatus.TODO) {
+                parent.start();
+            } else if (parent.getStatus() == ActionStatus.DONE) {
+                parent.reopen();
+            }
+        } else if (target == ActionStatus.DONE) {
+            // 리컨실을 한 번도 안 거친 채로 하위가 이미 전부 DONE인 엣지케이스 — 먼저 착수부터 찍는다.
+            if (parent.getStatus() == ActionStatus.TODO) {
+                parent.start();
+            }
+            parent.complete();
+        } else {
+            throw new IllegalStateException("팀 액션은 자동으로 할일 상태로 되돌아갈 수 없습니다.");
+        }
     }
 
     // "할일"은 도달 불가능한 목표 칸이다(그리로 되돌리는 동작 자체가 화면에 없다).

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
 
 /*
  * MEET-04 애플리케이션 계층이 프레젠테이션 계층에 전달하는 회의 상세 결과다.
@@ -17,6 +18,11 @@ public record MeetingDetailResult(
         LocalDateTime startedAt,
         LocalDateTime endedAt,
         boolean recordingConsent,
+        long pendingActionCount,
+        MeetingSummaryStatus summaryStatus,
+        Long teamId,
+        String originLabel,
+        Agenda agenda,
         Project project,
         MeetingRoom meetingRoom,
         Host host,
@@ -46,8 +52,15 @@ public record MeetingDetailResult(
     public record Attendee(
             Long memberId,
             String name,
+            Long teamId,
             String teamName,
             String jobPosition
     ) {
+    }
+
+    public record Agenda(String mainTopic, List<String> subTopics) {
+        public Agenda {
+            subTopics = List.copyOf(subTopics);
+        }
     }
 }

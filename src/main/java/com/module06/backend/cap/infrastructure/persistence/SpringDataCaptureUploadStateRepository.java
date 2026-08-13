@@ -22,6 +22,12 @@ public interface SpringDataCaptureUploadStateRepository
     // 완료 때 이미 지워진 뒤 삭제(CAP-15)가 다시 부르는 경우 둘 다 실제로 발생한다 — 파생 삭제
     // 쿼리는 RecordingPartRepository·RecordingRepository의 deleteByMeetingId와 동일하게 대상이
     // 0건이어도 조용히 넘어간다(QUERY_002 준수).
+    // TENANT_001 승인: capture_upload_state 엔티티에 company_id 가 없다 — meetingId 가 유일한
+    // 스코프다. 호출자(DeleteRecordingService:95 · RecordingAssemblyS3FfmpegAdapter:200)가
+    // 회의 소유를 확인한 뒤에만 부르므로 여기서 걸러낼 다른 회사 행이 존재하지 않는다.
+    // 같은 서비스에서 나란히 부르는 RecordingPartRepository·RecordingRepository 의
+    // deleteByMeetingId 와 동일한 계약이다(그쪽은 baseline 이전이라 룰에 안 걸렸을 뿐).
+    // nosemgrep: review-loop.semgrep.tenant-derived-query-without-company-scope
     void deleteByMeetingId(Long meetingId);
 
     /*

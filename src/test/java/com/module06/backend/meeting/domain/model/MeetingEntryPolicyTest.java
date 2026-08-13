@@ -8,7 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /*
- * MEET-03과 MEET-07이 공유하는 입장 허용 시간 경계 규칙을 검증한다.
+ * MEET-03과 CAP-01이 공유하는 회의 시작 허용 시간 경계 규칙을 검증한다.
  */
 @DisplayName("회의 입장 허용 시간 정책")
 class MeetingEntryPolicyTest {

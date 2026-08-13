@@ -236,6 +236,94 @@ class ApplyReviewDecisionServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_MODIFY_VALUE_REQUIRED);
     }
 
+    // ── 예정 시작일 (plannedStartDate · #386 후속) ────────────────────────────────
+
+    @Test
+    @DisplayName("⚠ CONFIRM 에 예정 시작일은 실을 수 있다 — AI 가 낸 값이 아니라 사람이 처음 정하는 값이다")
+    void 확정에_예정_시작일은_실을_수_있다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+        LocalDate planned = LocalDate.of(2026, 8, 20);
+
+        service(target(), applied, new RecordingReviewLog(), new RecordingVectorRepository())
+                .apply(command(ReviewDecision.CONFIRM, null, null, null, null, null, planned));
+
+        /*
+         * 다른 넷은 CONFIRM 에 실리면 422 다("AI 값이 맞다"와 "고쳤다"가 모순이므로).
+         * 예정 시작일은 AI 가 내지 않는 값이라 고칠 대상이 없다 — "AI 값은 다 맞으니 확정하고,
+         * 시작일만 정해 둔다"가 자연스러운 조합이고, 막으면 화면이 확정 직후 별도 요청을
+         * 한 번 더 보내야 한다.
+         */
+        assertThat(applied.plannedStartDate).isEqualTo(planned);
+        assertThat(applied.reviewStatus).isEqualTo("HUMAN_CONFIRMED");
+    }
+
+    @Test
+    @DisplayName("⚠ 예정 시작일만 고친 MODIFY 는 라벨을 남기지 않는다 — 사유 없는 ACTION MODIFY 는 DB 가 거절한다")
+    void 예정_시작일만_고치면_라벨이_없다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+        RecordingVectorRepository vectors = new RecordingVectorRepository();
+
+        service(target(), logs, vectors)
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null,
+                        LocalDate.of(2026, 8, 20)));
+
+        /*
+         * 사유 없이 한 건 남기면 V5.9 의 CK_REVIEW_LOG_REASON 이 막는다 — ACTION + MODIFY 는
+         * 사유가 NOT NULL 이어야 한다(SUMMARY_ITEM 만 예외). 위반하면 **판정 트랜잭션 전체가
+         * 롤백돼** 시작일 하나 때문에 확정이 실패한다(CodeRabbit PR #422 지적).
+         *
+         * 제약을 넓히지 않고 라벨을 안 만드는 쪽을 골랐다. 예정 시작일은 AI 가 내지 않는
+         * 값이라 {AI 입력 → 정답} 쌍이 성립하지 않는다 — 학습할 것이 없는 행이다.
+         */
+        assertThat(logs.entries).isEmpty();
+        // 가리킬 라벨이 없으므로 few-shot 예시도 예약하지 않는다.
+        assertThat(vectors.entries).isEmpty();
+    }
+
+    @Test
+    @DisplayName("다른 필드와 함께 오면 그 필드들의 라벨만 남는다 — 예정 시작일은 사유를 더하지 않는다")
+    void 예정_시작일은_사유를_더하지_않는다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+
+        service(target(), logs, new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, BOB, null, null, null,
+                        LocalDate.of(2026, 8, 20)));
+
+        // 담당자 하나만 고쳤으므로 라벨도 하나다. 시작일이 함께 와도 늘지 않는다.
+        assertThat(logs.entries).hasSize(1);
+        assertThat(logs.entries.get(0).rejectReason()).isEqualTo(RejectReason.WRONG_ASSIGNEE);
+    }
+
+    @Test
+    @DisplayName("예정 시작일만 보낸 MODIFY 는 통과한다 — 뭘 고쳤는지 분명하다")
+    void 예정_시작일만_보낸_수정은_통과한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        service(target(), applied, new RecordingReviewLog(), new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null,
+                        LocalDate.of(2026, 8, 20)));
+
+        // REVIEW_MODIFY_VALUE_REQUIRED 가 막는 것은 빈 요청이고, 이건 빈 요청이 아니다.
+        assertThat(applied.called).isTrue();
+    }
+
+    @Test
+    @DisplayName("반려는 예정 시작일도 반영하지 않는다 — 반려는 상태만 바꾼다")
+    void 반려는_예정_시작일도_무시한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        service(target(), applied, new RecordingReviewLog(), new RecordingVectorRepository())
+                .apply(command(ReviewDecision.REJECT, RejectReason.NOT_ACTION, null, null, null, null,
+                        LocalDate.of(2026, 8, 20)));
+
+        /*
+         * 반려된 액션의 값을 바꾸면 라벨의 llm_output 과 action 이 갈리고 "AI 가 무엇을
+         * 냈는지"를 화면에서 되짚을 수 없다. 예정 시작일도 같은 규칙을 따른다.
+         */
+        assertThat(applied.plannedStartDate).isNull();
+        assertThat(applied.reviewStatus).isEqualTo("REJECTED");
+    }
+
     @Test
     @DisplayName("REJECT에 MODIFY 전용 사유(WRONG_*)를 보내면 422 — 반려 사유와 수정 사유는 섞이면 안 된다(2026-08-11 추가)")
     void 반려에_수정_전용_사유는_거절한다() {
@@ -368,6 +456,77 @@ class ApplyReviewDecisionServiceTest {
         assertThat(applied.called).isTrue();
     }
 
+    // ── 2026-08-13 · 오너 회의 검토화면 부서선택(teamId → TEAM 전환) ─────────────────
+
+    @Test
+    @DisplayName("부서를 골라 보낸 MODIFY 는 담당자 검증을 건너뛰고 teamId 를 그대로 넘긴다")
+    void 부서를_선택하면_전환_요청이_그대로_넘어간다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        // target()은 이미 담당자(ALICE)가 있는 PERSONAL이다 — 담당자가 있어도 teamId가 오면
+        // 담당자 검증(requireAssigneeForConfirm)이 아니라 전환 경로를 탄다.
+        ReviewDecisionOutcome outcome = service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null, null, 5L));
+
+        assertThat(outcome.reviewStatus()).isEqualTo("HUMAN_CONFIRMED");
+        assertThat(applied.called).isTrue();
+        assertThat(applied.teamId).isEqualTo(5L);
+        assertThat(applied.assigneeMemberId).isNull();
+    }
+
+    @Test
+    @DisplayName("담당자 없는 액션도 부서를 고르면 지나간다 — 이 경로는 담당자를 요구하지 않는다")
+    void 담당자_없어도_부서를_고르면_지나간다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        ReviewDecisionOutcome outcome = service(unassignedTarget(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null, null, 5L));
+
+        assertThat(outcome.reviewStatus()).isEqualTo("HUMAN_CONFIRMED");
+        assertThat(applied.called).isTrue();
+    }
+
+    @Test
+    @DisplayName("담당자와 부서를 동시에 보내면 422 — 같은 액션이 사람과 부서를 동시에 가질 수 없다")
+    void 담당자와_부서를_동시에_보내면_거절한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        assertThatThrownBy(() -> service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, BOB, null, null, null, null, 5L)))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(applied.called).isFalse();
+    }
+
+    @Test
+    @DisplayName("부서 선택은 CONFIRM에 실을 수 없다 — 담당자와 같은 취급이다")
+    void 부서_선택은_승인에_실을_수_없다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        assertThatThrownBy(() -> service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.CONFIRM, null, null, null, null, null, null, 5L)))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(applied.called).isFalse();
+    }
+
+    @Test
+    @DisplayName("부서만 보낸 MODIFY 는 라벨을 남기지 않는다 — AI가 낸 적 없는 축이라 정답 라벨이 성립하지 않는다")
+    void 부서만_보낸_수정은_라벨이_없다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+        RecordingVectorRepository vectors = new RecordingVectorRepository();
+
+        service(target(), new RecordingApplyPort(), logs, vectors)
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null, null, 5L));
+
+        assertThat(logs.entries).isEmpty();
+        assertThat(vectors.entries).isEmpty();
+    }
+
     @Test
     @DisplayName("그 회의의 액션이 아니면 404 — 회의 관문은 actionId 를 보지 않는다")
     void 없는_액션은_404() {
@@ -485,8 +644,23 @@ class ApplyReviewDecisionServiceTest {
 
     private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
                                                  Long assignee, LocalDate dueDate, String title, String detail) {
+        return command(decision, reason, assignee, dueDate, title, detail, null);
+    }
+
+    /* 예정 시작일까지 담는 조립. 그 값을 보는 테스트만 이걸 직접 쓴다. */
+    private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
+                                                 Long assignee, LocalDate dueDate, String title, String detail,
+                                                 LocalDate plannedStartDate) {
+        return command(decision, reason, assignee, dueDate, title, detail, plannedStartDate, null);
+    }
+
+    /* teamId까지 담는 조립(2026-08-13) — 오너 회의 검토화면 부서선택(TEAM 전환)을 보는 테스트만 쓴다. */
+    private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
+                                                 Long assignee, LocalDate dueDate, String title, String detail,
+                                                 LocalDate plannedStartDate, Long teamId) {
         return new ReviewDecisionCommand(
-                COMPANY, MEETING, ACTION, ME, decision, reason, assignee, dueDate, title, detail);
+                COMPANY, MEETING, ACTION, ME, decision, reason, assignee, teamId, dueDate, title, detail,
+                plannedStartDate);
     }
 
     private static ActionReviewQueryPort.ReviewTarget target() {
@@ -548,19 +722,24 @@ class ApplyReviewDecisionServiceTest {
 
         private boolean called;
         private Long assigneeMemberId;
+        private Long teamId;
         private LocalDate dueDate;
         private String title;
         private String detail;
+        private LocalDate plannedStartDate;
         private String reviewStatus;
 
         @Override
-        public void apply(long companyId, long actionId, Long assigneeMemberId,
-                          LocalDate dueDate, String title, String detail, String reviewStatus) {
+        public void apply(long companyId, long actionId, Long assigneeMemberId, Long teamId,
+                          LocalDate dueDate, String title, String detail,
+                          LocalDate plannedStartDate, String reviewStatus) {
             this.called = true;
             this.assigneeMemberId = assigneeMemberId;
+            this.teamId = teamId;
             this.dueDate = dueDate;
             this.title = title;
             this.detail = detail;
+            this.plannedStartDate = plannedStartDate;
             this.reviewStatus = reviewStatus;
         }
     }

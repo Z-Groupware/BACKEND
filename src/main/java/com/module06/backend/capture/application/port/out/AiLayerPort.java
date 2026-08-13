@@ -142,6 +142,46 @@ public interface AiLayerPort {
     );
 
     /*
+     * 회의 개요. 회의당 한 번 부른다. 파이프라인의 **맨 끝**이다.
+     *
+     * <h2>입력이 산문이 아니라 구조다 — 이게 이 계약의 핵심이다</h2>
+     * L3 가 만든 주제별 산문 요약을 넘기지 **않는다.** 넘기면 재실행·재개에서 자기 출력을 다시
+     * 압축하게 된다 — 지금 개요 칸에는 주제 요약을 이어 붙인 값이 들어 있고, 이 계층이 성공하면
+     * 그 칸을 짧은 개요로 덮는다. 그 덮인 값을 다음 실행이 입력으로 읽으면 **요약의 요약의
+     * 요약**이 되고, 돌릴수록 내용이 사라진다.
+     *
+     * 그래서 주제 이름과 확정 항목(결정·할일)을 넘긴다. 이 값들은 meeting_decision 에 있어서
+     * 몇 번 돌려도 같고, 개요가 덮이는 것과 무관하다. 재개(ANLZ-02)로 이 계층만 다시 돌려도
+     * 같은 입력을 본다.
+     *
+     * <h2>실패는 치명적이지 않다</h2>
+     * 실패하면 개요 칸에 L3 의 이어 붙인 값이 그대로 남는다. 오케스트레이터가 이 계층의 실패로
+     * 회의를 실패시키지 않는다(LayerName.OVERVIEW 주석). 그래서 Python 쪽 엔드포인트가 아직
+     * 없어도 파이프라인은 끝까지 돈다 — 404 가 AiLayerException 이 되고 계층만 FAILED 로 남는다.
+     *
+     * @param topics 주제 이름과 확정 항목. 비어 있으면 부르지 않는다(요약할 것이 없다)
+     */
+    SummarizeMeetingResult summarizeMeeting(
+            long tenantId,
+            long meetingId,
+            List<MeetingTopicDigest> topics,
+            List<Participant> participants
+    );
+
+    /*
+     * 개요 생성에 넘기는 주제 하나.
+     *
+     * 근거 발화 id 를 넘기지 않는다 — 개요는 회의 전체를 두세 문장으로 줄이는 것이고 특정 발화를
+     * 가리키지 않는다. 근거가 필요한 화면은 주제별 항목(ANLZ-03)을 그대로 쓴다.
+     */
+    record MeetingTopicDigest(int topicSeq, String topic, List<DigestItem> items) {
+    }
+
+    /* 개요가 참고할 확정 항목 하나. 내용과 종류만 있으면 된다. */
+    record DigestItem(ItemType itemType, String content) {
+    }
+
+    /*
      * 계층의 닫힌 목록에 들어갈 참석자다. personId 가 null 인 항목이 unknown_person 탈출구다.
      * 탈출구가 없으면 모델이 명단 안에서 억지로 하나를 고른다(명세 AI-06).
      */

@@ -1,5 +1,7 @@
 package com.module06.backend.identity.member.infrastructure.persistence;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Locale;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -32,6 +34,7 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
 
     private final SpringDataMemberRepository memberRepository;
     private final EntityManager entityManager;
+    private final Clock clock;
 
     /**
      * 팀장 승급이 여기로도 들어온다(§7-4). 호출자가 기존 팀장을 먼저 강등하지만 그 사이에 다른
@@ -39,10 +42,11 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
      * 원시 SQL 예외 대신 {@code MEMBER_TEAM_LEADER_ALREADY_EXISTS} 로 변환한다.
      */
     @Override
-    public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId) {
+    public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId, Long roleId) {
         MemberJpaEntity member = find(memberId);
         PositionRefEntity position = entityManager.getReference(PositionRefEntity.class, positionId);
-        member.changeRoleAndPosition(authority, position);
+        RoleRefEntity role = roleId == null ? null : entityManager.getReference(RoleRefEntity.class, roleId);
+        member.changeRoleAndPosition(authority, position, role);
         try {
             memberRepository.flush();
         } catch (DataIntegrityViolationException exception) {
@@ -66,6 +70,15 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
     @Override
     public void updateAdmin(Long memberId, boolean isAdmin) {
         find(memberId).changeAdmin(isAdmin);
+    }
+
+    /**
+     * 삭제 시각은 {@link Clock} 에서 읽는다 — {@link MemberStatusAdapter#offboard} 와 같은 규칙이다.
+     * {@code LocalDateTime.now()} 를 직접 부르면 테스트가 시간을 고정할 수 없다.
+     */
+    @Override
+    public void softDelete(Long memberId) {
+        find(memberId).softDelete(LocalDateTime.now(clock));
     }
 
     /**

@@ -64,6 +64,15 @@ public class SecurityConfig {
                                                    SecurityErrorResponder securityErrorResponder,
                                                    CorsConfigurationSource corsConfigurationSource) throws Exception {
         return http
+                // CSRF 를 끄는 것이 맞다 — 이 API 에는 브라우저가 자동으로 붙이는 자격증명이 없다.
+                // 세션을 쓰지 않고(아래 STATELESS), 토큰은 Authorization 헤더에서만 읽으며
+                // (JwtAuthenticationFilter — 쿠키를 보지 않는다), httpBasic·formLogin 도 꺼져 있다.
+                // 타 사이트가 만든 폼은 Authorization 헤더를 실을 수 없으므로 공격이 성립하지 않는다.
+                //
+                // ⚠️ 토큰을 쿠키로 옮기는 순간 이 전제가 깨진다 — 그때는 CSRF 를 다시 켜야 한다.
+                //
+                // CodeQL(java/spring-disabled-csrf-protection)이 이 줄을 high 로 잡는다.
+                // 위 근거로 오탐 처리했다(2026-08-12). 다시 뜨면 같은 근거로 판단할 것.
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -90,6 +99,9 @@ public class SecurityConfig {
                         // 운영에서 감추려면 보안 규칙이 아니라 springdoc.api-docs.enabled=false 로 끈다.
                         // Prometheus 서버가 JWT 없이 지표를 수집하므로 prometheus 경로도 공개한다.
                         // 외부 노출 범위는 애플리케이션 인증이 아니라 VPC·보안그룹에서 제한한다.
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/billing-config").permitAll()
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/health/**",

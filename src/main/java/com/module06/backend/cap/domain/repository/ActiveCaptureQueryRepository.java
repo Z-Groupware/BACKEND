@@ -11,7 +11,8 @@ import java.util.Optional;
 
     반환은 CaptureUploadState 애그리거트를 재사용한다 — 응답에 필요한 segmentSeq/lastSeq/recorderPersonId/
     createdAt가 전부 이 안에 있고, canTakeover(하트비트)·elapsedMs·captureSessionId는 서비스 계층에서
-    덧붙인다(하트비트는 CaptureHeartbeatPort, elapsedMs는 createdAt 기준, captureSessionId는 D 미구현이라 null).
+    덧붙인다(하트비트는 CaptureHeartbeatPort, elapsedMs는 createdAt 기준, captureSessionId는
+    CapCaptureSessionReferenceRepository — 세션 행이 없으면 null).
 */
 public interface ActiveCaptureQueryRepository {
 

@@ -1,9 +1,12 @@
 package com.module06.backend.meeting.infrastructure.persistence.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -26,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -36,17 +40,15 @@ import com.module06.backend.meeting.application.command.ResumeCaptureSessionComm
 import com.module06.backend.meeting.application.command.StartCaptureSessionCommand;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
-import com.module06.backend.meeting.application.query.GetCaptureSessionQuery;
 import com.module06.backend.meeting.application.result.CaptureSessionPauseResult;
 import com.module06.backend.meeting.application.result.CaptureSessionResumeResult;
-import com.module06.backend.meeting.application.result.CaptureSessionStateResult;
 import com.module06.backend.meeting.application.result.CaptureSessionStartResult;
-import com.module06.backend.meeting.application.usecase.GetCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.PauseCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.ResumeCaptureSessionUseCase;
 import com.module06.backend.meeting.application.usecase.StartCaptureSessionUseCase;
+import com.module06.backend.meeting.domain.model.CaptureSession;
 import com.module06.backend.meeting.domain.model.Meeting;
-import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
+import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataCaptureSessionRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
@@ -54,13 +56,13 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingReservationSlotRepository;
 
 /*
- * CAP-01~03·10의 실제 JPA 저장·조회와 UNIQUE·상태 전이 동시성 관문을 H2에서 검증한다.
+ * CAP-01~03의 실제 JPA 저장·조회와 UNIQUE·상태 전이 동시성 관문을 H2에서 검증한다.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:cap01db;MODE=MySQL;LOCK_TIMEOUT=10000;DB_CLOSE_DELAY=-1"
 })
-@DisplayName("CAP-01~03·10 캡처 세션 영속성 어댑터")
+@DisplayName("CAP-01~03 캡처 세션 영속성 어댑터")
 class CaptureSessionPersistenceAdapterTest {
 
     /* CAP 생명주기 시각을 시스템 부하와 무관하게 재현할 테스트 기준 순간이다. */
@@ -81,17 +83,13 @@ class CaptureSessionPersistenceAdapterTest {
     @Autowired
     private ResumeCaptureSessionUseCase resumeCaptureSessionUseCase;
 
-    /* 실제 회의·참석자와 캡처 세션 비잠금 조회를 거쳐 CAP-10을 실행하는 인바운드 Port다. */
-    @Autowired
-    private GetCaptureSessionUseCase getCaptureSessionUseCase;
-
     /* 테스트용 회의와 예약 슬롯·참석자를 원자적으로 저장하는 도메인 저장소다. */
     @Autowired
     private MeetingRepository meetingRepository;
 
-    /* 테스트 회의를 IN_PROGRESS로 전이하는 도메인 저장소다. */
+    /* CAP-01과 같은 잠금·상태 저장 경로로 테스트 회의를 IN_PROGRESS로 전이하는 저장소다. */
     @Autowired
-    private MeetingEntryRepository meetingEntryRepository;
+    private CaptureSessionRepository captureSessionRepository;
 
     /* 저장된 캡처 세션 행을 검증하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -120,6 +118,10 @@ class CaptureSessionPersistenceAdapterTest {
     /* CAP-01·02·03 호출마다 1초씩 전진하는 결정적 시각을 제공할 테스트 전용 Clock이다. */
     @MockitoBean
     private Clock clock;
+
+    /* 세션 저장 실패를 강제로 발생시켜 meeting 상태까지 롤백되는지 검증할 실제 어댑터 Spy다. */
+    @MockitoSpyBean
+    private CaptureSessionPersistenceAdapter captureSessionPersistenceAdapter;
 
     /* 동시 시작 요청을 실행한 작업 스레드를 테스트 종료 후 정리하기 위한 실행기다. */
     private ExecutorService executorService;
@@ -166,12 +168,12 @@ class CaptureSessionPersistenceAdapterTest {
         executorService.awaitTermination(5, TimeUnit.SECONDS);
     }
 
-    /* CAP-01 서비스가 실제 capture_session 행을 저장하고 응답 ID를 반환하는지 검증한다. */
+    /* CAP-01 서비스가 회의 시작과 capture_session 저장을 같은 트랜잭션으로 처리하는지 검증한다. */
     @Test
-    @DisplayName("진행 중인 회의에 ACTIVE 캡처 세션을 저장한다")
-    void savesActiveCaptureSession() {
-        /* 회의·슬롯·참석자를 저장하고 진행 상태로 전이한다. */
-        Meeting meeting = saveInProgressMeeting();
+    @DisplayName("예약 회의를 IN_PROGRESS로 전이하고 ACTIVE 캡처 세션을 저장한다")
+    void startsMeetingAndSavesActiveCaptureSession() {
+        /* 아직 시작되지 않은 회의·슬롯·참석자를 실제 데이터베이스에 저장한다. */
+        Meeting meeting = saveScheduledMeeting();
 
         /* 실제 트랜잭션 서비스로 host 3번의 세션 시작 요청을 실행한다. */
         CaptureSessionStartResult result = startCaptureSessionUseCase.startCaptureSession(
@@ -184,6 +186,18 @@ class CaptureSessionPersistenceAdapterTest {
         assertThat(result.startedBy()).isEqualTo(3L);
         assertThat(result.startedAtEpochMs()).isPositive();
 
+        /* 같은 CAP-01 트랜잭션에서 meeting 행도 최초 시작 시각과 함께 진행 상태가 돼야 한다. */
+        assertThat(springDataMeetingRepository.findById(meeting.getId()))
+                .get()
+                .satisfies(entity -> {
+                    /* 별도 MEET-07 호출 없이 회의 시작 상태와 실측 시작 시각을 확인한다. */
+                    assertThat(entity.getStatus().name()).isEqualTo("IN_PROGRESS");
+                    assertThat(entity.getStartedAt()).isEqualTo(LocalDateTime.ofInstant(
+                            Instant.ofEpochMilli(result.startedAtEpochMs()),
+                            TEST_ZONE
+                    ));
+                });
+
         /* 실제 테이블에는 회의당 한 행과 D 소유 값만 저장돼야 한다. */
         assertThat(springDataCaptureSessionRepository.findAll())
                 .singleElement()
@@ -195,6 +209,34 @@ class CaptureSessionPersistenceAdapterTest {
                     assertThat(entity.getPausedAt()).isNull();
                     assertThat(entity.getEndedAt()).isNull();
                 });
+    }
+
+    /* 캡처 세션 저장 실패가 앞서 반영한 회의 시작 상태까지 되돌리는지 검증한다. */
+    @Test
+    @DisplayName("캡처 세션 저장에 실패하면 회의 IN_PROGRESS 전이도 롤백한다")
+    void rollsBackMeetingStartWhenCaptureSessionSaveFails() {
+        /* 실제 SCHEDULED 회의를 커밋하고 세션 저장 단계에만 강제 실패를 주입한다. */
+        Meeting meeting = saveScheduledMeeting();
+        doThrow(new IllegalStateException("강제 캡처 세션 저장 실패"))
+                .when(captureSessionPersistenceAdapter)
+                .save(any(CaptureSession.class));
+
+        /* 회의 상태 저장 뒤 발생한 예외가 CAP-01 트랜잭션 경계 밖으로 전달되는지 확인한다. */
+        assertThatThrownBy(() -> startCaptureSessionUseCase.startCaptureSession(
+                new StartCaptureSessionCommand(10L, 3L, meeting.getId())
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("강제 캡처 세션 저장 실패");
+
+        /* 같은 트랜잭션이 롤백돼 회의는 예약 상태이고 캡처 세션 행도 없어야 한다. */
+        assertThat(springDataMeetingRepository.findById(meeting.getId()))
+                .get()
+                .satisfies(entity -> {
+                    /* 일부 상태만 남는 중간 상태가 생기지 않았는지 직접 확인한다. */
+                    assertThat(entity.getStatus().name()).isEqualTo("SCHEDULED");
+                    assertThat(entity.getStartedAt()).isNull();
+                });
+        assertThat(springDataCaptureSessionRepository.count()).isZero();
     }
 
     /* 저장된 ACTIVE 세션을 실제 잠금 조회 후 PAUSED 상태로 갱신하는지 검증한다. */
@@ -275,38 +317,6 @@ class CaptureSessionPersistenceAdapterTest {
                             .isCloseTo(resumed.resumedAt(), within(1L, ChronoUnit.MICROS));
                     assertThat(entity.getEndedAt()).isNull();
                 });
-    }
-
-    /* 저장된 PAUSED 세션을 예약 참석자가 CAP-10 비잠금 경로로 조회하는지 검증한다. */
-    @Test
-    @DisplayName("예약 참석자가 저장된 PAUSED 캡처 세션 상태를 조회한다")
-    void getsPersistedCaptureSessionForAttendee() {
-        /* 실제 회의와 ACTIVE 세션을 저장한 뒤 CAP-02로 PAUSED 상태를 만든다. */
-        Meeting meeting = saveInProgressMeeting();
-        CaptureSessionStartResult started = startCaptureSessionUseCase.startCaptureSession(
-                new StartCaptureSessionCommand(10L, 3L, meeting.getId())
-        );
-        CaptureSessionPauseResult paused = pauseCaptureSessionUseCase.pauseCaptureSession(
-                new PauseCaptureSessionCommand(10L, 3L, meeting.getId())
-        );
-
-        /* host가 아닌 예약 참석자 7번이 회사 범위 안에서 현재 세션을 조회한다. */
-        CaptureSessionStateResult result = getCaptureSessionUseCase.getCaptureSession(
-                new GetCaptureSessionQuery(10L, 7L, meeting.getId())
-        );
-
-        /* CAP-01의 식별자·시간축과 CAP-02의 PAUSED 상태·시각이 같은 행에서 반환돼야 한다. */
-        assertThat(result.captureSessionId()).isEqualTo(started.captureSessionId());
-        assertThat(result.status().name()).isEqualTo("PAUSED");
-        assertThat(result.isPaused()).isTrue();
-        assertThat(result.startedAtEpochMs()).isEqualTo(started.startedAtEpochMs());
-        assertThat(result.pausedAt())
-                .isCloseTo(paused.pausedAt(), within(1L, ChronoUnit.MICROS));
-
-        /* 조회만 수행했으므로 실제 세션 행의 상태와 개수는 달라지지 않아야 한다. */
-        assertThat(springDataCaptureSessionRepository.findAll())
-                .singleElement()
-                .satisfies(entity -> assertThat(entity.getStatus().name()).isEqualTo("PAUSED"));
     }
 
     /* 같은 ACTIVE 세션의 동시 일시정지가 성공 1건과 CS-004 1건으로 수렴하는지 검증한다. */
@@ -396,10 +406,10 @@ class CaptureSessionPersistenceAdapterTest {
 
     /* 같은 회의에 동시에 들어온 두 시작 요청이 하나의 세션만 만드는지 검증한다. */
     @Test
-    @DisplayName("동일 회의 동시 시작은 성공 1건과 CS-002 1건으로 직렬화한다")
+    @DisplayName("동일 회의 동시 시작은 같은 ACTIVE 세션으로 멱등 수렴한다")
     void allowsOnlyOneConcurrentCaptureSessionStart() throws Exception {
-        /* 두 스레드가 공유할 진행 중 회의를 먼저 커밋한다. */
-        Meeting meeting = saveInProgressMeeting();
+        /* 두 스레드가 공유할 예약 회의를 먼저 커밋해 상태 전이까지 경쟁하게 한다. */
+        Meeting meeting = saveScheduledMeeting();
         StartCaptureSessionCommand command = new StartCaptureSessionCommand(10L, 3L, meeting.getId());
 
         /* 두 요청이 준비된 뒤 같은 순간에 서비스를 호출하도록 시작 장벽을 만든다. */
@@ -422,12 +432,21 @@ class CaptureSessionPersistenceAdapterTest {
         assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
         start.countDown();
 
-        /* meeting 행 잠금과 UNIQUE 제약으로 한 요청만 성공하고 다른 요청은 CS-002가 돼야 한다. */
+        /* meeting 행 잠금 뒤 두 요청 모두 최초 ACTIVE 세션을 성공 응답으로 받아야 한다. */
         assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
-                .containsExactlyInAnyOrder("SUCCESS", "CS-002");
+                .containsExactly("SUCCESS", "SUCCESS");
 
         /* 경합이 끝난 뒤 실제 캡처 세션 행도 정확히 하나만 남아야 한다. */
         assertThat(springDataCaptureSessionRepository.count()).isEqualTo(1L);
+
+        /* 성공한 한 요청의 트랜잭션만 회의를 시작해 최종 상태도 IN_PROGRESS여야 한다. */
+        assertThat(springDataMeetingRepository.findById(meeting.getId()))
+                .get()
+                .satisfies(entity -> {
+                    /* 동시 요청 뒤에도 시작 시각이 있는 단일 진행 상태로 수렴하는지 확인한다. */
+                    assertThat(entity.getStatus().name()).isEqualTo("IN_PROGRESS");
+                    assertThat(entity.getStartedAt()).isNotNull();
+                });
     }
 
     /* 동시 요청 하나를 실행하고 성공 또는 BusinessException 공개 코드를 문자열로 반환한다. */
@@ -511,11 +530,11 @@ class CaptureSessionPersistenceAdapterTest {
         }
     }
 
-    /* 예약 회의를 저장한 뒤 실제 입장 저장소로 IN_PROGRESS 상태를 커밋한다. */
-    private Meeting saveInProgressMeeting() {
-        /* 데이터 준비 단계마다 실제 커밋이 일어나도록 트랜잭션 템플릿을 사용한다. */
+    /* CAP 테스트에 공통으로 사용할 예약 회의와 슬롯·참석자를 실제 데이터베이스에 저장한다. */
+    private Meeting saveScheduledMeeting() {
+        /* CAP-01이 상태 전이를 직접 수행할 수 있도록 SCHEDULED 원본을 별도 트랜잭션에 커밋한다. */
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
-        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(Meeting.create(
+        return transaction.execute(status -> meetingRepository.saveReservation(Meeting.create(
                 10L,
                 12L,
                 100L,
@@ -528,14 +547,21 @@ class CaptureSessionPersistenceAdapterTest {
                 null,
                 List.of(3L, 7L, 11L)
         )));
+    }
+
+    /* 예약 회의를 저장한 뒤 기존 CAP-02·03·10 준비를 위해 IN_PROGRESS 상태로 커밋한다. */
+    private Meeting saveInProgressMeeting() {
+        /* 데이터 준비 단계마다 실제 커밋이 일어나도록 트랜잭션 템플릿을 사용한다. */
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Meeting savedMeeting = saveScheduledMeeting();
 
         /* 저장된 회의 행을 잠그고 최초 입장 시각과 IN_PROGRESS 상태를 반영한다. */
         return transaction.execute(status -> {
             /* 같은 회사 범위에서 방금 저장한 회의를 조회해 실제 상태를 변경한다. */
-            Meeting lockedMeeting = meetingEntryRepository
-                    .findForEntry(10L, savedMeeting.getId())
+            Meeting lockedMeeting = captureSessionRepository
+                    .findMeetingForStart(10L, savedMeeting.getId())
                     .orElseThrow();
-            return meetingEntryRepository.saveState(
+            return captureSessionRepository.saveMeetingState(
                     lockedMeeting.enter(LocalDateTime.of(2026, 8, 6, 13, 58))
             );
         });

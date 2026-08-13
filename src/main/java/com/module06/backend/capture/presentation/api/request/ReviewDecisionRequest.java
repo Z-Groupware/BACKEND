@@ -42,16 +42,35 @@ public record ReviewDecisionRequest(
                 decision,
                 rejectReason,
                 value != null ? value.assigneeMemberId() : null,
+                value != null ? value.teamId() : null,
                 value != null ? value.dueDate() : null,
                 value != null ? value.title() : null,
-                value != null ? value.detail() : null);
+                value != null ? value.detail() : null,
+                value != null ? value.plannedStartDate() : null);
     }
 
     /*
      * 사람이 고친 값. 담당자·기한·제목·내용 중 고친 칸만 채운다(2026-08-11, title·detail
      * 추가 — 이홍근 요청). detail은 Action.description에 대응(ActionReviewResponse의
      * 기존 필드명과 통일).
+     *
+     * <h2>2026-08-12 — plannedStartDate 추가(#386 후속)</h2>
+     * 예정 시작일이다. 나머지 넷과 성질이 다르다 — **AI 가 내지 않는 값**이라 "고친 칸"이
+     * 아니라 "사람이 처음 정하는 칸"이다. 그래서 CONFIRM 과 함께 보낼 수 있고(다른 넷은
+     * CONFIRM 에 실리면 422), 라벨(review_log)에 WRONG_* 사유가 만들어지지 않는다.
+     *
+     * 범위(익일 ~ 프로젝트 마감일)는 여기서 검사하지 않는다. 프로젝트 마감일은 action 도메인
+     * 데이터라 DTO 가 알 수 없고, @Future 같은 단일 필드 제약으로는 상한을 표현할 수 없다 —
+     * 사유 필수 여부를 여기서 안 보는 것과 같은 이유다(클래스 주석).
+     *
+     * <h2>2026-08-13 — teamId 추가(오너 회의 검토화면 부서선택)</h2>
+     * assigneeMemberId 와 상호 배타적이다 — 같은 액션이 사람 하나와 부서 하나를 동시에 가질
+     * 수 없다. 둘 다 채워 보내면 422(REVIEW_ASSIGNEE_TEAM_CONFLICT). CONFIRM 취급은
+     * assigneeMemberId 와 같다(plannedStartDate 처럼 예외를 두지 않는다) — AI가 애초에
+     * 부서를 낸 적이 없어도, 화면이 담당자 대신 부서를 보여주는 것뿐이라 "고치는" 성격이
+     * 같기 때문이다.
      */
-    public record ReviewValue(Long assigneeMemberId, LocalDate dueDate, String title, String detail) {
+    public record ReviewValue(Long assigneeMemberId, Long teamId, LocalDate dueDate, String title, String detail,
+                              LocalDate plannedStartDate) {
     }
 }

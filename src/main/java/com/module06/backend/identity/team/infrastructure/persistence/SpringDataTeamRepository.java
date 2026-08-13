@@ -14,6 +14,9 @@ interface SpringDataTeamRepository extends JpaRepository<TeamJpaEntity, Long> {
 
     Optional<TeamJpaEntity> findByIdAndCompanyId(Long id, Long companyId);
 
+    /** MEET-17 대시보드 카드용 배치 조회 — 회사 경계를 쿼리에서 자른다(TeamQueryAdapter). */
+    List<TeamJpaEntity> findByCompanyIdAndIdIn(Long companyId, List<Long> ids);
+
     /**
      * 오프보딩(MemberStatusAdapter#offboard) 전용 — SELECT ... FOR UPDATE 로 이 행을 잠근다.
      * 조회와 이어지는 팀장 자리 비우기 사이에 다른 트랜잭션(후임 승급)이 끼어들면, 잠금 없이는

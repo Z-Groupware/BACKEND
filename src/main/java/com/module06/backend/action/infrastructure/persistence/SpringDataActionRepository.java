@@ -47,6 +47,12 @@ public interface SpringDataActionRepository
     List<ActionJpaEntity> findAllByActionTypeAndCompanyIdAndParentActionId(
             ActionType actionType, Long companyId, Long parentActionId);
 
+    // 상위 팀 액션명 스냅샷 배치 조회(ActionReassignAdapter) — id만으로 찾으면 회사·종류 불변식에
+    // 기대게 되어 다른 회사·PERSONAL 액션 제목이 섞일 수 있어, actionType(TEAM)·companyId도 조건에 넣는다
+    // (위 findAllByActionTypeAndCompanyIdAndParentActionId와 동일 이유, CodeRabbit PR #382 지적).
+    List<ActionJpaEntity> findAllByActionTypeAndCompanyIdAndIdIn(
+            ActionType actionType, Long companyId, List<Long> ids);
+
     // 마이페이지 확정 대기 목록(MeetingActionQueryPort) — 아직 분배되지 않은(dispatched_at IS NULL)
     // 액션이 남은 회의를 찾는다. review_status = PENDING만 보면 틀린다 — HUMAN_CONFIRMED인데
     // 아직 분배 확정 버튼을 안 누른 액션을 놓친다(V5.17__add_dispatched_at_to_action.sql:12-17).
@@ -64,6 +70,11 @@ public interface SpringDataActionRepository
     List<UndispatchedProjection> findAllByCompanyIdAndSourceMeetingIdIn(Long companyId, List<Long> sourceMeetingIds);
 
     boolean existsByCompanyIdAndId(Long companyId, Long id);
+
+    // 2026-08-12, 모성진(D) 요청 — 회의–액션 팀 일치 검증용. teamId·actionType 두 컬럼만
+    // 필요해 ProjectActionProjection과 같은 이유로 프로젝션이다. existsByCompanyIdAndId를
+    // 대체하는 단건 조회 — 존재 여부는 Optional.isPresent()로 그대로 판단할 수 있다.
+    Optional<ActionTeamReferenceProjection> findByCompanyIdAndId(Long companyId, Long id);
 
     // ActionReassignAdapter.reassign()의 read-modify-write 전용 — SELECT ... FOR UPDATE로
     // 같은 행을 노리는 동시 요청을 뒤엣것이 앞엣것을 기다리게 만든다. 호출자가 트랜잭션
@@ -116,5 +127,12 @@ public interface SpringDataActionRepository
     // 닫힌 프로젝션 — assigneeMemberId 한 컬럼만 읽는다.
     interface AssigneeActionProjection {
         Long getAssigneeMemberId();
+    }
+
+    // 닫힌 프로젝션 — teamId·actionType 두 컬럼만 읽는다(회의–액션 팀 일치 검증용).
+    interface ActionTeamReferenceProjection {
+        Long getTeamId();
+
+        ActionType getActionType();
     }
 }

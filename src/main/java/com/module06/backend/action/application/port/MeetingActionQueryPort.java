@@ -1,6 +1,9 @@
 package com.module06.backend.action.application.port;
 
 import java.util.List;
+import java.util.Optional;
+
+import com.module06.backend.action.domain.model.ActionType;
 
 /* comment.
     action(C, 김민섭)이 선언하고, meeting(D, 모성진) 도메인이 호출하는 인바운드 포트.
@@ -17,7 +20,21 @@ import java.util.List;
 public interface MeetingActionQueryPort {
 
     // MEET-01 회의 예약 시 relatedActionId 검증용.
+    // 2026-08-12, 모성진(D) 요청으로 findActionTeamReference가 대체 — 회의 팀과 액션 팀이
+    // 일치하는지까지 검증하려면 boolean만으로는 팀을 알 방법이 없었다. D 쪽 호출부가
+    // findActionTeamReference로 옮겨가면 이 메서드는 삭제한다(호출처가 D 한 곳뿐이라
+    // isPresent()로 그대로 대체 가능 — 지금은 D 마이그레이션 전이라 남겨둔다).
     boolean existsAction(Long companyId, Long actionId);
+
+    // 2026-08-12, 모성진(D) 요청 — 회의–액션 팀 일치 검증. teamId(회의 팀과 일치하는지)·
+    // actionType(상위 팀 액션(TEAM)이 맞는지 — PERSONAL은 teamId가 항상 null이라 이 구분이
+    // 없으면 "다른 팀 액션"이라는 틀린 에러가 나간다) 둘 다 필요해서 boolean으로는 안 된다.
+    Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId);
+
+    // teamId는 PERSONAL이면 항상 null이다(ActionTypeShapePolicy) — actionType으로 구분해야
+    // 하는 이유가 이거다.
+    record ActionTeamReference(Long teamId, ActionType actionType) {
+    }
 
     // 마이페이지 확정 대기 목록용 배치 조회 — 아직 분배되지 않은 액션이 남은 회의만 반환.
     // companyId 또는 sourceMeetingIds가 null이거나 비면 조회 없이 List.of().

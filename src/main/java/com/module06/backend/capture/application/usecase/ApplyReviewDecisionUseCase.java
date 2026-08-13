@@ -29,7 +29,9 @@ public interface ApplyReviewDecisionUseCase {
      *                     라벨의 신뢰도를 나중에 되짚을 수 없다
      * @param rejectReason REJECT에는 필수다(422), 사람이 직접 고른 5종만 허용한다.
      *                     CONFIRM·MODIFY에 붙어 오면 거절한다
-     * @param assignee     MODIFY 에서 바꾼 담당자. 안 바꿨으면 null
+     * @param assignee     MODIFY 에서 바꾼 담당자. 안 바꿨으면 null. teamId 와 상호 배타적이다
+     * @param teamId       2026-08-13 추가(오너 회의 검토화면 부서선택) — 채워지면 PERSONAL을
+     *                     TEAM으로 전환한다. assignee 와 함께 오면 거절한다
      * @param dueDate      MODIFY 에서 바꾼 기한. 안 바꿨으면 null
      * @param title        MODIFY 에서 바꾼 제목. 안 바꿨으면 null
      * @param detail       MODIFY 에서 바꾼 내용. 안 바꿨으면 null
@@ -42,9 +44,17 @@ public interface ApplyReviewDecisionUseCase {
             ReviewDecision decision,
             RejectReason rejectReason,
             Long assignee,
+            Long teamId,
             LocalDate dueDate,
             String title,
-            String detail
+            String detail,
+            /*
+             * 예정 시작일(#386 후속). 다른 다섯과 성질이 다르다 — **AI 산출물이 아니다.**
+             * meeting_assignment_tuple 에 대응 컬럼이 없어 AI 가 애초에 내지 않고, 사람이
+             * 이 화면에서 처음 정한다. 그래서 CONFIRM 에도 실릴 수 있고(고치는 것이 아니라
+             * 정하는 것이다) review_log 에 WRONG_* 라벨을 만들지 않는다.
+             */
+            LocalDate plannedStartDate
     ) {
     }
 }

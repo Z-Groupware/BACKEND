@@ -12,11 +12,11 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.CaptureSession;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.CaptureSessionControlRepository;
-import com.module06.backend.meeting.domain.repository.CaptureSessionQueryRepository;
 import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.exception.CaptureSessionErrorCode;
 import com.module06.backend.meeting.infrastructure.persistence.entity.CaptureSessionJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
+import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingJpaEntity;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataCaptureSessionRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingRepository;
@@ -28,8 +28,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class CaptureSessionPersistenceAdapter implements
         CaptureSessionRepository,
-        CaptureSessionControlRepository,
-        CaptureSessionQueryRepository {
+        CaptureSessionControlRepository {
 
     /* 회사 범위 회의 행을 잠금 조회하는 기존 회의 기술 저장소다. */
     private final SpringDataMeetingRepository springDataMeetingRepository;
@@ -76,11 +75,16 @@ public class CaptureSessionPersistenceAdapter implements
                 ));
     }
 
-    /* 해당 회의의 캡처 세션 존재 여부를 파생 쿼리로 조회한다. */
+    /* 녹음 시작으로 바뀐 회의 상태와 startedAt을 캡처 세션 INSERT와 같은 트랜잭션에 저장한다. */
     @Override
-    public boolean existsByMeetingId(Long meetingId) {
-        /* 빠른 사용자 오류 반환을 위한 사전 검사이며 최종 보장은 UNIQUE 제약이 담당한다. */
-        return springDataCaptureSessionRepository.existsByMeetingId(meetingId);
+    public Meeting saveMeetingState(Meeting meeting) {
+        /* 식별자가 있는 meeting 행을 갱신하고 세션 저장 전 상태 전이 오류를 즉시 확인한다. */
+        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(
+                MeetingJpaEntity.from(meeting)
+        );
+
+        /* 참석자 원본은 바꾸지 않고 갱신된 영속성 값과 잠금 시점 명단을 합쳐 반환한다. */
+        return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
     }
 
     /* 회의당 하나인 캡처 세션을 쓰기 잠금으로 조회해 동시 상태 전이를 직렬화한다. */
@@ -91,10 +95,10 @@ public class CaptureSessionPersistenceAdapter implements
                 .map(CaptureSessionJpaEntity::toDomain);
     }
 
-    /* 회의당 하나인 현재 캡처 세션을 CAP-10 조회용 비잠금 경로로 읽는다. */
+    /* 회의당 하나인 기존 캡처 세션을 CAP-01 재호출 멱등 판정을 위해 비잠금으로 읽는다. */
     @Override
     public Optional<CaptureSession> findByMeetingId(Long meetingId) {
-        /* 상태 제어용 findByMeetingId와 분리된 파생 쿼리로 읽고 순수 도메인으로 변환한다. */
+        /* 상태 제어용 findByMeetingIdForUpdate와 분리된 파생 쿼리로 읽고 순수 도메인으로 변환한다. */
         return springDataCaptureSessionRepository.findFirstByMeetingId(meetingId)
                 .map(CaptureSessionJpaEntity::toDomain);
     }

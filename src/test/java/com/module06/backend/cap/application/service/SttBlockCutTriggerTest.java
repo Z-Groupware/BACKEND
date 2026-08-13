@@ -215,6 +215,125 @@ class SttBlockCutTriggerTest {
         assertThat(state.getBlocksFormed()).isEqualTo(1);
     }
 
+    /* 회의 종료 시 자투리가 있으면 세그먼트 전환 버전과 같은 결과를 만들고, 성공했으니 true를 돌려주는지 검증한다. */
+    @Test
+    @DisplayName("회의 종료 시 자투리가 있으면 블록을 만들고 true를 반환한다")
+    void finalizesTailBlockOnMeetingCompletionWhenChunksAccumulated() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        boolean result = trigger(stateRepo, audioPort, new RefusingCutDetectionPort(), createPort)
+                .finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 25, 0, 0L);
+
+        assertThat(result).isTrue();
+        assertThat(audioPort.assembleCalls).hasSize(1);
+        assertThat(createPort.received).hasSize(1);
+        assertThat(createPort.received.get(0).cutReason()).isEqualTo("TAIL");
+    }
+
+    /* 자투리가 없으면(청크 없음/이미 경계에 맞음) 아무 포트도 안 부르고 true(진행해도 안전)를 반환하는지 검증한다. */
+    @Test
+    @DisplayName("회의 종료 시 자투리가 없으면 아무 포트도 안 부르고 true를 반환한다")
+    void returnsTrueOnMeetingCompletionWhenNothingAccumulated() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        boolean result = trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(),
+                createPort).finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 0, 0, 0L);
+
+        assertThat(result).isTrue();
+        assertThat(createPort.received).isEmpty();
+    }
+
+    /*
+     * 예약 경합에서 지면 false를 반환하는지 검증한다 — 호출자(MeetingCompletedAssemblyTrigger·
+     * RecordingAssemblyService)는 이 false를 보고 조립 dispatch를 미뤄야 한다(CodeRabbit 지적).
+     */
+    @Test
+    @DisplayName("회의 종료 시 TAIL 예약 경합에서 지면 false를 반환한다")
+    void returnsFalseOnMeetingCompletionWhenReservationLosesRace() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        stateRepo.forceReservationConflict = true;
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        boolean result = trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(),
+                createPort).finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 25, 0, 0L);
+
+        assertThat(result).isFalse();
+        assertThat(createPort.received).isEmpty();
+    }
+
+    /* 예약엔 성공했지만 오디오 조립/제출이 터지면 false를 반환하는지 검증한다(같은 이유). */
+    @Test
+    @DisplayName("회의 종료 시 TAIL 블록 조립이 실패하면 false를 반환한다")
+    void returnsFalseOnMeetingCompletionWhenAssemblyFails() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        SttBlockAudioAssemblyPort failingAudioPort = new SttBlockAudioAssemblyPort() {
+            @Override
+            public ExtractedWindow extractCutWindow(Long companyId, Long meetingId, int segmentSeq,
+                                                     long targetOffsetMs, long availableUpToMs) {
+                throw new AssertionError("TAIL은 AI-01 윈도우를 안 쓰므로 호출되면 안 됩니다.");
+            }
+
+            @Override
+            public String assembleBlockAudio(Long companyId, Long meetingId, int segmentSeq, int blockSeq,
+                                             long startOffsetMs, long endOffsetMs) {
+                throw new RuntimeException("S3/ffmpeg 실패 가정");
+            }
+        };
+
+        boolean result = trigger(stateRepo, failingAudioPort, new RefusingCutDetectionPort(), new RecordingCreatePort())
+                .finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 25, 0, 0L);
+
+        assertThat(result).isFalse();
+        // 예약은 이미 성공해 blocksFormed가 전진했다 — 재료(recording_part)가 아직 안 지워졌으므로
+        // 호출자가 조립을 미루고 사람이 CAP-05로 재시도하면 다음 예약이 이어서 성공한다.
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
+    }
+
+    /*
+     * triggerIfThresholdReached(비동기)가 아직 못 따라잡아 남은 구간이 정확히 40청크(한 블록
+     * 분량)면, 그 전체를 TAIL로 뭉개지 않고 false를 반환하는지 검증한다(CodeRabbit 지적).
+     */
+    @Test
+    @DisplayName("회의 종료 시 남은 구간이 정확히 40청크면 TAIL로 만들지 않고 false를 반환한다")
+    void returnsFalseWhenRemainingEqualsFullBlock() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        // lastSeq=40 — 정확히 한 블록 분량(600,000ms)이 아직 안 끝난 채 회의가 종료된 상황.
+        boolean result = trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(),
+                createPort).finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 40, 0, 0L);
+
+        assertThat(result).isFalse();
+        assertThat(createPort.received).isEmpty();
+        // 예약 자체를 시도하지 않으므로 blocksFormed는 그대로다.
+        assertThat(state.getBlocksFormed()).isZero();
+    }
+
+    /* 남은 구간이 40청크를 넘겨도(41개) 마찬가지로 TAIL로 만들지 않고 false를 반환하는지 검증한다. */
+    @Test
+    @DisplayName("회의 종료 시 남은 구간이 40청크를 넘으면 TAIL로 만들지 않고 false를 반환한다")
+    void returnsFalseWhenRemainingExceedsFullBlock() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        // lastSeq=41 — 비동기 10분 트리거가 못 따라잡은 채 회의가 종료된 상황.
+        boolean result = trigger(stateRepo, new RefusingAudioAssemblyPort(), new RefusingCutDetectionPort(),
+                createPort).finalizeTailBlockOnMeetingCompletion(COMPANY_ID, MEETING_ID, 0, 41, 0, 0L);
+
+        assertThat(result).isFalse();
+        assertThat(createPort.received).isEmpty();
+        assertThat(state.getBlocksFormed()).isZero();
+    }
+
     private SttBlockCutTrigger trigger(CaptureUploadStateRepository stateRepo, SttBlockAudioAssemblyPort audioPort,
                                        SttBlockCutDetectionPort cutPort, CreateSttBlockPort createPort) {
         return new SttBlockCutTrigger(audioPort, cutPort, createPort, stateRepo, new SttBlockFormedWriter(stateRepo));

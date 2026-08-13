@@ -19,7 +19,7 @@ import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.repository.MeetingCancellationRepository;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
-import com.module06.backend.meeting.domain.repository.MeetingEntryRepository;
+import com.module06.backend.meeting.domain.repository.CaptureSessionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.domain.repository.MeetingUpdateRepository;
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingAttendeeRepository;
@@ -37,9 +37,9 @@ class MeetingPersistenceAdapterTest {
     @Autowired
     private MeetingRepository meetingRepository;
 
-    /* MEET-07에서 회의 행 잠금 조회와 상태 저장에 사용하는 도메인 저장소 계약이다. */
+    /* CAP-01에서 회의 행 잠금 조회와 시작 상태 저장에 사용하는 도메인 저장소 계약이다. */
     @Autowired
-    private MeetingEntryRepository meetingEntryRepository;
+    private CaptureSessionRepository captureSessionRepository;
 
     /* MEET-08에서 회의 행 잠금 조회와 완료 상태 저장에 사용하는 도메인 저장소 계약이다. */
     @Autowired
@@ -157,63 +157,22 @@ class MeetingPersistenceAdapterTest {
                 .containsExactly(3L, 11L, 15L);
     }
 
-    /* 입장용 잠금 조회가 회사 범위와 참석자 명단을 적용하고 상태를 저장하는지 검증한다. */
-    @Test
-    @DisplayName("회의를 잠금 조회하고 최초 입장 상태와 startedAt을 저장한다")
-    void locksMeetingWithAttendeesAndSavesEntryState() {
-        /* 예약 회의를 먼저 커밋해 회의·슬롯·참석자 행을 준비한다. */
-        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
-        Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
-                meeting("입장 테스트 회의", List.of(3L, 7L, 11L))
-        ));
-        LocalDateTime enteredAt = LocalDateTime.of(2026, 8, 6, 13, 58);
-
-        /* 별도 트랜잭션에서 회사 범위 잠금 조회 후 도메인 입장 상태를 저장한다. */
-        Meeting enteredMeeting = transaction.execute(status -> {
-            Meeting locked = meetingEntryRepository
-                    .findForEntry(10L, savedMeeting.getId())
-                    .orElseThrow();
-
-            /* 조회 결과는 최신 참석자 명단을 포함하고 타 회사 조건에서는 노출되지 않아야 한다. */
-            assertThat(locked.getAttendeeMemberIds()).containsExactly(3L, 7L, 11L);
-            assertThat(meetingEntryRepository.findForEntry(20L, savedMeeting.getId())).isEmpty();
-
-            /* 최초 입장 도메인 상태를 기존 회의 행에 저장한다. */
-            return meetingEntryRepository.saveState(locked.enter(enteredAt));
-        });
-
-        /* 저장 결과와 실제 meeting 행의 상태·startedAt이 동일해야 한다. */
-        assertThat(enteredMeeting.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
-        assertThat(enteredMeeting.getStartedAt()).isEqualTo(enteredAt);
-        assertThat(springDataMeetingRepository.findById(savedMeeting.getId()))
-                .get()
-                .satisfies(entity -> {
-                    assertThat(entity.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
-                    assertThat(entity.getStartedAt()).isEqualTo(enteredAt);
-                });
-
-        /* 상태 저장은 예약 슬롯과 참석자 명단을 변경하면 안 된다. */
-        assertThat(springDataMeetingReservationSlotRepository.count()).isEqualTo(2L);
-        assertThat(springDataMeetingAttendeeRepository
-                .findAllByMeetingIdOrderByMemberIdAsc(savedMeeting.getId()))
-                .extracting(attendee -> attendee.getMemberId())
-                .containsExactly(3L, 7L, 11L);
-    }
-
     /* 완료 저장이 실제 시각만 갱신하고 예약 슬롯과 확정 참석자를 유지하는지 검증한다. */
     @Test
     @DisplayName("회의를 잠금 조회하고 DONE 상태를 저장하되 슬롯과 참석자를 유지한다")
     void locksAndCompletesMeetingWithoutDeletingHistory() {
-        /* 예약 회의를 저장한 뒤 최초 입장으로 IN_PROGRESS 상태를 먼저 만든다. */
+        /* 예약 회의를 저장한 뒤 CAP-01 경로로 IN_PROGRESS 상태를 먼저 만든다. */
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         Meeting savedMeeting = transaction.execute(status -> meetingRepository.saveReservation(
                 meeting("종료 테스트 회의", List.of(3L, 7L, 11L))
         ));
         LocalDateTime startedAt = LocalDateTime.of(2026, 8, 6, 13, 58, 12);
         transaction.executeWithoutResult(status -> {
-            /* 실제 MEET-07 저장 경로로 최초 시작 상태를 반영한다. */
-            Meeting locked = meetingEntryRepository.findForEntry(10L, savedMeeting.getId()).orElseThrow();
-            meetingEntryRepository.saveState(locked.enter(startedAt));
+            /* 실제 CAP-01 저장 경로로 녹음 시작 상태를 반영한다. */
+            Meeting locked = captureSessionRepository
+                    .findMeetingForStart(10L, savedMeeting.getId())
+                    .orElseThrow();
+            captureSessionRepository.saveMeetingState(locked.enter(startedAt));
         });
 
         /* 별도 종료 트랜잭션에서 회사 범위 잠금 조회 후 DONE과 endedAt을 저장한다. */

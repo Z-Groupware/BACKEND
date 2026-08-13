@@ -296,8 +296,13 @@ class MyProfileServiceTest {
         private Long updatedRoleAndPositionMemberId;
 
         @Override
-        public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId) {
+        public void updateRoleAndPosition(Long memberId, Authority authority, Long positionId, Long roleId) {
             this.updatedRoleAndPositionMemberId = memberId;
+        }
+
+        @Override
+        public void softDelete(Long memberId) {
+            throw new UnsupportedOperationException();
         }
 
         @Override

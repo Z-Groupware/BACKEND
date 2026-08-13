@@ -33,6 +33,7 @@ public enum CapErrorCode implements ErrorCode {
     CAP_RECORDING_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "CAP-014", "이미 제출된 녹음이 있습니다."),
     CAP_STT_NOT_CONFIRMED(HttpStatus.CONFLICT, "CAP-017", "미확인 STT 구간이 있습니다."),
     CAP_CAPTURE_PAUSED(HttpStatus.CONFLICT, "CAP-020", "회의가 일시정지 상태입니다."),
+    CAP_CAPTURE_SESSION_NOT_ACTIVE(HttpStatus.CONFLICT, "CAP-022", "캡처 세션이 활성 상태가 아닙니다."),
 
     CAP_RMS_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "CAP-018", "rms 값이 필요합니다.");
 

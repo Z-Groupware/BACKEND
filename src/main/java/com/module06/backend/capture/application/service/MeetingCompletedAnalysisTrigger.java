@@ -11,6 +11,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import com.module06.backend.capture.application.event.AnalysisCompletedEvent;
+import com.module06.backend.capture.application.event.AnalysisFailedEvent;
+import com.module06.backend.capture.application.port.out.AnalysisEventPublisher;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
 import com.module06.backend.global.exception.BusinessException;
@@ -58,6 +61,15 @@ public class MeetingCompletedAnalysisTrigger {
     private final RunAnalysisUseCase runAnalysisUseCase;
     private final MeetingLengthProvider meetingLengthProvider;
 
+    /* 완료·실패 알림 문구에 넣을 회의 제목을 읽는 D 소유 데이터 조회 Port다. */
+    private final MeetingTitleProvider meetingTitleProvider;
+
+    /* 알림 수신자(회의 개설자)를 읽는 D 소유 데이터 조회 Port다. */
+    private final MeetingHostProvider meetingHostProvider;
+
+    /* 완료·실패 신호를 알림 도메인에 전달하는 아웃바운드 Port다. */
+    private final AnalysisEventPublisher analysisEventPublisher;
+
     @Async("analysisTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMeetingCompleted(MeetingCompletionRequestedEvent event) {
@@ -79,6 +91,7 @@ public class MeetingCompletedAnalysisTrigger {
              */
             AnalysisOutcome outcome = runAnalysisUseCase.run(companyId, meetingId, false);
             logOutcome(meetingId, outcome);
+            notifyOutcome(companyId, meetingId, outcome);
 
         } catch (BusinessException e) {
             /*
@@ -110,6 +123,45 @@ public class MeetingCompletedAnalysisTrigger {
         log.info("회의 종료 자동 분석 — meetingId={} status={} 주제={} {}",
                 meetingId, outcome.status(), outcome.topicCount(),
                 outcome.message() != null ? outcome.message() : "");
+    }
+
+    /*
+     * DONE·FAILED일 때만 개설자에게 완료·실패 신호를 보낸다.
+     *
+     * SKIPPED·ALREADY_RUNNING·SUPERSEDED는 사용자 관점에서 "끝난 것"이 아니다 — 아직 대상이
+     * 없거나(SKIPPED) 다른 실행이 대신 끝낼 것이므로(ALREADY_RUNNING·SUPERSEDED) 그 실행이
+     * 끝날 때 이 메서드가 다시 불린다. 여기서 같이 알려버리면 "요약 완료" 알림이 실제로는
+     * 아무 결과도 없는 회의에 뜬다.
+     *
+     * 알림 실패를 별도로 감싸는 이유 — logOutcome 다음 줄이라 같은 catch(RuntimeException)
+     * 블록 안에 있으면, 분석은 성공했는데 알림만 실패한 경우도 "회의 종료 자동 분석 실패"로
+     * 잘못 기록된다. 분석 결과와 알림 결과는 서로 다른 실패다.
+     */
+    private void notifyOutcome(long companyId, long meetingId, AnalysisOutcome outcome) {
+        if (outcome.status() != AnalysisOutcome.Status.DONE
+                && outcome.status() != AnalysisOutcome.Status.FAILED) {
+            return;
+        }
+
+        try {
+            Optional<String> title = meetingTitleProvider.titleOf(meetingId);
+            Optional<Long> hostMemberId = meetingHostProvider.hostMemberIdOf(meetingId);
+            if (title.isEmpty() || hostMemberId.isEmpty()) {
+                log.warn("완료·실패 알림 생략 — 제목 또는 개설자를 읽지 못했다. meetingId={}", meetingId);
+                return;
+            }
+
+            if (outcome.status() == AnalysisOutcome.Status.DONE) {
+                analysisEventPublisher.publish(new AnalysisCompletedEvent(
+                        companyId, meetingId, hostMemberId.get(), title.get(), outcome.topicCount()));
+            } else {
+                analysisEventPublisher.publish(new AnalysisFailedEvent(
+                        companyId, meetingId, hostMemberId.get(), title.get(), outcome.errorCode()));
+            }
+        } catch (RuntimeException e) {
+            // 여기서 던져도 분석 자체는 이미 끝났다 — 알림 실패로 분석 결과를 되돌릴 이유가 없다.
+            log.error("완료·실패 알림 발행 실패 — meetingId={}", meetingId, e);
+        }
     }
 
     /*

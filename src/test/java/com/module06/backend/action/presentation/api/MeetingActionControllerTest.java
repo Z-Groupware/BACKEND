@@ -75,7 +75,7 @@ class MeetingActionControllerTest {
     private Action teamAction() {
         return Action.reconstitute(
                 10L, COMPANY, 100L, null, MEETING, 7L, null,
-                ActionType.TEAM, "팀 액션", "설명", false, null, LocalDate.of(2026, 8, 20), false,
+                ActionType.TEAM, "팀 액션", "설명", false, null, null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.PENDING, null, null, null, false,
                 null, null, null
         );
@@ -84,7 +84,7 @@ class MeetingActionControllerTest {
     private Action personalAction() {
         return Action.reconstitute(
                 11L, COMPANY, 100L, 10L, MEETING, null, 5L,
-                ActionType.PERSONAL, "개인 액션", "설명", false, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 20), false,
+                ActionType.PERSONAL, "개인 액션", "설명", false, LocalDate.of(2026, 8, 1), null, LocalDate.of(2026, 8, 20), false,
                 ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, false,
                 null, null, null
         );

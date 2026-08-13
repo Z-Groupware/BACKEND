@@ -22,6 +22,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -38,9 +39,15 @@ import com.module06.backend.identity.member.application.dto.MemberPage;
 import com.module06.backend.identity.member.application.dto.OrgChartMember;
 import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
+import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
+import com.module06.backend.identity.member.application.dto.TeamRosterMember;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
+import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamRosterUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
 import com.module06.backend.identity.member.domain.model.Authority;
@@ -71,6 +78,12 @@ class MemberControllerTest {
     private UpdateMemberRoleUseCase updateMemberRoleUseCase;
     @MockitoBean
     private UpdateMemberAdminUseCase updateMemberAdminUseCase;
+    @MockitoBean
+    private GetMemberDashboardSummaryUseCase getMemberDashboardSummaryUseCase;
+    @MockitoBean
+    private GetTeamLeadersStatusUseCase getTeamLeadersStatusUseCase;
+    @MockitoBean
+    private GetTeamRosterUseCase getTeamRosterUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -163,6 +176,148 @@ class MemberControllerTest {
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].name").value("이하윤"))
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].positionName").value("선임"))
                 .andExpect(jsonPath("$.data[0].subTeams[0].members[0].role").value("MEMBER"));
+    }
+
+    /*
+     * 인가 조건을 애노테이션으로 못 박는다. 이 테스트 클래스는 addFilters = false 라 실제 인가가
+     * 돌지 않으므로, 조직도를 전 사원에게 열어둔 결정과 명부를 관리자에게 남겨둔 결정이 나중에
+     * 조용히 뒤집히는 것을 여기서 잡는다.
+     */
+    @Test
+    @DisplayName("조직도는 로그인한 사원 누구나, 명부 목록은 관리자만")
+    void orgChartIsOpenToAllMembersButListIsNot() throws Exception {
+        PreAuthorize orgChart = MemberController.class
+                .getMethod("orgChart", Long.class).getAnnotation(PreAuthorize.class);
+        PreAuthorize list = MemberController.class
+                .getMethod("list", Long.class, MemberListFilter.class, String.class, int.class, int.class)
+                .getAnnotation(PreAuthorize.class);
+
+        assertThat(orgChart.value()).isEqualTo("isAuthenticated()");
+        assertThat(list.value()).isEqualTo("hasAnyRole('OWNER','ADMIN')");
+    }
+
+    /*
+     * 픽커는 회의 개설 화면의 부품이므로 회의 개설(POST /api/meetings)과 같은 범위여야 한다.
+     * 여기가 더 좁으면 회의는 열 수 있는데 참석자를 고르지 못하는 구멍이 생긴다 — 팀이 있는
+     * ADMIN 이 그 경우다. 애노테이션이 조용히 좁혀지면 이 테스트가 깨져야 한다.
+     */
+    @Test
+    @DisplayName("내 팀 로스터 권한은 회의 개설과 같다 — 네 역할 모두 부른다")
+    void myTeamRosterMatchesMeetingCreationRoles() throws Exception {
+        PreAuthorize myTeamRoster = MemberController.class
+                .getMethod("myTeamRoster", Long.class, Long.class).getAnnotation(PreAuthorize.class);
+
+        assertThat(myTeamRoster.value()).isEqualTo("hasAnyRole('OWNER','ADMIN','LEADER','MEMBER')");
+    }
+
+    /* ── 내 팀 로스터 ──────────────────────────────────────────────────────── */
+
+    /*
+     * 회의 참석자 픽커가 읽는 응답이다. 키가 memberId·name 둘뿐이라는 것 자체가 계약이라 —
+     * 여기에 직급·권한·담당 액션 수가 붙으면 팀장 전용으로 막아둔 관리 정보가 일반 사원 경로로
+     * 새어 나간다 — 필드가 늘어나는 순간 이 테스트가 깨져야 한다.
+     */
+    @Test
+    @DisplayName("내 팀 로스터 응답 키는 memberId·name 둘뿐이다")
+    void myTeamRosterResponseKeys() throws Exception {
+        authenticateAs(1L, 2L);
+        when(getTeamRosterUseCase.getTeamRoster(1L, 2L))
+                .thenReturn(List.of(new TeamRosterMember(3L, "이하윤")));
+
+        mockMvc.perform(get("/api/members/my-team"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].memberId").value(3))
+                .andExpect(jsonPath("$.data[0].name").value("이하윤"))
+                .andExpect(jsonPath("$.data[0].positionName").doesNotExist())
+                .andExpect(jsonPath("$.data[0].role").doesNotExist())
+                .andExpect(jsonPath("$.data[0].actionCount").doesNotExist());
+    }
+
+    /* teamId 를 쿼리 파라미터로 받지 않는다 — 받으면 남의 팀 로스터를 조회할 수 있다. */
+    @Test
+    @DisplayName("내 팀 로스터의 teamId 는 JWT 에서만 나온다 — 파라미터로 덮어쓸 수 없다")
+    void myTeamRosterTakesTeamIdFromTokenOnly() throws Exception {
+        authenticateAs(1L, 2L);
+        when(getTeamRosterUseCase.getTeamRoster(anyLong(), any())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/members/my-team").param("teamId", "99"))
+                .andExpect(status().isOk());
+
+        verify(getTeamRosterUseCase).getTeamRoster(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("팀 미배정이면 teamId 없이 그대로 넘긴다 — 400 이 아니라 빈 목록이다")
+    void myTeamRosterWithoutTeamIsEmpty() throws Exception {
+        authenticateAs(1L, null);
+        when(getTeamRosterUseCase.getTeamRoster(1L, null)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/members/my-team"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /* ── 오너 대시보드 ─────────────────────────────────────────────────────── */
+
+    @Test
+    @DisplayName("인원 요약 응답 키 — totalMemberCount·onLeaveMemberCount 둘뿐이다")
+    void dashboardSummaryResponseKeys() throws Exception {
+        authenticateAs(1L);
+        when(getMemberDashboardSummaryUseCase.getDashboardSummary(1L))
+                .thenReturn(new MemberDashboardSummary(24L, 2L));
+
+        mockMvc.perform(get("/api/members/dashboard-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalMemberCount").value(24))
+                .andExpect(jsonPath("$.data.onLeaveMemberCount").value(2));
+    }
+
+    /*
+     * 휴직 기간은 "8월 1일~15일" 같은 완성된 문자열이 아니라 ISO 날짜 원자값이어야 한다 — 표시
+     * 포맷은 프론트 몫이라, 여기서 문자열로 바뀌면 포맷을 바꿀 때마다 이 API 를 다시 건드리게 된다.
+     */
+    @Test
+    @DisplayName("팀장 현황 응답 키 8개 — 휴직 기간은 ISO 날짜고, 재직 중이면 둘 다 null 이다")
+    void leadersStatusResponseKeys() throws Exception {
+        authenticateAs(1L);
+        when(getTeamLeadersStatusUseCase.getTeamLeadersStatus(1L)).thenReturn(List.of(
+                new TeamLeaderStatus(12L, "김서준", "seojun.kim@zteam.io", 2L, "개발팀",
+                        MemberStatus.ACTIVE, null, null),
+                new TeamLeaderStatus(31L, "강서연", "seoyeon.kang@zteam.io", 5L, "디자인팀",
+                        MemberStatus.VACATION, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 15))));
+
+        mockMvc.perform(get("/api/members/leaders-status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].memberId").value(12))
+                .andExpect(jsonPath("$.data[0].name").value("김서준"))
+                .andExpect(jsonPath("$.data[0].email").value("seojun.kim@zteam.io"))
+                .andExpect(jsonPath("$.data[0].teamId").value(2))
+                .andExpect(jsonPath("$.data[0].teamName").value("개발팀"))
+                .andExpect(jsonPath("$.data[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[0].leaveStartDate").doesNotExist())
+                .andExpect(jsonPath("$.data[0].leaveEndDate").doesNotExist())
+                .andExpect(jsonPath("$.data[1].status").value("VACATION"))
+                .andExpect(jsonPath("$.data[1].leaveStartDate").value("2026-08-01"))
+                .andExpect(jsonPath("$.data[1].leaveEndDate").value("2026-08-15"));
+    }
+
+    /*
+     * 두 경로가 상세 조회의 {memberId} 에 먹히면 안 된다. 먹히면 memberId 를 Long 으로 못 바꿔
+     * 400 이 나가는데, 화면에서는 "대시보드가 가끔 안 뜬다"로만 보여 원인을 찾기 어렵다.
+     */
+    @Test
+    @DisplayName("대시보드 경로는 상세 조회의 {memberId} 로 빨려들어가지 않는다")
+    void dashboardPathsAreNotTreatedAsMemberId() throws Exception {
+        authenticateAs(1L);
+        when(getMemberDashboardSummaryUseCase.getDashboardSummary(1L))
+                .thenReturn(new MemberDashboardSummary(0L, 0L));
+        when(getTeamLeadersStatusUseCase.getTeamLeadersStatus(1L)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/members/dashboard-summary")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/members/leaders-status")).andExpect(status().isOk());
+
+        verify(getMemberDetailUseCase, never()).getDetail(anyLong(), anyLong());
     }
 
     /* ── 상세 · 역할변경 · 어드민토글 ─────────────────────────────────────────── */
@@ -284,7 +439,11 @@ class MemberControllerTest {
     }
 
     private void authenticateAs(Long companyId) {
-        AuthPrincipal principal = new AuthPrincipal(9L, companyId, "OWNER", false, null);
+        authenticateAs(companyId, null);
+    }
+
+    private void authenticateAs(Long companyId, Long teamId) {
+        AuthPrincipal principal = new AuthPrincipal(9L, companyId, "OWNER", false, teamId);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }

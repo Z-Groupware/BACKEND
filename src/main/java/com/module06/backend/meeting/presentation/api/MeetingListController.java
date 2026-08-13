@@ -20,6 +20,7 @@ import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingListUseCase;
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.presentation.api.response.MeetingListResponse;
 
@@ -58,6 +59,8 @@ public class MeetingListController {
             @RequestParam(required = false) String to,
             @Parameter(description = "회의 상태", example = "DONE")
             @RequestParam(required = false) String status,
+            @Parameter(description = "회의 화면 탭. HOSTED=내가 개설한 · ATTENDING=참여해야 할", example = "HOSTED")
+            @RequestParam(required = false) String scope,
             @Parameter(description = "페이지 번호", example = "0")
             @RequestParam(defaultValue = "0") String page,
             @Parameter(description = "페이지 크기", example = "20")
@@ -76,6 +79,7 @@ public class MeetingListController {
                 parseDate(from, "from"),
                 parseDate(to, "to"),
                 parseStatus(status),
+                parseScope(scope),
                 parseInteger(page, "page"),
                 parseInteger(size, "size")
         ));
@@ -114,6 +118,21 @@ public class MeetingListController {
             return MeetingStatus.valueOf(value);
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("status 값이 올바르지 않습니다.", exception);
+        }
+    }
+
+    /* 선택 scope 문자열을 회의 화면 탭 enum으로 변환한다. */
+    private MeetingListScope parseScope(String value) {
+        /* scope 생략은 역할 기반 열람 범위 전체를 조회하기 위해 null로 유지한다. */
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        /* HOSTED·ATTENDING 외의 값은 Z-001 처리 대상인 입력 오류로 변환한다. */
+        try {
+            return MeetingListScope.valueOf(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("scope 값이 올바르지 않습니다.", exception);
         }
     }
 

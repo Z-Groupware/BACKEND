@@ -282,6 +282,63 @@ class CaptureUploadServiceTest {
         assertThat(existing.getLastSeq()).isZero();
     }
 
+    /* 캡처 세션이 아예 없으면(D 쪽 배선 지연 등) CAP-022로 거절하는지 검증한다. */
+    @Test
+    @DisplayName("complete: 캡처 세션이 없으면 CAP-022로 거절하고 상태를 바꾸지 않는다")
+    void complete_rejectsWhenSessionMissing() {
+        CaptureUploadState existing = CaptureUploadState.startWithRecorder(MEETING_ID, CALLER_ID);
+        CaptureUploadService service = serviceWithSessionStatus(Optional.of(COMPANY_ID), true, existing, true, true,
+                null, false, false);
+
+        assertErrorCode(() -> service.completePartUpload(completeCmd(0, 1, expectedKey(0, 1, "webm"))),
+                "CAP-022");
+
+        assertThat(savedParts).isEmpty();
+        assertThat(existing.getLastSeq()).isZero();
+    }
+
+    /* 캡처 세션이 이미 ENDED면(재사용 시도) CAP-022로 거절하는지 검증한다. */
+    @Test
+    @DisplayName("complete: 캡처 세션이 ENDED면 CAP-022로 거절하고 상태를 바꾸지 않는다")
+    void complete_rejectsWhenSessionEnded() {
+        CaptureUploadState existing = CaptureUploadState.startWithRecorder(MEETING_ID, CALLER_ID);
+        CaptureUploadService service = serviceWithSessionStatus(Optional.of(COMPANY_ID), true, existing, true, true,
+                "ENDED", false, false);
+
+        assertErrorCode(() -> service.completePartUpload(completeCmd(0, 1, expectedKey(0, 1, "webm"))),
+                "CAP-022");
+
+        assertThat(savedParts).isEmpty();
+        assertThat(existing.getLastSeq()).isZero();
+    }
+
+    /* presign도 ACTIVE가 아니면 URL을 발급하지 않는지 검증한다(세션 없이 녹음자로 배정되는 것 자체를 막는다). */
+    @Test
+    @DisplayName("presign: 캡처 세션이 없으면 CAP-022로 거절한다")
+    void issue_rejectsWhenSessionMissing() {
+        CaptureUploadService service = serviceWithSessionStatus(Optional.of(COMPANY_ID), true, null, true, true,
+                null, false, false);
+
+        assertErrorCode(() -> service.issuePartUploadUrls(issueCmd(1)), "CAP-022");
+    }
+
+    @Test
+    @DisplayName("presign: 캡처 세션이 일시정지 상태면 CAP-020으로 거절한다")
+    void issue_rejectsWhenSessionPaused() {
+        CaptureUploadService service = service(Optional.of(COMPANY_ID), true, null, true, true, true);
+
+        assertErrorCode(() -> service.issuePartUploadUrls(issueCmd(1)), "CAP-020");
+    }
+
+    @Test
+    @DisplayName("presign: 캡처 세션이 ENDED면 CAP-022로 거절한다")
+    void issue_rejectsWhenSessionEnded() {
+        CaptureUploadService service = serviceWithSessionStatus(Optional.of(COMPANY_ID), true, null, true, true,
+                "ENDED", false, false);
+
+        assertErrorCode(() -> service.issuePartUploadUrls(issueCmd(1)), "CAP-022");
+    }
+
     // 서버가 재구성할 것으로 기대하는 s3Key(테스트에서 tampered 여부 비교용으로 직접 계산).
     private String expectedKey(int segmentSeq, int seq, String extension) {
         return "stt-temp/org-%d/meeting-%d/segments/%d/parts/%04d.%s"
@@ -322,6 +379,15 @@ class CaptureUploadServiceTest {
     private CaptureUploadService service(Optional<Long> companyId, boolean attendee, CaptureUploadState state,
                                          boolean recorderAlive, boolean objectMatches, boolean sessionPaused,
                                          boolean overQuota, boolean quotaLookupThrows) {
+        return serviceWithSessionStatus(companyId, attendee, state, recorderAlive, objectMatches,
+                sessionPaused ? "PAUSED" : "ACTIVE", overQuota, quotaLookupThrows);
+    }
+
+    // sessionStatus를 직접(raw) 지정하는 전체 오버로드 — null이면 "세션 없음"을 뜻한다
+    // (PAUSED/ENDED/세션없음 거절 테스트 전용, 위의 boolean sessionPaused 오버로드들이 이걸 감싼다).
+    private CaptureUploadService serviceWithSessionStatus(Optional<Long> companyId, boolean attendee,
+                                         CaptureUploadState state, boolean recorderAlive, boolean objectMatches,
+                                         String sessionStatus, boolean overQuota, boolean quotaLookupThrows) {
         savedParts.clear();
         heartbeatRefreshed[0] = false;
         quotaLookupCount[0] = 0;
@@ -435,8 +501,20 @@ class CaptureUploadServiceTest {
                 return recorderAlive;
             }
         };
-        CompletePartUploadWriter writer = new CompletePartUploadWriter(partRepo, stateRepo, heartbeat);
-        CapCaptureSessionReferenceRepository sessionRef = meetingId -> sessionPaused;
+        CapCaptureSessionReferenceRepository sessionRef = new CapCaptureSessionReferenceRepository() {
+            @Override
+            public Optional<String> findStatus(Long meetingId) {
+                return Optional.ofNullable(sessionStatus);
+            }
+
+            @Override
+            public Optional<Long> findSessionId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
+        CaptureSessionActiveGuard sessionActiveGuard = new CaptureSessionActiveGuard(sessionRef);
+        CompletePartUploadWriter writer =
+                new CompletePartUploadWriter(partRepo, stateRepo, heartbeat, sessionActiveGuard);
 
         // 이 테스트 파일의 시나리오는 전부 40청크 임계값에 한참 못 미치므로(lastSeq가 항상 한 자릿수),
         // 트리거 내부의 실제 파이프라인 포트는 호출되면 안 된다 — 호출되면 테스트가 실패하도록 던진다.
@@ -472,8 +550,8 @@ class CaptureUploadServiceTest {
             return new StorageQuotaStatusResult(quotaCompanyId, 0L, 1L, overQuota);
         };
 
-        return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, sessionRef, writer,
-                sttBlockCutTrigger, storageQuotaPort);
+        return new CaptureUploadService(meetingRef, accessGuard, stateRepo, storage, heartbeat, sessionActiveGuard,
+                writer, sttBlockCutTrigger, storageQuotaPort);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {
