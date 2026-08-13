@@ -5,8 +5,19 @@ import com.module06.backend.identity.member.domain.model.Authority;
 /** 구성원 관리 화면(§7)이 쓰는 창구. 상태 전이(휴직·오프보딩)는 다루지 않는다 — 그건 MemberStatusPort 몫이다. */
 public interface MemberDirectoryCommandPort {
 
-    /** §7-4. 역할·직급을 한 트랜잭션에 같이 바꾼다 — 따로 두면 중간 상태가 저장된다. */
-    void updateRoleAndPosition(Long memberId, Authority authority, Long positionId);
+    /**
+     * §7-4. 권한·직급·역할 라벨을 한 트랜잭션에 같이 바꾼다 — 따로 두면 중간 상태가 저장된다.
+     *
+     * @param roleId null 이면 역할 라벨을 그대로 둔다. 권한·직급과 달리 이 값만 선택이다
+     */
+    void updateRoleAndPosition(Long memberId, Authority authority, Long positionId, Long roleId);
+
+    /**
+     * §7 사원 삭제. 물리 삭제하지 않는다 — 회의·인수인계가 이 행을 참조하고 있어 지우면 이력이
+     * 끊긴다. 상태를 DELETED 로 바꾸고 {@code deleted_at} 을 찍어 목록·로그인에서 제외한다.
+     * 오프보딩 최종 승인(RESIGNED)과는 다른 사건이라 상태 값을 나눠 쓴다.
+     */
+    void softDelete(Long memberId);
 
     /** §7-4 팀장 교체 부수효과 — 기존 리더를 멤버로 내린다. 직급은 건드리지 않는다. */
     void demoteToMember(Long memberId);

@@ -114,7 +114,14 @@ public enum AuthErrorCode implements ErrorCode {
      */
     ONBOARDING_TEMP_ID_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-036", "임시 식별자가 중복되었습니다."),
     ONBOARDING_TEAM_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-037", "부서명이 중복되었습니다."),
-    ONBOARDING_POSITION_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-038", "직급명이 중복되었습니다.");
+    ONBOARDING_POSITION_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-038", "직급명이 중복되었습니다."),
+
+    /*
+     * 역할 라벨 변경(§7-4). MEMBER_ROLE_LABEL_NOT_SUPPORTED(AU-032)와 코드를 공유하지 않는다 —
+     * 그쪽은 계정 발급 요청이 아직 없는 기능을 부른 경우(400)고, 여기는 있는 기능에 없는 이름을
+     * 보낸 경우(404)다. 화면의 대응도 다르다(그쪽은 필드를 빼야 하고, 여기는 목록을 새로 고쳐야 한다).
+     */
+    MEMBER_ROLE_LABEL_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-039", "역할을 찾을 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

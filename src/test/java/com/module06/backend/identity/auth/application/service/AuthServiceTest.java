@@ -107,7 +107,7 @@ class AuthServiceTest {
     @DisplayName("기업 코드를 대소문자·공백 섞어 보내도 정규화해서 찾는다")
     void normalizesCompanyCode() {
         RecordingRepository repository = new RecordingRepository(
-                Optional.of(new Company(1L, CODE, "(주)테크스타트", null, null, null, null, null)));
+                Optional.of(new Company(1L, CODE, "(주)테크스타트", null, null, null, null, null, null, null)));
         AuthService service = new AuthService(repository, port(member(Authority.MEMBER, false)),
                 new RecordingStore(), tokenProvider, encoder);
 
@@ -238,7 +238,7 @@ class AuthServiceTest {
     }
 
     private CompanyRepository repository() {
-        return new RecordingRepository(Optional.of(new Company(1L, CODE, "(주)테크스타트", null, null, null, null, null)));
+        return new RecordingRepository(Optional.of(new Company(1L, CODE, "(주)테크스타트", null, null, null, null, null, null, null)));
     }
 
     /** {@code credentials} 가 null 이면 "그 구성원이 없다" 는 뜻이다. */

@@ -223,7 +223,7 @@ class CompanyControllerTest {
     /* ── 기업 기본 정보 ──────────────────────────────────────────────────────── */
 
     @Test
-    @DisplayName("기업 정보 응답 키 9개 — 내부 이름이 아니라 businessNumber·phone 으로 나간다")
+    @DisplayName("기업 정보 응답 키 11개 — 내부 이름이 아니라 businessNumber·phone 으로 나간다")
     void returnsCompanyProfileKeys() throws Exception {
         authenticateAs(1L);
         when(getCompanyProfileUseCase.getProfile(1L)).thenReturn(company());
@@ -238,6 +238,8 @@ class CompanyControllerTest {
                 .andExpect(jsonPath("$.data.phone").value("02-1234-5678"))
                 .andExpect(jsonPath("$.data.representativeName").value("김서준"))
                 .andExpect(jsonPath("$.data.address").value("서울시 강남구 테헤란로 123"))
+                .andExpect(jsonPath("$.data.latitude").value(37.5006))
+                .andExpect(jsonPath("$.data.longitude").value(127.0366))
                 .andExpect(jsonPath("$.data.subscriptionStatus").value("UNPAID"))
                 .andExpect(jsonPath("$.data.onboardedAt").value("2026-08-08T10:22:00"))
                 /* 내부 이름이 새어 나가면 프론트가 둘 다 읽으려 든다. */
@@ -269,6 +271,54 @@ class CompanyControllerTest {
         assertThat(command.registrationNo()).isNull();
         assertThat(command.representativeName()).isNull();
         assertThat(command.mainPhone()).isNull();
+        assertThat(command.latitude()).isNull();
+        assertThat(command.longitude()).isNull();
+    }
+
+    @Test
+    @DisplayName("지도에서 고른 좌표를 주소와 함께 커맨드로 넘긴다")
+    void patchCarriesCoordinates() throws Exception {
+        authenticateAs(1L);
+        when(updateCompanyProfileUseCase.updateProfile(any())).thenReturn(company());
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"address":"서울시 강남구 테헤란로 123","latitude":37.5006,"longitude":127.0366}
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UpdateCompanyCommand> captor = ArgumentCaptor.forClass(UpdateCompanyCommand.class);
+        verify(updateCompanyProfileUseCase).updateProfile(captor.capture());
+
+        assertThat(captor.getValue().latitude()).isEqualTo(37.5006);
+        assertThat(captor.getValue().longitude()).isEqualTo(127.0366);
+    }
+
+    /*
+     * 위경도를 바꿔 넣는 실수(위도 칸에 경도 값)가 흔하다. 서울의 경도 127 은 위도로는 범위 밖이라
+     * 여기서 걸린다 — 안 막으면 지도가 엉뚱한 곳을 가리키는 채로 저장된다.
+     */
+    @Test
+    @DisplayName("위도·경도가 범위를 벗어나면 400 — 유스케이스를 부르지 않는다")
+    void outOfRangeCoordinatesAreRejected() throws Exception {
+        authenticateAs(1L);
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"latitude":127.0366,"longitude":37.5006}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(patch("/api/companies/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"longitude":-181}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(updateCompanyProfileUseCase, never()).updateProfile(any());
     }
 
     @Test
@@ -413,7 +463,7 @@ class CompanyControllerTest {
 
     private static Company company() {
         return new Company(1L, "NOVA-7K3D", "(주)테크스타트", "123-45-67890",
-                "김서준", "서울시 강남구 테헤란로 123", "02-1234-5678",
+                "김서준", "서울시 강남구 테헤란로 123", 37.5006, 127.0366, "02-1234-5678",
                 LocalDateTime.of(2026, 8, 8, 10, 22, 0));
     }
 

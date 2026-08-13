@@ -1,6 +1,8 @@
 package com.module06.backend.identity.company.presentation.api.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -40,6 +42,23 @@ public record UpdateCompanyRequest(
         @Pattern(regexp = NOT_BLANK_IF_PRESENT, message = "주소는 빈 값으로 보낼 수 없습니다.")
         String address,
 
+        /*
+         * 지도에서 고른 위치. 주소와 함께 오는 게 보통이지만 짝을 강제하지 않는다 — 지도 SDK 가
+         * 뜨지 않는 환경에서는 주소만 오고, 좌표만 미세 조정하는 요청도 정상이다.
+         *
+         * 범위 검사를 여기서 한다. 값이 뒤바뀌어(위경도 swap) 들어오는 실수가 흔한데, 위도 칸에
+         * 127 같은 경도 값이 오면 여기서 400 으로 막힌다 — DB CHECK 로 미루면 같은 입력이 500 이 된다.
+         */
+        @Schema(description = "회사 위치 위도 (-90 ~ 90)", example = "37.5006")
+        @DecimalMin(value = "-90.0", message = "위도는 -90 이상이어야 합니다.")
+        @DecimalMax(value = "90.0", message = "위도는 90 이하여야 합니다.")
+        Double latitude,
+
+        @Schema(description = "회사 위치 경도 (-180 ~ 180)", example = "127.0366")
+        @DecimalMin(value = "-180.0", message = "경도는 -180 이상이어야 합니다.")
+        @DecimalMax(value = "180.0", message = "경도는 180 이하여야 합니다.")
+        Double longitude,
+
         @Schema(description = "대표번호", example = "02-1234-5678")
         @Size(max = 30, message = "대표번호는 30자 이하로 입력해 주세요.")
         @Pattern(regexp = NOT_BLANK_IF_PRESENT, message = "대표번호는 빈 값으로 보낼 수 없습니다.")
@@ -58,6 +77,7 @@ public record UpdateCompanyRequest(
     private static final String NOT_BLANK_IF_PRESENT = "(?s).*\\S.*";
 
     public UpdateCompanyCommand toCommand(Long companyId) {
-        return new UpdateCompanyCommand(companyId, name, businessNumber, representativeName, address, phone);
+        return new UpdateCompanyCommand(companyId, name, businessNumber, representativeName,
+                address, latitude, longitude, phone);
     }
 }
