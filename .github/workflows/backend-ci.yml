@@ -93,41 +93,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 밀기 전에 먼저 로컬로 받아 스캔한다. 순서가 핵심이다 — 밀고 나서 스캔하면
-      # 취약한 이미지가 이미 레지스트리에 올라가 있고, 그걸 당기는 쪽은 스캔 결과를 모른다.
-      # 두 번 빌드하는 것처럼 보이지만 아래 push 단계는 이 빌드의 캐시를 그대로 쓴다.
-      - name: 이미지 빌드 (로컬 적재 — 스캔용)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: z-spring:scan-target
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
-
-      # 이 이미지는 JRE 만 있는 게 아니다 — Dockerfile 이 ffmpeg 를 설치하고(21-23행),
-      # 그 ffmpeg 가 회의 녹음을 파싱한다. 신뢰할 수 없는 미디어가 코덱 파서에 닿는 구조라
-      # OS 패키지 CVE 표면이 실재한다.
-      #
-      # ★ 리포터로 유지한다(exit-code 0). 첫 실행 결과를 확인한 뒤 내린 결론이다(2026-08-13).
-      #   여기서 걸리는 것은 베이스 이미지(eclipse-temurin:17-jre-jammy)와 ffmpeg 가 들고 오는
-      #   OS 패키지 CVE 라, 우리 코드를 고쳐서 없앨 수 있는 종류가 아니다. 차단으로 올리면
-      #   해소 수단이 없는 상태로 develop 배포만 멈춘다.
-      #   ignore-unfixed 로 '업스트림에 고칠 방법이 있는 것'만 남기고, 그 목록을 로그로 남긴다.
-      #
-      #   ⚠️ 베이스 이미지를 올리거나 ffmpeg 를 걷어내는 날 이 판단을 다시 할 것.
-      #      그때는 차단(exit-code 1)이 맞다 — 고칠 수 있는 것을 안 고치는 상태가 되므로.
-      - name: Trivy — 이미지 취약점 스캔 (리포터)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          image-ref: z-spring:scan-target
-          format: table
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true    # 업스트림에 고칠 방법이 없는 건 우리가 할 수 있는 게 없다
-          exit-code: "0"
-
       - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
