@@ -54,8 +54,8 @@ class TodoControllerTest {
     @DisplayName("생성은 토큰의 companyId·memberId로 본인 소유 Todo를 만든다")
     void createUsesCompanyIdAndMemberIdFromToken() throws Exception {
         authenticateAs(MEMBER, COMPANY, "MEMBER");
-        when(createTodoUseCase.create(new CreateTodoCommand(COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20))))
-                .thenReturn(todo(1L, "우유 사기", LocalDate.of(2026, 8, 20), false));
+        when(createTodoUseCase.create(new CreateTodoCommand(COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), null)))
+                .thenReturn(todo(1L, "우유 사기", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), false));
 
         mockMvc.perform(post("/api/todos")
                         .contentType("application/json")
@@ -66,6 +66,24 @@ class TodoControllerTest {
                 .andExpect(jsonPath("$.data.title").value("우유 사기"))
                 .andExpect(jsonPath("$.data.isDone").value(false))
                 .andExpect(jsonPath("$.httpStatus").value(201));
+    }
+
+    @Test
+    @DisplayName("endDate를 같이 보내면 그대로 커맨드에 실려 위임된다")
+    void createPassesEndDateThrough() throws Exception {
+        authenticateAs(MEMBER, COMPANY, "MEMBER");
+        when(createTodoUseCase.create(new CreateTodoCommand(
+                COMPANY, MEMBER, "여행", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 25))))
+                .thenReturn(todo(1L, "여행", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 25), false));
+
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {"title": "여행", "date": "2026-08-20", "endDate": "2026-08-25"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.date").value("2026-08-20"))
+                .andExpect(jsonPath("$.data.endDate").value("2026-08-25"));
     }
 
     @Test
@@ -86,7 +104,7 @@ class TodoControllerTest {
     void toggleCompleteDelegatesToUseCase() throws Exception {
         authenticateAs(MEMBER, COMPANY, "MEMBER");
         when(toggleTodoCompleteUseCase.toggleComplete(eq(COMPANY), eq(MEMBER), eq(1L)))
-                .thenReturn(todo(1L, "우유 사기", LocalDate.of(2026, 8, 20), true));
+                .thenReturn(todo(1L, "우유 사기", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20), true));
 
         mockMvc.perform(patch("/api/todos/1/complete"))
                 .andExpect(status().isOk())
@@ -99,7 +117,7 @@ class TodoControllerTest {
                 principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + authority))));
     }
 
-    private PersonalTodo todo(Long id, String title, LocalDate date, boolean isDone) {
-        return PersonalTodo.reconstitute(id, COMPANY, MEMBER, title, date, isDone, null, null);
+    private PersonalTodo todo(Long id, String title, LocalDate date, LocalDate endDate, boolean isDone) {
+        return PersonalTodo.reconstitute(id, COMPANY, MEMBER, title, date, endDate, isDone, null, null);
     }
 }
