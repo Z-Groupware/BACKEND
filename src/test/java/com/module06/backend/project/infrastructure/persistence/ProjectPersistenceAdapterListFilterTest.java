@@ -36,13 +36,13 @@ class ProjectPersistenceAdapterListFilterTest {
         save("PROG2", ProjectStatus.IN_PROGRESS, LocalDate.of(2026, 11, 30));
 
         List<Project> result = projectRepository.findAllByCompanyId(
-                COMPANY, ProjectStatus.IN_PROGRESS, null, "desc", 0, 20);
+                COMPANY, null, ProjectStatus.IN_PROGRESS, null, "desc", 0, 20);
 
         assertThat(result).hasSize(2);
         assertThat(result).allMatch(p -> p.getStatus() == ProjectStatus.IN_PROGRESS);
-        assertThat(projectRepository.countByCompanyId(COMPANY, ProjectStatus.IN_PROGRESS)).isEqualTo(2L);
+        assertThat(projectRepository.countByCompanyId(COMPANY, null, ProjectStatus.IN_PROGRESS)).isEqualTo(2L);
         // 필터 없이는 3건 전부 — totalElements가 필터 적용 전/후로 다르다는 것 자체를 확인한다.
-        assertThat(projectRepository.countByCompanyId(COMPANY, null)).isEqualTo(3L);
+        assertThat(projectRepository.countByCompanyId(COMPANY, null, null)).isEqualTo(3L);
     }
 
     @Test
@@ -51,10 +51,34 @@ class ProjectPersistenceAdapterListFilterTest {
         save("A", ProjectStatus.TODO, LocalDate.of(2026, 1, 1));
         save("B", ProjectStatus.TODO, LocalDate.of(2026, 6, 15));
 
-        List<Project> result = projectRepository.findAllByCompanyId(COMPANY, null, "dueDate", "asc", 0, 20);
+        List<Project> result = projectRepository.findAllByCompanyId(COMPANY, null, null, "dueDate", "asc", 0, 20);
 
         assertThat(result).extracting(Project::getDueDate).containsExactly(
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 15), LocalDate.of(2026, 12, 31));
+    }
+
+    @Test
+    void sortsByNameAscending() {
+        save("Charlie", ProjectStatus.TODO, LocalDate.of(2026, 12, 31));
+        save("Alpha", ProjectStatus.TODO, LocalDate.of(2026, 1, 1));
+        save("Bravo", ProjectStatus.TODO, LocalDate.of(2026, 6, 15));
+
+        List<Project> result = projectRepository.findAllByCompanyId(COMPANY, null, null, "name", "asc", 0, 20);
+
+        // save() 헬퍼가 name을 "프로젝트 " + tag로 조립한다 — 접두어가 모든 행에 동일하므로 tag 순서가 곧 name 순서다.
+        assertThat(result).extracting(Project::getName).containsExactly("프로젝트 Alpha", "프로젝트 Bravo", "프로젝트 Charlie");
+    }
+
+    @Test
+    void filtersByKeywordCaseInsensitive() {
+        save("Zebra Groupware", ProjectStatus.TODO, LocalDate.of(2026, 12, 31));
+        save("zebra internal tools", ProjectStatus.TODO, LocalDate.of(2026, 6, 15));
+        save("Other Project", ProjectStatus.TODO, LocalDate.of(2026, 1, 1));
+
+        List<Project> result = projectRepository.findAllByCompanyId(COMPANY, "ZEBRA", null, null, "desc", 0, 20);
+
+        assertThat(result).hasSize(2);
+        assertThat(projectRepository.countByCompanyId(COMPANY, "ZEBRA", null)).isEqualTo(2L);
     }
 
     // ---------- countDueSoonByCompanyId (이슈 #352, 오너 대시보드 "마감 D-7") ----------
