@@ -86,9 +86,9 @@ public class ProjectService implements
 
     @Override
     @Transactional(readOnly = true)
-    public ProjectListResult list(Long companyId, ProjectStatus status, String sort, String order, int page, int size) {
-        List<Project> projects = projectRepository.findAllByCompanyId(companyId, status, sort, order, page, size);
-        long totalElements = projectRepository.countByCompanyId(companyId, status);
+    public ProjectListResult list(Long companyId, String keyword, ProjectStatus status, String sort, String order, int page, int size) {
+        List<Project> projects = projectRepository.findAllByCompanyId(companyId, keyword, status, sort, order, page, size);
+        long totalElements = projectRepository.countByCompanyId(companyId, keyword, status);
         List<Long> projectIds = projects.stream().map(Project::getId).toList();
 
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
@@ -205,7 +205,7 @@ public class ProjectService implements
     @Transactional(readOnly = true)
     public OwnerDashboardSummary getOwnerDashboardSummary(Long companyId) {
         LocalDate today = LocalDate.now();
-        long totalProjectCount = projectRepository.countByCompanyId(companyId, null);
+        long totalProjectCount = projectRepository.countByCompanyId(companyId, null, null);
         long dueSoonProjectCount = projectRepository.countDueSoonByCompanyId(companyId, today, today.plusDays(7));
 
         return new OwnerDashboardSummary(totalProjectCount, dueSoonProjectCount);
