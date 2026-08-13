@@ -31,6 +31,7 @@ import com.module06.backend.identity.member.application.dto.OrgChartMember;
 import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
 import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
+import com.module06.backend.identity.member.application.dto.TeamRosterMember;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort.MemberRow;
@@ -41,6 +42,7 @@ import com.module06.backend.identity.member.application.usecase.GetMemberDetailU
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
 import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamRosterUseCase;
 import com.module06.backend.identity.member.application.usecase.IssueMemberUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
@@ -63,7 +65,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgChartUseCase,
         GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase,
-        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase, DeleteMemberUseCase {
+        GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase, DeleteMemberUseCase,
+        GetTeamRosterUseCase {
 
     private final MemberDirectoryQueryPort queryPort;
     private final MemberDirectoryCommandPort commandPort;
@@ -160,6 +163,32 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
                                 .sorted(Comparator.comparing(MemberRow::memberId))
                                 .map(row -> new OrgChartMember(row.memberId(), row.name(), row.positionName(), row.authority()))
                                 .toList()))
+                .toList();
+    }
+
+    /**
+     * 회의 참석자 픽커가 쓰는 내 팀 로스터(2026-08-13, 회의 도메인 요청). 조직도와 달리 전사가 아니라
+     * 한 팀만 담는다 — 다른 팀 로스터를 못 보게 하는 것이 요건이라, 응답을 잘라 주는 쪽이 프론트엔드
+     * 필터링에 맡기는 것보다 맞다.
+     *
+     * <p>{@code ACTIVE} 만 남긴다. 휴직자(VACATION)와 대기자(WAITING — 휴직·오프보딩 승인 대기)는
+     * 부를 수 없는 사람이라 픽커에 뜨면 안 된다. 아직 {@code deleted_at} 이 찍히기 전인 RESIGNED 행도
+     * 같은 조건에서 함께 빠진다.
+     *
+     * <p>본인도 걸러내지 않는다. 개설자를 뺄지는 화면의 결정이고, 서버가 미리 빼면 프론트엔드가
+     * "나"를 참석자로 넣고 싶어도 목록에 없다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<TeamRosterMember> getTeamRoster(Long companyId, Long teamId) {
+        if (teamId == null) {
+            return List.of();
+        }
+        return queryPort.findActiveByCompany(companyId).stream()
+                .filter(row -> teamId.equals(row.teamId()))
+                .filter(row -> row.status() == MemberStatus.ACTIVE)
+                .sorted(Comparator.comparing(MemberRow::memberId))
+                .map(row -> new TeamRosterMember(row.memberId(), row.name()))
                 .toList();
     }
 

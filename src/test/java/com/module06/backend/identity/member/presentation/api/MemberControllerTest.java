@@ -40,12 +40,14 @@ import com.module06.backend.identity.member.application.dto.OrgChartMember;
 import com.module06.backend.identity.member.application.dto.OrgChartSubTeam;
 import com.module06.backend.identity.member.application.dto.OrgChartTeam;
 import com.module06.backend.identity.member.application.dto.TeamLeaderStatus;
+import com.module06.backend.identity.member.application.dto.TeamRosterMember;
 import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberDashboardSummaryUseCase.MemberDashboardSummary;
 import com.module06.backend.identity.member.application.usecase.GetMemberDetailUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMemberOrgChartUseCase;
 import com.module06.backend.identity.member.application.usecase.GetMembersUseCase;
 import com.module06.backend.identity.member.application.usecase.GetTeamLeadersStatusUseCase;
+import com.module06.backend.identity.member.application.usecase.GetTeamRosterUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberAdminUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMemberRoleUseCase;
 import com.module06.backend.identity.member.domain.model.Authority;
@@ -80,6 +82,8 @@ class MemberControllerTest {
     private GetMemberDashboardSummaryUseCase getMemberDashboardSummaryUseCase;
     @MockitoBean
     private GetTeamLeadersStatusUseCase getTeamLeadersStatusUseCase;
+    @MockitoBean
+    private GetTeamRosterUseCase getTeamRosterUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -190,6 +194,68 @@ class MemberControllerTest {
 
         assertThat(orgChart.value()).isEqualTo("isAuthenticated()");
         assertThat(list.value()).isEqualTo("hasAnyRole('OWNER','ADMIN')");
+    }
+
+    /*
+     * 픽커는 회의 개설 화면의 부품이므로 회의 개설(POST /api/meetings)과 같은 범위여야 한다.
+     * 여기가 더 좁으면 회의는 열 수 있는데 참석자를 고르지 못하는 구멍이 생긴다 — 팀이 있는
+     * ADMIN 이 그 경우다. 애노테이션이 조용히 좁혀지면 이 테스트가 깨져야 한다.
+     */
+    @Test
+    @DisplayName("내 팀 로스터 권한은 회의 개설과 같다 — 네 역할 모두 부른다")
+    void myTeamRosterMatchesMeetingCreationRoles() throws Exception {
+        PreAuthorize myTeamRoster = MemberController.class
+                .getMethod("myTeamRoster", Long.class, Long.class).getAnnotation(PreAuthorize.class);
+
+        assertThat(myTeamRoster.value()).isEqualTo("hasAnyRole('OWNER','ADMIN','LEADER','MEMBER')");
+    }
+
+    /* ── 내 팀 로스터 ──────────────────────────────────────────────────────── */
+
+    /*
+     * 회의 참석자 픽커가 읽는 응답이다. 키가 memberId·name 둘뿐이라는 것 자체가 계약이라 —
+     * 여기에 직급·권한·담당 액션 수가 붙으면 팀장 전용으로 막아둔 관리 정보가 일반 사원 경로로
+     * 새어 나간다 — 필드가 늘어나는 순간 이 테스트가 깨져야 한다.
+     */
+    @Test
+    @DisplayName("내 팀 로스터 응답 키는 memberId·name 둘뿐이다")
+    void myTeamRosterResponseKeys() throws Exception {
+        authenticateAs(1L, 2L);
+        when(getTeamRosterUseCase.getTeamRoster(1L, 2L))
+                .thenReturn(List.of(new TeamRosterMember(3L, "이하윤")));
+
+        mockMvc.perform(get("/api/members/my-team"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].memberId").value(3))
+                .andExpect(jsonPath("$.data[0].name").value("이하윤"))
+                .andExpect(jsonPath("$.data[0].positionName").doesNotExist())
+                .andExpect(jsonPath("$.data[0].role").doesNotExist())
+                .andExpect(jsonPath("$.data[0].actionCount").doesNotExist());
+    }
+
+    /* teamId 를 쿼리 파라미터로 받지 않는다 — 받으면 남의 팀 로스터를 조회할 수 있다. */
+    @Test
+    @DisplayName("내 팀 로스터의 teamId 는 JWT 에서만 나온다 — 파라미터로 덮어쓸 수 없다")
+    void myTeamRosterTakesTeamIdFromTokenOnly() throws Exception {
+        authenticateAs(1L, 2L);
+        when(getTeamRosterUseCase.getTeamRoster(anyLong(), any())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/members/my-team").param("teamId", "99"))
+                .andExpect(status().isOk());
+
+        verify(getTeamRosterUseCase).getTeamRoster(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("팀 미배정이면 teamId 없이 그대로 넘긴다 — 400 이 아니라 빈 목록이다")
+    void myTeamRosterWithoutTeamIsEmpty() throws Exception {
+        authenticateAs(1L, null);
+        when(getTeamRosterUseCase.getTeamRoster(1L, null)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/members/my-team"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty());
     }
 
     /* ── 오너 대시보드 ─────────────────────────────────────────────────────── */
@@ -373,7 +439,11 @@ class MemberControllerTest {
     }
 
     private void authenticateAs(Long companyId) {
-        AuthPrincipal principal = new AuthPrincipal(9L, companyId, "OWNER", false, null);
+        authenticateAs(companyId, null);
+    }
+
+    private void authenticateAs(Long companyId, Long teamId) {
+        AuthPrincipal principal = new AuthPrincipal(9L, companyId, "OWNER", false, teamId);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }
