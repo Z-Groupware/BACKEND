@@ -135,6 +135,36 @@ class CompanyProfileServiceTest {
     }
 
     @Test
+    @DisplayName("좌표만 보내면 좌표만 바뀐다 — 주소는 그대로다")
+    void updatesCoordinatesWithoutTouchingAddress() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+        service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 123", null, null, null));
+
+        Company updated = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, null, 37.5006, 127.0366, null));
+
+        assertThat(updated.latitude()).isEqualTo(37.5006);
+        assertThat(updated.longitude()).isEqualTo(127.0366);
+        assertThat(updated.address()).isEqualTo("서울시 강남구 테헤란로 123");
+    }
+
+    @Test
+    @DisplayName("주소만 고치면 이미 찍혀 있던 좌표는 지워지지 않는다")
+    void addressOnlyUpdateKeepsCoordinates() {
+        FakeRepository repository = new FakeRepository(company("123-45-67890"));
+        service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, null, 37.5006, 127.0366, null));
+
+        Company updated = service(repository).updateProfile(
+                new UpdateCompanyCommand(COMPANY_ID, null, null, null, "서울시 강남구 테헤란로 45", null, null, null));
+
+        assertThat(updated.address()).isEqualTo("서울시 강남구 테헤란로 45");
+        assertThat(updated.latitude()).isEqualTo(37.5006);
+        assertThat(updated.longitude()).isEqualTo(127.0366);
+    }
+
+    @Test
     @DisplayName("사업자등록번호 형식이 틀리면 거절한다")
     void rejectsMalformedRegistrationNo() {
         FakeRepository repository = new FakeRepository(company("123-45-67890"));

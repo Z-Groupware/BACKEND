@@ -176,6 +176,17 @@ public class CompanyJpaEntity {
         if (longitude != null) {
             this.longitude = longitude;
         }
+        /*
+         * 좌표는 각각 독립으로 얹는다. "주소를 바꿨으니 좌표도 같이 와야 한다"를 여기서 강제하지
+         * 않는다 — 부분 수정 계약상 주소만 손으로 고치는 요청이 정상이고, 그때 좌표를 지우면
+         * 지도에 찍혀 있던 위치가 소리 없이 사라진다. 두 값을 맞추는 책임은 화면에 있다.
+         */
+        if (latitude != null) {
+            this.latitude = latitude;
+        }
+        if (longitude != null) {
+            this.longitude = longitude;
+        }
         if (mainPhone != null) {
             this.mainPhone = mainPhone;
         }
