@@ -34,9 +34,6 @@ public enum MeetingErrorCode implements ErrorCode {
     /* 회의 담당자가 아닌 사용자가 관리 기능을 호출한 경우다. */
     MEETING_HOST_ONLY(HttpStatus.FORBIDDEN, "MT-006", "회의 담당자만 수행할 수 있습니다."),
 
-    /* 예약된 참석자가 아닌 사용자가 입장한 경우다. */
-    ATTENDEE_ONLY(HttpStatus.FORBIDDEN, "MT-007", "예약된 참석자만 입장할 수 있습니다."),
-
     /* 입장 허용 시각보다 먼저 입장을 시도한 경우다. */
     ENTRY_NOT_AVAILABLE(HttpStatus.CONFLICT, "MT-008", "아직 입장할 수 없는 회의입니다."),
 
@@ -65,7 +62,13 @@ public enum MeetingErrorCode implements ErrorCode {
     INVALID_RELATED_ACTION_POLICY(HttpStatus.BAD_REQUEST, "MT-016", "개설자 역할에 맞는 상위 팀 액션이 필요합니다."),
 
     /* 개설자 외에 초대한 참석자가 한 명도 없는 경우다. */
-    MEETING_ATTENDEE_REQUIRED(HttpStatus.BAD_REQUEST, "MT-017", "개설자 외 참석자를 한 명 이상 선택해야 합니다.");
+    MEETING_ATTENDEE_REQUIRED(HttpStatus.BAD_REQUEST, "MT-017", "개설자 외 참석자를 한 명 이상 선택해야 합니다."),
+
+    /* 상위 팀 액션 자리에 개인 액션을 연결하려는 경우다. */
+    RELATED_ACTION_NOT_TEAM_ACTION(HttpStatus.BAD_REQUEST, "MT-018", "상위 팀 액션만 회의에 연결할 수 있습니다."),
+
+    /* 개설자의 소속 팀과 선택한 상위 팀 액션의 팀이 다른 경우다. */
+    RELATED_ACTION_TEAM_MISMATCH(HttpStatus.BAD_REQUEST, "MT-019", "같은 팀의 상위 팀 액션만 선택할 수 있습니다.");
 
     /* 응답에 사용할 HTTP 상태다. */
     private final HttpStatus httpStatus;

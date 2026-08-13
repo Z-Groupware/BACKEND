@@ -16,13 +16,13 @@ public record CompanyProfileResponse(
         String representativeName,
         String address,
         String phone,
-        String plan,
+        String subscriptionStatus,
         LocalDateTime onboardedAt
 ) {
-    public static CompanyProfileResponse from(Company company) {
+    public static CompanyProfileResponse from(Company company, String subscriptionStatus) {
         return new CompanyProfileResponse(
                 company.id(), company.code(), company.name(), company.registrationNo(),
                 company.representativeName(), company.address(), company.mainPhone(),
-                "FREE", company.onboardedAt());
+                subscriptionStatus, company.onboardedAt());
     }
 }

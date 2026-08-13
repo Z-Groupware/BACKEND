@@ -18,6 +18,8 @@ public record MeetingDetailResponse(
         String startedAt,
         String endedAt,
         boolean recordingConsent,
+        long pendingActionCount,
+        String summaryStatus,
         ProjectResponse project,
         MeetingRoomResponse meetingRoom,
         HostResponse host,
@@ -47,6 +49,8 @@ public record MeetingDetailResponse(
                 formatDateTime(result.startedAt()),
                 formatDateTime(result.endedAt()),
                 result.recordingConsent(),
+                result.pendingActionCount(),
+                result.summaryStatus() == null ? null : result.summaryStatus().name(),
                 new ProjectResponse(
                         result.project().projectId(),
                         result.project().tag(),
