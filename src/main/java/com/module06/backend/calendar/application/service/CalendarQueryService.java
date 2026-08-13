@@ -86,7 +86,7 @@ public class CalendarQueryService implements GetCalendarUseCase {
                 .toList();
 
         List<CalendarItem> todoItems = personalTodoRepository
-                .findAllByMemberIdAndDateBetween(memberId, monthStart, monthEnd).stream()
+                .findAllByMemberIdOverlappingPeriod(memberId, monthStart, monthEnd).stream()
                 .map(this::toTodoItem)
                 .toList();
 
@@ -116,7 +116,7 @@ public class CalendarQueryService implements GetCalendarUseCase {
                 todo.getTitle(),
                 null,
                 todo.getDate(),
-                todo.getDate(),
+                todo.getEndDate(),
                 todo.isDone()
         );
     }
