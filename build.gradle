@@ -244,6 +244,16 @@ tasks.register('reviewAccuracy', JavaExec) {
     jvmArgs reviewLoopUtf8Args
 }
 
+// 최적화 루프 — 코드가 아니라 '루프 자신'을 측정한다(수율·커버리지·학습 전환율 + 돌릴 손잡이).
+// reviewAccuracy(규칙 품질)·review-score-domains.sh(코드 품질)와 대상이 다르다. 설계: UNIFIED_DESIGN.md §9
+tasks.register('reviewOptimize', JavaExec) {
+    group = 'review-loop'
+    description = '루프 자신의 지표 측정·진단 (--args="--snapshot" 이면 기준선에 적재해 다음 실행이 델타 표시)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.module06.backend.reviewloop.judge.LoopMetrics'
+    jvmArgs reviewLoopUtf8Args
+}
+
 tasks.register('reviewBudget', JavaExec) {
     group = 'review-loop'
     description = '드라이버 루프 예산 증가·검사 (--args="--inc-autofix | --inc-total | --reset") · 초과 시 exit 1'

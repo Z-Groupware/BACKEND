@@ -134,6 +134,29 @@ bash scripts/review-lesson-from-revert.sh --apply
 ### 9 · 재push
 커밋 → `git push` 재시도 **전에** `./gradlew reviewBudget --args="--inc-total"`. `⚠️ 한도 초과`면 재push 말고 종료.
 
+## 주기 점검 — 루프 최적화 (라운드 밖)
+
+위 0~9는 **한 체인지셋**을 처리하는 절차다. 그 루프가 **잘 돌고 있는지**는 라운드 안에서 보이지 않는다 —
+매 실행이 초록이어도 누적으로는 변경 절반이 리뷰를 못 받고 있을 수 있다(실제로 그랬다).
+
+```bash
+./gradlew reviewOptimize                       # 측정 + 진단(돌릴 손잡이까지)
+./gradlew reviewOptimize --args="--snapshot"    # 기준선 적재 — 다음 실행이 `변화` 칸을 채운다
+```
+
+`변화` 칸은 지난 기준선과의 차이를 %p로 계산해 보여준다(▲ 개선 · ▼ 악화 · → 변화 없음). 기준선이 없는
+첫 실행은 비어 있다.
+
+| 지표 | 기준 | 미달이면 |
+|---|---|---|
+| 커버리지 (리뷰된 `.java` 비율) | ≥90% | 키·쿼터 문제 — `SETUP.md` §2. 그 구간은 소급 리뷰 대상 |
+| 판정 수율 (신호를 낸 판정 비율) | ≥20% | 대상 좁히기(core 유형) 또는 `rules.yaml`에 judge 규칙 추가 |
+| 학습 전환율 (사람이 판정해 **교훈으로 기록한** finding 비율) | ≥50% | **8번을 빼먹고 있다** — `reviewLesson` 1줄 |
+
+- **스프린트 회고·PR 스택 정리 시점에 한 번** 돌리는 리듬을 권한다(라운드마다 돌릴 지표가 아니다).
+- 조치는 사람이 한다. 지표는 손잡이를 지목할 뿐 자동으로 돌리지 않는다(루프 불변식과 같은 이유).
+- 기준선은 `review-loop/knowledge/loop-metrics.jsonl`(팀 공유·append-only). 배경: [UNIFIED_DESIGN.md](UNIFIED_DESIGN.md) §9
+
 ## 예산
 - AutoFix(수정 라운드) ≤ 3, Total(push 재시도) ≤ 6 — 카운터 `.git/reviewloop-budget`(로컬·브랜치별, HEAD 브랜치 바뀌면 자동 리셋).
 - 5번 검증 실패는 **카운트하지 않는다**(같은 라운드 내 재시도).

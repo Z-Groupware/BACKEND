@@ -168,6 +168,7 @@ diff를 승인하거나 되돌릴 때 한 줄 기록한다. **요청서에 복�
 | `./gradlew reviewLoop --args="--path <dir> --max N"` | 특정 경로 수동 판정 |
 | `bash scripts/review-fix.sh --path <dir>` | 판정 + 수정 요청서 생성 한 번에 |
 | `./gradlew reviewLesson` / `reviewAccuracy` | 교훈 기록 / 오탐률 조회 |
+| `./gradlew reviewOptimize` | **루프 자신의 지표**(커버리지·수율·학습 전환율) + 조치 — 주기 점검 |
 | `./gradlew reviewBudget --args="--reset"` | 새 작업 시작 시 예산 초기화 |
 | `bash scripts/review-session.sh` | (선택) 격리 worktree 준비 — 변경이 클 때 |
 | `bash scripts/review-trail.sh <findings>` | 커밋 직후 수정 이력 기록(revert 자동 회수의 전제) |
