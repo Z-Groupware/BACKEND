@@ -40,8 +40,14 @@ jobs:
   migration-check:
     name: Schema Migration Validation (real MySQL)
     runs-on: ubuntu-latest
-    # 하드 게이트 — 실패 시 머지를 막는다. 위 test job은 H2로 돌아서 MySQL 전용 DDL 실패를
-    # 재현 못 하므로(docs/DB_MIGRATION_RULES.md §8-1/§8-2), 이 job이 유일한 검증 지점이다.
+    # 위 test job은 H2로 돌아서 MySQL 전용 DDL 실패를 재현 못 하므로
+    # (docs/DB_MIGRATION_RULES.md §8-1/§8-2), 이 job이 유일한 검증 지점이다.
+    #
+    # ⚠️ 이 잡이 실패해도 머지는 막히지 않는다 — 브랜치 보호의 필수 체크 목록에 없기 때문이다.
+    #    막으려면 Settings → Branches 에서 "Schema Migration Validation (real MySQL)" 을
+    #    필수 체크로 올려야 한다. 워크플로 파일만으로는 머지를 막을 수 없다.
+    #    (전에는 이 자리에 "하드 게이트 — 실패 시 머지를 막는다"고 적혀 있었는데 사실이 아니었다.)
+    #    다만 아래 docker job 이 이 잡을 needs 로 기다리므로, 실패하면 이미지 푸시는 막힌다.
 
     steps:
       - name: Checkout
@@ -65,7 +71,11 @@ jobs:
   docker:
     name: Build and Push Docker Image
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: test
+    # migration-check 도 기다린다. 전에는 test 만 기다려서, Flyway 마이그레이션이 실제 MySQL에서
+    # 깨져도 이미지가 그대로 Docker Hub 에 올라갔다 — 그 이미지는 뜨는 순간 부팅에 실패한다
+    # (ddl-auto=validate · validate-on-migrate=true).
+    # 배포될 수 없는 이미지를 레지스트리에 올리지 않는다.
+    needs: [test, migration-check]
     runs-on: ubuntu-latest
 
     steps:
@@ -83,36 +93,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 밀기 전에 먼저 로컬로 받아 스캔한다. 순서가 핵심이다 — 밀고 나서 스캔하면
-      # 취약한 이미지가 이미 레지스트리에 올라가 있고, 그걸 당기는 쪽은 스캔 결과를 모른다.
-      # 두 번 빌드하는 것처럼 보이지만 아래 push 단계는 이 빌드의 캐시를 그대로 쓴다.
-      - name: 이미지 빌드 (로컬 적재 — 스캔용)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: z-spring:scan-target
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
-
-      # 이 이미지는 JRE 만 있는 게 아니다 — Dockerfile 이 ffmpeg 를 설치하고(21-23행),
-      # 그 ffmpeg 가 회의 녹음을 파싱한다. 신뢰할 수 없는 미디어가 코덱 파서에 닿는 구조라
-      # OS 패키지 CVE 표면이 실재한다.
-      #
-      # ★ 지금은 리포터다(exit-code 0). 도입 시점에 findings 를 본 적이 없어, 차단으로 켜면
-      #   develop 배포가 첫날 멈출 수 있다. 첫 실행 결과를 보고 exit-code 1 로 올린다.
-      #   올릴 때 이 주석도 함께 지울 것 — 안 지우면 정책과 코드가 어긋난 채로 남는다.
-      - name: Trivy — 이미지 취약점 스캔 (리포터)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          image-ref: z-spring:scan-target
-          format: table
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true    # 업스트림에 고칠 방법이 없는 건 우리가 할 수 있는 게 없다
-          exit-code: "0"
-
       - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
@@ -125,14 +105,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 위 image 스캔은 develop push 에서만 돈다(이미지를 빌드하는 잡이 거기뿐이다). 이 잡은
-  # PR 에서 돌면서 이미지를 만들지 않고 설정 파일만 본다 — Dockerfile · compose 의
-  # 잘못된 설정을 머지 전에 잡는다. 빌드가 없어서 몇 초면 끝난다.
+  # 이 잡은 이미지를 만들지 않고 IaC·컨테이너 설정 파일만 정적으로 본다 — 잘못된 설정을
+  # 머지 전에 잡는다. 빌드가 없어서 몇 초면 끝난다.
   #
-  # ★ 리포터다(exit-code 0). 도입 시점에 findings 를 본 적이 없어 차단으로 켜면 모든 PR 이
-  #   첫날 막힐 수 있다. 첫 실행 결과를 보고 정책을 정한다.
+  # ★ scan-ref 는 리포 전체(.)다 — 의도적이다.
+  #   CodeRabbit(PR #478)이 "Dockerfile 하나로 좁혀라, 안 그러면 나중에 Terraform·Kubernetes·
+  #   Helm 이 들어올 때 검사 범위와 판정이 바뀐다"고 지적했으나 반영하지 않았다. 좁히면
+  #   그 파일들이 조용히 검사 밖으로 빠지는데, 그게 이 게이트로 막으려던 바로 그 상황이다.
+  #   새 IaC 가 HIGH 를 물고 들어오면 빨개지는 것이 맞다 — 범위가 늘어 판정이 바뀌는 건
+  #   결함이 아니라 목적이다. 대신 스텝 이름을 실제 동작(리포 전체)에 맞춰 고쳤다.
+  #
+  # ⚠️ 지금 실제로 잡히는 파일은 Dockerfile 하나뿐이다(로그의 "Detected config files num=1").
+  #    compose.yml 은 Trivy misconfig 스캐너에 compose 룰이 없어 검사되지 않는다 —
+  #    compose 의 실수는 파일 자신의 가드로 막는다(REDIS_PASSWORD 미설정 시 기동 실패).
+  #
+  # ★ 차단이다(exit-code 1). 첫 실행에서 findings 0 을 확인했다
+  #   (2026-08-13, PR #469 — Dockerfile 0건). 유예할 부채가 없으므로 0 에서 시작해 0 을 유지한다.
   trivy-config:
-    name: Trivy · 설정 스캔 (리포터)
+    name: Trivy · 설정 스캔
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -140,14 +130,14 @@ jobs:
         with:
           persist-credentials: false   # 러너에 git 자격증명을 남기지 않는다
 
-      - name: Trivy — Dockerfile·compose 설정 검사
+      - name: Trivy — IaC·컨테이너 설정 검사 (리포 전체)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: config
           scan-ref: .
           format: table
           severity: HIGH,CRITICAL
-          exit-code: "0"
+          exit-code: "1"
 
   # ────────────────────────────────────────────────────────────────────────────
   # 공급망 — 이 리포가 쓰는 의존성 목록을 GitHub 에 올린다.
