@@ -102,20 +102,23 @@ public class ProjectController {
     */
     // 2026-08-10 페이지네이션 도입(이홍근 요청) — page 0부터 시작, size 기본 20.
     // 2026-08-10 필터/정렬 추가(이홍근 요청) — status 필터(선택), sort/order 화이트리스트(dueDate·createdAt).
+    // 2026-08-13 keyword 검색 추가(이홍근 요청, 종준님 확정) — 프로젝트명 대소문자 무시 부분일치.
     @Operation(summary = "프로젝트 목록 조회", description = "전 구성원 공개, 회사 전체 프로젝트. "
-            + "페이지네이션(page/size), status 필터, 정렬(sort=dueDate|createdAt, order=asc|desc).")
+            + "페이지네이션(page/size), status 필터, keyword 검색(프로젝트명), "
+            + "정렬(sort=dueDate|createdAt|name, order=asc|desc).")
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ApiResponse<PageResponse<ProjectSummaryResponse>> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @RequestParam(required = false) String keyword,
             @RequestParam(required = false) ProjectStatus status,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "desc") String order,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        var result = getProjectListUseCase.list(companyId, status, sort, order, page, size);
+        var result = getProjectListUseCase.list(companyId, keyword, status, sort, order, page, size);
         List<ProjectSummaryResponse> items = result.items().stream()
                 .map(ProjectSummaryResponse::from)
                 .toList();

@@ -30,41 +30,28 @@ class SpeakerAttributionResolverTest {
     private final SpeakerAttributionResolver resolver = new SpeakerAttributionResolver();
 
     @Test
-    @DisplayName("창 안에서 rms 가 가장 큰 참석자를 화자로 정한다")
-    void 음량이_가장_큰_참석자가_화자다() {
+    @DisplayName("창 안 유일한 후보가 있고 전원이 자막을 보냈으면 화자로 정한다")
+    void 유일한_후보를_화자로_정한다() {
         List<Attribution> result = resolver.resolve(
                 List.of(utterance(1L, 10_000, 12_000)),
-                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
-                        caption(BOB, 10_000, 12_000, "-30.00")),
-                Set.of(ALICE, BOB));
+                List.of(caption(ALICE, 10_000, 12_000, "-18.00")),
+                Set.of(ALICE));
 
         assertThat(result).containsExactly(new Attribution(1L, ALICE, SpeakerSource.SELF_STREAM));
     }
 
     @Test
-    @DisplayName("1·2등 차이가 3dB 미만이면 판정을 포기한다 — 큰 쪽을 고르는 건 동전 던지기다")
-    void 음량_차이가_좁으면_포기한다() {
+    @DisplayName("창 안 후보가 둘 이상이면 확정하지 않는다 — HashMap 반복 순서로 화자를 고르면 안 된다")
+    void 후보가_둘_이상이면_포기한다() {
+        // host-only 전환 이전에 저장된 참석자 자막이 남아 있거나, 명단·전송 경로 문제로
+        // 같은 창 안에 두 사람 이상의 자막이 잡히는 상황이다.
         List<Attribution> result = resolver.resolve(
                 List.of(utterance(1L, 10_000, 12_000)),
-                // 차이 2.99dB — 임계값 바로 아래
                 List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
-                        caption(BOB, 10_000, 12_000, "-20.99")),
+                        caption(BOB, 10_000, 12_000, "-19.00")),
                 Set.of(ALICE, BOB));
 
         assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("차이가 정확히 3dB 면 확정한다 — 경계는 포함이다")
-    void 차이가_정확히_임계값이면_확정한다() {
-        List<Attribution> result = resolver.resolve(
-                List.of(utterance(1L, 10_000, 12_000)),
-                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
-                        caption(BOB, 10_000, 12_000, "-21.00")),
-                Set.of(ALICE, BOB));
-
-        // DECIMAL(6,2) 를 BigDecimal 로 받는 이유가 이 경계다 — double 이면 오차로 갈린다.
-        assertThat(result).containsExactly(new Attribution(1L, ALICE, SpeakerSource.SELF_STREAM));
     }
 
     @Test
@@ -95,31 +82,6 @@ class SpeakerAttributionResolverTest {
     }
 
     @Test
-    @DisplayName("참석자 2명 중 한 명만 자막을 보내면, 자막 없는 구간은 나머지 한 명이다 (소거법)")
-    void 참석자_2명이면_소거법이_성립한다() {
-        // 앨리스만 자막을 보낸다. 60초 구간에 앨리스 자막이 없으므로 말한 사람은 밥이다.
-        List<Attribution> result = resolver.resolve(
-                List.of(utterance(1L, 10_000, 12_000), utterance(2L, 60_000, 62_000)),
-                List.of(caption(ALICE, 10_000, 12_000, "-18.00")),
-                Set.of(ALICE, BOB));
-
-        assertThat(result).containsExactly(
-                // 앨리스 자막이 있는 구간: 전원 자막이 아니므로 단독 후보로는 확정 못 한다
-                new Attribution(2L, BOB, SpeakerSource.ELIMINATION));
-    }
-
-    @Test
-    @DisplayName("참석자가 3명이면 소거법을 쓰지 않는다 — 지워도 나머지가 둘이다")
-    void 참석자가_3명이면_소거법을_쓰지_않는다() {
-        List<Attribution> result = resolver.resolve(
-                List.of(utterance(1L, 60_000, 62_000)),
-                List.of(caption(ALICE, 10_000, 12_000, "-18.00")),
-                Set.of(ALICE, BOB, CAROL));
-
-        assertThat(result).isEmpty();
-    }
-
-    @Test
     @DisplayName("자막이 아예 없으면 전원 판정 포기다 — CAP-11 미구현 상태의 정상 동작")
     void 자막이_없으면_전원_포기한다() {
         List<Attribution> result = resolver.resolve(
@@ -127,7 +89,6 @@ class SpeakerAttributionResolverTest {
                 List.of(),
                 Set.of(ALICE, BOB));
 
-        // 참석자가 2명이지만 **둘 다** 자막을 안 보냈으므로 소거할 대상이 없다.
         assertThat(result).isEmpty();
     }
 
@@ -151,28 +112,10 @@ class SpeakerAttributionResolverTest {
         List<Attribution> result = resolver.resolve(
                 List.of(utterance(1L, 10_000, 12_000)),
                 // 창은 8.5초~13.5초. 이 자막은 13.5초에 시작해 경계에 닿는다.
-                List.of(caption(ALICE, 13_500, 20_000, "-10.00"),
-                        caption(BOB, 10_000, 12_000, "-30.00")),
-                Set.of(ALICE, BOB));
+                List.of(caption(ALICE, 13_500, 20_000, "-10.00")),
+                Set.of(ALICE));
 
         assertThat(result).containsExactly(new Attribution(1L, ALICE, SpeakerSource.SELF_STREAM));
-    }
-
-    @Test
-    @DisplayName("같은 참석자의 자막이 여러 개면 합이 아니라 최대를 쓴다")
-    void 참석자별로_최대_음량을_쓴다() {
-        List<Attribution> result = resolver.resolve(
-                List.of(utterance(1L, 10_000, 12_000)),
-                // 밥은 조각 셋을 보냈다. 합(-60)으로 계산하면 앨리스가 이기지만,
-                // 최대(-19)로 보면 차이가 1dB 라 포기해야 한다 — 청크를 잘게 보내는
-                // 브라우저가 판정에서 유리해지는 경로를 막는 자리다.
-                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
-                        caption(BOB, 10_000, 10_600, "-20.00"),
-                        caption(BOB, 10_600, 11_200, "-21.00"),
-                        caption(BOB, 11_200, 12_000, "-19.00")),
-                Set.of(ALICE, BOB));
-
-        assertThat(result).isEmpty();
     }
 
     @Test
@@ -220,11 +163,10 @@ class SpeakerAttributionResolverTest {
         List<Attribution> result = resolver.resolve(
                 List.of(utterance(1L, 10_000, 12_000)),
                 List.of(caption(CAROL, 10_000, 12_000, "-10.00"),
-                        caption(ALICE, 10_000, 12_000, "-18.00"),
-                        caption(BOB, 10_000, 12_000, "-30.00")),
-                Set.of(ALICE, BOB));
+                        caption(ALICE, 10_000, 12_000, "-18.00")),
+                Set.of(ALICE));
 
-        // CAROL 이 아니라 ALICE 다. 명단 밖 자막이 걸러지고 남은 둘로 판정한다.
+        // CAROL 이 아니라 ALICE 다. 명단 밖 자막이 걸러지고 남은 한 명으로 판정한다.
         assertThat(result).containsExactly(new Attribution(1L, ALICE, SpeakerSource.SELF_STREAM));
     }
 
@@ -240,20 +182,6 @@ class SpeakerAttributionResolverTest {
                 Set.of(ALICE, BOB));
 
         assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("명단 밖 자막은 소거법 판단도 흔들지 않는다")
-    void 명단_밖_자막은_소거법을_흔들지_않는다() {
-        // 참석자 2명(ALICE·BOB) 중 ALICE 만 자막을 보냈다 → 자막 없는 구간은 BOB 이다.
-        // 명단 밖 CAROL 의 자막이 그 구간에 있어도 소거법은 그대로 성립해야 한다.
-        List<Attribution> result = resolver.resolve(
-                List.of(utterance(1L, 50_000, 52_000)),
-                List.of(caption(ALICE, 10_000, 12_000, "-18.00"),
-                        caption(CAROL, 50_000, 52_000, "-12.00")),
-                Set.of(ALICE, BOB));
-
-        assertThat(result).containsExactly(new Attribution(1L, BOB, SpeakerSource.ELIMINATION));
     }
 
     private static Utterance utterance(long id, int startMs, int endMs) {

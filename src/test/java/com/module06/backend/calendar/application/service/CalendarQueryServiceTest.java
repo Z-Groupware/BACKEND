@@ -77,8 +77,9 @@ class CalendarQueryServiceTest {
         Action personalAction = action(1L, COMPANY, ActionType.PERSONAL, LocalDate.of(2026, 8, 15));
         when(actionRepository.findAllByAssigneeMemberId(MEMBER)).thenReturn(List.of(personalAction));
         PersonalTodo todo = PersonalTodo.reconstitute(
-                10L, COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), false, null, null);
-        when(personalTodoRepository.findAllByMemberIdAndDateBetween(
+                10L, COMPANY, MEMBER, "우유 사기", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 20),
+                false, null, null);
+        when(personalTodoRepository.findAllByMemberIdOverlappingPeriod(
                 MEMBER, MONTH.atDay(1), MONTH.atEndOfMonth())).thenReturn(List.of(todo));
 
         List<CalendarItem> result = service().getCalendar(COMPANY, MEMBER, "MEMBER", MONTH);
@@ -86,13 +87,25 @@ class CalendarQueryServiceTest {
         assertThat(result).hasSize(2);
         assertThat(result).extracting(CalendarItem::type)
                 .containsExactlyInAnyOrder(CalendarItemType.ACTION, CalendarItemType.TODO);
+
+        CalendarItem todoItem = result.stream()
+                .filter(item -> item.type() == CalendarItemType.TODO)
+                .findFirst().orElseThrow();
+        assertThat(todoItem.id()).isEqualTo(10L);
+        assertThat(todoItem.isDone()).isFalse();
+
+        CalendarItem actionItem = result.stream()
+                .filter(item -> item.type() == CalendarItemType.ACTION)
+                .findFirst().orElseThrow();
+        assertThat(actionItem.id()).isNull();
+        assertThat(actionItem.isDone()).isNull();
     }
 
     @Test
     void leaderExcludesTeamActions() {
         Action teamAction = action(1L, COMPANY, ActionType.TEAM, LocalDate.of(2026, 8, 15));
         when(actionRepository.findAllByAssigneeMemberId(MEMBER)).thenReturn(List.of(teamAction));
-        when(personalTodoRepository.findAllByMemberIdAndDateBetween(any(), any(), any())).thenReturn(List.of());
+        when(personalTodoRepository.findAllByMemberIdOverlappingPeriod(any(), any(), any())).thenReturn(List.of());
 
         List<CalendarItem> result = service().getCalendar(COMPANY, MEMBER, "LEADER", MONTH);
 
@@ -103,7 +116,7 @@ class CalendarQueryServiceTest {
     void excludesActionsFromAnotherCompany() {
         Action otherCompanyAction = action(1L, 999L, ActionType.PERSONAL, LocalDate.of(2026, 8, 15));
         when(actionRepository.findAllByAssigneeMemberId(MEMBER)).thenReturn(List.of(otherCompanyAction));
-        when(personalTodoRepository.findAllByMemberIdAndDateBetween(any(), any(), any())).thenReturn(List.of());
+        when(personalTodoRepository.findAllByMemberIdOverlappingPeriod(any(), any(), any())).thenReturn(List.of());
 
         List<CalendarItem> result = service().getCalendar(COMPANY, MEMBER, "MEMBER", MONTH);
 
@@ -114,7 +127,7 @@ class CalendarQueryServiceTest {
     void excludesActionsWithDueDateOutsideMonth() {
         Action nextMonthAction = action(1L, COMPANY, ActionType.PERSONAL, LocalDate.of(2026, 9, 1));
         when(actionRepository.findAllByAssigneeMemberId(MEMBER)).thenReturn(List.of(nextMonthAction));
-        when(personalTodoRepository.findAllByMemberIdAndDateBetween(any(), any(), any())).thenReturn(List.of());
+        when(personalTodoRepository.findAllByMemberIdOverlappingPeriod(any(), any(), any())).thenReturn(List.of());
 
         List<CalendarItem> result = service().getCalendar(COMPANY, MEMBER, "MEMBER", MONTH);
 

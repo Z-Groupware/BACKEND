@@ -28,6 +28,17 @@ public interface MemberDirectoryQueryPort {
     /** 좌석 상한 판정용(§5-1 검증 5). 살아 있는 구독이 없으면 empty — FREE 로 둘러대지 않는다. */
     Optional<Plan> findActivePlan(Long companyId);
 
+    /**
+     * §7-4 역할 라벨 변경. 화면이 라벨을 id 가 아니라 이름으로 보내므로(역할 select 의 값이 곧
+     * 이름이다) 이름을 회사 안에서 id 로 되돌린다. 없는 이름이면 empty — 호출자가 404 로 답한다.
+     *
+     * <p>여기서 역할을 새로 만들지 않는다. 역할 생성은 온보딩·부서 관리의 일이라, 오타 하나가
+     * 조용히 새 역할을 만들면 역할 목록이 사람마다 다른 이름으로 불어난다.
+     *
+     * @param label 전 회사 공용 시스템 역할("없음")도 찾을 수 있다 — 그건 회사 소유가 아니다
+     */
+    Optional<Long> findRoleIdByLabel(Long companyId, String label);
+
     record MemberRow(
             Long memberId,
             String name,

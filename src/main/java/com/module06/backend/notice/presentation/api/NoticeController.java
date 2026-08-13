@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,7 +42,7 @@ import com.module06.backend.notice.presentation.api.response.NoticeDetailRespons
 import com.module06.backend.notice.presentation.api.response.NoticeListResponse;
 import com.module06.backend.notice.presentation.api.response.UpdateNoticeResponse;
 
-/* NOTI-01~05 회사 공지 CRUD REST API의 진입점이다. */
+/* NOTI-01~05 회사 공지 CRUD REST API의 진입점이다. 작성·수정·삭제는 OWNER만 가능하다. */
 @Tag(name = "Notice", description = "회사 공지 조회 및 관리 API")
 @RestController
 @RequestMapping("/api/notices")
@@ -63,19 +64,23 @@ public class NoticeController {
     /* 공지 삭제 프레젠테이션 계층과 명령 서비스를 연결하는 인바운드 Port다. */
     private final DeleteNoticeUseCase deleteNoticeUseCase;
 
-    /* 인증 사용자의 회사에 속한 활성 공지를 최신순으로 조회한다. */
-    @Operation(summary = "공지 목록 조회", description = "로그인한 사용자의 회사 공지를 최신순으로 조회합니다.")
+    /* 인증 사용자의 회사에 속한 활성 공지를 최신순으로 페이지 단위 조회한다. */
+    @Operation(summary = "공지 목록 조회", description = "로그인한 사용자의 회사 공지를 최신순으로 페이지 단위 조회합니다.")
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
     @GetMapping
     public ApiResponse<NoticeListResponse> getNotices(
-            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
+            @Parameter(description = "페이지 번호", example = "0")
+            @RequestParam(defaultValue = "0") String page,
+            @Parameter(description = "페이지 크기", example = "10")
+            @RequestParam(defaultValue = "10") String size
     ) {
-        /* 요청에서 회사 식별자를 받지 않고 인증 principal의 회사만 Query에 전달한다. */
+        /* 요청에서 회사 식별자를 받지 않고 인증 principal의 회사와 파싱한 페이지 값만 Query에 전달한다. */
         NoticeListResult result = getNoticeListUseCase.getNotices(
-                new GetNoticeListQuery(principal.getCompanyId())
+                new GetNoticeListQuery(principal.getCompanyId(), parseInteger(page, "page"), parseInteger(size, "size"))
         );
 
-        /* 빈 결과도 notices 빈 배열을 포함하는 공통 200 성공 응답으로 반환한다. */
+        /* 빈 결과도 notices 빈 배열과 페이지 메타를 포함하는 공통 200 성공 응답으로 반환한다. */
         return ApiResponse.success(
                 "공지 목록 조회에 성공했습니다.",
                 NoticeListResponse.from(result)
@@ -102,9 +107,9 @@ public class NoticeController {
         );
     }
 
-    /* OWNER·ADMIN이 인증된 자기 회사에 새로운 공지를 작성한다. */
-    @Operation(summary = "공지 작성", description = "관리자가 로그인한 회사에 제목과 본문을 가진 공지를 작성합니다.")
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    /* OWNER가 인증된 자기 회사에 새로운 공지를 작성한다. */
+    @Operation(summary = "공지 작성", description = "OWNER가 로그인한 회사에 제목과 본문을 가진 공지를 작성합니다.")
+    @PreAuthorize("hasRole('OWNER')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public ApiResponse<CreateNoticeResponse> createNotice(
@@ -125,9 +130,9 @@ public class NoticeController {
         );
     }
 
-    /* OWNER·ADMIN이 인증된 자기 회사의 활성 공지 제목과 본문을 전체 수정한다. */
-    @Operation(summary = "공지 수정", description = "관리자가 공지의 제목과 본문을 전체 수정합니다.")
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    /* OWNER가 인증된 자기 회사의 활성 공지 제목과 본문을 전체 수정한다. */
+    @Operation(summary = "공지 수정", description = "OWNER가 공지의 제목과 본문을 전체 수정합니다.")
+    @PreAuthorize("hasRole('OWNER')")
     @PutMapping("/{noticeId}")
     public ApiResponse<UpdateNoticeResponse> updateNotice(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
@@ -149,9 +154,9 @@ public class NoticeController {
         );
     }
 
-    /* OWNER·ADMIN이 인증된 자기 회사의 활성 공지를 소프트 삭제한다. */
-    @Operation(summary = "공지 삭제", description = "관리자가 공지를 소프트 삭제해 조회 대상에서 제외합니다.")
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    /* OWNER가 인증된 자기 회사의 활성 공지를 소프트 삭제한다. */
+    @Operation(summary = "공지 삭제", description = "OWNER가 공지를 소프트 삭제해 조회 대상에서 제외합니다.")
+    @PreAuthorize("hasRole('OWNER')")
     @DeleteMapping("/{noticeId}")
     public ApiResponse<Void> deleteNotice(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthPrincipal principal,
@@ -167,5 +172,20 @@ public class NoticeController {
 
         /* 삭제 성공은 별도 data 없이 공통 200 응답으로 반환한다. */
         return ApiResponse.successWithoutData("공지를 삭제했습니다.");
+    }
+
+    /* 페이지 문자열을 정수로 변환하고 숫자가 아닌 입력을 공통 입력 오류로 바꾼다. */
+    private Integer parseInteger(String value, String parameterName) {
+        /* defaultValue가 적용되지만 직접 호출에서도 null을 명확한 입력 오류로 처리한다. */
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(parameterName + "은 정수여야 합니다.");
+        }
+
+        /* 정수 표현만 허용하고 실제 허용 범위는 서비스에서 일관되게 검증한다. */
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(parameterName + "은 정수여야 합니다.", exception);
+        }
     }
 }

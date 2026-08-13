@@ -5,9 +5,11 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,16 +26,21 @@ import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort.ProjectSnapshot;
+import com.module06.backend.meeting.application.port.out.SummaryStatusQueryPort;
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingListUseCase;
 import com.module06.backend.meeting.domain.model.MeetingEntryPolicy;
 import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingListCriteria;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingListSnapshot;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository.MeetingPage;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 import com.module06.backend.project.exception.ProjectErrorCode;
 
@@ -49,6 +56,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
 
     /* 기간이 생략된 요청에 적용하는 최근 조회 개월 수다. */
     private static final int DEFAULT_MONTH_RANGE = 3;
+    private static final int DEFAULT_FUTURE_MONTH_RANGE = 3;
 
     /* 페이지 번호가 생략됐을 때 적용하는 첫 페이지 번호다. */
     private static final int DEFAULT_PAGE = 0;
@@ -70,6 +78,10 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
 
     /* 회의 목록 카드에 표시할 회의별 전체 액션 수를 조회하는 C 연동 Port다. */
     private final ActionQueryPort actionQueryPort;
+
+    private final SummaryStatusQueryPort summaryStatusQueryPort;
+
+    private final MeetingQueryRepository meetingQueryRepository;
 
     /* 회의 목록 카드의 참석자 아바타 이름을 조회하는 B 연동 Port다. */
     private final MemberQueryPort memberQueryPort;
@@ -143,6 +155,10 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meetingIds,
                 actionQueryPort.countActionsByMeetings(resolved.companyId(), meetingIds)
         );
+        Set<Long> stalledSummaryMeetingIds = indexStalledSummaryMeetingIds(resolved.companyId(), page.meetings());
+        Map<Long, MeetingListResult.AgendaPreview> agendaPreviews = indexAgendaPreviews(
+                meetingQueryRepository.findMeetingTopics(resolved.companyId(), meetingIds)
+        );
 
         /* 페이지 전체 회의의 참석자 식별자를 한 데 모아 B에 한 번만 전달해 이름을 조회한다. */
         List<Long> attendeeMemberIds = page.meetings().stream()
@@ -164,6 +180,8 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                         meetingRooms.get(meeting.meetingRoomId()),
                         projects.get(meeting.projectId()),
                         actionCounts.getOrDefault(meeting.meetingId(), 0L),
+                        resolveSummaryStatus(meeting, stalledSummaryMeetingIds),
+                        agendaPreviews.get(meeting.meetingId()),
                         resolved.requesterMemberId(),
                         now,
                         members
@@ -210,7 +228,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         /* 현재 날짜를 한 번만 읽고 생략된 기간을 최근 3개월부터 오늘까지로 계산한다. */
         LocalDate today = LocalDate.now(clock);
         LocalDate from = query.from() == null ? today.minusMonths(DEFAULT_MONTH_RANGE) : query.from();
-        LocalDate to = query.to() == null ? today : query.to();
+        LocalDate to = query.to() == null ? today.plusMonths(DEFAULT_FUTURE_MONTH_RANGE) : query.to();
 
         /* 시작 날짜가 종료 날짜보다 늦으면 범위가 성립하지 않으므로 Z-001로 거절한다. */
         if (from.isAfter(to)) {
@@ -313,6 +331,52 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         return Map.copyOf(indexed);
     }
 
+    private Set<Long> indexStalledSummaryMeetingIds(Long companyId, List<MeetingListSnapshot> meetings) {
+        List<Long> doneIds = meetings.stream()
+                .filter(meeting -> meeting.status() == MeetingStatus.DONE)
+                .map(MeetingListSnapshot::meetingId)
+                .toList();
+        if (doneIds.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<Long> stalledIds = new HashSet<>();
+        summaryStatusQueryPort.findStalledSummaries(companyId, doneIds)
+                .forEach(summary -> stalledIds.add(summary.meetingId()));
+        return Set.copyOf(stalledIds);
+    }
+
+    private MeetingSummaryStatus resolveSummaryStatus(MeetingListSnapshot meeting, Set<Long> stalledSummaryMeetingIds) {
+        if (meeting.status() != MeetingStatus.DONE) {
+            return MeetingSummaryStatus.NONE;
+        }
+        return stalledSummaryMeetingIds.contains(meeting.meetingId()) ? MeetingSummaryStatus.STALLED : null;
+    }
+
+    private Map<Long, MeetingListResult.AgendaPreview> indexAgendaPreviews(List<MeetingTopicSnapshot> topics) {
+        Map<Long, String> mainTopics = new LinkedHashMap<>();
+        Map<Long, String> firstSubTopics = new LinkedHashMap<>();
+        for (MeetingTopicSnapshot topic : topics) {
+            if (topic.type() == MeetingTopicType.MAIN) {
+                mainTopics.putIfAbsent(topic.meetingId(), topic.content());
+            } else if (topic.type() == MeetingTopicType.SUB) {
+                firstSubTopics.putIfAbsent(topic.meetingId(), topic.content());
+            }
+        }
+
+        Map<Long, MeetingListResult.AgendaPreview> previews = new LinkedHashMap<>();
+        Set<Long> meetingIds = new HashSet<>();
+        meetingIds.addAll(mainTopics.keySet());
+        meetingIds.addAll(firstSubTopics.keySet());
+        for (Long meetingId : meetingIds) {
+            previews.put(meetingId, new MeetingListResult.AgendaPreview(
+                    mainTopics.get(meetingId),
+                    firstSubTopics.get(meetingId)
+            ));
+        }
+        return Map.copyOf(previews);
+    }
+
     /* 요청한 참석자 전체가 회사 범위 결과에 존재하는지 확인하고 식별자 맵으로 만든다. */
     private Map<Long, MemberSnapshot> indexMembers(
             List<Long> requestedIds,
@@ -339,6 +403,8 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
             MeetingRoomSnapshot meetingRoom,
             ProjectSnapshot project,
             long actionCount,
+            MeetingSummaryStatus summaryStatus,
+            MeetingListResult.AgendaPreview agendaPreview,
             Long requesterMemberId,
             LocalDateTime now,
             Map<Long, MemberSnapshot> members
@@ -354,6 +420,9 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meeting.meetingId(),
                 meeting.title(),
                 meeting.status(),
+                meeting.teamId(),
+                originLabel(meeting.teamId()),
+                summaryStatus,
                 meeting.startAt(),
                 meeting.endAt(),
                 meeting.attendeeMemberIds().size(),
@@ -362,9 +431,14 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 isEntryAvailable(meeting, now),
                 (int) Duration.between(meeting.startAt(), meeting.endAt()).toMinutes(),
                 attendees,
+                agendaPreview,
                 new MeetingListResult.MeetingRoom(meetingRoom.meetingRoomId(), meetingRoom.name()),
                 new MeetingListResult.Project(project.projectId(), project.tag(), project.name())
         );
+    }
+
+    private String originLabel(Long teamId) {
+        return teamId == null ? "OWNER" : "TEAM";
     }
 
     /*

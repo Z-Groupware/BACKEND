@@ -71,7 +71,7 @@ public class ReviewActionCreateAdapter implements ReviewActionCreatePort {
          * 항목을 PENDING으로 두면 자기가 쓴 것을 자기가 다시 검토하는 화면이 된다.
          * 애그리거트가 confirmedAt까지 함께 찍는다.
          */
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+        action.applyHumanReview(null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         return actionRepository.save(action).getId();
     }

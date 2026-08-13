@@ -6,9 +6,10 @@ import com.module06.backend.global.exception.BusinessException;
 import java.time.LocalDateTime;
 
 /**
- * 회의당 1행 — CAP 자체 세그먼트/현재 녹음자 북키핑. D(회의) 도메인의 미래 capture_session과는
- * 별개 개념: 저 테이블은 아직 없고(D 미구현), "현재 녹음자가 누구인가"는 CAP이 직접 소유해야
- * presign/complete가 D를 기다리지 않고 지금 바로 동작한다.
+ * 회의당 1행 — CAP 자체 세그먼트/현재 녹음자 북키핑. D(회의) 도메인의 capture_session(지금은
+ * 구현돼 있다 — CAP-01)과는 별개 개념이다: "현재 녹음자가 누구인가"는 세그먼트/청크 순번처럼
+ * CAP 고유의 청크 스트리밍 북키핑이라 CAP이 직접 소유한다(capture_session은 세션 생명주기만
+ * ACTIVE/PAUSED/ENDED로 관리하고, 누가 녹음자인지는 모른다).
  */
 public class CaptureUploadState {
 

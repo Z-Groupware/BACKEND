@@ -6,8 +6,8 @@ import java.util.List;
 
 import com.module06.backend.notice.application.result.NoticeListResult;
 
-/* NOTI-01 성공 응답의 data 영역으로 공지 목록을 항상 배열 형태로 제공한다. */
-public record NoticeListResponse(List<NoticeResponse> notices) {
+/* NOTI-01 성공 응답의 data 영역으로 공지 목록과 페이지 메타를 항상 함께 제공한다. */
+public record NoticeListResponse(List<NoticeResponse> notices, PageResponse page) {
 
     /* 명세가 요구하는 초 단위 오프셋 없는 KST 로컬 일시 포맷터다. */
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
@@ -30,8 +30,16 @@ public record NoticeListResponse(List<NoticeResponse> notices) {
                 ))
                 .toList();
 
-        /* 조회 결과가 없을 때도 빈 notices 배열을 가진 응답을 반환한다. */
-        return new NoticeListResponse(notices);
+        /* 현재 페이지와 전체 결과 규모를 명세 필드명으로 변환한다. */
+        PageResponse page = new PageResponse(
+                result.page().page(),
+                result.page().size(),
+                result.page().totalElements(),
+                result.page().totalPages()
+        );
+
+        /* 조회 결과가 없을 때도 빈 notices 배열과 페이지 메타를 가진 응답을 반환한다. */
+        return new NoticeListResponse(notices, page);
     }
 
     /* 공지 생성 일시를 API 고정 문자열 형식으로 변환한다. */
@@ -42,5 +50,9 @@ public record NoticeListResponse(List<NoticeResponse> notices) {
 
     /* 공지 목록 한 행에 공개하는 식별자·제목·생성 일시다. */
     public record NoticeResponse(Long noticeId, String title, String createdAt) {
+    }
+
+    /* 현재 페이지와 전체 결과 규모를 나타내는 페이지 메타데이터 응답이다. */
+    public record PageResponse(int page, int size, long totalElements, int totalPages) {
     }
 }

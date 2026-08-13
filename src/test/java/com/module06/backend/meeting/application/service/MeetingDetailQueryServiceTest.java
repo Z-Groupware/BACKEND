@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -21,8 +22,15 @@ import com.module06.backend.meeting.application.query.GetMeetingDetailQuery;
 import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingAttendeeReference;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.ProjectMeetingSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.UpcomingMeetingSnapshot;
 
 /*
  * MEET-04 상세 조회 서비스의 테넌트·권한·외부 표시 정보 조합 규칙을 검증한다.
@@ -57,10 +65,17 @@ class MeetingDetailQueryServiceTest {
         assertThat(result.attendees())
                 .extracting(MeetingDetailResult.Attendee::jobPosition)
                 .containsExactly("팀장", "시니어", "디자이너");
+        assertThat(result.attendees())
+                .extracting(MeetingDetailResult.Attendee::teamId)
+                .containsExactly(100L, 200L, 300L);
 
         /* 미확정 액션이 없고 요약도 중단되지 않았으면 0건과 알 수 없음(null)이어야 한다. */
         assertThat(result.pendingActionCount()).isZero();
         assertThat(result.summaryStatus()).isNull();
+        assertThat(result.teamId()).isEqualTo(100L);
+        assertThat(result.originLabel()).isEqualTo("TEAM");
+        assertThat(result.agenda().mainTopic()).isEqualTo("Main agenda");
+        assertThat(result.agenda().subTopics()).containsExactly("First sub agenda", "Second sub agenda");
     }
 
     /* 종료된 회의에서 C·A Port가 돌려준 값이 그대로 반영되는지 검증한다. */
@@ -119,17 +134,71 @@ class MeetingDetailQueryServiceTest {
         assertThat(result.meetingId()).isEqualTo(91L);
     }
 
-    /* 일반 비참석자가 같은 회사의 다른 회의를 읽지 못하는지 검증한다. */
+    /* MEMBER를 제외한 나머지 역할은 팀이 달라도 회사 전체 회의를 읽을 수 있는지 검증한다. */
     @Test
-    @DisplayName("열람 범위 밖의 구성원은 MT-011로 거절한다")
-    void rejectsMemberOutsideReadScope() {
-        /* 회의는 존재하지만 요청자가 참석자·개설자·같은 팀 LEADER가 아닌 서비스를 준비한다. */
+    @DisplayName("다른 팀 LEADER도 개설 회의를 조회한다")
+    void otherTeamLeaderReadsMeeting() {
+        /* 팀 식별자 100의 회의를 반환하는 상세 조회 서비스를 준비한다. */
         MeetingDetailQueryService service = service(Optional.of(meeting()));
 
-        /* 일반 비참석자의 상세 조회가 외부 표시 Port 호출 전에 거절되는지 검증한다. */
+        /* 비참석자 99번이 다른 팀(999) LEADER 권한으로 상세 조회한다. */
+        MeetingDetailResult result = service.getMeetingDetail(
+                new GetMeetingDetailQuery(10L, 99L, 999L, "LEADER", false, 91L)
+        );
+
+        /* 팀이 달라도 MEMBER가 아니므로 회의 한 건이 정상 반환돼야 한다. */
+        assertThat(result.meetingId()).isEqualTo(91L);
+    }
+
+    /* 어드민 겸직 플래그를 가진 MEMBER도 자신이 속하지 않은 회의를 읽을 수 있는지 검증한다. */
+    @Test
+    @DisplayName("어드민 겸직 MEMBER도 개설 회의를 조회한다")
+    void adminFlaggedMemberReadsMeeting() {
+        /* 팀 식별자 100의 회의를 반환하는 상세 조회 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* 비참석자 99번이 다른 팀·MEMBER 역할이지만 어드민 겸직 플래그로 상세 조회한다. */
+        MeetingDetailResult result = service.getMeetingDetail(
+                new GetMeetingDetailQuery(10L, 99L, 999L, "MEMBER", true, 91L)
+        );
+
+        /* 어드민 겸직이므로 회의 한 건이 정상 반환돼야 한다. */
+        assertThat(result.meetingId()).isEqualTo(91L);
+    }
+
+    /* 일반 비참석자 MEMBER가 같은 회사의 다른 회의를 읽지 못하는지 검증한다. */
+    @Test
+    @DisplayName("열람 범위 밖의 MEMBER는 MT-011로 거절한다")
+    void rejectsMemberOutsideReadScope() {
+        /* 회의는 존재하지만 요청자가 참석자·개설자·어드민이 아닌 MEMBER인 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* 일반 비참석자 MEMBER의 상세 조회가 외부 표시 Port 호출 전에 거절되는지 검증한다. */
         assertErrorCode(
                 () -> service.getMeetingDetail(
                         new GetMeetingDetailQuery(10L, 99L, 999L, "MEMBER", false, 91L)
+                ),
+                "MT-011"
+        );
+    }
+
+    /* null이거나 알려지지 않은 역할 문자열이 부정형 비교로 실수로 통과되지 않는지 검증한다. */
+    @Test
+    @DisplayName("알려지지 않은 역할의 비참석자는 MT-011로 거절한다")
+    void rejectsUnknownRoleOutsideReadScope() {
+        /* 회의는 존재하지만 요청자가 참석자·개설자·어드민이 아닌 서비스를 준비한다. */
+        MeetingDetailQueryService service = service(Optional.of(meeting()));
+
+        /* requesterRole()이 null이거나 Authority에 없는 값이어도 elevated로 취급되면 안 된다. */
+        assertErrorCode(
+                () -> service.getMeetingDetail(
+                        new GetMeetingDetailQuery(10L, 99L, 999L, null, false, 91L)
+                ),
+                "MT-011"
+        );
+        assertErrorCode(
+                () -> service.getMeetingDetail(
+                        new GetMeetingDetailQuery(10L, 99L, 999L, "GUEST", false, 91L)
                 ),
                 "MT-011"
         );
@@ -239,8 +308,52 @@ class MeetingDetailQueryServiceTest {
                 meetingRoomPort,
                 memberPort,
                 actionQueryPort,
-                summaryStatusQueryPort
+                summaryStatusQueryPort,
+                meetingQueryRepository()
         );
+    }
+
+    private MeetingQueryRepository meetingQueryRepository() {
+        return new MeetingQueryRepository() {
+            @Override
+            public Optional<MeetingSnapshot> findMeeting(Long companyId, Long meetingId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public List<ProjectMeetingSnapshot> findProjectMeetingsOrdered(Long companyId, Long projectId) {
+                return List.of();
+            }
+
+            @Override
+            public Map<Long, Long> countMeetingsByProjectIds(Long companyId, List<Long> projectIds) {
+                return Map.of();
+            }
+
+            @Override
+            public List<UpcomingMeetingSnapshot> findUpcomingMeetings(
+                    Long companyId,
+                    Long memberId,
+                    LocalDateTime now,
+                    int limit
+            ) {
+                return List.of();
+            }
+
+            @Override
+            public List<MeetingTopicSnapshot> findMeetingTopics(Long companyId, List<Long> meetingIds) {
+                return List.of(
+                        new MeetingTopicSnapshot(91L, 1L, null, MeetingTopicType.MAIN, "Main agenda", 1),
+                        new MeetingTopicSnapshot(91L, 2L, 1L, MeetingTopicType.SUB, "First sub agenda", 2),
+                        new MeetingTopicSnapshot(91L, 3L, 1L, MeetingTopicType.SUB, "Second sub agenda", 3)
+                );
+            }
+
+            @Override
+            public List<MeetingAttendeeReference> findMeetingAttendees(Long companyId, List<Long> meetingIds) {
+                return List.of();
+            }
+        };
     }
 
     /* 미확정 액션이 없다고 답하는 C Port 대역을 만든다. */

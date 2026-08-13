@@ -40,7 +40,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingTopicRepository;
 
 /*
- * RESULT-01과 E 인수인계·C 프로젝트 연동의 회의 읽기 계약을 JPA로 구현하는 어댑터다.
+ * E 인수인계·C 프로젝트 연동의 회의 읽기 계약을 JPA로 구현하는 어댑터다.
  *
  * 모든 회의 조회에 companyId 조건을 포함하고, 참석자는 파생 쿼리의 IN 조회로 일괄 로딩해
  * 타 회사 데이터 노출과 회의별 반복 조회를 방지한다.
@@ -201,6 +201,7 @@ public class MeetingQueryPersistenceAdapter
         return new MeetingListSnapshot(
                 meeting.getId(),
                 meeting.getProjectId(),
+                meeting.getTeamId(),
                 meeting.getMeetingRoomId(),
                 meeting.getTitle(),
                 meeting.getStatus(),
@@ -454,7 +455,7 @@ public class MeetingQueryPersistenceAdapter
                 .toList();
     }
 
-    /* 회의 엔티티와 참석자 식별자를 RESULT-01 및 E 단건 조회용 모델로 변환한다. */
+    /* 회의 엔티티와 참석자 식별자를 E 단건 조회용 모델로 변환한다. */
     private MeetingSnapshot toMeetingSnapshot(MeetingJpaEntity meeting, List<Long> attendeeMemberIds) {
         /* 회의 테이블의 실제 필드와 별도 조회한 참석자 식별자를 손실 없이 전달한다. */
         return new MeetingSnapshot(

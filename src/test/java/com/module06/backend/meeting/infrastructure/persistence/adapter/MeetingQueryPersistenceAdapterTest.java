@@ -32,11 +32,11 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 import com.module06.backend.meeting.infrastructure.persistence.repository.SpringDataMeetingTopicRepository;
 
 /*
- * RESULT-01과 E·C 연동 기반의 회사 격리·정렬·배치 조회를 실제 JPA로 검증한다.
+ * E·C 연동 기반의 회사 격리·정렬·배치 조회를 실제 JPA로 검증한다.
  */
 @SpringBootTest
 @Transactional
-@DisplayName("RESULT-01 회의 조회 영속성 어댑터")
+@DisplayName("회의 조회 영속성 어댑터")
 class MeetingQueryPersistenceAdapterTest {
 
     /* 애플리케이션 계층이 사용하는 실제 회의 조회 저장소 계약이다. */

@@ -42,6 +42,7 @@ public record ReviewDecisionRequest(
                 decision,
                 rejectReason,
                 value != null ? value.assigneeMemberId() : null,
+                value != null ? value.teamId() : null,
                 value != null ? value.dueDate() : null,
                 value != null ? value.title() : null,
                 value != null ? value.detail() : null,
@@ -61,8 +62,15 @@ public record ReviewDecisionRequest(
      * 범위(익일 ~ 프로젝트 마감일)는 여기서 검사하지 않는다. 프로젝트 마감일은 action 도메인
      * 데이터라 DTO 가 알 수 없고, @Future 같은 단일 필드 제약으로는 상한을 표현할 수 없다 —
      * 사유 필수 여부를 여기서 안 보는 것과 같은 이유다(클래스 주석).
+     *
+     * <h2>2026-08-13 — teamId 추가(오너 회의 검토화면 부서선택)</h2>
+     * assigneeMemberId 와 상호 배타적이다 — 같은 액션이 사람 하나와 부서 하나를 동시에 가질
+     * 수 없다. 둘 다 채워 보내면 422(REVIEW_ASSIGNEE_TEAM_CONFLICT). CONFIRM 취급은
+     * assigneeMemberId 와 같다(plannedStartDate 처럼 예외를 두지 않는다) — AI가 애초에
+     * 부서를 낸 적이 없어도, 화면이 담당자 대신 부서를 보여주는 것뿐이라 "고치는" 성격이
+     * 같기 때문이다.
      */
-    public record ReviewValue(Long assigneeMemberId, LocalDate dueDate, String title, String detail,
+    public record ReviewValue(Long assigneeMemberId, Long teamId, LocalDate dueDate, String title, String detail,
                               LocalDate plannedStartDate) {
     }
 }

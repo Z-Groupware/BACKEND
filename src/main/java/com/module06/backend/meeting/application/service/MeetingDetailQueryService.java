@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,8 +26,11 @@ import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingDetailUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
+import com.module06.backend.meeting.domain.repository.MeetingQueryRepository.MeetingTopicSnapshot;
 import com.module06.backend.meeting.exception.MeetingErrorCode;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 import com.module06.backend.project.exception.ProjectErrorCode;
@@ -61,6 +63,8 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
     /* 요약 중단·실패 배너에 쓸 회의별 요약 상태를 조회하는 A 연동 Port다. */
     private final SummaryStatusQueryPort summaryStatusQueryPort;
 
+    private final MeetingQueryRepository meetingQueryRepository;
+
     /* 열람 권한을 검증하고 회의 메타와 연결 리소스 표시 정보를 상세 결과로 조립한다. */
     @Override
     @Transactional(readOnly = true)
@@ -73,7 +77,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 .findMeetingDetail(query.companyId(), query.meetingId())
                 .orElseThrow(() -> new BusinessException(MeetingErrorCode.MEETING_NOT_FOUND));
 
-        /* 회사 관리자·개설자·참석자·같은 팀 LEADER가 아니면 상세 열람을 거절한다. */
+        /* MEMBER이면서 개설자·참석자도 아니면 상세 열람을 거절한다. */
         if (!canReadMeeting(query, meeting)) {
             throw new BusinessException(MeetingErrorCode.MEETING_READ_FORBIDDEN);
         }
@@ -108,6 +112,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         /* 종료 전 회의는 액션·요약 자체가 없으므로 C·A Port를 부르지 않고 기본값으로 확정한다. */
         long pendingActionCount = resolvePendingActionCount(meeting);
         MeetingSummaryStatus summaryStatus = resolveSummaryStatus(meeting);
+        MeetingDetailResult.Agenda agenda = resolveAgenda(meeting);
 
         /* D 회의 메타와 다섯 Port의 표시 정보를 외부 응답과 독립적인 애플리케이션 결과로 만든다. */
         return new MeetingDetailResult(
@@ -121,6 +126,9 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 meeting.recordingConsent(),
                 pendingActionCount,
                 summaryStatus,
+                meeting.teamId(),
+                originLabel(meeting.teamId()),
+                agenda,
                 new MeetingDetailResult.Project(
                         project.projectId(),
                         project.tag(),
@@ -138,6 +146,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                         .map(member -> new MeetingDetailResult.Attendee(
                                 member.memberId(),
                                 member.name(),
+                                member.teamId(),
                                 member.teamName(),
                                 member.positionName()
                         ))
@@ -147,6 +156,30 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
     }
 
     /* 회의가 끝나지 않았으면 분배할 액션 자체가 없으므로 C Port 없이 0건으로 확정한다. */
+    private MeetingDetailResult.Agenda resolveAgenda(MeetingDetailSnapshot meeting) {
+        List<MeetingTopicSnapshot> topics = meetingQueryRepository.findMeetingTopics(
+                meeting.companyId(),
+                List.of(meeting.meetingId())
+        );
+        String mainTopic = topics.stream()
+                .filter(topic -> topic.type() == MeetingTopicType.MAIN)
+                .map(MeetingTopicSnapshot::content)
+                .findFirst()
+                .orElse(null);
+        List<String> subTopics = topics.stream()
+                .filter(topic -> topic.type() == MeetingTopicType.SUB)
+                .map(MeetingTopicSnapshot::content)
+                .toList();
+        if (mainTopic == null && subTopics.isEmpty()) {
+            return null;
+        }
+        return new MeetingDetailResult.Agenda(mainTopic, subTopics);
+    }
+
+    private String originLabel(Long teamId) {
+        return teamId == null ? "OWNER" : "TEAM";
+    }
+
     private long resolvePendingActionCount(MeetingDetailSnapshot meeting) {
         if (meeting.status() != MeetingStatus.DONE) {
             return 0L;
@@ -194,20 +227,24 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
 
     /* 인증 사용자가 상세 회의를 읽을 수 있는 권한 범위에 속하는지 판단한다. */
     private boolean canReadMeeting(GetMeetingDetailQuery query, MeetingDetailSnapshot meeting) {
-        /* OWNER 또는 관리자 플래그가 있는 사용자는 같은 회사의 전체 회의를 열람한다. */
-        boolean companyWideRead = query.requesterAdmin() || "OWNER".equals(query.requesterRole());
-
         /* 개설자와 참석자는 역할과 관계없이 자신이 포함된 회의를 열람한다. */
         boolean host = meeting.hostMemberId().equals(query.requesterMemberId());
         boolean attendee = meeting.attendeeMemberIds().contains(query.requesterMemberId());
 
-        /* LEADER는 자신의 팀에서 개설된 회의에 한해 팀 범위 열람 권한을 가진다. */
-        boolean teamLeader = "LEADER".equals(query.requesterRole())
-                && query.requesterTeamId() != null
-                && Objects.equals(query.requesterTeamId(), meeting.teamId());
+        /*
+         * OWNER·LEADER는 팀·개설자 무관하게 같은 회사의 전체 회의를 열람한다. Authority에는
+         * ADMIN이 없고 어드민은 member.is_admin 겸직 플래그라, MEMBER이면서 어드민 겸직인
+         * 사람도 이 경로로 전체 열람이 가능해야 한다.
+         *
+         * "MEMBER가 아니면 통과"라는 부정형 대신 알려진 역할만 명시적으로 허용한다 —
+         * requesterRole()이 null이거나 향후 예상 못한 값이 들어와도 안전하게 거절되도록
+         * 하기 위함이다.
+         */
+        boolean elevated = query.requesterAdmin()
+                || "OWNER".equals(query.requesterRole())
+                || "LEADER".equals(query.requesterRole());
 
-        /* 확정된 네 가지 열람 경로 중 하나라도 충족하면 상세 조회를 허용한다. */
-        return companyWideRead || host || attendee || teamLeader;
+        return elevated || host || attendee;
     }
 
     /* 개설자를 첫 번째로 두고 저장된 나머지 참석자 순서를 유지한다. */

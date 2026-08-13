@@ -216,6 +216,59 @@ class ActionServiceTest {
         verify(actionReferenceRepository, never()).findMemberReferences(anyList());
     }
 
+    // ── 2026-08-13 OWNER·ADMIN 회사 전체 구성원 액션 조회 ──────────────
+
+    @Test
+    void getCompanyMemberActionsReturnsEnrichedListWhenTargetIsInCompany() {
+        ActionService service = actionService();
+        Action action = personalAction(10L, COMPANY, PROJECT, 7L, 200L, 300L, ActionStatus.TODO, 9L);
+        when(actionReferenceRepository.existsMemberInCompany(9L, COMPANY)).thenReturn(true);
+        when(actionRepository.countByAssigneeMemberId(9L, null, null)).thenReturn(1L);
+        when(actionRepository.findAllByAssigneeMemberId(9L, null, null, null, "desc", 0, 20)).thenReturn(List.of(action));
+        when(actionReferenceRepository.findMemberReferences(List.of(9L)))
+                .thenReturn(List.of(new MemberReference(9L, "박종준", null)));
+        when(actionReferenceRepository.findProjectReferences(List.of(PROJECT)))
+                .thenReturn(List.of(new ProjectReference(PROJECT, null, "GOODS", "굿즈")));
+        when(actionReferenceRepository.findTeamReferences(List.of(7L)))
+                .thenReturn(List.of(new TeamReference(7L, "개발팀", null)));
+        when(actionReferenceRepository.findMeetingReferences(List.of(200L)))
+                .thenReturn(List.of(new MeetingReference(200L, 7L, null, "기획 회의", null)));
+        when(actionRepository.findAllByIds(List.of(300L)))
+                .thenReturn(List.of(personalAction(300L, COMPANY, PROJECT, 7L, null, null, ActionStatus.TODO)));
+
+        var result = service.getCompanyMemberActions(COMPANY, 9L, null, null, null, "desc", 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(1L);
+        // CodeRabbit 지적(PR #454) — assigneeName 표시값만 보면, 다른 구성원 액션이 섞여도
+        // 통과할 수 있었다. 반환된 액션의 실제 담당자가 요청 대상(9L)과 같은지 직접 확인한다.
+        assertThat(result.items().get(0).action().getAssigneeMemberId()).isEqualTo(9L);
+        assertThat(result.items().get(0).assigneeName()).isEqualTo("박종준");
+    }
+
+    @Test
+    void getCompanyMemberActionsThrowsWhenAssigneeMemberIdIsMissing() {
+        ActionService service = actionService();
+
+        assertThatThrownBy(() -> service.getCompanyMemberActions(COMPANY, null, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_MEMBER_ID_REQUIRED);
+
+        verify(actionReferenceRepository, never()).existsMemberInCompany(any(), any());
+    }
+
+    @Test
+    void getCompanyMemberActionsThrowsWhenTargetIsOutsideCompany() {
+        ActionService service = actionService();
+        when(actionReferenceRepository.existsMemberInCompany(9L, COMPANY)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getCompanyMemberActions(COMPANY, 9L, null, null, null, "desc", 0, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ActionErrorCode.ACTION_ASSIGNEE_NOT_FOUND);
+
+        verify(actionRepository, never()).countByAssigneeMemberId(any(), any(), any());
+    }
+
     // ── 2026-08-11 팀장의 팀원 목록 조회(assigneeMemberId) ──────────────
 
     @Test

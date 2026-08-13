@@ -456,6 +456,77 @@ class ApplyReviewDecisionServiceTest {
         assertThat(applied.called).isTrue();
     }
 
+    // ── 2026-08-13 · 오너 회의 검토화면 부서선택(teamId → TEAM 전환) ─────────────────
+
+    @Test
+    @DisplayName("부서를 골라 보낸 MODIFY 는 담당자 검증을 건너뛰고 teamId 를 그대로 넘긴다")
+    void 부서를_선택하면_전환_요청이_그대로_넘어간다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        // target()은 이미 담당자(ALICE)가 있는 PERSONAL이다 — 담당자가 있어도 teamId가 오면
+        // 담당자 검증(requireAssigneeForConfirm)이 아니라 전환 경로를 탄다.
+        ReviewDecisionOutcome outcome = service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null, null, 5L));
+
+        assertThat(outcome.reviewStatus()).isEqualTo("HUMAN_CONFIRMED");
+        assertThat(applied.called).isTrue();
+        assertThat(applied.teamId).isEqualTo(5L);
+        assertThat(applied.assigneeMemberId).isNull();
+    }
+
+    @Test
+    @DisplayName("담당자 없는 액션도 부서를 고르면 지나간다 — 이 경로는 담당자를 요구하지 않는다")
+    void 담당자_없어도_부서를_고르면_지나간다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        ReviewDecisionOutcome outcome = service(unassignedTarget(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null, null, 5L));
+
+        assertThat(outcome.reviewStatus()).isEqualTo("HUMAN_CONFIRMED");
+        assertThat(applied.called).isTrue();
+    }
+
+    @Test
+    @DisplayName("담당자와 부서를 동시에 보내면 422 — 같은 액션이 사람과 부서를 동시에 가질 수 없다")
+    void 담당자와_부서를_동시에_보내면_거절한다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        assertThatThrownBy(() -> service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.MODIFY, null, BOB, null, null, null, null, 5L)))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(applied.called).isFalse();
+    }
+
+    @Test
+    @DisplayName("부서 선택은 CONFIRM에 실을 수 없다 — 담당자와 같은 취급이다")
+    void 부서_선택은_승인에_실을_수_없다() {
+        RecordingApplyPort applied = new RecordingApplyPort();
+
+        assertThatThrownBy(() -> service(target(), applied, new RecordingReviewLog(),
+                new RecordingVectorRepository())
+                .apply(command(ReviewDecision.CONFIRM, null, null, null, null, null, null, 5L)))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(applied.called).isFalse();
+    }
+
+    @Test
+    @DisplayName("부서만 보낸 MODIFY 는 라벨을 남기지 않는다 — AI가 낸 적 없는 축이라 정답 라벨이 성립하지 않는다")
+    void 부서만_보낸_수정은_라벨이_없다() {
+        RecordingReviewLog logs = new RecordingReviewLog();
+        RecordingVectorRepository vectors = new RecordingVectorRepository();
+
+        service(target(), new RecordingApplyPort(), logs, vectors)
+                .apply(command(ReviewDecision.MODIFY, null, null, null, null, null, null, 5L));
+
+        assertThat(logs.entries).isEmpty();
+        assertThat(vectors.entries).isEmpty();
+    }
+
     @Test
     @DisplayName("그 회의의 액션이 아니면 404 — 회의 관문은 actionId 를 보지 않는다")
     void 없는_액션은_404() {
@@ -580,8 +651,16 @@ class ApplyReviewDecisionServiceTest {
     private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
                                                  Long assignee, LocalDate dueDate, String title, String detail,
                                                  LocalDate plannedStartDate) {
+        return command(decision, reason, assignee, dueDate, title, detail, plannedStartDate, null);
+    }
+
+    /* teamId까지 담는 조립(2026-08-13) — 오너 회의 검토화면 부서선택(TEAM 전환)을 보는 테스트만 쓴다. */
+    private static ReviewDecisionCommand command(ReviewDecision decision, RejectReason reason,
+                                                 Long assignee, LocalDate dueDate, String title, String detail,
+                                                 LocalDate plannedStartDate, Long teamId) {
         return new ReviewDecisionCommand(
-                COMPANY, MEETING, ACTION, ME, decision, reason, assignee, dueDate, title, detail, plannedStartDate);
+                COMPANY, MEETING, ACTION, ME, decision, reason, assignee, teamId, dueDate, title, detail,
+                plannedStartDate);
     }
 
     private static ActionReviewQueryPort.ReviewTarget target() {
@@ -643,6 +722,7 @@ class ApplyReviewDecisionServiceTest {
 
         private boolean called;
         private Long assigneeMemberId;
+        private Long teamId;
         private LocalDate dueDate;
         private String title;
         private String detail;
@@ -650,11 +730,12 @@ class ApplyReviewDecisionServiceTest {
         private String reviewStatus;
 
         @Override
-        public void apply(long companyId, long actionId, Long assigneeMemberId,
+        public void apply(long companyId, long actionId, Long assigneeMemberId, Long teamId,
                           LocalDate dueDate, String title, String detail,
                           LocalDate plannedStartDate, String reviewStatus) {
             this.called = true;
             this.assigneeMemberId = assigneeMemberId;
+            this.teamId = teamId;
             this.dueDate = dueDate;
             this.title = title;
             this.detail = detail;

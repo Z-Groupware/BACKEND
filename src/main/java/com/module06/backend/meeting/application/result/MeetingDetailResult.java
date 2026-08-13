@@ -20,6 +20,9 @@ public record MeetingDetailResult(
         boolean recordingConsent,
         long pendingActionCount,
         MeetingSummaryStatus summaryStatus,
+        Long teamId,
+        String originLabel,
+        Agenda agenda,
         Project project,
         MeetingRoom meetingRoom,
         Host host,
@@ -49,8 +52,15 @@ public record MeetingDetailResult(
     public record Attendee(
             Long memberId,
             String name,
+            Long teamId,
             String teamName,
             String jobPosition
     ) {
+    }
+
+    public record Agenda(String mainTopic, List<String> subTopics) {
+        public Agenda {
+            subTopics = List.copyOf(subTopics);
+        }
     }
 }

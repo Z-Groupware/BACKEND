@@ -35,7 +35,7 @@ import com.module06.backend.meetingroom.presentation.api.response.UpdateMeetingR
 /*
  * 회의실 등록·수정·비활성화 명령 REST API의 진입점이다.
  *
- * ROOM-03은 모든 인증 역할에 열려 있으며 companyId는 Access Token principal에서만 읽는다.
+ * ROOM-03은 OWNER·ADMIN만 열 수 있으며 companyId는 Access Token principal에서만 읽는다.
  */
 @Tag(name = "Meeting Room", description = "회의실 조회 및 관리 API")
 @RestController
@@ -57,7 +57,7 @@ public class MeetingRoomCommandController {
             summary = "회의실 등록",
             description = "로그인한 사용자의 회사에 30분 단위 이용 시간을 가진 회의실을 등록합니다."
     )
-    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public ApiResponse<CreateMeetingRoomResponse> createMeetingRoom(

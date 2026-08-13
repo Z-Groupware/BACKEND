@@ -22,7 +22,10 @@ public enum CalendarErrorCode implements ErrorCode {
 
     // 다른 회사·다른 사람의 Todo id로 접근한 경우도 여기로 뭉갠다 — 존재 여부 자체를
     // 노출하지 않는다(전 구성원 공개인 action과 달리 Todo는 완전히 개인 소유라 더 좁게 막는다).
-    TODO_NOT_FOUND(HttpStatus.NOT_FOUND, "CAL-001", "존재하지 않거나 접근할 수 없는 Todo입니다.");
+    TODO_NOT_FOUND(HttpStatus.NOT_FOUND, "CAL-001", "존재하지 않거나 접근할 수 없는 Todo입니다."),
+
+    // 기간(range) 지원 추가분(#458) — endDate가 date보다 이전인 요청을 막는다.
+    TODO_INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "CAL-002", "종료일은 시작일보다 빠를 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
