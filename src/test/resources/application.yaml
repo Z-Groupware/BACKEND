@@ -19,6 +19,15 @@ spring:
 #    따라서 main 에 키를 추가하면 여기에도 넣어야 한다. 안 넣으면 스프링 컨텍스트를 띄우는
 #    모든 테스트가 "JwtProperties.secret() is null" 로 한꺼번에 죽는다.
 # 값은 아무 64자 hex 여도 된다 — 테스트는 발급과 검증을 같은 키로만 한다.
+# 테스트는 Redis 를 띄우지 않는다 — RedisRateLimiter 가 fail-open 이라 판정이 실패해도 통과하지만,
+# 프로퍼티 자체는 바인딩돼야 컨텍스트가 뜬다. 값은 운영과 같은 자릿수로 두어 설정 오타를 잡는다.
+rate-limit:
+  login-per-ip: { limit: 60, window: 1m }
+  login-per-account: { limit: 5, window: 5m }
+  refresh-per-ip: { limit: 120, window: 1m }
+  company-lookup-per-ip: { limit: 20, window: 1m }
+  registration-per-ip: { limit: 5, window: 1m }
+
 jwt:
   secret: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   access-ttl: 30m

@@ -18,12 +18,16 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.module06.backend.global.ratelimit.RateLimitFilter;
+import com.module06.backend.global.ratelimit.RateLimitProperties;
+import com.module06.backend.global.ratelimit.RateLimiter;
+
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class, RateLimitProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -34,6 +38,13 @@ public class SecurityConfig {
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
         return new JwtAuthenticationFilter(jwtTokenProvider);
+    }
+
+    @Bean
+    public RateLimitFilter rateLimitFilter(RateLimiter rateLimiter,
+                                           RateLimitProperties rateLimitProperties,
+                                           ObjectMapper objectMapper) {
+        return new RateLimitFilter(rateLimiter, rateLimitProperties, objectMapper);
     }
 
     @Bean
@@ -61,6 +72,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtAuthenticationFilter jwtAuthenticationFilter,
+                                                   RateLimitFilter rateLimitFilter,
                                                    SecurityErrorResponder securityErrorResponder,
                                                    CorsConfigurationSource corsConfigurationSource) throws Exception {
         return http
@@ -122,6 +134,8 @@ public class SecurityConfig {
                         // 이 줄은 "로그인했나" 까지만 본다.
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 제한은 인증보다 앞이다 — 토큰 없이 들어오는 대량 요청을 파싱·조회 전에 끊는다.
+                .addFilterBefore(rateLimitFilter, JwtAuthenticationFilter.class)
                 .build();
     }
 

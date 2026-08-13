@@ -10,6 +10,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.global.ratelimit.InMemoryRateLimiter;
+import com.module06.backend.global.ratelimit.RateLimitProperties;
+import com.module06.backend.global.ratelimit.RateLimiter;
 import com.module06.backend.global.security.JwtProperties;
 import com.module06.backend.global.security.JwtTokenProvider;
 import com.module06.backend.identity.auth.application.command.LoginCommand;
@@ -23,6 +26,7 @@ import com.module06.backend.identity.member.application.port.out.MemberAuthQuery
 import com.module06.backend.identity.member.domain.model.Authority;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /*
@@ -37,6 +41,13 @@ class AuthServiceTest {
     private static final String PASSWORD = "Abcd1234";
 
     private final PasswordEncoder encoder = new BCryptPasswordEncoder();
+    private final RateLimiter rateLimiter = new InMemoryRateLimiter();
+    private final RateLimitProperties rateLimitProperties = new RateLimitProperties(
+            new RateLimitProperties.Rule(60, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)),
+            new RateLimitProperties.Rule(120, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(20, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)));
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider(new JwtProperties("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
 
@@ -108,7 +119,7 @@ class AuthServiceTest {
         RecordingRepository repository = new RecordingRepository(
                 Optional.of(new Company(1L, CODE, "(주)테크스타트", null, null, null, null, null, null, null)));
         AuthService service = new AuthService(repository, port(member(Authority.MEMBER, false)),
-                new RecordingStore(), tokenProvider, encoder);
+                new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
 
         service.login(new LoginCommand("  8as2-g8t1 ", EMAIL, PASSWORD, false));
 
@@ -119,7 +130,7 @@ class AuthServiceTest {
     @DisplayName("없는 기업 코드는 LOGIN_FAILED — COMPANY_CODE_NOT_FOUND 로 내리면 어느 회사가 있는지 알려준다")
     void unknownCompanyIsLoginFailed() {
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, encoder);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
 
         assertLoginFailed(service, PASSWORD);
     }
@@ -128,7 +139,7 @@ class AuthServiceTest {
     @DisplayName("없는 이메일은 LOGIN_FAILED — 회사 없음과 같은 응답이어야 한다")
     void unknownEmailIsLoginFailed() {
         AuthService service = new AuthService(repository(), port(null),
-                new RecordingStore(), tokenProvider, encoder);
+                new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
 
         assertLoginFailed(service, PASSWORD);
     }
@@ -165,7 +176,7 @@ class AuthServiceTest {
     void verifiesPasswordEvenWhenCompanyIsAbsent() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -177,7 +188,7 @@ class AuthServiceTest {
     void verifiesPasswordEvenWhenEmailIsAbsent() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(repository(), port(null),
-                new RecordingStore(), tokenProvider, counting);
+                new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -193,7 +204,7 @@ class AuthServiceTest {
     void absentMemberHashIsRealBcrypt() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -207,7 +218,7 @@ class AuthServiceTest {
     void verifiesPasswordExactlyOnceOnSuccess() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(repository(), port(memberWith(counting)),
-                new RecordingStore(), tokenProvider, counting);
+                new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
 
         service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
 
@@ -225,6 +236,81 @@ class AuthServiceTest {
         assertThat(store.savedJti).isNull();
     }
 
+    /*
+     * 계정 기준 제한(P0 #1). IP 기준만으로는 부족하다 — 공격자는 IP 를 바꿔 가며 한 계정을 팬다.
+     * 여기서 보는 것은 "실패만 센다"와 "존재 여부로 우회되지 않는다" 두 가지다.
+     */
+
+    @Test
+    @DisplayName("같은 계정에 실패가 쌓이면 429 로 막는다 — 무제한 대입이 되지 않는다")
+    void locksAccountAfterRepeatedFailures() {
+        AuthService service = service(member(Authority.MEMBER, false), new RecordingStore());
+        for (int i = 0; i < 5; i++) {
+            assertLoginFailed(service, "WrongPass1");
+        }
+
+        assertThatThrownBy(() -> service.login(new LoginCommand(CODE, EMAIL, "WrongPass1", false)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    @DisplayName("막힌 계정은 올바른 비밀번호로도 막힌다 — 여기서 통과시키면 대입의 마지막 한 번이 통과한다")
+    void lockedAccountRejectsEvenCorrectPassword() {
+        AuthService service = service(member(Authority.MEMBER, false), new RecordingStore());
+        for (int i = 0; i < 6; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand(CODE, EMAIL, "WrongPass1", false)));
+        }
+
+        assertThatThrownBy(() -> service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    @DisplayName("성공한 로그인은 카운터를 올리지 않는다 — 올리면 잘 쓰는 사용자가 자기 로그인으로 잠긴다")
+    void successfulLoginDoesNotCount() {
+        AuthService service = service(member(Authority.MEMBER, false), new RecordingStore());
+
+        for (int i = 0; i < 20; i++) {
+            service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
+        }
+
+        assertThatCode(() -> service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("없는 계정을 훑어도 같은 카운터에 쌓인다 — 존재 여부로 제한을 우회할 수 없다")
+    void absentAccountAttemptsAlsoCount() {
+        AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
+                port(null), new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
+        for (int i = 0; i < 5; i++) {
+            assertLoginFailed(service, PASSWORD);
+        }
+
+        assertThatThrownBy(() -> service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    @DisplayName("다른 계정은 따로 센다 — 한 계정을 두들겨서 회사 전체를 잠글 수 없다")
+    void otherAccountsAreNotAffected() {
+        AuthService service = service(member(Authority.MEMBER, false), new RecordingStore());
+        for (int i = 0; i < 6; i++) {
+            assertThatThrownBy(() -> service.login(new LoginCommand(CODE, EMAIL, "WrongPass1", false)));
+        }
+
+        assertThatThrownBy(() -> service.login(new LoginCommand(CODE, "other@zgroup.co.kr", PASSWORD, false)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.LOGIN_FAILED);
+    }
+
     private void assertLoginFailed(AuthService service, String password) {
         assertThatThrownBy(() -> service.login(new LoginCommand(CODE, EMAIL, password, false)))
                 .isInstanceOf(BusinessException.class)
@@ -233,7 +319,7 @@ class AuthServiceTest {
     }
 
     private AuthService service(MemberCredentials credentials, RefreshTokenStore store) {
-        return new AuthService(repository(), port(credentials), store, tokenProvider, encoder);
+        return new AuthService(repository(), port(credentials), store, tokenProvider, encoder, rateLimiter, rateLimitProperties);
     }
 
     private CompanyRepository repository() {
