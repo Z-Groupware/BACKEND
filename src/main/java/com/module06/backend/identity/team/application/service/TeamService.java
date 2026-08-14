@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,10 +13,13 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.command.RenameTeamCommand;
+import com.module06.backend.identity.team.application.dto.RoleNode;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort.TeamMemberSummary;
 import com.module06.backend.identity.team.application.port.out.TeamProjectQueryPort;
+import com.module06.backend.identity.team.application.port.out.TeamRoleQueryPort;
+import com.module06.backend.identity.team.application.port.out.TeamRoleQueryPort.RoleSummary;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.DeleteTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.GetTeamTreeUseCase;
@@ -32,6 +36,7 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
     private final TeamRepository teamRepository;
     private final TeamMemberQueryPort memberQueryPort;
     private final TeamProjectQueryPort projectQueryPort;
+    private final TeamRoleQueryPort roleQueryPort;
 
     /**
      * 부서는 계층이 없는 평평한 목록이다(2026-08-07 결정). "개발팀 안에 프론트·백엔드가 있다"는
@@ -57,7 +62,7 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
         }
 
         Team created = teamRepository.create(command.companyId(), command.name());
-        return new TeamNode(created.id(), created.name(), null, null, 0L);
+        return toNode(created, buildContext(command.companyId()));
     }
 
     /**
@@ -104,17 +109,43 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
                 .collect(Collectors.groupingBy(TeamMemberSummary::teamId, Collectors.counting()));
         Map<Long, String> nameByMemberId = members.stream()
                 .collect(Collectors.toMap(TeamMemberSummary::memberId, TeamMemberSummary::name));
-        return new Context(memberCountByTeam, nameByMemberId);
+
+        List<RoleSummary> roles = roleQueryPort.findAssignableByCompany(companyId);
+        Map<Long, List<RoleNode>> rolesByTeam = roles.stream()
+                .filter(r -> r.teamId() != null)
+                .collect(Collectors.groupingBy(RoleSummary::teamId,
+                        Collectors.mapping(r -> new RoleNode(r.roleId(), r.name()), Collectors.toList())));
+        List<RoleNode> sharedRoles = roles.stream()
+                .filter(r -> r.teamId() == null)
+                .map(r -> new RoleNode(r.roleId(), r.name()))
+                .toList();
+        return new Context(memberCountByTeam, nameByMemberId, rolesByTeam, sharedRoles);
     }
 
     private TeamNode toNode(Team team, Context context) {
         String leaderName = team.leaderMemberId() == null ? null : context.nameByMemberId().get(team.leaderMemberId());
         long memberCount = context.memberCountByTeam().getOrDefault(team.id(), 0L);
-        return new TeamNode(team.id(), team.name(), team.leaderMemberId(), leaderName, memberCount);
+        return new TeamNode(team.id(), team.name(), team.leaderMemberId(), leaderName, memberCount,
+                rolesOf(team, context));
+    }
+
+    /**
+     * 부서 소유 역할에 시스템 역할("없음")을 합쳐 그 부서의 선택지를 만든다. id 순으로 세우면
+     * 시드가 1·2를 선점하고 회사 역할이 3부터 채번되므로(V2.3.9) "없음"이 항상 맨 앞에 온다 —
+     * 화면이 목록을 그대로 select 에 올려도 기본 선택지가 먼저 보인다.
+     */
+    private List<RoleNode> rolesOf(Team team, Context context) {
+        return Stream.concat(
+                        context.sharedRoles().stream(),
+                        context.rolesByTeam().getOrDefault(team.id(), List.of()).stream())
+                .sorted(Comparator.comparing(RoleNode::roleId))
+                .toList();
     }
 
     private record Context(
             Map<Long, Long> memberCountByTeam,
-            Map<Long, String> nameByMemberId) {
+            Map<Long, String> nameByMemberId,
+            Map<Long, List<RoleNode>> rolesByTeam,
+            List<RoleNode> sharedRoles) {
     }
 }

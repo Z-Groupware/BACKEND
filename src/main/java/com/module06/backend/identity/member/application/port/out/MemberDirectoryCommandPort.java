@@ -26,21 +26,16 @@ public interface MemberDirectoryCommandPort {
     void updateAdmin(Long memberId, boolean isAdmin);
 
     /**
-     * §5-1. {@code roleLabel} 이 null 이면 "역할 없음"으로 발급한다(오너 생성과 같은 규칙).
-     * 이미 해시된 비밀번호를 받는다 — 평문은 이 경계를 넘지 않는다.
+     * §4-1 온보딩·§5-1 계정 발급 공용. 이미 해시된 비밀번호를 받는다 — 평문은 이 경계를 넘지 않는다.
      *
+     * <p>역할을 이름이 아니라 id 로 받는다. 온보딩은 같은 요청 안에서 방금 만든 역할의 id 를 이미
+     * 알고 있고, 계정 발급 화면은 {@code GET /api/teams} 로 받은 부서별 역할 목록에서 고른 id 를
+     * 그대로 보낸다 — 양쪽 다 이름으로 되돌릴 필요가 없다(2026-08-14 id 기준으로 통일).
+     *
+     * @param roleId null 이면 "역할 없음"으로 발급한다(오너 생성과 같은 규칙).
+     *               호출자가 회사·부서 스코프를 미리 검증한다
      * @return 생성된 구성원 id
      */
-    Long issue(Long companyId, Long teamId, Long positionId, String roleLabel,
+    Long issue(Long companyId, Long teamId, Long positionId, Long roleId,
                String name, String email, String passwordHash, Authority authority);
-
-    /**
-     * §4-1 온보딩 전용. {@code roleId} 를 이름이 아니라 id로 직접 받는다 — 온보딩은 역할(구
-     * sub_team)을 같은 요청 안에서 방금 직접 만들어 id를 이미 알고 있으므로, {@link #issue}처럼
-     * 이름으로 찾아 헤맬 필요가 없다. {@code roleId} 가 null 이면 §5-1과 같은 기본값("없음")이다.
-     *
-     * @return 생성된 구성원 id
-     */
-    Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId,
-                        String name, String email, String passwordHash, Authority authority);
 }

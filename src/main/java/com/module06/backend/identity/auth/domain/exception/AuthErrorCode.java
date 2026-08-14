@@ -94,7 +94,8 @@ public enum AuthErrorCode implements ErrorCode {
     MEMBER_TEAM_LEADER_ALREADY_EXISTS(HttpStatus.CONFLICT, "AU-029", "해당 부서에 이미 팀장이 있습니다."),
     MEMBER_SEAT_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "AU-030", "이용 중인 요금제의 좌석 수를 초과했습니다."),
     MEMBER_OWNER_CANNOT_BE_ADMIN(HttpStatus.BAD_REQUEST, "AU-031", "오너는 관리자 권한 부여 대상이 아닙니다."),
-    MEMBER_ROLE_LABEL_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "AU-032", "역할 라벨 지정은 아직 지원하지 않습니다."),
+    /* AU-032 는 비어 있다 — 계정 발급이 역할을 못 받던 시절의 MEMBER_ROLE_LABEL_NOT_SUPPORTED 였다
+     * (2026-08-14 발급이 roleId 를 받게 되며 삭제). 코드는 공개 계약이라 다른 뜻으로 재사용하지 않는다. */
 
     /*
      * 온보딩 커밋(§4-1). TEAM_LEADER_DUPLICATED 는 §7 의 MEMBER_TEAM_LEADER_ALREADY_EXISTS(AU-029)와
@@ -117,9 +118,11 @@ public enum AuthErrorCode implements ErrorCode {
     ONBOARDING_POSITION_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-038", "직급명이 중복되었습니다."),
 
     /*
-     * 역할 라벨 변경(§7-4). MEMBER_ROLE_LABEL_NOT_SUPPORTED(AU-032)와 코드를 공유하지 않는다 —
-     * 그쪽은 계정 발급 요청이 아직 없는 기능을 부른 경우(400)고, 여기는 있는 기능에 없는 이름을
-     * 보낸 경우(404)다. 화면의 대응도 다르다(그쪽은 필드를 빼야 하고, 여기는 목록을 새로 고쳐야 한다).
+     * 역할 지정(§5-1 발급 · §7-4 변경). 없는 역할과 "있지만 다른 부서·다른 회사의 역할"을 가르지
+     * 않고 한 코드로 답한다 — 남의 회사 역할 id 를 찍어 봤을 때 404 와 400 이 갈리면 그 id 가
+     * 존재한다는 것 자체가 새어 나간다. 화면의 대응도 어느 쪽이든 같다(부서의 역할 목록을 새로
+     * 고쳐 그 안에서 다시 고른다). 온보딩의 SUB_TEAM_NOT_IN_TEAM(AU-033)과 코드를 공유하지 않는
+     * 이유는, 그쪽은 아직 저장되지 않은 같은 요청 안의 tempId 짝이 안 맞는 경우라 400 이 맞기 때문이다.
      */
     MEMBER_ROLE_LABEL_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-039", "역할을 찾을 수 없습니다."),
 

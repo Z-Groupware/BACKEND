@@ -49,15 +49,31 @@ class MemberIssuer {
         if (command.role() == Authority.LEADER && team.leaderMemberId() != null) {
             throw new BusinessException(AuthErrorCode.MEMBER_TEAM_LEADER_ALREADY_EXISTS);
         }
+        assertRoleAssignable(command);
 
         Long memberId = commandPort.issue(
-                command.companyId(), command.teamId(), command.jobPositionId(), command.roleLabel(),
+                command.companyId(), command.teamId(), command.jobPositionId(), command.roleId(),
                 command.name(), command.email(), passwordHash, command.role());
 
         if (command.role() == Authority.LEADER) {
             teamRepository.updateLeader(command.teamId(), memberId);
         }
         return memberId;
+    }
+
+    /**
+     * 역할은 선택 값이라 안 보내면(null) "없음"으로 발급한다. 보냈으면 이 회사·이 부서의 역할이어야
+     * 한다 — 남의 회사 역할은 물론이고 같은 회사라도 다른 부서의 역할이 붙으면 조직도에서 그 사원이
+     * 자기 부서에 없는 역할로 묶인다. 없는 역할을 조용히 "없음"으로 접지 않는 이유는 §7-4와 같다:
+     * 사용자가 고른 역할이 사라진 채 성공 응답이 나간다.
+     */
+    private void assertRoleAssignable(IssueMemberCommand command) {
+        if (command.roleId() == null) {
+            return;
+        }
+        if (!queryPort.existsAssignableRole(command.companyId(), command.teamId(), command.roleId())) {
+            throw new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND);
+        }
     }
 
     private void assertSeatAvailable(Long companyId) {

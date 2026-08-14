@@ -316,14 +316,8 @@ class MyProfileServiceTest {
         }
 
         @Override
-        public Long issue(Long companyId, Long teamId, Long positionId, String roleLabel, String name,
+        public Long issue(Long companyId, Long teamId, Long positionId, Long roleId, String name,
                            String email, String passwordHash, Authority authority) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId, String name,
-                                   String email, String passwordHash, Authority authority) {
             throw new UnsupportedOperationException();
         }
     }

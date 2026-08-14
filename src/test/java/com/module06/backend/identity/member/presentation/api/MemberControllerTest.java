@@ -434,7 +434,7 @@ class MemberControllerTest {
 
     private static MemberDetail detail() {
         return new MemberDetail(3L, "이하윤", 2L, "개발팀", 4L, "선임",
-                Authority.MEMBER, false, "프론트엔드", MemberStatus.ACTIVE,
+                Authority.MEMBER, false, 7L, "프론트엔드", MemberStatus.ACTIVE,
                 "hayun@zgroup.co.kr", LocalDate.of(2022, 5, 10));
     }
 
