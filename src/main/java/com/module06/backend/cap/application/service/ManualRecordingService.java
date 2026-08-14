@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 // 수동 녹음 업로드(CAP-10): 회의 존재 → Host 검증 → s3Key 검증 → 중복 제출 확인 → recording 등록 → 단일 블록 STT 트리거.
 // [녹음] 버튼 대신 외부(온라인 회의 등)에서 녹음한 파일을 직접 첨부하는 대체 경로다.
 //
@@ -95,8 +97,20 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase, I
 
     // registerManualRecording의 접두 검증과 반드시 같은 규칙이어야 한다 — 한 클래스에 같이 둔
     // 이유가 이 일치를 보장하기 위해서다. 접두 자체는 s3KeyPrefix()로 한 곳에서만 만든다.
+    //
+    // 원본 파일명을 그대로 키에 넣지 않는다 — 한글·공백 등 비-ASCII 문자가 presigned PUT URL의
+    // SigV4 서명 대상 경로에 그대로 들어가면, 클라이언트가 그 URL을 다시 인코딩/디코딩하는 과정에서
+    // 서명 시점 바이트와 실제 PUT 요청 바이트가 어긋나 SignatureDoesNotMatch(403)가 난다. 대신
+    // UUID+확장자만 키에 쓰고, 원본 파일명은 별도로 받아 표시용 메타(Recording.fileName)에만 남긴다.
     private String buildManualRecordingS3Key(Long companyId, Long meetingId, String fileName) {
-        return s3KeyPrefix(companyId, meetingId) + fileName;
+        return s3KeyPrefix(companyId, meetingId) + UUID.randomUUID() + fileExtensionOf(fileName);
+    }
+
+    // "recording.ogg" → ".ogg". 확장자가 없으면 빈 문자열(마지막 세그먼트를 통째로 확장자로
+    // 오인하지 않는다 — "recording"처럼 점이 없는 이름도 유효한 입력이다).
+    private String fileExtensionOf(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        return dotIndex < 0 ? "" : fileName.substring(dotIndex);
     }
 
     // recordings/org-{orgId}/meeting-{meetingId}/ — 영구 보관 경로 접두. 발급(presign)과
@@ -121,11 +135,13 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase, I
         // (stt-temp) 경로나 경로 조작(..)을 막는다(PR1 complete의 키 검증과 동일 취지).
         String expectedPrefix = s3KeyPrefix(companyId, command.meetingId());
         String s3Key = command.s3Key();
-        if (s3Key == null || s3Key.contains("..") || !s3Key.startsWith(expectedPrefix)) {
+        if (s3Key == null || s3Key.contains("..") || !s3Key.startsWith(expectedPrefix)
+                || s3Key.length() == expectedPrefix.length()) {
             throw new BusinessException(CapErrorCode.CAP_RECORDING_KEY_MISMATCH);
         }
-        String fileName = s3Key.substring(s3Key.lastIndexOf('/') + 1);
-        if (fileName.isBlank()) {
+        // 표시용 파일명은 더 이상 s3Key(UUID 기반)에서 파싱하지 않는다 — 클라이언트가 별도로 보낸다.
+        String fileName = command.fileName();
+        if (fileName == null || fileName.isBlank()) {
             throw new BusinessException(CapErrorCode.CAP_RECORDING_KEY_MISMATCH);
         }
 
