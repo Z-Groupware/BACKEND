@@ -71,9 +71,20 @@ class ManualRecordingServiceTest {
         // 경로 조작
         assertErrorCode(() -> service.registerManualRecording(
                 cmd("recordings/org-1/meeting-500/../../x.ogg", 100L)), "CAP-015");
-        // 파일명 없음(슬래시로 끝남)
+        // 접두만 있고 그 뒤가 없음(슬래시로 끝남) — s3Key가 UUID 기반이 된 뒤에도 여전히 무효한 키다.
         assertErrorCode(() -> service.registerManualRecording(
                 cmd("recordings/org-1/meeting-500/", 100L)), "CAP-015");
+        assertThat(sttTriggered[0]).isFalse();
+    }
+
+    /* fileName은 더 이상 s3Key에서 파싱되지 않는다 — 클라이언트가 안 보내거나 빈 값이면 CAP-015로 거절한다. */
+    @Test
+    @DisplayName("fileName이 비어있으면 CAP-015로 거절한다")
+    void rejectsWhenFileNameBlank() {
+        ManualRecordingService service = service(Optional.of(1L), true, false);
+
+        assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, "", 100L)), "CAP-015");
+        assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, null, 100L)), "CAP-015");
         assertThat(sttTriggered[0]).isFalse();
     }
 
@@ -292,9 +303,13 @@ class ManualRecordingServiceTest {
         assertThat(sttTriggered[0]).isFalse();
     }
 
-    // meetingId 500, callerId 7 고정 명령.
+    // meetingId 500, callerId 7, fileName="recording.ogg" 고정 명령.
     private RegisterManualRecordingCommand cmd(String s3Key, long sizeBytes) {
-        return new RegisterManualRecordingCommand(500L, 7L, s3Key, sizeBytes);
+        return cmd(s3Key, "recording.ogg", sizeBytes);
+    }
+
+    private RegisterManualRecordingCommand cmd(String s3Key, String fileName, long sizeBytes) {
+        return new RegisterManualRecordingCommand(500L, 7L, s3Key, fileName, sizeBytes);
     }
 
     // 회의 companyId(존재 여부)·Host 여부·중복 제출 여부를 지정해 서비스를 조립한다(objectMatches=true 기본).

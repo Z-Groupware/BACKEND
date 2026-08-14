@@ -178,7 +178,7 @@ public class MemberController {
         }
         MemberDetail detail = updateMemberRoleUseCase.update(new UpdateMemberRoleCommand(
                 companyId, actingMemberId, memberId, request.role(), request.jobPositionId(),
-                request.roleLabel()));
+                request.roleId()));
         return ApiResponse.success("구성원 정보를 수정했습니다", MemberDetailResponse.from(detail));
     }
 

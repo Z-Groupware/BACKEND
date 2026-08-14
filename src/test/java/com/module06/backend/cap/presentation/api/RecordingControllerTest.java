@@ -95,7 +95,8 @@ class RecordingControllerTest {
                 manualUseCase, failingPlayback(), failingDelete());
 
         ApiResponse<ManualRecordingResponse> response = controller.manual(
-                500L, 7L, new ManualRecordingRequest("recordings/org-1/meeting-500/recording.ogg", 15_000_000L));
+                500L, 7L, new ManualRecordingRequest("recordings/org-1/meeting-500/recording.ogg", "recording.ogg",
+                        15_000_000L));
 
         assertThat(captured[0].meetingId()).isEqualTo(500L);
         assertThat(captured[0].callerId()).isEqualTo(7L);
