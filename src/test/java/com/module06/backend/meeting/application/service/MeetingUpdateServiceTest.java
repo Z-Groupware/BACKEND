@@ -384,13 +384,11 @@ class MeetingUpdateServiceTest {
 
         /* 지정한 식별자의 정상 회의실 스냅숏을 만든다. */
         private MeetingRoomSnapshot room(Long meetingRoomId) {
-            /* 서비스의 운영 시간 검증과 응답 이름 조립에 필요한 값을 모두 채운다. */
+            /* 서비스의 활성 회의실 검증과 응답 이름 조립에 필요한 값을 채운다. */
             return new MeetingRoomSnapshot(
                     meetingRoomId,
                     "회의실 " + meetingRoomId,
-                    "박애관",
-                    LocalTime.of(9, 0),
-                    LocalTime.of(18, 0)
+                    "박애관"
             );
         }
     }

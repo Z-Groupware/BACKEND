@@ -50,12 +50,12 @@ class MeetingRoomAvailabilityServiceTest {
     @Test
     @DisplayName("평일 기준일이 속한 주의 월요일부터 금요일까지 날짜별 슬롯을 반환한다")
     void returnsWeekdaySlotsWithoutOverwritingSameTimes() {
-        /* 월요일과 화요일의 동일한 09:00 예약 및 이용 시간 밖 예약을 준비한다. */
-        MeetingRoom meetingRoom = meetingRoom(2L, LocalTime.of(9, 0), LocalTime.of(10, 0));
+        /* 월요일과 화요일의 동일한 09:00 예약 및 오후 예약을 준비한다. */
+        MeetingRoom meetingRoom = meetingRoom(2L);
         FakeMeetingRoomSlotRepository slotRepository = new FakeMeetingRoomSlotRepository(List.of(
                 new ReservedSlot(2L, LocalDateTime.of(2026, 8, 10, 9, 0), 91L, "월요일 회의"),
                 new ReservedSlot(2L, LocalDateTime.of(2026, 8, 11, 9, 0), 92L, "화요일 회의"),
-                new ReservedSlot(2L, LocalDateTime.of(2026, 8, 12, 14, 0), 93L, "이용 시간 밖 회의")
+                new ReservedSlot(2L, LocalDateTime.of(2026, 8, 12, 14, 0), 93L, "오후 회의")
         ));
         MeetingRoomAvailabilityService service = service(
                 List.of(meetingRoom),
@@ -88,15 +88,14 @@ class MeetingRoomAvailabilityServiceTest {
                 );
 
         /* 월요일과 화요일의 같은 시각 예약이 서로 덮어써지지 않는지 확인한다. */
-        assertThat(result.days().get(0).slots().get(0).meetingId()).isEqualTo(91L);
-        assertThat(result.days().get(0).slots().get(0).title()).isEqualTo("월요일 회의");
-        assertThat(result.days().get(1).slots().get(0).meetingId()).isEqualTo(92L);
-        assertThat(result.days().get(1).slots().get(0).title()).isEqualTo("화요일 회의");
+        assertThat(result.days().get(0).slots().get(18).meetingId()).isEqualTo(91L);
+        assertThat(result.days().get(0).slots().get(18).title()).isEqualTo("월요일 회의");
+        assertThat(result.days().get(1).slots().get(18).meetingId()).isEqualTo(92L);
+        assertThat(result.days().get(1).slots().get(18).title()).isEqualTo("화요일 회의");
 
-        /* 이용 시간 밖에는 칸을 만들지 않고 예약이 없는 날도 전체 AVAILABLE 칸을 제공한다. */
-        assertThat(result.days()).allSatisfy(day -> assertThat(day.slots()).hasSize(2));
-        assertThat(result.days().get(2).slots()).allSatisfy(slot ->
-                assertThat(slot.status()).isEqualTo(MeetingRoomSlotStatus.AVAILABLE));
+        /* 모든 평일에 자정부터 23:30까지 48개 칸을 만들고 오후 예약도 반영한다. */
+        assertThat(result.days()).allSatisfy(day -> assertThat(day.slots()).hasSize(48));
+        assertThat(result.days().get(2).slots().get(28).meetingId()).isEqualTo(93L);
 
         /* 저장소가 단일 회의실과 월요일 00:00 이상 토요일 00:00 미만 범위로 한 번 호출됐는지 확인한다. */
         assertThat(slotRepository.requestedCompanyId).isEqualTo(COMPANY_ID);
@@ -113,7 +112,7 @@ class MeetingRoomAvailabilityServiceTest {
     void movesWeekendReferenceDateToNextMonday() {
         /* 예약이 없는 회의실과 저장소 대역을 준비한다. */
         MeetingRoomAvailabilityService service = service(
-                List.of(meetingRoom(2L, LocalTime.of(9, 0), LocalTime.of(10, 0))),
+                List.of(meetingRoom(2L)),
                 new FakeMeetingRoomSlotRepository(List.of()),
                 (memberId, meetingIds) -> Set.of()
         );
@@ -137,7 +136,7 @@ class MeetingRoomAvailabilityServiceTest {
     void usesKoreanTodayWhenDateIsMissing() {
         /* KST 기준 일요일인 고정 시계와 예약이 없는 회의실을 준비한다. */
         MeetingRoomAvailabilityService service = service(
-                List.of(meetingRoom(2L, LocalTime.of(9, 0), LocalTime.of(10, 0))),
+                List.of(meetingRoom(2L)),
                 new FakeMeetingRoomSlotRepository(List.of()),
                 (memberId, meetingIds) -> Set.of()
         );
@@ -157,7 +156,7 @@ class MeetingRoomAvailabilityServiceTest {
     void masksMeetingTitleForNonAttendee() {
         /* 요청자가 참석하지 않은 월요일 예약을 준비한다. */
         MeetingRoomAvailabilityService service = service(
-                List.of(meetingRoom(2L, LocalTime.of(9, 0), LocalTime.of(9, 30))),
+                List.of(meetingRoom(2L)),
                 new FakeMeetingRoomSlotRepository(List.of(
                         new ReservedSlot(2L, LocalDateTime.of(2026, 8, 10, 9, 0), 94L, "비공개 회의")
                 )),
@@ -171,10 +170,10 @@ class MeetingRoomAvailabilityServiceTest {
         );
 
         /* 예약 상태와 식별자는 유지하되 제목만 null이어야 한다. */
-        assertThat(result.days().get(0).slots().get(0).status())
+        assertThat(result.days().get(0).slots().get(18).status())
                 .isEqualTo(MeetingRoomSlotStatus.RESERVED);
-        assertThat(result.days().get(0).slots().get(0).meetingId()).isEqualTo(94L);
-        assertThat(result.days().get(0).slots().get(0).title()).isNull();
+        assertThat(result.days().get(0).slots().get(18).meetingId()).isEqualTo(94L);
+        assertThat(result.days().get(0).slots().get(18).title()).isNull();
     }
 
     /* 타 회사·비활성·존재하지 않는 회의실을 MR-001로 숨기는지 검증한다. */
@@ -214,9 +213,9 @@ class MeetingRoomAvailabilityServiceTest {
     }
 
     /* 테스트에 필요한 활성 회의실 도메인 객체를 생성한다. */
-    private MeetingRoom meetingRoom(Long id, LocalTime availableFrom, LocalTime availableTo) {
-        /* 위치와 이용 가능 시각을 포함하고 비활성화 시각은 비워 활성 회의실을 만든다. */
-        return new MeetingRoom(id, COMPANY_ID, "회의실 B", "박애관 421호", availableFrom, availableTo, null);
+    private MeetingRoom meetingRoom(Long id) {
+        /* 위치를 포함하고 비활성화 시각은 비워 활성 회의실을 만든다. */
+        return new MeetingRoom(id, COMPANY_ID, "회의실 B", "박애관 421호", null);
     }
 
     /* 준비된 회의실 목록에서 단건 조회를 수행하는 저장소 대역이다. */

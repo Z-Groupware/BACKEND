@@ -24,7 +24,7 @@ import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepo
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomReservationRepository;
 
 /*
- * ROOM-04 회의실 부분 수정의 병합·권한·중복·시간·미래 예약 충돌 규칙을 검증한다.
+ * ROOM-04 회의실 이름·위치 부분 수정의 병합·권한·중복 규칙을 검증한다.
  */
 @DisplayName("ROOM-04 회의실 수정 서비스")
 class MeetingRoomUpdateServiceTest {
@@ -41,28 +41,20 @@ class MeetingRoomUpdateServiceTest {
     void updatesOnlyProvidedFields() {
         /* 기존 회의실과 예약 없는 저장소 대역으로 수정 서비스를 준비한다. */
         RecordingCommandRepository commandRepository = new RecordingCommandRepository(existingRoom());
-        RecordingReservationRepository reservationRepository = new RecordingReservationRepository(List.of());
-        MeetingRoomUpdateService service = service(commandRepository, reservationRepository);
+        MeetingRoomUpdateService service = service(commandRepository);
 
-        /* 위치와 종료 시각만 바꾸는 OWNER 요청을 실행한다. */
+        /* 위치만 바꾸는 OWNER 요청을 실행한다. */
         UpdateMeetingRoomCommand command = command(
                 "OWNER",
                 false, null,
-                true, "본관 3층",
-                false, null,
-                true, LocalTime.of(20, 0)
+                true, "본관 3층"
         );
         MeetingRoomUpdateResult result = service.updateMeetingRoom(command);
 
-        /* 요청한 두 값은 바뀌고 이름·위치·시작 시각은 기존 상태를 유지해야 한다. */
+        /* 요청한 위치만 바뀌고 이름은 기존 상태를 유지해야 한다. */
         assertThat(result.meetingRoomId()).isEqualTo(2L);
         assertThat(result.name()).isEqualTo("회의실 B");
         assertThat(result.location()).isEqualTo("본관 3층");
-        assertThat(result.availableFrom()).isEqualTo(LocalTime.of(9, 0));
-        assertThat(result.availableTo()).isEqualTo(LocalTime.of(20, 0));
-
-        /* 운영 시간 확대는 기존 예약을 깨지 않으므로 예약 조회를 실행하지 않아야 한다. */
-        assertThat(reservationRepository.calls).isZero();
     }
 
     /* location 명시적 null이 기존 위치 삭제로 반영되는지 검증한다. */
@@ -71,18 +63,13 @@ class MeetingRoomUpdateServiceTest {
     void clearsLocationWhenExplicitNullProvided() {
         /* 기존 위치가 존재하는 회의실과 수정 서비스를 준비한다. */
         RecordingCommandRepository commandRepository = new RecordingCommandRepository(existingRoom());
-        MeetingRoomUpdateService service = service(
-                commandRepository,
-                new RecordingReservationRepository(List.of())
-        );
+        MeetingRoomUpdateService service = service(commandRepository);
 
         /* locationProvided만 true이고 값은 null인 ADMIN 요청을 실행한다. */
         UpdateMeetingRoomCommand command = command(
                 "ADMIN",
                 false, null,
-                true, null,
-                false, null,
-                false, null
+                true, null
         );
         MeetingRoomUpdateResult result = service.updateMeetingRoom(command);
 
@@ -97,16 +84,11 @@ class MeetingRoomUpdateServiceTest {
     void rejectsEmptyPatchRequest() {
         /* 정상 회의실을 가진 수정 서비스를 준비한다. */
         RecordingCommandRepository commandRepository = new RecordingCommandRepository(existingRoom());
-        MeetingRoomUpdateService service = service(
-                commandRepository,
-                new RecordingReservationRepository(List.of())
-        );
+        MeetingRoomUpdateService service = service(commandRepository);
 
         /* 모든 provided 플래그가 false인 요청은 공통 입력 오류여야 한다. */
         UpdateMeetingRoomCommand command = command(
                 "OWNER",
-                false, null,
-                false, null,
                 false, null,
                 false, null
         );
@@ -119,18 +101,13 @@ class MeetingRoomUpdateServiceTest {
     @DisplayName("MEMBER의 수정 요청은 MR-004로 거절한다")
     void rejectsNonManagementRole() {
         /* 웹 @PreAuthorize를 우회해 서비스를 직접 호출하는 상황을 준비한다. */
-        MeetingRoomUpdateService service = service(
-                new RecordingCommandRepository(existingRoom()),
-                new RecordingReservationRepository(List.of())
-        );
+        MeetingRoomUpdateService service = service(new RecordingCommandRepository(existingRoom()));
 
         /* MEMBER가 위치를 변경하려는 요청은 관리 권한 오류여야 한다. */
         UpdateMeetingRoomCommand command = command(
                 "MEMBER",
                 false, null,
-                true, "본관 3층",
-                false, null,
-                false, null
+                true, "본관 3층"
         );
         assertErrorCode(() -> service.updateMeetingRoom(command), "MR-004");
     }
@@ -140,10 +117,7 @@ class MeetingRoomUpdateServiceTest {
     @DisplayName("타 회사·비활성·미존재 회의실은 MR-001로 거절한다")
     void rejectsMissingActiveMeetingRoom() {
         /* 잠금 조회 결과가 없는 명령 저장소로 수정 서비스를 준비한다. */
-        MeetingRoomUpdateService service = service(
-                new RecordingCommandRepository(null),
-                new RecordingReservationRepository(List.of())
-        );
+        MeetingRoomUpdateService service = service(new RecordingCommandRepository(null));
 
         /* 정상 형식의 수정 요청이어도 회사 범위에서 회의실을 찾지 못하면 404 계약이어야 한다. */
         assertErrorCode(() -> service.updateMeetingRoom(locationCommand("OWNER", "본관 3층")), "MR-001");
@@ -156,17 +130,12 @@ class MeetingRoomUpdateServiceTest {
         /* 다른 활성 회의실이 동일 이름을 사용한다고 응답하는 저장소를 준비한다. */
         RecordingCommandRepository commandRepository = new RecordingCommandRepository(existingRoom());
         commandRepository.duplicateExcludingCurrent = true;
-        MeetingRoomUpdateService service = service(
-                commandRepository,
-                new RecordingReservationRepository(List.of())
-        );
+        MeetingRoomUpdateService service = service(commandRepository);
 
         /* 새로운 이름으로 변경하려는 요청은 현재 ID를 제외한 중복 조회 뒤 거절돼야 한다. */
         UpdateMeetingRoomCommand command = command(
                 "OWNER",
                 true, " 대회의실 ",
-                false, null,
-                false, null,
                 false, null
         );
         assertErrorCode(() -> service.updateMeetingRoom(command), "MR-002");
@@ -174,66 +143,10 @@ class MeetingRoomUpdateServiceTest {
         assertThat(commandRepository.checkedName).isEqualTo("대회의실");
     }
 
-    /* 부분 입력을 기존 값과 합친 최종 시간 범위가 잘못된 경우를 검증한다. */
-    @Test
-    @DisplayName("최종 종료 시각이 시작 시각보다 늦지 않으면 MR-003으로 거절한다")
-    void rejectsInvalidMergedTimeRange() {
-        /* 기존 시작 시각이 09:00인 회의실과 수정 서비스를 준비한다. */
-        MeetingRoomUpdateService service = service(
-                new RecordingCommandRepository(existingRoom()),
-                new RecordingReservationRepository(List.of())
-        );
-
-        /* 종료 시각만 09:00으로 바꾸면 기존 시작과 같아져 잘못된 최종 범위가 된다. */
-        UpdateMeetingRoomCommand command = command(
-                "OWNER",
-                false, null,
-                false, null,
-                false, null,
-                true, LocalTime.of(9, 0)
-        );
-        assertErrorCode(() -> service.updateMeetingRoom(command), "MR-003");
-    }
-
-    /* 축소 범위 밖 미래 SCHEDULED 예약이 있으면 수정을 거절하는지 검증한다. */
-    @Test
-    @DisplayName("이용 시간 축소가 미래 예약과 충돌하면 MR-006으로 거절한다")
-    void rejectsNarrowedTimeConflictingWithFutureReservation() {
-        /* 새 종료 시각 17:00을 넘는 미래 예약을 준비한다. */
-        ScheduledMeetingReservation reservation = new ScheduledMeetingReservation(
-                LocalDateTime.of(2026, 8, 7, 16, 30),
-                LocalDateTime.of(2026, 8, 7, 17, 30)
-        );
-        RecordingReservationRepository reservationRepository = new RecordingReservationRepository(
-                List.of(reservation)
-        );
-        RecordingCommandRepository commandRepository = new RecordingCommandRepository(existingRoom());
-        MeetingRoomUpdateService service = service(commandRepository, reservationRepository);
-
-        /* 기존 18:00 종료를 17:00으로 앞당기면 예약 종료가 범위를 벗어나야 한다. */
-        UpdateMeetingRoomCommand command = command(
-                "OWNER",
-                false, null,
-                false, null,
-                false, null,
-                true, LocalTime.of(17, 0)
-        );
-        assertErrorCode(() -> service.updateMeetingRoom(command), "MR-006");
-
-        /* 현재 KST 시각과 회사·회의실 범위가 예약 조회에 전달돼야 한다. */
-        assertThat(reservationRepository.capturedCompanyId).isEqualTo(10L);
-        assertThat(reservationRepository.capturedMeetingRoomId).isEqualTo(2L);
-        assertThat(reservationRepository.capturedFrom).isEqualTo(LocalDateTime.of(2026, 8, 6, 9, 0));
-        assertThat(commandRepository.savedMeetingRoom).isNull();
-    }
-
-    /* 테스트 대상 서비스를 고정 Clock과 저장소 대역으로 조립한다. */
-    private MeetingRoomUpdateService service(
-            MeetingRoomCommandRepository commandRepository,
-            MeetingRoomReservationRepository reservationRepository
-    ) {
-        /* 운영과 같은 KST이지만 현재 순간이 고정된 서비스를 반환한다. */
-        return new MeetingRoomUpdateService(commandRepository, reservationRepository, FIXED_CLOCK);
+    /* 테스트 대상 서비스를 명령 저장소 대역으로 조립한다. */
+    private MeetingRoomUpdateService service(MeetingRoomCommandRepository commandRepository) {
+        /* 운영과 같은 저장 경계를 사용하는 서비스를 반환한다. */
+        return new MeetingRoomUpdateService(commandRepository);
     }
 
     /* 위치 하나만 바꾸는 정상 형식 명령을 만든다. */
@@ -242,9 +155,7 @@ class MeetingRoomUpdateServiceTest {
         return command(
                 role,
                 false, null,
-                true, location,
-                false, null,
-                false, null
+                true, location
         );
     }
 
@@ -254,11 +165,7 @@ class MeetingRoomUpdateServiceTest {
             boolean nameProvided,
             String name,
             boolean locationProvided,
-            String location,
-            boolean availableFromProvided,
-            LocalTime availableFrom,
-            boolean availableToProvided,
-            LocalTime availableTo
+            String location
     ) {
         /* 회사 10의 2번 회의실을 대상으로 전달받은 부분 수정값을 사용한다. */
         return new UpdateMeetingRoomCommand(
@@ -268,24 +175,18 @@ class MeetingRoomUpdateServiceTest {
                 nameProvided,
                 name,
                 locationProvided,
-                location,
-                availableFromProvided,
-                availableFrom,
-                availableToProvided,
-                availableTo
+                location
         );
     }
 
     /* 테스트에서 수정할 기존 활성 회의실을 만든다. */
     private MeetingRoom existingRoom() {
-        /* 명세 예시와 같은 회사·위치·시간 속성을 가진 2번 회의실이다. */
+        /* 명세 예시와 같은 회사·위치 속성을 가진 2번 회의실이다. */
         return new MeetingRoom(
                 2L,
                 10L,
                 "회의실 B",
                 "박애관 422호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0),
                 null
         );
     }

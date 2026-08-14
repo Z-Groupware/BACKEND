@@ -2,7 +2,6 @@ package com.module06.backend.meeting.application.service;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -101,11 +100,10 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
         /* 시간 자체의 순서와 30분 그리드, 과거 예약 여부를 먼저 검증한다. */
         validateTime(command.startAt(), command.endAt());
 
-        /* 테넌트 범위 안의 활성 회의실을 조회하고 이용 가능 시간까지 검증한다. */
+        /* 테넌트 범위 안의 활성 회의실을 조회한다. */
         MeetingRoomSnapshot room = meetingRoomQueryPort
                 .findActiveMeetingRoom(command.companyId(), command.meetingRoomId())
                 .orElseThrow(() -> new BusinessException(MeetingRoomErrorCode.MEETING_ROOM_NOT_FOUND));
-        validateMeetingRoomHours(command.startAt(), command.endAt(), room);
 
         /* 프로젝트 태그는 필수이므로 요청 회사의 활성 프로젝트인지 확인한다. */
         if (!projectQueryPort.existsActiveProject(command.companyId(), command.projectId())) {
@@ -381,27 +379,6 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
         return value.getMinute() % MeetingSlotGrid.SLOT_MINUTES == 0
                 && value.getSecond() == 0
                 && value.getNano() == 0;
-    }
-
-    /* 예약 구간 전체가 같은 날의 회의실 이용 가능 범위에 포함되는지 검증한다. */
-    private void validateMeetingRoomHours(
-            LocalDateTime startAt,
-            LocalDateTime endAt,
-            MeetingRoomSnapshot room
-    ) {
-        /* 일일 이용 시간 계약이므로 날짜를 넘는 예약은 이용 가능 범위를 벗어난 것으로 처리한다. */
-        boolean differentDay = !startAt.toLocalDate().equals(endAt.toLocalDate());
-
-        /* 시작은 availableFrom 이상, 종료는 availableTo 이하여야 한다. */
-        LocalTime startTime = startAt.toLocalTime();
-        LocalTime endTime = endAt.toLocalTime();
-        boolean startsTooEarly = startTime.isBefore(room.availableFrom());
-        boolean endsTooLate = endTime.isAfter(room.availableTo());
-
-        /* 어느 조건이든 벗어나면 동일한 MT-004 계약으로 응답한다. */
-        if (differentDay || startsTooEarly || endsTooLate) {
-            throw new BusinessException(MeetingErrorCode.OUTSIDE_MEETING_ROOM_HOURS);
-        }
     }
 
     /* 활성 구성원을 배치 조회하고 요청한 모든 식별자가 존재하는지 검증한다. */

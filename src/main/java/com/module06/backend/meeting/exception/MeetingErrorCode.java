@@ -25,9 +25,6 @@ public enum MeetingErrorCode implements ErrorCode {
     /* 종료 시각이 시작 시각보다 늦지 않은 경우다. */
     INVALID_MEETING_TIME_RANGE(HttpStatus.BAD_REQUEST, "MT-003", "회의 종료 시각은 시작 시각보다 늦어야 합니다."),
 
-    /* 예약 시간이 회의실 이용 가능 범위를 벗어난 경우다. */
-    OUTSIDE_MEETING_ROOM_HOURS(HttpStatus.BAD_REQUEST, "MT-004", "회의실 이용 가능 시간을 벗어난 예약입니다."),
-
     /* 시작 또는 종료 시각이 30분 그리드에 맞지 않는 경우다. */
     INVALID_MEETING_SLOT(HttpStatus.BAD_REQUEST, "MT-005", "회의 예약은 30분 단위여야 합니다."),
 

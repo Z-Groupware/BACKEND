@@ -1,7 +1,5 @@
 package com.module06.backend.meetingroom.application.result;
 
-import java.time.LocalTime;
-
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 
 /*
@@ -10,9 +8,7 @@ import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 public record MeetingRoomUpdateResult(
         Long meetingRoomId,
         String name,
-        String location,
-        LocalTime availableFrom,
-        LocalTime availableTo
+        String location
 ) {
 
     /* 저장된 회의실 도메인을 수정 결과 읽기 모델로 변환한다. */
@@ -21,9 +17,7 @@ public record MeetingRoomUpdateResult(
         return new MeetingRoomUpdateResult(
                 meetingRoom.getId(),
                 meetingRoom.getName(),
-                meetingRoom.getLocation(),
-                meetingRoom.getAvailableFrom(),
-                meetingRoom.getAvailableTo()
+                meetingRoom.getLocation()
         );
     }
 }

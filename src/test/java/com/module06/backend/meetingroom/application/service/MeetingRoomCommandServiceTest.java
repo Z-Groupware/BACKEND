@@ -3,8 +3,6 @@ package com.module06.backend.meetingroom.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.LocalTime;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +13,7 @@ import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepository;
 
 /*
- * ROOM-03 회의실 등록의 정규화·중복·이용 시간 검증을 확인하는 애플리케이션 단위 테스트다.
+ * ROOM-03 회의실 등록의 정규화·중복 검증을 확인하는 애플리케이션 단위 테스트다.
  */
 @DisplayName("ROOM-03 회의실 등록 서비스")
 class MeetingRoomCommandServiceTest {
@@ -32,9 +30,7 @@ class MeetingRoomCommandServiceTest {
         MeetingRoomCreationResult result = service.createMeetingRoom(new CreateMeetingRoomCommand(
                 10L,
                 "  대회의실  ",
-                "   ",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "   "
         ));
 
         /* 생성 식별자와 회사 범위가 저장 결과에 반영돼야 한다. */
@@ -67,54 +63,6 @@ class MeetingRoomCommandServiceTest {
         assertThat(repository.savedMeetingRoom).isNull();
     }
 
-    /* 종료 시각이 시작 시각보다 늦지 않은 요청을 도메인 오류로 구분하는지 검증한다. */
-    @Test
-    @DisplayName("종료 시각이 시작 시각보다 늦지 않으면 MR-003으로 거절한다")
-    void rejectsInvalidAvailableTimeRange() {
-        /* 데이터베이스를 호출하지 않는 빈 저장소와 등록 서비스를 준비한다. */
-        RecordingMeetingRoomCommandRepository repository = new RecordingMeetingRoomCommandRepository(false);
-        MeetingRoomCommandService service = new MeetingRoomCommandService(repository);
-
-        /* 시작과 종료가 같은 명령은 이용 가능 시간 범위 오류여야 한다. */
-        CreateMeetingRoomCommand command = new CreateMeetingRoomCommand(
-                10L,
-                "대회의실",
-                "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(9, 0)
-        );
-        assertThatThrownBy(() -> service.createMeetingRoom(command))
-                .isInstanceOf(BusinessException.class)
-                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
-                .isEqualTo("MR-003");
-
-        /* 입력 검증 실패 뒤에는 중복 조회와 저장이 실행되지 않아야 한다. */
-        assertThat(repository.checkedName).isNull();
-        assertThat(repository.savedMeetingRoom).isNull();
-    }
-
-    /* 30분 슬롯 경계가 아닌 시각을 공통 입력 오류로 거절하는지 검증한다. */
-    @Test
-    @DisplayName("이용 가능 시각이 30분 경계가 아니면 Z-001로 거절한다")
-    void rejectsTimeOutsideSlotGrid() {
-        /* 데이터베이스를 호출하지 않는 빈 저장소와 등록 서비스를 준비한다. */
-        RecordingMeetingRoomCommandRepository repository = new RecordingMeetingRoomCommandRepository(false);
-        MeetingRoomCommandService service = new MeetingRoomCommandService(repository);
-
-        /* 09시 10분은 공용 30분 슬롯 그리드에 포함되지 않는다. */
-        CreateMeetingRoomCommand command = new CreateMeetingRoomCommand(
-                10L,
-                "대회의실",
-                "박애관 421호",
-                LocalTime.of(9, 10),
-                LocalTime.of(18, 0)
-        );
-        assertThatThrownBy(() -> service.createMeetingRoom(command))
-                .isInstanceOf(BusinessException.class)
-                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
-                .isEqualTo("Z-001");
-    }
-
     /* 필수값 조건을 서비스 경계에서도 방어하는지 검증한다. */
     @Test
     @DisplayName("회사·이름 필수 조건을 위반하면 Z-001로 거절한다")
@@ -127,9 +75,7 @@ class MeetingRoomCommandServiceTest {
         CreateMeetingRoomCommand command = new CreateMeetingRoomCommand(
                 0L,
                 " ",
-                null,
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                null
         );
         assertThatThrownBy(() -> service.createMeetingRoom(command))
                 .isInstanceOf(BusinessException.class)
@@ -143,9 +89,7 @@ class MeetingRoomCommandServiceTest {
         return new CreateMeetingRoomCommand(
                 10L,
                 name,
-                "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "박애관 421호"
         );
     }
 
@@ -207,8 +151,6 @@ class MeetingRoomCommandServiceTest {
                     meetingRoom.getCompanyId(),
                     meetingRoom.getName(),
                     meetingRoom.getLocation(),
-                    meetingRoom.getAvailableFrom(),
-                    meetingRoom.getAvailableTo(),
                     meetingRoom.getDeletedAt()
             );
         }

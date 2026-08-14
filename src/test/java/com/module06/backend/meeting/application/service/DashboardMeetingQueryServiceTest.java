@@ -331,8 +331,8 @@ class DashboardMeetingQueryServiceTest {
             @Override
             public List<MeetingRoomSnapshot> findMeetingRooms(Long companyId, List<Long> meetingRoomIds) {
                 return List.of(
-                        new MeetingRoomSnapshot(2L, "회의실 B", "박애관 422호", null, null),
-                        new MeetingRoomSnapshot(4L, "회의실 A", "박애관 401호", null, null)
+                        new MeetingRoomSnapshot(2L, "회의실 B", "박애관 422호"),
+                        new MeetingRoomSnapshot(4L, "회의실 A", "박애관 401호")
                 ).stream().filter(room -> meetingRoomIds.contains(room.meetingRoomId())).toList();
             }
         };

@@ -204,19 +204,20 @@ class MeetingServiceTest {
         assertErrorCode(() -> defaultService().createMeeting(command), "MT-005");
     }
 
-    /* 회의실 이용 가능 범위를 넘는 요청이 MT-004로 거절되는지 검증한다. */
+    /* 자정을 넘기는 예약도 24시간 정책에서 허용되는지 검증한다. */
     @Test
-    @DisplayName("회의실 종료 시각을 넘는 예약은 MT-004로 거절한다")
-    void rejectsReservationOutsideRoomHours() {
-        /* 회의실 운영 종료 이후까지 이어지는 요청을 준비한다. */
+    @DisplayName("23시 30분에 시작해 다음 날 끝나는 예약을 허용한다")
+    void allowsReservationAcrossMidnight() {
+        /* 30분 슬롯 경계를 유지하면서 날짜를 넘기는 요청을 준비한다. */
         CreateMeetingCommand command = command(
-                LocalDateTime.of(2026, 8, 6, 17, 30),
-                LocalDateTime.of(2026, 8, 6, 18, 30),
+                LocalDateTime.of(2026, 8, 6, 23, 30),
+                LocalDateTime.of(2026, 8, 7, 0, 30),
                 List.of(7L, 11L)
         );
 
-        /* 활성 회의실이어도 이용 가능 시간 밖이면 거절돼야 한다. */
-        assertErrorCode(() -> defaultService().createMeeting(command), "MT-004");
+        /* 활성 회의실이면 운영 시간 제한 없이 예약이 생성돼야 한다. */
+        MeetingCreationResult result = defaultService().createMeeting(command);
+        assertThat(result.meetingId()).isEqualTo(91L);
     }
 
     /* 조회된 구성원이 요청 명단보다 적으면 MT-010으로 거절되는지 검증한다. */
@@ -620,15 +621,13 @@ class MeetingServiceTest {
         );
     }
 
-    /* 이용 가능 시간이 09:00부터 18:00인 활성 회의실 조회 결과를 만든다. */
+    /* 하루 24시간 예약 가능한 활성 회의실 조회 결과를 만든다. */
     private Optional<MeetingRoomQueryPort.MeetingRoomSnapshot> activeRoom() {
         /* 응답 조립에 필요한 표시 정보도 함께 제공한다. */
         return Optional.of(new MeetingRoomQueryPort.MeetingRoomSnapshot(
                 2L,
                 "회의실 B",
-                "박애관 422호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "박애관 422호"
         ));
     }
 

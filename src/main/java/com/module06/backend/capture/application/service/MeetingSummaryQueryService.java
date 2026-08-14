@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -21,6 +22,7 @@ import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.SttBlockStatus;
 
 /*
  * D(회의) 도메인이 묻는 요약 상태를 답한다.
@@ -146,6 +148,42 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
             statuses.add(new MeetingSummaryStatus(meetingId, summaryStatusOf(states)));
         }
         return statuses;
+    }
+
+    /*
+     * MEET-04 발화 기록 영역에 사용할 STT 정본 상태를 계산한다.
+     *
+     * 상세 조회는 회의 한 건을 묻기 때문에 블록을 한 번 조회해 상태를 접는다. 요약 계층 상태는
+     * 전혀 보지 않아 STT 완료와 후속 AI 요약 진행을 서로 독립적으로 표현한다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<MeetingTranscriptStatus> findTranscriptStatus(Long companyId, Long meetingId) {
+        /* 잘못된 입력은 저장소를 조회하지 않고 회사 범위에서 찾지 못한 것과 동일하게 숨긴다. */
+        if (companyId == null || meetingId == null || meetingId <= 0L) {
+            return Optional.empty();
+        }
+
+        /* stt_block에는 company_id가 없으므로 회의 회사 관문을 먼저 통과해야 한다. */
+        if (!meetingAccessPort.existsInCompany(companyId, meetingId)) {
+            return Optional.empty();
+        }
+
+        List<SttBlockRepository.SttBlockView> blocks = sttBlockRepository.findByMeeting(meetingId);
+        TranscriptStatus status;
+        if (blocks.isEmpty()) {
+            status = TranscriptStatus.NOT_STARTED;
+        } else if (blocks.stream().anyMatch(block -> block.status() == SttBlockStatus.FAILED)) {
+            /* 일부 정본만으로 완료를 표시하지 않도록 실패가 다른 상태보다 우선한다. */
+            status = TranscriptStatus.FAILED;
+        } else if (blocks.stream().allMatch(block -> block.status() == SttBlockStatus.DONE)) {
+            status = TranscriptStatus.DONE;
+        } else {
+            /* PENDING·QUEUED·RUNNING 중 하나라도 남으면 아직 발화 기록을 열지 않는다. */
+            status = TranscriptStatus.PROCESSING;
+        }
+
+        return Optional.of(new MeetingTranscriptStatus(meetingId, status));
     }
 
     /*

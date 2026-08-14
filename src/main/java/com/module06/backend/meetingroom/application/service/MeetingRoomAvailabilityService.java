@@ -210,15 +210,13 @@ public class MeetingRoomAvailabilityService implements GetMeetingRoomAvailabilit
      * 조회 대상 회의실의 주간 공통 표시 정보를 조립한다.
      *
      * @param meetingRoom 조립 대상 회의실
-     * @return 회의실 식별자·이름·이용 가능 시간을 담은 결과
+     * @return 회의실 식별자와 이름을 담은 결과
      */
     private MeetingRoomAvailabilitySummary toAvailabilitySummary(MeetingRoom meetingRoom) {
         /* 모든 날짜가 공유하는 회의실 메타를 날짜별 결과에 중복하지 않고 상위에 한 번만 둔다. */
         return new MeetingRoomAvailabilitySummary(
                 meetingRoom.getId(),
-                meetingRoom.getName(),
-                meetingRoom.getAvailableFrom(),
-                meetingRoom.getAvailableTo()
+                meetingRoom.getName()
         );
     }
 
@@ -237,7 +235,7 @@ public class MeetingRoomAvailabilityService implements GetMeetingRoomAvailabilit
             Map<LocalTime, ReservedSlot> reservedSlotsByStartTime,
             Set<Long> attendedMeetingIds
     ) {
-        /* 슬롯 칸은 회의실의 이용 가능 시간에서만 생성하므로 이용 시간 밖의 예약은 응답에 포함되지 않는다. */
+        /* 슬롯 칸은 00:00부터 23:30까지 하루 전체를 30분 단위로 생성한다. */
         List<MeetingRoomSlotSummary> slots = meetingRoom.slotStartTimes().stream()
                 .map(startTime -> toSlotSummary(
                         startTime,

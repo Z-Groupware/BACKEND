@@ -20,6 +20,7 @@ public record MeetingDetailResponse(
         boolean recordingConsent,
         long pendingActionCount,
         String summaryStatus,
+        String transcriptStatus,
         Long teamId,
         String originLabel,
         AgendaResponse agenda,
@@ -54,6 +55,7 @@ public record MeetingDetailResponse(
                 result.recordingConsent(),
                 result.pendingActionCount(),
                 result.summaryStatus() == null ? null : result.summaryStatus().name(),
+                result.transcriptStatus().name(),
                 result.teamId(),
                 result.originLabel(),
                 result.agenda() == null ? null : new AgendaResponse(

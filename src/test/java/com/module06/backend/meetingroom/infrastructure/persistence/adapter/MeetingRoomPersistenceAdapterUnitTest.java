@@ -63,9 +63,7 @@ class MeetingRoomPersistenceAdapterUnitTest {
         return MeetingRoom.create(
                 10L,
                 "대회의실",
-                "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "박애관 421호"
         );
     }
 }
