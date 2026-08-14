@@ -32,9 +32,10 @@ import com.module06.backend.capture.domain.model.Utterance;
  * 묶음을 가르는 것까지다 — 그래서 여기서 action 을 만들지 않는다.
  *
  * <h2>게이트는 조이는 방향으로만 더한다</h2>
- * 명세의 4조건에 더해 **L6 모순이 없을 것**을 요구한다. 조건을 더하는 것은 자동확정을
- * 줄이는 방향이라 "넷을 전부 만족할 때만"이라는 규칙과 충돌하지 않는다. 반대로 조건을
- * 빼는 변경은 검증되지 않은 배정을 사람 눈 밖으로 내보내므로 함부로 하지 않는다.
+ * 명세의 4조건에 더해 **L6 모순이 없을 것**과 **담당자를 코드가 잇지 않았을 것**을 요구한다.
+ * 조건을 더하는 것은 자동확정을 줄이는 방향이라 "넷을 전부 만족할 때만"이라는 규칙과
+ * 충돌하지 않는다. 반대로 조건을 빼는 변경은 검증되지 않은 배정을 사람 눈 밖으로 내보내므로
+ * 함부로 하지 않는다.
  */
 @Slf4j
 @Service
@@ -61,13 +62,33 @@ public class AutoConfirmGate {
         for (StoredTuple row : stored) {
             GateSignals signals = signalsOf(row, attendeeMemberIds, attributedUtteranceIds);
             List<ConflictType> conflicts = conflictsByTupleId.getOrDefault(row.id(), List.of());
-            byTupleId.put(row.id(), new Verdict(signals, signals.allPassed() && conflicts.isEmpty()));
+            byTupleId.put(row.id(), new Verdict(signals,
+                    signals.allPassed() && conflicts.isEmpty() && !nearMatched(row)));
         }
 
         long confirmed = byTupleId.values().stream().filter(Verdict::autoConfirmed).count();
         log.info("L7 자동확정 게이트 — tuple {}건 중 {}건 자동확정, {}건 검토 필요",
                 stored.size(), confirmed, stored.size() - confirmed);
         return byTupleId;
+    }
+
+    /*
+     * 담당자를 **코드가 이었는가**(V5.22 · NearNameAssigneeResolver).
+     *
+     * L6 모순과 같은 자리에 둔다 — GateSignals 안이 아니라 밖이다. 신호 넷은 명세가 정한
+     * 4조건이고, 이건 우리가 더한 조건이다. 섞으면 "명세의 조건에서 걸린 건"과 "우리가 더한
+     * 조건에서 걸린 건"이 한 값이 되어 게이트를 어디서 조였는지 되짚을 수 없다.
+     *
+     * 왜 빼는가 — 근접 매칭의 정확도는 회의 1 건 · 배정 4 건 규모에서만 쟀다. 그 표본으로
+     * "오답 0 건"을 자동확정의 근거로 쓸 수 없다. 코드가 이은 담당자는 검토 화면의
+     * 「AI 확인 필요」로 올려 사람이 확인하게 하고, 그 확인 결과가 임계값(현재 한 글자)을
+     * 넓힐지 정하는 데이터가 된다.
+     *
+     * **NULL 은 빼지 않는다.** NULL 은 근접 매칭 이전에 저장된 행이고, 그것까지 빼면 이 코드
+     * 이전 회의의 자동확정이 통째로 사라진다 — 게이트를 조이는 것이 아니라 과거를 지우는 것이다.
+     */
+    private boolean nearMatched(StoredTuple row) {
+        return Boolean.TRUE.equals(row.assigneeNearMatched());
     }
 
     private GateSignals signalsOf(StoredTuple row, Set<Long> attendeeMemberIds,

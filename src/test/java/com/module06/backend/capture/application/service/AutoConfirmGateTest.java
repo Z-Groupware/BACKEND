@@ -136,11 +136,38 @@ class AutoConfirmGateTest {
         assertThat(verdict.autoConfirmed()).isFalse();
     }
 
+    @Test
+    @DisplayName("담당자를 근접 매칭이 이었으면 신호를 다 통과해도 자동확정하지 않는다")
+    void 근접_매칭으로_이은_담당자는_막는다() {
+        AutoConfirmGate.Verdict verdict = evaluate(
+                tuple(ALICE, AssigneeSource.EXPLICIT_CALL, 100L), true, List.of(), true);
+
+        // L6 모순과 같은 자리다 — 신호 넷은 전부 통과했고, 우리가 더한 조건에서 걸렸다.
+        // 둘을 한 값으로 합치지 않는 이유도 같다(어디서 조였는지 되짚을 수 있어야 한다).
+        assertThat(verdict.signals().allPassed()).isTrue();
+        assertThat(verdict.autoConfirmed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("근접 매칭 미수행(NULL)은 자동확정을 막지 않는다 — 이 코드 이전에 저장된 행이다")
+    void 근접_매칭_미수행은_막지_않는다() {
+        AutoConfirmGate.Verdict verdict = evaluate(
+                tuple(ALICE, AssigneeSource.EXPLICIT_CALL, 100L), true, List.of(), null);
+
+        // NULL 까지 막으면 게이트를 조이는 것이 아니라 과거 회의의 자동확정을 지우는 것이 된다.
+        assertThat(verdict.autoConfirmed()).isTrue();
+    }
+
     // ── 조립 ────────────────────────────────────────────────────────────────────
 
     private AutoConfirmGate.Verdict evaluate(AssignmentTuple tuple, Boolean verifyAgree,
                                              List<ConflictType> conflicts) {
-        StoredTuple stored = new StoredTuple(1L, tuple, 1, "제품 로드맵", verifyAgree);
+        return evaluate(tuple, verifyAgree, conflicts, false);
+    }
+
+    private AutoConfirmGate.Verdict evaluate(AssignmentTuple tuple, Boolean verifyAgree,
+                                             List<ConflictType> conflicts, Boolean nearMatched) {
+        StoredTuple stored = new StoredTuple(1L, tuple, 1, "제품 로드맵", verifyAgree, nearMatched);
         return gate.evaluate(List.of(stored), Map.of(1L, conflicts), utterances(), ROSTER).get(1L);
     }
 

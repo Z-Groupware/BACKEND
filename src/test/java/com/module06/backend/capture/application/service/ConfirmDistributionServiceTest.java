@@ -306,7 +306,8 @@ class ConfirmDistributionServiceTest {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.PERSONAL, assignee, assignee != null ? "김서준" : null, null,
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 8), false,
-                "로드맵", false, reviewStatus, null, null, null, null);
+                // 근접 매칭 여부는 이 테스트의 판정(확정 게이트)에 쓰이지 않는다 — false 로 둔다.
+                false, "로드맵", false, reviewStatus, null, null, null, null);
     }
 
     /* TEAM 액션은 담당자 개념이 없다 — assigneeMemberId가 항상 null인 게 정상이다. */
@@ -314,7 +315,8 @@ class ConfirmDistributionServiceTest {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.TEAM, null, null, null,
                 "팀 회고 준비", null, LocalDate.of(2026, 8, 8), false,
-                "로드맵", false, reviewStatus, null, null, null, null);
+                // 근접 매칭 여부는 이 테스트의 판정(확정 게이트)에 쓰이지 않는다 — false 로 둔다.
+                false, "로드맵", false, reviewStatus, null, null, null, null);
     }
 
     /*
@@ -338,7 +340,8 @@ class ConfirmDistributionServiceTest {
             actionsById.put(actionId, new ReviewAction(
                     current.actionId(), current.actionType(), current.assigneeMemberId(),
                     current.assigneeName(), current.assigneeSource(), current.title(), current.detail(),
-                    current.dueDate(), current.dueDateDefaulted(), current.topic(), current.manual(),
+                    current.dueDate(), current.dueDateDefaulted(), current.assigneeNearMatched(),
+                    current.topic(), current.manual(),
                     "HUMAN_CONFIRMED", current.rejectReason(), current.evidence(), current.signals(),
                     current.autoConfirmed()));
         }

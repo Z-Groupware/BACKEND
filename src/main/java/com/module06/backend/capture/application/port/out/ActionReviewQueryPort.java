@@ -67,6 +67,18 @@ public interface ActionReviewQueryPort {
              * 판단했구나"로 읽힌다** — 사람이 고쳐야 할 기한을 그냥 넘긴다.
              */
             boolean dueDateDefaulted,
+            /*
+             * 이 담당자가 **AI 판정이 아니라 코드가 이어 준 것**인지(V5.22 · NearNameAssigneeResolver).
+             *
+             * dueDateDefaulted 와 같은 이유로 내려준다. STT 가 이름을 한 글자 잘못 들으면 L4 는
+             * 담당자를 비우고, 그 자리를 근거 발화 주변의 참석자와 코드가 잇는다. 이 값을 내려주지
+             * 않으면 화면에서 **모델이 정한 담당자와 똑같이 보인다** — 사람은 "AI 가 김현지라고
+             * 판단했구나"로 읽고 확인 없이 넘긴다. 그러면 이 건을 자동확정에서 뺀 의미가 없다.
+             *
+             * 3-상태다 — TRUE(코드가 이음) · FALSE(모델이 정했거나 기권) · NULL(근접 매칭 이전에
+             * 저장된 tuple 이거나 tuple 이 없는 수동 액션).
+             */
+            Boolean assigneeNearMatched,
             String topic,
             boolean manual,
             String reviewStatus,
