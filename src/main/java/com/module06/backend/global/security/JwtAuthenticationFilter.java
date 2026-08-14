@@ -31,6 +31,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
 
+    /**
+     * SSE 같은 비동기 응답은 컨트롤러가 반환한 뒤 ASYNC 디스패치로 필터 체인을 한 번 더 탄다.
+     * {@code OncePerRequestFilter} 는 그 두 번째 통과를 기본으로 건너뛰지만
+     * ({@code shouldNotFilterAsyncDispatch()} 기본값 true), Spring Security 6 의
+     * {@code AuthorizationFilter} 는 모든 디스패치 타입에서 돈다.
+     *
+     * <p>그래서 재정의하지 않으면 ASYNC 통과에서 <b>인증은 안 걸고 인가만 거는</b> 상태가 되어
+     * 이미 열린 스트림이 {@code AuthorizationDeniedException} 으로 끊긴다. 세션이 STATELESS 라
+     * SecurityContext 가 살아남는 곳도 없으므로, 같은 요청의 Authorization 헤더를 다시 읽어
+     * 컨텍스트를 재구성하는 것이 유일한 복원 경로다.
+     *
+     * <p>인증을 우회하는 것이 아니다 — 같은 토큰을 같은 규칙으로 한 번 더 검증한다.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {

@@ -47,6 +47,13 @@ public class SecurityErrorResponder implements AuthenticationEntryPoint, AccessD
 
     private void write(HttpServletRequest request, HttpServletResponse response, ErrorCode errorCode)
             throws IOException {
+        // SSE 처럼 응답이 이미 시작된 뒤 거절되면 상태줄도 본문도 다시 쓸 수 없다.
+        // 여기서 멈추지 않으면 "response is already committed" 2차 예외가 진짜 원인을 로그에서 덮는다.
+        // 감사 로그는 호출부(commence·handle)에서 이미 남았으므로 거절 사실은 사라지지 않는다.
+        if (response.isCommitted()) {
+            return;
+        }
+
         response.setStatus(errorCode.getHttpStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");

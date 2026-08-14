@@ -2,6 +2,8 @@ package com.module06.backend.global.security;
 
 import java.time.Duration;
 
+import jakarta.servlet.DispatcherType;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -86,5 +88,50 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    /*
+     * 아래 세 건은 SSE(알림·자막)가 운영에서 AuthorizationDeniedException 으로 끊기던 회귀를 막는다.
+     *
+     * SseEmitter 를 반환하면 컨트롤러가 끝난 뒤 ASYNC 디스패치로 필터 체인을 한 번 더 타는데,
+     * OncePerRequestFilter 는 그 통과를 기본으로 건너뛰는 반면 Spring Security 6 의
+     * AuthorizationFilter 는 모든 디스패치 타입에서 돈다. 세션도 STATELESS 라 SecurityContext 가
+     * 살아남지 않는다 — 그래서 "인증은 없고 인가만 있는" 상태가 되어 열린 스트림이 끊겼다.
+     */
+
+    @Test
+    @DisplayName("ASYNC 디스패치에서도 헤더를 다시 읽어 인증을 복원한다 — SSE 가 여기서 끊겼다")
+    void restoresAuthenticationOnAsyncDispatch() throws Exception {
+        AuthPrincipal principal = new AuthPrincipal(3L, 1L, "MEMBER", false, 2L);
+        MockHttpServletRequest request = requestWithToken(principal);
+        request.setDispatcherType(DispatcherType.ASYNC);
+
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(auth).isNotNull();
+        assertThat(auth.getPrincipal()).isEqualTo(principal);
+    }
+
+    @Test
+    @DisplayName("ASYNC 디스패치에서 토큰이 만료됐으면 아무것도 심지 않는다 — 재검증이지 무조건 통과가 아니다")
+    void clearsContextOnAsyncDispatchWithExpiredToken() throws Exception {
+        // accessTtl 이 음수면 발급 즉시 만료된 토큰이 나온다.
+        JwtTokenProvider expiredProvider = new JwtTokenProvider(
+                new JwtProperties(SECRET, Duration.ofMinutes(-1), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization",
+                "Bearer " + expiredProvider.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L)));
+        request.setDispatcherType(DispatcherType.ASYNC);
+
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("shouldNotFilterAsyncDispatch 는 false 여야 한다 — 이 재정의를 지우면 SSE 가 다시 끊긴다")
+    void doesNotSkipAsyncDispatch() {
+        assertThat(filter.shouldNotFilterAsyncDispatch()).isFalse();
     }
 }
