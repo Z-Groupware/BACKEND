@@ -10,6 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.global.audit.AuthzAuditLogger;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.ratelimit.RateLimitPolicy;
+import com.module06.backend.global.ratelimit.RateLimitProperties;
+import com.module06.backend.global.ratelimit.RateLimitSubject;
+import com.module06.backend.global.ratelimit.RateLimiter;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.global.security.JwtTokenProvider;
 import com.module06.backend.identity.auth.application.command.LoginCommand;
@@ -45,6 +49,8 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
     private final RefreshTokenStore refreshTokenStore;
     private final JwtTokenProvider tokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final RateLimiter rateLimiter;
+    private final RateLimitProperties rateLimitProperties;
 
     /**
      * 구성원을 못 찾았을 때 검증 대상으로 쓰는 해시. 리터럴을 박지 않고 주입된 인코더로 만든다 —
@@ -58,18 +64,37 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
                        MemberAuthQueryPort memberAuthQueryPort,
                        RefreshTokenStore refreshTokenStore,
                        JwtTokenProvider tokenProvider,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder,
+                       RateLimiter rateLimiter,
+                       RateLimitProperties rateLimitProperties) {
         this.companyRepository = companyRepository;
         this.memberAuthQueryPort = memberAuthQueryPort;
         this.refreshTokenStore = refreshTokenStore;
         this.tokenProvider = tokenProvider;
         this.passwordEncoder = passwordEncoder;
+        this.rateLimiter = rateLimiter;
+        this.rateLimitProperties = rateLimitProperties;
         this.absentMemberHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
+    /*
+     * 계정 기준 제한은 여기서 본다 — 필터는 요청 본문을 읽을 수 없어 어느 계정을 노렸는지 모른다.
+     * IP 기준 제한(RateLimitFilter)만으로는 부족하다: 공격자는 IP 를 바꿔 가며 한 계정을 팰 수 있고,
+     * 반대로 사무실 하나에서 직원 수십 명이 같은 IP 로 로그인한다. 두 축이 각자 다른 것을 막는다.
+     *
+     * 세는 것은 실패뿐이다. 모든 시도를 세면 잘 쓰는 사용자가 자기 로그인으로 잠긴다.
+     */
     @Override
     @Transactional(readOnly = true)
     public LoginResult login(LoginCommand command) {
+        String accountKey = RateLimitSubject.ofAccount(command.companyCode(), command.email());
+        RateLimitPolicy accountPolicy = rateLimitProperties.loginAccountPolicy();
+
+        // 시작에서는 보기만 한다. 여기서 계상하면 성공한 로그인도 카운터를 밀어 올린다.
+        if (!rateLimiter.peek(accountPolicy, accountKey).allowed()) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_REQUESTS);
+        }
+
         MemberCredentials member = companyRepository.findByCode(normalize(command.companyCode()))
                 .flatMap(company -> memberAuthQueryPort.findForLogin(company.id(), command.email()))
                 .orElse(null);
@@ -80,6 +105,10 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
                 member == null ? absentMemberHash : member.passwordHash());
 
         if (member == null || !passwordMatches) {
+            // 실패한 뒤에 올린다. 회사 없음·이메일 없음·비번 틀림이 모두 여기로 모이므로,
+            // 존재하지 않는 계정을 훑는 시도도 같은 카운터에 쌓인다 — 계정 존재 여부로
+            // 제한을 우회할 수 없다.
+            rateLimiter.record(accountPolicy, accountKey);
             throw loginFailed();
         }
 

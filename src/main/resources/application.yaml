@@ -81,6 +81,45 @@ app:
 # HS256 이라 디코드 후 최소 32바이트(= 64자 hex)여야 하고, 짧거나 hex 가 아니면 키 생성
 # 단계에서 즉시 예외가 나 부팅에서 걸린다(런타임까지 미뤄지지 않는다).
 # 이 값이 바뀌면 이미 발급된 모든 토큰이 무효가 된다.
+# ── 횟수 제한 ──
+# 한 사무실에서 직원 수십 명이 IP 하나를 공유한다. 그래서 경로마다 값이 다르다 —
+# 전부 같은 숫자로 두면 공격자에게 넉넉하거나 사무실을 막거나 둘 중 하나가 된다.
+#
+# ⚠️ 이 값들이 뜻을 가지려면 아래 server.forward-headers-strategy 가 켜져 있어야 한다.
+#    꺼져 있으면 모든 요청이 리버스 프록시 주소 하나로 뭉쳐, 서비스 전체가 한 카운터를 쓴다.
+rate-limit:
+  # 아침 출근 시간에 한 사무실에서 몰린다. 넉넉히 두고, 진짜 방어는 아래 계정 기준이 한다.
+  login-per-ip:
+    limit: 60
+    window: 1m
+  # 무차별 대입 방어의 본체. 실패만 세므로 잘 쓰는 사용자는 닿지 않는다.
+  login-per-account:
+    limit: 5
+    window: 5m
+  # 액세스 토큰(30분)이 만료될 때마다 사람 수만큼 나가는 경로라 가장 넉넉하다.
+  # 그래도 거는 이유: permitAll 인 데다 BCrypt 비용도 없어 가장 싸게 두들길 수 있다.
+  refresh-per-ip:
+    limit: 120
+    window: 1m
+  # ⚠️ CompanyCodeGenerator javadoc 이 전수 탐색 난이도를 계산할 때 이 값(분당 20회)을
+  #    전제한다. 올리면 그 계산이 무너지므로 함께 고쳐야 한다.
+  company-lookup-per-ip:
+    limit: 20
+    window: 1m
+  # 성공하면 회사와 오너 계정이 생기고 되돌릴 경로가 없다. 사람이 반복할 일이 아니다.
+  registration-per-ip:
+    limit: 5
+    window: 1m
+
+server:
+  # 컨테이너는 리버스 프록시 뒤에 있다. 이 설정이 없으면 getRemoteAddr() 이 프록시 주소만 줘서
+  # 위 IP 기준 제한이 전부 한 카운터로 합쳐지고, 감사 로그의 출처도 전부 같은 값이 된다.
+  #
+  # ⚠️ 전제 — 프록시가 X-Forwarded-For 를 신뢰할 수 있게 세팅해야 한다. 클라이언트가 보낸
+  #    헤더를 프록시가 그대로 흘려보내면 공격자가 IP 를 위조해 제한을 우회한다.
+  #    (nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; ALB 는 기본 동작)
+  forward-headers-strategy: framework
+
 jwt:
   secret: ${JWT_SECRET}
   access-ttl: 30m
