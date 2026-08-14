@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -29,6 +30,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.command.RenameTeamCommand;
+import com.module06.backend.identity.team.application.dto.RoleNode;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.usecase.CreateTeamUseCase;
 import com.module06.backend.identity.team.application.usecase.DeleteTeamUseCase;
@@ -70,12 +72,28 @@ class TeamControllerTest {
     void treeTakesCompanyFromToken() throws Exception {
         authenticateAs(1L);
         when(getTeamTreeUseCase.getTree(1L)).thenReturn(List.of(
-                new TeamNode(10L, "본부", null, null, 0L)));
+                new TeamNode(10L, "본부", null, null, 0L, List.of())));
 
         mockMvc.perform(get("/api/teams"))
                 .andExpect(status().isOk());
 
         verify(getTeamTreeUseCase).getTree(1L);
+    }
+
+    @Test
+    @DisplayName("부서마다 그 부서의 역할 목록을 함께 내려준다 — 계정 발급 모달의 역할 select 가 읽는 값이다")
+    void treeCarriesRolesPerTeam() throws Exception {
+        authenticateAs(1L);
+        when(getTeamTreeUseCase.getTree(1L)).thenReturn(List.of(
+                new TeamNode(10L, "개발팀", null, null, 0L,
+                        List.of(new RoleNode(2L, "없음"), new RoleNode(7L, "백엔드")))));
+
+        mockMvc.perform(get("/api/teams"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].roles[0].roleId").value(2))
+                .andExpect(jsonPath("$.data[0].roles[0].name").value("없음"))
+                .andExpect(jsonPath("$.data[0].roles[1].roleId").value(7))
+                .andExpect(jsonPath("$.data[0].roles[1].name").value("백엔드"));
     }
 
     @Test
@@ -97,7 +115,7 @@ class TeamControllerTest {
     void createTakesCompanyFromToken() throws Exception {
         authenticateAs(1L);
         when(createTeamUseCase.create(any())).thenReturn(
-                new TeamNode(10L, "사업본부", null, null, 0L));
+                new TeamNode(10L, "사업본부", null, null, 0L, List.of()));
 
         mockMvc.perform(post("/api/teams")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -132,7 +150,7 @@ class TeamControllerTest {
     void renameTakesTeamIdFromPathAndCompanyFromToken() throws Exception {
         authenticateAs(1L);
         when(renameTeamUseCase.rename(any())).thenReturn(
-                new TeamNode(10L, "제품개발팀", null, null, 0L));
+                new TeamNode(10L, "제품개발팀", null, null, 0L, List.of()));
 
         mockMvc.perform(patch("/api/teams/10")
                         .contentType(MediaType.APPLICATION_JSON)
