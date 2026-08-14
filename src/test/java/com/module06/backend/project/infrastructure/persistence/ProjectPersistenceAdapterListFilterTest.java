@@ -29,6 +29,32 @@ class ProjectPersistenceAdapterListFilterTest {
     @Autowired
     private ProjectRepository projectRepository;
 
+    @Autowired
+    private SpringDataProjectRepository springDataProjectRepository;
+
+    // 코드래빗 지적(PR #499) — status는 이제 조회 시점에 재계산되지만(이슈 #497), 목록 필터·카운트는
+    // 여전히 저장된 raw status 컬럼을 SQL에서 직접 비교해서 아무도 재저장하지 않은 레거시 행이
+    // 필터 결과에서 빠지거나 잘못 잡힌다. status 컬럼을 domain이 손대지 않고 직접 심어서
+    // "아무도 안 건드린 채 시작일만 지난" 행을 흉내낸다.
+    @Test
+    void filtersByDerivedStatusEvenWhenStoredStatusIsStale() {
+        LocalDate today = LocalDate.now();
+        springDataProjectRepository.save(ProjectJpaEntity.builder()
+                .companyId(COMPANY).tag("STALE").name("프로젝트 STALE").description("설명").color("#059669")
+                .status(ProjectStatus.TODO).startDate(today.minusDays(5)).dueDate(today.plusDays(30))
+                .createdBy(OWNER).build());
+
+        List<Project> inProgress = projectRepository.findAllByCompanyId(
+                COMPANY, null, ProjectStatus.IN_PROGRESS, null, "desc", 0, 20);
+        List<Project> todo = projectRepository.findAllByCompanyId(
+                COMPANY, null, ProjectStatus.TODO, null, "desc", 0, 20);
+
+        assertThat(inProgress).extracting(Project::getTag).containsExactly("STALE");
+        assertThat(todo).isEmpty();
+        assertThat(projectRepository.countByCompanyId(COMPANY, null, ProjectStatus.IN_PROGRESS)).isEqualTo(1L);
+        assertThat(projectRepository.countByCompanyId(COMPANY, null, ProjectStatus.TODO)).isEqualTo(0L);
+    }
+
     @Test
     void filtersByStatusAndCountsOnlyMatchingRows() {
         save("TODO1", ProjectStatus.TODO, LocalDate.of(2026, 12, 31));

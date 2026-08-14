@@ -339,16 +339,17 @@ class ProjectServiceTest {
     // 계속 "할일"로 남던 버그(목록엔 반영되지만 보드 표시는 startDate 기준이라 어긋났었다).
     @Test
     void bulkUpdateStatusSyncsStartDateWhenMovingToInProgress() {
+        LocalDate today = LocalDate.now();
         projectService = service();
         Project project = Project.create(COMPANY, "TAG", "이름", "설명", "#16A34A",
-                LocalDate.now().plusDays(5), LocalDate.of(2099, 12, 31), OWNER, List.of());
+                today.plusDays(5), LocalDate.of(2099, 12, 31), OWNER, List.of());
         when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
 
         projectService.bulkUpdateStatus(new BulkUpdateProjectStatusCommand(OWNER, List.of(
                 new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.IN_PROGRESS)
         )));
 
-        assertThat(project.getStartDate()).isEqualTo(LocalDate.now());
+        assertThat(project.getStartDate()).isEqualTo(today);
         assertThat(project.getStatus()).isEqualTo(ProjectStatus.IN_PROGRESS);
     }
 

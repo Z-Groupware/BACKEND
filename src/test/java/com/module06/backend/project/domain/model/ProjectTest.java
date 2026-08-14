@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ProjectTest {
 
     private static final Long OWNER = 1L;
-    private static final LocalDate TODAY = LocalDate.of(2026, 8, 14);
+    private static final LocalDate TODAY = LocalDate.now();
     private static final LocalDate PAST = TODAY.minusDays(5);
     private static final LocalDate FUTURE = TODAY.plusDays(5);
 
