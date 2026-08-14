@@ -29,7 +29,6 @@ import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMyProfileUseCase;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
-import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.model.Authority;
 
 import ch.qos.logback.classic.Logger;
@@ -275,7 +274,7 @@ class AuthControllerTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-1234-5678",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.LEADER, true, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.TEAM));
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "TEAM"));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
@@ -318,7 +317,7 @@ class AuthControllerTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-9999-0000",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.MEMBER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.FREE));
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE"));
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/auth/me")
                         .contentType(MediaType.APPLICATION_JSON)
