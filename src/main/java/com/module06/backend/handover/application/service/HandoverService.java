@@ -16,6 +16,7 @@ import com.module06.backend.handover.application.usecase.FinalizeHandoverUseCase
 import com.module06.backend.handover.application.usecase.ReassignHandoverItemUseCase;
 import com.module06.backend.handover.application.usecase.RejectHandoverUseCase;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverActionStatus;
@@ -95,6 +96,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             throw new BusinessException(HandoverErrorCode.HO_REASSIGN_COMMAND_INVALID);
         }
         Handover handover = findHandover(command.handoverId());
+        assertCanApprove(handover, command.requester());
         OrgQueryPort.MemberSnapshot reassignee = orgQueryPort().findMember(command.toMemberId());
         handover.reassignItem(command.actionId(), command.toMemberId(), reassignee.name(), reassignee.position(),
                 command.reassignedAt());
@@ -102,10 +104,11 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     }
 
     @Override
-    public Handover complete(Long handoverId, Long leaderId, LocalDateTime approvedAt) {
+    public Handover complete(Long handoverId, AuthPrincipal approverPrincipal, LocalDateTime approvedAt) {
         Handover handover = findHandover(handoverId);
-        OrgQueryPort.MemberSnapshot approver = orgQueryPort().findMember(leaderId);
-        handover.complete(leaderId, approver.name(), approvedAt);
+        assertCanApprove(handover, approverPrincipal);
+        OrgQueryPort.MemberSnapshot approver = orgQueryPort().findMember(approverPrincipal.memberId());
+        handover.complete(approverPrincipal.memberId(), approver.name(), approvedAt);
         handover.getItems().stream()
                 .filter(HandoverItem::isReassignRequired)
                 .forEach(item -> {
@@ -120,9 +123,12 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     }
 
     @Override
-    public Handover finalize(Long handoverId, Long approverId, String approverName, LocalDateTime finalizedAt) {
+    public Handover finalize(Long handoverId, AuthPrincipal approverPrincipal, LocalDateTime finalizedAt) {
         Handover handover = findHandover(handoverId);
-        handover.finalizeApproval(approverId, approverName, finalizedAt, isLeaderOffboarding(handover));
+        assertCompanyApprover(handover, approverPrincipal);
+        OrgQueryPort.MemberSnapshot approver = orgQueryPort().findMember(approverPrincipal.memberId());
+        handover.finalizeApproval(approverPrincipal.memberId(), approver.name(), finalizedAt,
+                isLeaderOffboarding(handover));
         if (handover.getHandoverType() == HandoverType.VACATION) {
             memberStatusPort().toVacation(handover.getWriterMemberId());
         } else {
@@ -192,6 +198,7 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
             throw new BusinessException(HandoverErrorCode.HO_REJECT_COMMAND_INVALID);
         }
         Handover handover = findHandover(command.handoverId());
+        assertCanApprove(handover, command.requester());
         // 상태 전이 검증을 먼저 통과시킨다 — FINALIZED/REJECTED 같은 종단 상태면 여기서 예외로 끝나
         // 액션 롤백 같은 부수효과가 전혀 일어나지 않는다. 유효한 반려 경로에서만 롤백을 실행한다.
         handover.reject(command.reason());
@@ -256,6 +263,45 @@ public class HandoverService implements CreateHandoverUseCase, ReassignHandoverI
     private Handover findHandover(Long handoverId) {
         return handoverRepository.findById(handoverId)
                 .orElseThrow(() -> new BusinessException(HandoverErrorCode.HO_NOT_FOUND));
+    }
+
+    private void assertCanApprove(Handover handover, AuthPrincipal principal) {
+        assertAuthenticated(principal);
+        if (hasCompanyScope(principal)) {
+            assertWriterInCompany(handover, principal.companyId());
+            return;
+        }
+        if ("LEADER".equals(principal.authority())
+                && Objects.equals(handover.getTeamId(), principal.teamId())
+                && Objects.equals(orgQueryPort().findTeamLeaderId(handover.getTeamId()), principal.memberId())) {
+            return;
+        }
+        throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+    }
+
+    private void assertCompanyApprover(Handover handover, AuthPrincipal principal) {
+        assertAuthenticated(principal);
+        if (!hasCompanyScope(principal)) {
+            throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+        }
+        assertWriterInCompany(handover, principal.companyId());
+    }
+
+    private void assertWriterInCompany(Handover handover, Long companyId) {
+        if (companyId == null
+                || !orgQueryPort().findMemberIdsByCompany(companyId).contains(handover.getWriterMemberId())) {
+            throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+        }
+    }
+
+    private void assertAuthenticated(AuthPrincipal principal) {
+        if (principal == null || principal.memberId() == null) {
+            throw new BusinessException(HandoverErrorCode.HO_ACCESS_DENIED);
+        }
+    }
+
+    private boolean hasCompanyScope(AuthPrincipal principal) {
+        return principal.isAdmin() || "OWNER".equals(principal.authority());
     }
 
     private ActionReassignPort actionReassignPort() {
