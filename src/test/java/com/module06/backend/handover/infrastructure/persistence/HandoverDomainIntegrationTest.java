@@ -361,9 +361,9 @@ class HandoverDomainIntegrationTest {
         em.createNativeQuery("""
                         INSERT INTO meeting
                           (id, company_id, project_id, team_id, meeting_room_id, host_member_id, title, status,
-                           start_at, end_at, recording_consent, created_at, updated_at)
+                           start_at, end_at, is_online, recording_consent, created_at, updated_at)
                         VALUES (?, ?, ?, ?, 1, ?, 'Project handover sync', 'DONE',
-                                '2026-08-01 10:00:00', '2026-08-01 11:00:00', TRUE,
+                                '2026-08-01 10:00:00', '2026-08-01 11:00:00', FALSE, TRUE,
                                 '2026-08-01 09:00:00', '2026-08-01 09:00:00')
                         """)
                 .setParameter(1, id)
