@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Optional;
 
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.event.AnalysisCompletedEvent;
 import com.module06.backend.capture.application.event.AnalysisFailedEvent;
+import com.module06.backend.capture.application.event.SttTranscriptCompletedEvent;
 import com.module06.backend.capture.application.port.out.AnalysisEventPublisher;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
@@ -61,6 +63,9 @@ public class MeetingCompletedAnalysisTrigger {
     private final RunAnalysisUseCase runAnalysisUseCase;
     private final MeetingLengthProvider meetingLengthProvider;
 
+    /* STT 완료 이벤트에는 회사 식별자가 없으므로 D 소유 회의에서 읽는다. */
+    private final MeetingCompanyProvider meetingCompanyProvider;
+
     /* 완료·실패 알림 문구에 넣을 회의 제목을 읽는 D 소유 데이터 조회 Port다. */
     private final MeetingTitleProvider meetingTitleProvider;
 
@@ -73,8 +78,28 @@ public class MeetingCompletedAnalysisTrigger {
     @Async("analysisTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMeetingCompleted(MeetingCompletionRequestedEvent event) {
-        long companyId = event.companyId();
-        long meetingId = event.meetingId();
+        runAutomatically(event.companyId(), event.meetingId());
+    }
+
+    /* 대면·비대면 모두 마지막 STT 블록이 성공한 뒤 같은 자동 분석 경로를 사용한다. */
+    @Async("analysisTaskExecutor")
+    @EventListener
+    public void onSttTranscriptCompleted(SttTranscriptCompletedEvent event) {
+        Optional<MeetingCompanyProvider.AutomaticAnalysisTarget> target =
+                meetingCompanyProvider.findAutomaticAnalysisTarget(event.meetingId());
+        if (target.isEmpty()) {
+            log.warn("STT 완료 자동 분석 생략 — 회의 회사를 읽지 못했다. meetingId={}", event.meetingId());
+            return;
+        }
+        if (!target.get().completed()) {
+            log.info("STT 완료 자동 분석 대기 — 아직 진행 중인 회의다. meetingId={}", event.meetingId());
+            return;
+        }
+        runAutomatically(target.get().companyId(), event.meetingId());
+    }
+
+    /* 두 자동 입구가 회사 관문·중복 방어·알림 규칙까지 완전히 같은 경로를 공유한다. */
+    private void runAutomatically(long companyId, long meetingId) {
 
         try {
             if (tooShortForAutoRun(meetingId)) {

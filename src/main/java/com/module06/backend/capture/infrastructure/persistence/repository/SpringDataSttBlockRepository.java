@@ -1,7 +1,6 @@
 package com.module06.backend.capture.infrastructure.persistence.repository;
 
 import java.util.Collection;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,6 +29,12 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
      * "미완"인지는 도메인의 판단이라 어댑터가 정하고, 여기는 세는 일만 한다(Gate1 QUERY_002).
      */
     int countByMeetingIdAndStatusIn(long meetingId, Collection<SttBlockStatus> statuses);
+
+    /* 전체 성공 판정에서 블록이 실제로 존재하는지 확인한다. */
+    boolean existsByMeetingId(long meetingId);
+
+    /* FAILED 를 포함해 DONE 이 아닌 블록이 하나라도 있는지 확인한다. */
+    boolean existsByMeetingIdAndStatusNot(long meetingId, SttBlockStatus status);
 
     /*
      * 미완 블록이 있는 회의를 배치로 찾는다(MEET-04 요약 상태).
