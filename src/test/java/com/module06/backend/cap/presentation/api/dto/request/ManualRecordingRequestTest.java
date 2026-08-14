@@ -18,7 +18,8 @@ import org.junit.jupiter.api.Test;
 @DisplayName("ManualRecordingRequest 검증")
 class ManualRecordingRequestTest {
 
-    private static final String KEY = "recordings/org-1/meeting-500/recording.ogg";
+    private static final String KEY = "recordings/org-1/meeting-500/3f8e6b0a-1a2b-4c3d-9e0f-abcdef123456.ogg";
+    private static final String FILE_NAME = "recording.ogg";
     private static final long FIVE_GIB = 5L * 1024 * 1024 * 1024;
 
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
@@ -26,7 +27,7 @@ class ManualRecordingRequestTest {
     @Test
     @DisplayName("sizeBytes가 상한(5GiB)을 넘으면 제약 위반이다")
     void rejectsSizeOverMax() {
-        ManualRecordingRequest request = new ManualRecordingRequest(KEY, FIVE_GIB + 1);
+        ManualRecordingRequest request = new ManualRecordingRequest(KEY, FILE_NAME, FIVE_GIB + 1);
 
         assertThat(validator.validate(request))
                 .extracting(violation -> ((ConstraintViolation<ManualRecordingRequest>) violation)
@@ -37,7 +38,7 @@ class ManualRecordingRequestTest {
     @Test
     @DisplayName("sizeBytes가 상한 이내면 제약 위반이 없다")
     void acceptsSizeWithinRange() {
-        ManualRecordingRequest request = new ManualRecordingRequest(KEY, FIVE_GIB);
+        ManualRecordingRequest request = new ManualRecordingRequest(KEY, FILE_NAME, FIVE_GIB);
 
         assertThat(validator.validate(request)).isEmpty();
     }
@@ -45,7 +46,7 @@ class ManualRecordingRequestTest {
     @Test
     @DisplayName("sizeBytes가 0 이하면 제약 위반이다")
     void rejectsNonPositiveSize() {
-        ManualRecordingRequest request = new ManualRecordingRequest(KEY, 0L);
+        ManualRecordingRequest request = new ManualRecordingRequest(KEY, FILE_NAME, 0L);
 
         assertThat(validator.validate(request))
                 .extracting(violation -> ((ConstraintViolation<ManualRecordingRequest>) violation)
