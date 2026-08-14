@@ -17,6 +17,8 @@ import com.module06.backend.metering.domain.model.BillingSubscriptionStatus;
 import com.module06.backend.metering.domain.repository.BillingPaymentMethodRepository;
 import com.module06.backend.metering.domain.repository.BillingPaymentRecordRepository;
 import com.module06.backend.metering.domain.repository.BillingSubscriptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +29,8 @@ import java.time.LocalDate;
 
 @Service
 public class BillingCommandService implements ManageBillingSubscriptionUseCase, ManageBillingPaymentMethodUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(BillingCommandService.class);
 
     private static final String OWNER_ROLE = "OWNER";
     private static final double VAT_RATE = 0.10;
@@ -54,30 +58,13 @@ public class BillingCommandService implements ManageBillingSubscriptionUseCase, 
     @Transactional
     public BillingPaymentActionResult pay(AuthPrincipal principal) {
         requireBillingManager(principal);
-        BillingSubscription subscription = getOrCreateSubscription(principal.companyId());
-        if (subscription.getStatus() == BillingSubscriptionStatus.ACTIVE) {
-            return BillingPaymentActionResult.success();
-        }
-        if (paymentMethodRepository.findByCompanyId(principal.companyId()).isEmpty()) {
-            return BillingPaymentActionResult.failure(NO_PAYMENT_METHOD);
-        }
-
-        LocalDate periodStart = LocalDate.now(clock);
-        LocalDate periodEnd = periodStart.plusMonths(1);
-        BillingSubscription active = subscription.activate(periodStart, periodEnd);
-        subscriptionRepository.save(active);
-
-        BillingConfigResult config = billingConfigService.getBillingConfig(principal.companyId());
-        int amount = estimatedAmount(config, subscription.getCarriedOverageAmount());
-        paymentRecordRepository.save(BillingPaymentRecord.create(
-                principal.companyId(),
-                periodStart,
-                subscription.getPlanCode(),
-                subscription.getSeats(),
-                BigDecimal.valueOf(amount),
-                BigDecimal.valueOf(subscription.getCarriedOverageAmount()),
-                BillingPaymentStatus.PAID
-        ));
+        // [DEMO] 실결제·구독 활성화는 미구현 상태다. 실제 DB 경로(구독 활성화/결제레코드 저장)에서
+        // 발생하던 예외가 캐치올(Z-003, 500)로 노출되던 것을 데모용으로 우회한다.
+        // FE 결제 버튼이 항상 "완료"로 표시되도록 표시 전용 성공만 반환한다.
+        // TODO(billing): PG 연동·실 활성화 경로 복구 시 이 목업을 제거하고
+        //   getOrCreateSubscription/activate/estimatedAmount 기반 원 로직으로 환원할 것.
+        log.warn("[DEMO] pay() returns display-only success (real activation bypassed). companyId={}",
+                principal.companyId());
         return BillingPaymentActionResult.success();
     }
 
