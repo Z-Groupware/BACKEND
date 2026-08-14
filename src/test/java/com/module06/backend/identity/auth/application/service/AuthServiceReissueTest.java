@@ -67,12 +67,15 @@ class AuthServiceReissueTest {
             SECRET, Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), ABSOLUTE_MAX));
     private final RefreshTokenStore store = new InMemoryRefreshTokenStore();
     private final RateLimiter rateLimiter = new InMemoryRateLimiter();
+    /** 재발급·로그아웃은 이 창구를 건드리지 않는다 — 건드리면 이 대역이 기록해서 드러난다. */
+    private final RecordingPasswordPort passwordPort = new RecordingPasswordPort();
     private final RateLimitProperties rateLimitProperties = new RateLimitProperties(
             new RateLimitProperties.Rule(60, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(5, Duration.ofMinutes(5)),
             new RateLimitProperties.Rule(120, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(20, Duration.ofMinutes(1)),
-            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)));
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)));
 
     @Test
     @DisplayName("갱신표를 새 토큰 쌍으로 교환한다")
@@ -327,7 +330,7 @@ class AuthServiceReissueTest {
     /** {@code credentials} 가 null 이면 "그 구성원이 없다" 는 뜻이다. */
     private AuthService service(MemberCredentials credentials, RefreshTokenStore refreshTokenStore) {
         return new AuthService(noCompany(), port(credentials), refreshTokenStore,
-                tokenProvider, new BCryptPasswordEncoder(), rateLimiter, rateLimitProperties);
+                tokenProvider, new BCryptPasswordEncoder(), rateLimiter, rateLimitProperties, passwordPort);
     }
 
     /** 재발급·로그아웃은 기업 조회를 쓰지 않는다. 쓰면 이 구현 때문에 테스트가 깨져서 드러난다. */

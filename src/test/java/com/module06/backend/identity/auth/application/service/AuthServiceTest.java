@@ -42,12 +42,15 @@ class AuthServiceTest {
 
     private final PasswordEncoder encoder = new BCryptPasswordEncoder();
     private final RateLimiter rateLimiter = new InMemoryRateLimiter();
+    /** 로그인 흐름은 이 창구를 건드리지 않는다 — 건드리면 이 대역이 기록해서 드러난다. */
+    private final RecordingPasswordPort passwordPort = new RecordingPasswordPort();
     private final RateLimitProperties rateLimitProperties = new RateLimitProperties(
             new RateLimitProperties.Rule(60, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(5, Duration.ofMinutes(5)),
             new RateLimitProperties.Rule(120, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(20, Duration.ofMinutes(1)),
-            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)));
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)));
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider(new JwtProperties("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
 
@@ -119,7 +122,7 @@ class AuthServiceTest {
         RecordingRepository repository = new RecordingRepository(
                 Optional.of(new Company(1L, CODE, "(주)테크스타트", null, null, null, null, null, null, null)));
         AuthService service = new AuthService(repository, port(member(Authority.MEMBER, false)),
-                new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
+                new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties, passwordPort);
 
         service.login(new LoginCommand("  8as2-g8t1 ", EMAIL, PASSWORD, false));
 
@@ -130,7 +133,7 @@ class AuthServiceTest {
     @DisplayName("없는 기업 코드는 LOGIN_FAILED — COMPANY_CODE_NOT_FOUND 로 내리면 어느 회사가 있는지 알려준다")
     void unknownCompanyIsLoginFailed() {
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties, passwordPort);
 
         assertLoginFailed(service, PASSWORD);
     }
@@ -139,7 +142,7 @@ class AuthServiceTest {
     @DisplayName("없는 이메일은 LOGIN_FAILED — 회사 없음과 같은 응답이어야 한다")
     void unknownEmailIsLoginFailed() {
         AuthService service = new AuthService(repository(), port(null),
-                new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
+                new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties, passwordPort);
 
         assertLoginFailed(service, PASSWORD);
     }
@@ -176,7 +179,7 @@ class AuthServiceTest {
     void verifiesPasswordEvenWhenCompanyIsAbsent() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties, passwordPort);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -188,7 +191,7 @@ class AuthServiceTest {
     void verifiesPasswordEvenWhenEmailIsAbsent() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(repository(), port(null),
-                new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
+                new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties, passwordPort);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -204,7 +207,7 @@ class AuthServiceTest {
     void absentMemberHashIsRealBcrypt() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
+                port(member(Authority.MEMBER, false)), new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties, passwordPort);
 
         assertLoginFailed(service, PASSWORD);
 
@@ -218,7 +221,7 @@ class AuthServiceTest {
     void verifiesPasswordExactlyOnceOnSuccess() {
         CountingEncoder counting = new CountingEncoder();
         AuthService service = new AuthService(repository(), port(memberWith(counting)),
-                new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties);
+                new RecordingStore(), tokenProvider, counting, rateLimiter, rateLimitProperties, passwordPort);
 
         service.login(new LoginCommand(CODE, EMAIL, PASSWORD, false));
 
@@ -286,7 +289,7 @@ class AuthServiceTest {
     @DisplayName("없는 계정을 훑어도 같은 카운터에 쌓인다 — 존재 여부로 제한을 우회할 수 없다")
     void absentAccountAttemptsAlsoCount() {
         AuthService service = new AuthService(new RecordingRepository(Optional.empty()),
-                port(null), new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties);
+                port(null), new RecordingStore(), tokenProvider, encoder, rateLimiter, rateLimitProperties, passwordPort);
         for (int i = 0; i < 5; i++) {
             assertLoginFailed(service, PASSWORD);
         }
@@ -319,7 +322,7 @@ class AuthServiceTest {
     }
 
     private AuthService service(MemberCredentials credentials, RefreshTokenStore store) {
-        return new AuthService(repository(), port(credentials), store, tokenProvider, encoder, rateLimiter, rateLimitProperties);
+        return new AuthService(repository(), port(credentials), store, tokenProvider, encoder, rateLimiter, rateLimitProperties, passwordPort);
     }
 
     private CompanyRepository repository() {
