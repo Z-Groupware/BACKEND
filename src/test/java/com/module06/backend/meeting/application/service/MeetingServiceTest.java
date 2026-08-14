@@ -28,6 +28,7 @@ import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
+import com.module06.backend.meeting.application.port.out.OnlineMeetingRecordingPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort.ProjectSnapshot;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
@@ -42,6 +43,9 @@ import com.module06.backend.meeting.domain.repository.MeetingTopicRepository;
  */
 @DisplayName("MEET-01 회의 예약 서비스")
 class MeetingServiceTest {
+
+    /* MEET-18이 CAP에 전달한 S3 녹음 확정 명령을 테스트별로 기록한다. */
+    private OnlineMeetingRecordingPort.Registration onlineRecordingRegistration;
 
     /* 테스트의 과거·미래 판정을 고정하는 서울 시계다. */
     private static final Clock FIXED_CLOCK = Clock.fixed(
@@ -78,6 +82,7 @@ class MeetingServiceTest {
 
         /* 저장된 회의 식별자 아래에 정규화된 MAIN·SUB 안건이 함께 전달돼야 한다. */
         assertThat(topicRepository.savedMeetingId).isEqualTo(91L);
+
         assertThat(topicRepository.savedAgenda.mainTopic()).isEqualTo("스프린트 진행 상황");
         assertThat(topicRepository.savedAgenda.subTopics()).containsExactly("개발 진행률 점검");
 
@@ -130,6 +135,12 @@ class MeetingServiceTest {
 
         /* 저장된 회의 식별자 아래에 안건도 함께 저장돼야 한다. */
         assertThat(topicRepository.savedMeetingId).isEqualTo(91L);
+
+        /* 저장된 회의 ID와 S3 직접 업로드 결과가 CAP 녹음 확정 포트로 전달돼야 한다. */
+        assertThat(onlineRecordingRegistration).isNotNull();
+        assertThat(onlineRecordingRegistration.meetingId()).isEqualTo(91L);
+        assertThat(onlineRecordingRegistration.s3Key())
+                .isEqualTo("recordings/org-10/member-3/online-pending/upload-id/meeting.mp3");
 
         /* 개설자가 첫 번째 참석자로 자동 포함돼야 한다. */
         assertThat(result.host().memberId()).isEqualTo(3L);
@@ -493,6 +504,7 @@ class MeetingServiceTest {
                 (companyId, memberIds) -> validMembers(),
                 actionQueryPort,
                 new RecordingMeetingEventPublisher(),
+                registration -> onlineRecordingRegistration = registration,
                 FIXED_CLOCK
         );
     }
@@ -603,6 +615,7 @@ class MeetingServiceTest {
                 memberPort,
                 actionPort,
                 eventPublisher,
+                registration -> onlineRecordingRegistration = registration,
                 FIXED_CLOCK
         );
     }
@@ -665,7 +678,13 @@ class MeetingServiceTest {
                 relatedActionId,
                 attendeeMemberIds,
                 mainTopic,
-                subTopics
+                subTopics,
+                new CreateOnlineMeetingCommand.RecordingReference(
+                        "recordings/org-10/member-3/online-pending/upload-id/meeting.mp3",
+                        "meeting.mp3",
+                        "audio/mpeg",
+                        1_024L
+                )
         );
     }
 

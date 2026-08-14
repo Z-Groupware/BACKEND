@@ -48,6 +48,19 @@ public interface SttBlockRepository {
     int countUnfinished(long meetingId);
 
     /*
+     * 회의에 블록이 하나 이상 있고 그 블록이 모두 DONE 인지 확인한다.
+     *
+     * countUnfinished 는 FAILED 를 의도적으로 제외하므로 0 만 보고 자동 분석을 시작하면 안 된다.
+     * 이 판정은 실패 블록이 하나라도 있으면 false 를 반환해, 일부 전사만으로 요약·액션이 만들어지는
+     * 것을 막는다.
+     */
+    default boolean areAllDone(long meetingId) {
+        List<SttBlockView> blocks = findByMeeting(meetingId);
+        return !blocks.isEmpty()
+                && blocks.stream().allMatch(block -> block.status() == SttBlockStatus.DONE);
+    }
+
+    /*
      * 받아쓰기가 아직 도는 중인 회의만 골라낸다(MEET-04 요약 상태 배치 조회).
      *
      * "미완"의 정의는 {@link #countUnfinished} 와 **같다** — PENDING · QUEUED · RUNNING.
