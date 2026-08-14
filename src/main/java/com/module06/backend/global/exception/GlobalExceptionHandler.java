@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 import com.module06.backend.global.audit.AuthzAuditLogger;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,6 +34,13 @@ public class GlobalExceptionHandler {
         // 404·400 등은 남기지 않는다 — 감사 대상이 아니고 로그만 불린다.
         if (errorCode.getHttpStatus() == HttpStatus.FORBIDDEN) {
             AuthzAuditLogger.deniedByDomain(request, errorCode.getCode());
+        } else if (errorCode == AuthErrorCode.LOGIN_FAILED) {
+            // 401 을 통째로 남기지 않고 이 하나만 고른다. REFRESH_TOKEN_INVALID 는 액세스 토큰이
+            // 만료돼 재발급을 부르는 정상 트래픽에서 늘 나오므로, 함께 남기면 로그인 실패가 그
+            // 잡음에 묻힌다. 감사 기록은 "평소에 안 나오는 것"이어야 신호가 된다.
+            // 같은 401 인 REFRESH_TOKEN_REUSED 는 AuthService 가 직접 남긴다 — 여기서는
+            // 누구의 표였는지(memberId)를 알 수 없기 때문이다.
+            AuthzAuditLogger.loginFailed(request, errorCode.getCode());
         }
         return ResponseEntity.status(errorCode.getHttpStatus())
                 .body(ErrorResponse.of(errorCode, request.getRequestURI(), currentTraceId()));

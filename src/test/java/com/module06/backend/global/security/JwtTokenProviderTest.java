@@ -2,6 +2,8 @@ package com.module06.backend.global.security;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +15,7 @@ import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 @DisplayName("JwtTokenProvider")
 class JwtTokenProviderTest {
@@ -23,8 +26,7 @@ class JwtTokenProviderTest {
 
     @BeforeEach
     void setUp() {
-        provider = new JwtTokenProvider(new JwtProperties(
-                SECRET, Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14)));
+        provider = new JwtTokenProvider(new JwtProperties(SECRET, Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
     }
 
     @Test
@@ -49,22 +51,31 @@ class JwtTokenProviderTest {
     }
 
     @Test
-    @DisplayName("리프레시 토큰은 memberId 와 jti 를 실어 왕복한다")
+    @DisplayName("리프레시 토큰은 memberId·jti·로그인유지·최초로그인시각을 실어 왕복한다")
     void refreshTokenRoundTrip() {
-        String token = provider.createRefreshToken(3L, "jti-abc", false);
+        Instant authTime = Instant.now().minus(Duration.ofDays(3));
+        String token = provider.createRefreshToken(3L, "jti-abc", true, authTime);
 
         JwtTokenProvider.RefreshClaims claims = provider.parseRefreshToken(token);
 
         assertThat(claims.memberId()).isEqualTo(3L);
         assertThat(claims.jti()).isEqualTo("jti-abc");
+        assertThat(claims.keepSignedIn()).isTrue();
+        assertThat(claims.authTime()).isCloseTo(authTime, within(1, ChronoUnit.SECONDS));
+    }
+
+    @Test
+    @DisplayName("절대 수명은 최초 로그인 시각으로 잰다 — 상한을 넘기면 만료로 본다")
+    void refreshSessionExpiresAtAbsoluteMax() {
+        assertThat(provider.refreshSessionExpired(Instant.now().minus(Duration.ofDays(29)))).isFalse();
+        assertThat(provider.refreshSessionExpired(Instant.now().minus(Duration.ofDays(31)))).isTrue();
     }
 
     @Test
     @DisplayName("다른 키로 서명된 토큰은 거부한다")
     void rejectsForeignSignature() {
-        JwtTokenProvider other = new JwtTokenProvider(new JwtProperties(
-                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14)));
+        JwtTokenProvider other = new JwtTokenProvider(new JwtProperties("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
         String foreign = other.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L));
 
         assertThatThrownBy(() -> provider.parseAccessToken(foreign))
@@ -74,8 +85,7 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("만료된 토큰은 거부한다")
     void rejectsExpiredToken() {
-        JwtTokenProvider expiring = new JwtTokenProvider(new JwtProperties(
-                SECRET, Duration.ofSeconds(-1), Duration.ofDays(1), Duration.ofDays(14)));
+        JwtTokenProvider expiring = new JwtTokenProvider(new JwtProperties(SECRET, Duration.ofSeconds(-1), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
         String expired = expiring.createAccessToken(new AuthPrincipal(3L, 1L, "MEMBER", false, 2L));
 
         assertThatThrownBy(() -> provider.parseAccessToken(expired))
@@ -103,8 +113,7 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("32자 hex 는 디코드하면 16바이트뿐이라 거부한다 — 길이를 ASCII 가 아니라 디코드 후로 잰다")
     void rejectsHexShorterThan32Bytes() {
-        assertThatThrownBy(() -> new JwtTokenProvider(new JwtProperties(
-                "0123456789abcdef0123456789abcdef", Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14))))
+        assertThatThrownBy(() -> new JwtTokenProvider(new JwtProperties("0123456789abcdef0123456789abcdef", Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("16바이트");
     }
@@ -112,9 +121,8 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("hex 가 아닌 secret 은 거부한다")
     void rejectsNonHexSecret() {
-        assertThatThrownBy(() -> new JwtTokenProvider(new JwtProperties(
-                "not-a-hex-value-but-definitely-long-enough-to-pass-a-length-check",
-                Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14))))
+        assertThatThrownBy(() -> new JwtTokenProvider(new JwtProperties("not-a-hex-value-but-definitely-long-enough-to-pass-a-length-check",
+                Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("hex");
     }
@@ -122,7 +130,7 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("리프레시 토큰을 액세스 자리에 넣으면 401 로 거부한다 — 예전엔 NPE 로 500 이 났다")
     void rejectsRefreshTokenUsedAsAccessToken() {
-        String refresh = provider.createRefreshToken(3L, "jti-abc", false);
+        String refresh = provider.createRefreshToken(3L, "jti-abc", false, Instant.now());
 
         assertThatThrownBy(() -> provider.parseAccessToken(refresh))
                 .isInstanceOf(BusinessException.class)

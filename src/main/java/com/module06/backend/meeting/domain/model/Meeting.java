@@ -46,6 +46,9 @@ public class Meeting {
     /* 예약 종료 일시다. */
     private final LocalDateTime endAt;
 
+    /* 회의실 예약 없이 개설된 비대면 회의인지 나타낸다(MEET-18). */
+    private final boolean isOnline;
+
     /* 참석자에게 녹음 안내가 필요한지 나타낸다. */
     private final boolean recordingConsent;
 
@@ -82,6 +85,7 @@ public class Meeting {
             MeetingStatus status,
             LocalDateTime startAt,
             LocalDateTime endAt,
+            boolean isOnline,
             boolean recordingConsent,
             Long relatedActionId,
             List<Long> attendeeMemberIds,
@@ -105,6 +109,7 @@ public class Meeting {
         this.status = status;
         this.startAt = startAt;
         this.endAt = endAt;
+        this.isOnline = isOnline;
         this.recordingConsent = recordingConsent;
         this.relatedActionId = relatedActionId;
         this.attendeeMemberIds = List.copyOf(attendeeMemberIds);
@@ -173,6 +178,53 @@ public class Meeting {
                 MeetingStatus.SCHEDULED,
                 startAt,
                 endAt,
+                false,
+                recordingConsent,
+                relatedActionId,
+                List.copyOf(attendees),
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    /*
+     * 검증이 끝난 요청으로 회의실과 예약 시간 없이 새로운 비대면 회의를 생성한다(MEET-18).
+     *
+     * 물리 회의 전용인 meetingRoomId·startAt·endAt은 애초에 받지 않고 null로 고정한다.
+     *
+     * @return 회의실·예약 시간이 없는 SCHEDULED 온라인 회의
+     */
+    public static Meeting createOnline(
+            Long companyId,
+            Long projectId,
+            Long teamId,
+            Long hostMemberId,
+            String title,
+            boolean recordingConsent,
+            Long relatedActionId,
+            List<Long> attendeeMemberIds
+    ) {
+        /* 개설자를 먼저 넣고 요청 참석자를 추가해 순서를 유지하면서 중복을 제거한다. */
+        LinkedHashSet<Long> attendees = new LinkedHashSet<>();
+        attendees.add(hostMemberId);
+        attendees.addAll(attendeeMemberIds);
+
+        /* 신규 온라인 회의의 초기 상태와 비어 있는 예약·영속성 값을 명시해 생성한다. */
+        return new Meeting(
+                null,
+                companyId,
+                projectId,
+                teamId,
+                null,
+                hostMemberId,
+                title.trim(),
+                MeetingStatus.SCHEDULED,
+                null,
+                null,
+                true,
                 recordingConsent,
                 relatedActionId,
                 List.copyOf(attendees),
@@ -214,7 +266,8 @@ public class Meeting {
             throw new IllegalArgumentException("CANCELED 회의 복원에는 canceledAt이 필요합니다.");
         }
 
-        /* 취소 시각 컬럼 도입 전 호출부는 취소되지 않은 회의로 안전하게 복원한다. */
+        /* 취소 시각 컬럼 도입 전 호출부는 취소되지 않은 회의로 안전하게 복원한다.
+           온라인 여부를 모르는 옛 호출부는 물리 회의(false)로 복원한다. */
         return reconstitute(
                 id,
                 companyId,
@@ -232,6 +285,7 @@ public class Meeting {
                 startedAt,
                 endedAt,
                 null,
+                false,
                 createdAt,
                 updatedAt
         );
@@ -258,6 +312,52 @@ public class Meeting {
             LocalDateTime createdAt,
             LocalDateTime updatedAt
     ) {
+        /* 온라인 여부 컬럼 도입 전 호출부는 물리 회의(false)로 복원한다. */
+        return reconstitute(
+                id,
+                companyId,
+                projectId,
+                teamId,
+                meetingRoomId,
+                hostMemberId,
+                title,
+                status,
+                startAt,
+                endAt,
+                recordingConsent,
+                relatedActionId,
+                attendeeMemberIds,
+                startedAt,
+                endedAt,
+                canceledAt,
+                false,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    /* 취소 시각과 온라인 여부를 포함한 영속성 조회 결과로 회의 애그리거트를 복원한다(MEET-18). */
+    public static Meeting reconstitute(
+            Long id,
+            Long companyId,
+            Long projectId,
+            Long teamId,
+            Long meetingRoomId,
+            Long hostMemberId,
+            String title,
+            MeetingStatus status,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
+            boolean recordingConsent,
+            Long relatedActionId,
+            List<Long> attendeeMemberIds,
+            LocalDateTime startedAt,
+            LocalDateTime endedAt,
+            LocalDateTime canceledAt,
+            boolean isOnline,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
+    ) {
         /* 저장된 모든 값을 손실 없이 애그리거트로 복원한다. */
         return new Meeting(
                 id,
@@ -270,6 +370,7 @@ public class Meeting {
                 status,
                 startAt,
                 endAt,
+                isOnline,
                 recordingConsent,
                 relatedActionId,
                 attendeeMemberIds,
@@ -339,6 +440,7 @@ public class Meeting {
                 status,
                 startAt,
                 endAt,
+                isOnline,
                 recordingConsent,
                 relatedActionId,
                 attendeeMemberIds,
@@ -379,6 +481,7 @@ public class Meeting {
                 MeetingStatus.IN_PROGRESS,
                 startAt,
                 endAt,
+                isOnline,
                 recordingConsent,
                 relatedActionId,
                 attendeeMemberIds,
@@ -419,6 +522,7 @@ public class Meeting {
                 MeetingStatus.DONE,
                 startAt,
                 endAt,
+                isOnline,
                 recordingConsent,
                 relatedActionId,
                 attendeeMemberIds,
@@ -459,6 +563,7 @@ public class Meeting {
                 MeetingStatus.CANCELED,
                 startAt,
                 endAt,
+                isOnline,
                 recordingConsent,
                 relatedActionId,
                 attendeeMemberIds,

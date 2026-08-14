@@ -309,6 +309,13 @@ class MeetingAttendeeCommandServiceTest {
             throw new AssertionError("MEET-09에서는 신규 회의를 저장하면 안 됩니다.");
         }
 
+        /* MEET-18 신규 온라인 회의 저장도 MEET-09 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public Meeting saveOnlineReservation(Meeting meeting) {
+            /* 호출되지 않는 계약이므로 테스트 실패로 잘못된 경로를 드러낸다. */
+            throw new AssertionError("MEET-09에서는 신규 온라인 회의를 저장하면 안 됩니다.");
+        }
+
         /* 대상 회의와 최종 참석자 명단을 검증할 수 있도록 기록한다. */
         @Override
         public void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds) {

@@ -19,6 +19,14 @@ public interface MeetingRepository {
      */
     Meeting saveReservation(Meeting meeting);
 
+    /*
+     * 회의실 예약 없이 회의와 참석자 명단만 저장한다(MEET-18 비대면 회의).
+     *
+     * @param meeting 저장할 신규 온라인 회의
+     * @return 데이터베이스 식별자와 생성 시각이 반영된 회의
+     */
+    Meeting saveOnlineReservation(Meeting meeting);
+
     /* 기존 명단과 목표 명단의 차이를 같은 트랜잭션에서 반영해 참석자를 전체 교체한다. */
     void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds);
 }

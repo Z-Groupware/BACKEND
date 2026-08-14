@@ -41,6 +41,19 @@ ext['netty.version'] = '4.2.16.Final'
 // 즉 Gate 2 판정용 라이브러리가 데려오는 것이고, implementation 스코프라 런타임에 실린다.
 ext['httpcore5.version'] = '5.4.3'
 
+// jackson — @JsonView·@JsonIgnoreProperties 우회 3건(medium). 감춘 필드가 응답에 섞이거나,
+// 무시하기로 한 입력 필드가 역직렬화에서 먹는다. 우리는 DTO 로 응답을 통제하지만
+// @JsonView 를 쓰기 시작하는 순간 실제 유출 경로가 된다.
+//   2.x — GHSA 3건(우회: @JsonUnwrapped 컨테이너 · EXTERNAL_PROPERTY 크리에이터 · 대소문자 무시)
+//   3.x — 같은 계열 1건
+// BOM 은 2.21.4 / 3.1.4 를 물고 있고, 각각 2.21.5 / 3.1.5 에서 고쳐졌다.
+// 프로퍼티 이름이 헷갈린다 — Spring Boot 4 에서 jackson-bom 이 3.x, jackson-2-bom 이 2.x 다
+// (spring-boot-dependencies-4.1.0.pom 에서 확인). 뒤집어 쓰면 조용히 아무 효과가 없다.
+//
+// Dependabot 경보 #2·#3·#4(2.x) · #5(3.x). 의존성 목록을 제출하기 시작하자 바로 드러났다.
+ext['jackson-2-bom.version'] = '2.21.5'
+ext['jackson-bom.version'] = '3.1.5'
+
 // AWS SDK v2 — S3 프로덕션 어댑터(CapS3ObjectStorageAdapter, presigned PUT/GET) 버전 관리용.
 // 팀 내 첫 AWS SDK 도입이라 기존에 맞출 버전 고정이 없어 새로 잡는다(2026-08 기준 최신 안정판).
 // ⚠️ s3-presigner는 더 이상 별도 아티팩트가 아니다 — S3Presigner가 s3 모듈 안에 번들돼 있다

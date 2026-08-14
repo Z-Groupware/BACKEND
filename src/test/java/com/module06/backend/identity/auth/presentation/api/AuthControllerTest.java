@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -15,8 +16,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.identity.auth.application.command.LoginCommand;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.auth.application.dto.LoginResult;
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
@@ -27,6 +31,10 @@ import com.module06.backend.identity.member.application.usecase.UpdateMyProfileU
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.model.Authority;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -145,43 +153,44 @@ class AuthControllerTest {
         verify(loginUseCase, org.mockito.Mockito.never()).login(any());
     }
 
+    /*
+     * 감사 기록은 GlobalExceptionHandler 가 남긴다. @WebMvcTest 슬라이스가 @RestControllerAdvice 를
+     * 등록하므로 여기서 그 배선이 실제로 도는지 볼 수 있다 — 로거 단위 테스트만으로는
+     * "핸들러가 부르지 않는다"를 못 잡는다(P1 #5 가 그 상태였다).
+     */
     @Test
-    @DisplayName("재발급은 refreshToken·keepSignedIn 을 그대로 넘긴다")
+    @DisplayName("로그인 실패는 감사 로그로 남는다 — 막지도 알지도 못하는 상태에서 벗어난다")
+    void loginFailureIsAudited() throws Exception {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger(AuthzAuditLogger.LOGGER_NAME);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        auditLogger.addAppender(appender);
+        try {
+            when(loginUseCase.login(any())).thenThrow(new BusinessException(AuthErrorCode.LOGIN_FAILED));
+
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"companyCode":"8AS2-G8T1","email":"a@b.co.kr","password":"wrong"}
+                                    """))
+                    .andExpect(status().isUnauthorized());
+
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.get(0).getFormattedMessage())
+                    .contains("outcome=AUTH_FAILED")
+                    .contains("path=/api/auth/login")
+                    .contains("code=AU-002")
+                    // 시도한 계정은 남기지 않는다 — 감사 로그가 계정 목록이 되면 안 된다.
+                    .doesNotContain("a@b.co.kr");
+        } finally {
+            auditLogger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    @DisplayName("재발급은 refreshToken 만 넘긴다 — 수명 선택은 표에서 읽으므로 바디에서 받지 않는다")
     void passesReissueKeysThrough() throws Exception {
-        when(reissueTokenUseCase.reissue(any(), org.mockito.ArgumentMatchers.anyBoolean()))
-                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("access", "refresh"));
-
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"refreshToken":"eyJold","keepSignedIn":true}
-                                """))
-                .andExpect(status().isOk());
-
-        verify(reissueTokenUseCase).reissue("eyJold", true);
-    }
-
-    @Test
-    @DisplayName("재발급 응답에 새 토큰 두 개를 담는다 — 착지 경로는 담지 않는다(재발급은 화면을 옮기지 않는다)")
-    void returnsReissuedTokens() throws Exception {
-        when(reissueTokenUseCase.reissue(any(), org.mockito.ArgumentMatchers.anyBoolean()))
-                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("eyJnewAccess", "eyJnewRefresh"));
-
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"refreshToken":"eyJold","keepSignedIn":false}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.accessToken").value("eyJnewAccess"))
-                .andExpect(jsonPath("$.data.refreshToken").value("eyJnewRefresh"))
-                .andExpect(jsonPath("$.data.landingPath").doesNotExist());
-    }
-
-    @Test
-    @DisplayName("재발급도 keepSignedIn 을 빼면 false 로 본다 — 원시 boolean 이면 여기서 400 이 난다")
-    void missingKeepSignedInOnReissueDefaultsToFalse() throws Exception {
-        when(reissueTokenUseCase.reissue(any(), org.mockito.ArgumentMatchers.anyBoolean()))
+        when(reissueTokenUseCase.reissue(any()))
                 .thenReturn(new ReissueTokenUseCase.ReissuedTokens("access", "refresh"));
 
         mockMvc.perform(post("/api/auth/refresh")
@@ -191,7 +200,45 @@ class AuthControllerTest {
                                 """))
                 .andExpect(status().isOk());
 
-        verify(reissueTokenUseCase).reissue("eyJold", false);
+        verify(reissueTokenUseCase).reissue("eyJold");
+    }
+
+    @Test
+    @DisplayName("재발급 응답에 새 토큰 두 개를 담는다 — 착지 경로는 담지 않는다(재발급은 화면을 옮기지 않는다)")
+    void returnsReissuedTokens() throws Exception {
+        when(reissueTokenUseCase.reissue(any()))
+                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("eyJnewAccess", "eyJnewRefresh"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"eyJold"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").value("eyJnewAccess"))
+                .andExpect(jsonPath("$.data.refreshToken").value("eyJnewRefresh"))
+                .andExpect(jsonPath("$.data.landingPath").doesNotExist());
+    }
+
+    /*
+     * 프론트는 아직 keepSignedIn 을 실어 보낸다. 그 키가 400 을 만들면 FE 배포 전까지 재발급이
+     * 통째로 멈추므로, 무시하고 통과하는지 못박아 둔다(Jackson 기본값에 기대는 동작이라
+     * 설정이 바뀌면 여기서 먼저 깨진다). 값은 서버가 표에서 읽은 것이 이긴다.
+     */
+    @Test
+    @DisplayName("프론트가 keepSignedIn 을 계속 보내도 무시하고 200 — FE 배포를 기다리지 않아도 된다")
+    void ignoresLegacyKeepSignedInField() throws Exception {
+        when(reissueTokenUseCase.reissue(any()))
+                .thenReturn(new ReissueTokenUseCase.ReissuedTokens("access", "refresh"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"eyJold","keepSignedIn":true}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(reissueTokenUseCase).reissue("eyJold");
     }
 
     @Test
@@ -204,8 +251,7 @@ class AuthControllerTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(reissueTokenUseCase, org.mockito.Mockito.never())
-                .reissue(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(reissueTokenUseCase, org.mockito.Mockito.never()).reissue(any());
     }
 
     @Test

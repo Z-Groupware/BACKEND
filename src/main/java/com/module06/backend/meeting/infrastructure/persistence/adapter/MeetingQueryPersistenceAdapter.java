@@ -565,9 +565,13 @@ public class MeetingQueryPersistenceAdapter
             Long companyId,
             Long hostMemberId
     ) {
-        /* 요약 상태 판정은 A 도메인 몫이므로 여기서는 회사·host·종료 상태까지만 좁힌다. */
+        /*
+         * 요약 상태 판정은 A 도메인 몫이므로 여기서는 회사·host·종료 상태까지만 좁힌다.
+         * MEET-18 온라인 회의(startAt 없음)는 이 화면의 시작일 필터·정렬과 맞지 않아 제외한다 —
+         * isOnline=false로 걸러 startAt null 비교 자체가 발생하지 않게 한다.
+         */
         return springDataMeetingRepository
-                .findAllByCompanyIdAndHostMemberIdAndStatusOrderByStartAtDescIdDesc(
+                .findAllByCompanyIdAndHostMemberIdAndStatusAndIsOnlineFalseOrderByStartAtDescIdDesc(
                         companyId,
                         hostMemberId,
                         MeetingStatus.DONE
@@ -609,6 +613,9 @@ public class MeetingQueryPersistenceAdapter
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(criteriaBuilder.equal(meeting.get("companyId"), criteria.companyId()));
             predicates.add(criteriaBuilder.notEqual(meeting.get("status"), MeetingStatus.CANCELED));
+
+            /* MEET-18 온라인 회의는 startAt이 없어 이 카드의 예약 시간 정렬·표시와 맞지 않아 제외한다. */
+            predicates.add(criteriaBuilder.isFalse(meeting.get("isOnline")));
 
             /* 스코프별로 정확히 하나의 소유·소속 조건만 추가한다. */
             switch (criteria.scope()) {
