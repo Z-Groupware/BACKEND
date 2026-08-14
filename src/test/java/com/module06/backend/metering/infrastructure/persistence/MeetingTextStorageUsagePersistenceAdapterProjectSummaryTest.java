@@ -30,6 +30,9 @@ class MeetingTextStorageUsagePersistenceAdapterProjectSummaryTest {
     @Autowired
     private MeetingTextStorageUsageRepository meetingTextStorageUsageRepository;
 
+    @Autowired
+    private SpringDataMeetingTextStorageUsageRepository springDataMeetingTextStorageUsageRepository;
+
     @Test
     void sumsAllThreeSourcesPerMeetingAndGroupsByProject() {
         Long company = 5_110_001L;
@@ -72,6 +75,45 @@ class MeetingTextStorageUsagePersistenceAdapterProjectSummaryTest {
         Map<Long, Long> result = meetingTextStorageUsageRepository.sumUsedBytesGroupedByProjectId(company);
 
         assertThat(result.get(projectA)).isEqualTo(1_000L);
+    }
+
+    @Test
+    void clearByCompanyIdAndProjectIdZerosAllSourceColumnsOnlyForMatchingProjectAndBumpsRevisions() {
+        Long company = 5_140_001L;
+        Long otherCompany = 5_140_002L;
+        Long projectA = 6_140_001L;
+        Long projectB = 6_140_002L;
+        report(8_040_001L, company, projectA, TextStorageSource.CAPTION, 1_000L, 1L);
+        report(8_040_001L, company, projectA, TextStorageSource.TRANSCRIPT, 2_000L, 2L);
+        report(8_040_001L, company, projectA, TextStorageSource.SUMMARY, 3_000L, 3L);
+        report(8_040_002L, company, projectB, TextStorageSource.CAPTION, 4_000L, 4L);
+        report(8_040_003L, otherCompany, projectA, TextStorageSource.CAPTION, 5_000L, 5L);
+
+        meetingTextStorageUsageRepository.clearByCompanyIdAndProjectId(company, projectA);
+
+        MeetingTextStorageUsageJpaEntity clearedEntity = springDataMeetingTextStorageUsageRepository
+                .findById(8_040_001L)
+                .orElseThrow();
+        MeetingTextStorageUsageJpaEntity otherProjectEntity = springDataMeetingTextStorageUsageRepository
+                .findById(8_040_002L)
+                .orElseThrow();
+        MeetingTextStorageUsageJpaEntity otherCompanyEntity = springDataMeetingTextStorageUsageRepository
+                .findById(8_040_003L)
+                .orElseThrow();
+
+        var cleared = clearedEntity.toDomain();
+        var otherProject = otherProjectEntity.toDomain();
+        var otherCompanyRow = otherCompanyEntity.toDomain();
+        assertThat(cleared.getCaptionBytes()).isZero();
+        assertThat(cleared.getTranscriptBytes()).isZero();
+        assertThat(cleared.getSummaryBytes()).isZero();
+        assertThat(cleared.getCaptionRevision()).isEqualTo(2L);
+        assertThat(cleared.getTranscriptRevision()).isEqualTo(3L);
+        assertThat(cleared.getSummaryRevision()).isEqualTo(4L);
+        assertThat(otherProject.getCaptionBytes()).isEqualTo(4_000L);
+        assertThat(otherProject.getCaptionRevision()).isEqualTo(4L);
+        assertThat(otherCompanyRow.getCaptionBytes()).isEqualTo(5_000L);
+        assertThat(otherCompanyRow.getCaptionRevision()).isEqualTo(5L);
     }
 
     private void report(Long meetingId, Long companyId, Long projectId, TextStorageSource source, long usedBytes,

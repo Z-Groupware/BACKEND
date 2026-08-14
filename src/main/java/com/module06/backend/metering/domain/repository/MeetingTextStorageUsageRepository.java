@@ -14,6 +14,8 @@ public interface MeetingTextStorageUsageRepository {
     void reportIfNewer(Long meetingId, Long companyId, Long projectId, TextStorageSource source, long usedBytes,
                        long revision, LocalDateTime updatedAt);
 
+    void clearByCompanyIdAndProjectId(Long companyId, Long projectId);
+
     /** 이 회사의 모든 회의 스냅샷을 합산한(세 소스 총합) 현재 총 자막·요약 사용량. */
     long sumUsedBytesByCompanyId(Long companyId);
 

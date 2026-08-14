@@ -1,6 +1,7 @@
 package com.module06.backend.metering.presentation.api;
 
 import com.module06.backend.global.response.ApiResponse;
+import com.module06.backend.metering.application.usecase.DeleteProjectStorageUseCase;
 import com.module06.backend.metering.application.usecase.GetStorageOverviewUseCase;
 import com.module06.backend.metering.presentation.api.dto.response.StorageOverviewResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -8,7 +9,9 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,9 +23,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class CompanyStorageController {
 
     private final GetStorageOverviewUseCase getStorageOverviewUseCase;
+    private final DeleteProjectStorageUseCase deleteProjectStorageUseCase;
 
-    public CompanyStorageController(GetStorageOverviewUseCase getStorageOverviewUseCase) {
+    public CompanyStorageController(GetStorageOverviewUseCase getStorageOverviewUseCase,
+                                    DeleteProjectStorageUseCase deleteProjectStorageUseCase) {
         this.getStorageOverviewUseCase = getStorageOverviewUseCase;
+        this.deleteProjectStorageUseCase = deleteProjectStorageUseCase;
     }
 
     @Operation(
@@ -36,5 +42,18 @@ public class CompanyStorageController {
             @Parameter(hidden = true) @AuthenticationPrincipal(expression = "companyId") Long companyId) {
         return ApiResponse.success("저장소 현황을 조회했습니다.",
                 StorageOverviewResponse.from(getStorageOverviewUseCase.getOverview(companyId)));
+    }
+
+    @Operation(
+            summary = "프로젝트별 저장 기록 삭제",
+            description = "완료(DONE)된 프로젝트의 음성, 자막, 요약 저장 기록을 삭제합니다. Owner/Admin만 가능합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    @DeleteMapping("/storage/projects/{tag}")
+    public ApiResponse<Void> deleteProjectStorage(
+            @Parameter(hidden = true) @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @PathVariable String tag) {
+        deleteProjectStorageUseCase.deleteByTag(companyId, tag);
+        return ApiResponse.successWithoutData("프로젝트 저장 기록을 삭제했습니다.");
     }
 }
