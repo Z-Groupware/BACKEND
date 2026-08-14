@@ -53,7 +53,9 @@ public class MyProfileQueryAdapter implements MyProfileQueryPort {
 
                 member.getStatus(),
                 member.getJoinedOn(),
-                planOf(company.getId()));
+                planOf(company.getId()),
+
+                member.getPasswordChangedAt() != null);
     }
 
     /**

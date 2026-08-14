@@ -17,6 +17,9 @@ import com.module06.backend.identity.member.domain.model.Plan;
  *
  * <p>{@code plan} 도 nullable 이다 — 살아 있는 구독이 없으면 null 이고, 그것이 "결제가 필요한 상태"를
  * 뜻한다. FREE 로 둘러대지 않는다.
+ *
+ * <p>{@code passwordChanged} 는 발급받은 비밀번호를 한 번이라도 바꿨는지다. false 여도 서비스 이용에는
+ * 아무 제약이 없다 — 화면이 안내를 한 번 띄우는 용도이지 강제 변경 플래그가 아니다.
  */
 public record MyProfile(
         Long memberId,
@@ -40,7 +43,9 @@ public record MyProfile(
 
         MemberStatus workStatus,
         LocalDate joinedOn,
-        Plan plan
+        Plan plan,
+
+        boolean passwordChanged
 ) {
 
     /** 저장하지 않고 권한에서 뽑는다. isAdmin 은 반영하지 않는다. */

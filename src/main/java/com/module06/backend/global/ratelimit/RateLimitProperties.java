@@ -24,6 +24,10 @@ import org.springframework.http.HttpMethod;
  *                          실제로 만드는 값이라 함부로 올리면 그 계산이 무너진다.
  * @param registrationPerIp 기업 등록. 한 번 성공하면 회사와 오너 계정이 생기고 되돌릴 경로가 없다.
  *                          사람이 반복할 일이 없는 행위라 가장 좁게 잡는다.
+ * @param passwordChangePerMember 마이페이지 비밀번호 변경. 인증이 필요한 경로인데도 제한을 거는
+ *                          유일한 자리다 — 여기는 <b>현재 비밀번호를 반복해 넣어 볼 수 있는</b>
+ *                          곳이라, 액세스 토큰 하나를 훔친 사람이 원래 비밀번호를 알아내는 통로가
+ *                          된다. 로그인과 같은 값(5회/5분)을 쓰고, 마찬가지로 실패만 센다.
  */
 @ConfigurationProperties(prefix = "rate-limit")
 public record RateLimitProperties(
@@ -31,7 +35,8 @@ public record RateLimitProperties(
         Rule loginPerAccount,
         Rule refreshPerIp,
         Rule companyLookupPerIp,
-        Rule registrationPerIp
+        Rule registrationPerIp,
+        Rule passwordChangePerMember
 ) {
 
     public record Rule(int limit, Duration window) {
@@ -43,6 +48,10 @@ public record RateLimitProperties(
 
     public RateLimitPolicy loginAccountPolicy() {
         return loginPerAccount.asPolicy("login-account");
+    }
+
+    public RateLimitPolicy passwordChangePolicy() {
+        return passwordChangePerMember.asPolicy("password-change");
     }
 
     /**

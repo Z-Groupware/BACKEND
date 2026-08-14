@@ -27,6 +27,7 @@ rate-limit:
   refresh-per-ip: { limit: 120, window: 1m }
   company-lookup-per-ip: { limit: 20, window: 1m }
   registration-per-ip: { limit: 5, window: 1m }
+  password-change-per-member: { limit: 5, window: 5m }
 
 jwt:
   secret: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

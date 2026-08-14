@@ -57,6 +57,7 @@ public class GmailAccountMailAdapter implements AccountMailPort {
                     <tr><td style="padding: 4px 12px 4px 0;">비밀번호</td><td><b>%s</b></td></tr>
                   </table>
                   <p>비밀번호는 안전한 곳에 보관해 주세요.</p>
+                  <p>로그인 후 마이페이지에서 직접 정한 비밀번호로 바꿀 수 있어요.</p>
                 </div>
                 """.formatted(companyCode, password);
     }
