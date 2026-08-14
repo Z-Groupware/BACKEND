@@ -24,6 +24,11 @@
 --
 -- member_id 에 FK 를 걸지 않는다. personal_todo(V6.1.1)와 같은 규칙이고, 구성원은
 -- 물리 삭제되지 않아(soft delete) 고아 행이 생기지 않는다.
+--
+-- company_id 를 함께 넣는 이유 — personal_todo(V6.1.1)·action 과 같은 테넌트 스코프용 의도적
+-- 반정규화다. member_id 만으로도 결과적으로 회사가 갈리지만(구성원은 회사 하나에만 속한다),
+-- "조회 조건에 회사를 항상 넣는다"는 원칙을 여기서도 따른다. Gate 1 의 TENANT_001 이 이 원칙을
+-- 강제한다.
 -- =====================================================================
 
 ALTER TABLE `member`
@@ -33,9 +38,10 @@ ALTER TABLE `member`
 
 CREATE TABLE `password_history` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `company_id`    BIGINT       NOT NULL COMMENT '테넌트 스코프용 의도적 반정규화',
     `member_id`     BIGINT       NOT NULL COMMENT '이 해시를 쓰던 구성원',
     `password_hash` VARCHAR(255) NOT NULL COMMENT 'BCrypt 해시. 평문은 어떤 경로로도 저장하지 않는다',
     `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '이 해시가 이력으로 밀려난 시각',
     PRIMARY KEY (`id`),
-    KEY `IX_PASSWORD_HISTORY_MEMBER` (`member_id`) COMMENT '변경 시 재사용 검사 스캔 경로'
+    KEY `IX_PASSWORD_HISTORY_MEMBER` (`member_id`, `company_id`) COMMENT '변경 시 재사용 검사 스캔 경로'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

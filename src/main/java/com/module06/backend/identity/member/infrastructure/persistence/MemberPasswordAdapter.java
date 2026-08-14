@@ -25,8 +25,8 @@ public class MemberPasswordAdapter implements MemberPasswordPort {
 
     @Override
     @Transactional(readOnly = true)
-    public List<String> findUsedPasswordHashes(Long memberId) {
-        return passwordHistoryRepository.findByMemberId(memberId).stream()
+    public List<String> findUsedPasswordHashes(Long memberId, Long companyId) {
+        return passwordHistoryRepository.findByMemberIdAndCompanyId(memberId, companyId).stream()
                 .map(PasswordHistoryJpaEntity::getPasswordHash)
                 .toList();
     }
@@ -39,13 +39,13 @@ public class MemberPasswordAdapter implements MemberPasswordPort {
      * 시간을 고정할 수 없다({@link MemberDirectoryCommandAdapter#softDelete} 와 같은 규칙).
      */
     @Override
-    public void changePassword(Long memberId, String newPasswordHash) {
+    public void changePassword(Long memberId, Long companyId, String newPasswordHash) {
         MemberJpaEntity member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(clock);
 
         passwordHistoryRepository.save(
-                PasswordHistoryJpaEntity.of(memberId, member.getPasswordHash(), now));
+                PasswordHistoryJpaEntity.of(companyId, memberId, member.getPasswordHash(), now));
         member.changePassword(newPasswordHash, now);
     }
 }

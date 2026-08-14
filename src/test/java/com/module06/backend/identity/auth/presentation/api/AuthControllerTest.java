@@ -360,6 +360,7 @@ class AuthControllerTest {
         verify(changeMyPasswordUseCase).changePassword(captor.capture());
         // 바디에 memberId=99 를 실어 보내도 토큰의 3L 이 이긴다.
         assertThat(captor.getValue().memberId()).isEqualTo(3L);
+        assertThat(captor.getValue().companyId()).isEqualTo(1L);
         assertThat(captor.getValue().newPassword()).isEqualTo("NewPass12!");
     }
 

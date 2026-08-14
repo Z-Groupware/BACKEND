@@ -1,8 +1,11 @@
 package com.module06.backend.identity.auth.application.command;
 
 /**
- * 마이페이지 비밀번호 변경 입력. {@code memberId} 는 요청 바디가 아니라 액세스 토큰에서 온다 —
- * 바디로 받으면 남의 비밀번호를 바꿀 수 있다.
+ * 마이페이지 비밀번호 변경 입력. {@code memberId}·{@code companyId} 는 요청 바디가 아니라 액세스
+ * 토큰에서 온다 — 바디로 받으면 남의 비밀번호를 바꿀 수 있다.
+ *
+ * <p>{@code companyId} 는 이력 조회의 테넌트 조건으로만 쓴다. 구성원은 회사 하나에만 속해서
+ * {@code memberId} 만으로도 결과는 같지만, "조회 조건에 회사를 항상 넣는다"는 원칙을 따른다.
  *
  * <p>{@code newPasswordConfirm} 을 서비스까지 들고 오는 이유: 확인값 불일치를 {@code @Valid} 로
  * 처리하면 다른 형식 오류와 뭉쳐 {@code INVALID_INPUT_VALUE} 하나가 되어, 화면이 "확인칸이 다르다"만
@@ -10,6 +13,7 @@ package com.module06.backend.identity.auth.application.command;
  */
 public record ChangePasswordCommand(
         Long memberId,
+        Long companyId,
         String currentPassword,
         String newPassword,
         String newPasswordConfirm
@@ -21,6 +25,6 @@ public record ChangePasswordCommand(
      */
     @Override
     public String toString() {
-        return "ChangePasswordCommand[memberId=" + memberId + ", passwords=****]";
+        return "ChangePasswordCommand[memberId=" + memberId + ", companyId=" + companyId + ", passwords=****]";
     }
 }

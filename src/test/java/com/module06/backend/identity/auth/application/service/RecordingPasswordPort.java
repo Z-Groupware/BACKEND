@@ -27,12 +27,12 @@ class RecordingPasswordPort implements MemberPasswordPort {
     }
 
     @Override
-    public List<String> findUsedPasswordHashes(Long memberId) {
+    public List<String> findUsedPasswordHashes(Long memberId, Long companyId) {
         return List.copyOf(history);
     }
 
     @Override
-    public void changePassword(Long memberId, String newPasswordHash) {
+    public void changePassword(Long memberId, Long companyId, String newPasswordHash) {
         if (currentHash != null) {
             history.add(currentHash);
         }
