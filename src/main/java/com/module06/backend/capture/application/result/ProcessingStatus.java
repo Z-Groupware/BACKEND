@@ -76,6 +76,9 @@ public record ProcessingStatus(
      */
     public static ProcessingStatus of(List<LayerProgress> layers, List<Gap> gaps, boolean gapsChecked,
                                       SttProgress blocks) {
+        if (blocks != null && blocks.failed() > 0) {
+            return new ProcessingStatus(OverallStatus.FAILED, layers, gaps, gapsChecked, blocks);
+        }
         if (layers.isEmpty()) {
             return new ProcessingStatus(OverallStatus.NOT_STARTED, layers, gaps, gapsChecked, blocks);
         }
