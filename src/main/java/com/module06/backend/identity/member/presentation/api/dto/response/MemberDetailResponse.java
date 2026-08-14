@@ -17,6 +17,8 @@ public record MemberDetailResponse(
         String positionName,
         String role,
         boolean isAdmin,
+        /** 역할 변경 카드가 현재 역할을 선택 상태로 그릴 때 쓴다 — roleLabel 은 표시용이다. */
+        Long roleId,
         String roleLabel,
         String workStatus,
         String email,
@@ -27,6 +29,7 @@ public record MemberDetailResponse(
         return new MemberDetailResponse(
                 detail.memberId(), detail.name(), detail.teamId(), detail.teamName(),
                 detail.jobPositionId(), detail.positionName(), detail.role().name(), detail.isAdmin(),
-                detail.roleLabel(), detail.workStatus().name(), detail.email(), detail.joinedOn());
+                detail.roleId(), detail.roleLabel(),
+                detail.workStatus().name(), detail.email(), detail.joinedOn());
     }
 }

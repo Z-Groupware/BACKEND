@@ -88,30 +88,14 @@ public class MemberDirectoryCommandAdapter implements MemberDirectoryCommandPort
      * {@code MEMBER_EMAIL_DUPLICATED} 로 변환한다(TeamPersistenceAdapter.create 와 같은 패턴).
      */
     @Override
-    public Long issue(Long companyId, Long teamId, Long positionId, String roleLabel,
+    public Long issue(Long companyId, Long teamId, Long positionId, Long roleId,
                        String name, String email, String passwordHash, Authority authority) {
-        if (roleLabel != null) {
-            /*
-             * 화면 폼에 없는 값이라(§5-1) roleLabel 로 role 을 찾는 조회 창구가 아직 없다.
-             * 조용히 "없음"으로 발급하면 호출자가 지정한 역할이 사라진 채 성공 응답이 나가므로,
-             * 여기서 명시적으로 막는다 — 다만 외부 요청으로 도달 가능한 값이라 500 이 아니라
-             * BusinessException(400)으로 응답해야 한다(UnsupportedOperationException 은
-             * GlobalExceptionHandler 의 catch-all 로 떨어져 500 이 나간다).
-             */
-            throw new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_SUPPORTED);
-        }
-        return issue(companyId, teamId, positionId, ROLE_NONE_ID, name, email, passwordHash, authority);
-    }
-
-    @Override
-    public Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId,
-                               String name, String email, String passwordHash, Authority authority) {
-        return issue(companyId, teamId, positionId, roleId != null ? roleId : ROLE_NONE_ID,
+        return persist(companyId, teamId, positionId, roleId != null ? roleId : ROLE_NONE_ID,
                 name, email, passwordHash, authority);
     }
 
-    private Long issue(Long companyId, Long teamId, Long positionId, Long roleId,
-                        String name, String email, String passwordHash, Authority authority) {
+    private Long persist(Long companyId, Long teamId, Long positionId, Long roleId,
+                          String name, String email, String passwordHash, Authority authority) {
         CompanyJpaEntity company = entityManager.getReference(CompanyJpaEntity.class, companyId);
         TeamRefEntity team = entityManager.getReference(TeamRefEntity.class, teamId);
         PositionRefEntity position = entityManager.getReference(PositionRefEntity.class, positionId);

@@ -18,9 +18,11 @@ import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.team.application.command.CreateTeamCommand;
 import com.module06.backend.identity.team.application.command.RenameTeamCommand;
+import com.module06.backend.identity.team.application.dto.RoleNode;
 import com.module06.backend.identity.team.application.dto.TeamNode;
 import com.module06.backend.identity.team.application.port.out.TeamMemberQueryPort;
 import com.module06.backend.identity.team.application.port.out.TeamProjectQueryPort;
+import com.module06.backend.identity.team.application.port.out.TeamRoleQueryPort;
 import com.module06.backend.identity.team.domain.model.Team;
 import com.module06.backend.identity.team.domain.repository.TeamRepository;
 
@@ -46,6 +48,62 @@ class TeamServiceTest {
         assertThat(node.name()).isEqualTo("개발팀");
         assertThat(node.leaderName()).isEqualTo("김서준");
         assertThat(node.memberCount()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("부서마다 자기 역할만 담고, 남의 부서 역할은 섞이지 않는다")
+    void carriesOwnRolesOnly() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team dev = repository.create(1L, "개발팀");
+        Team planning = repository.create(1L, "기획팀");
+
+        FakeRoleQueryPort roleQueryPort = new FakeRoleQueryPort();
+        roleQueryPort.addRole(7L, dev.id(), "백엔드");
+        roleQueryPort.addRole(8L, planning.id(), "백엔드");
+
+        List<TeamNode> teams = service(repository, new FakeMemberQueryPort(),
+                new FakeProjectQueryPort(), roleQueryPort).getTree(1L);
+
+        assertThat(teams.get(0).roles()).extracting(RoleNode::roleId).containsExactly(7L);
+        assertThat(teams.get(1).roles()).extracting(RoleNode::roleId).containsExactly(8L);
+    }
+
+    /*
+     * "없음"은 특정 부서 소유가 아니라 전 회사 공용 시드다(V2.3.9). 부서 조건으로 거르면 목록에서
+     * 빠지는데, 역할을 비우는 유일한 값이라 select 에 없으면 화면이 역할을 되돌릴 수 없다.
+     */
+    @Test
+    @DisplayName("부서에 매이지 않은 시스템 역할은 모든 부서에 붙고, id 순이라 맨 앞에 온다")
+    void sharedSystemRoleIsAttachedToEveryTeamFirst() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team dev = repository.create(1L, "개발팀");
+        repository.create(1L, "기획팀");
+
+        FakeRoleQueryPort roleQueryPort = new FakeRoleQueryPort();
+        roleQueryPort.addRole(7L, dev.id(), "백엔드");
+        roleQueryPort.addRole(2L, null, "없음");
+
+        List<TeamNode> teams = service(repository, new FakeMemberQueryPort(),
+                new FakeProjectQueryPort(), roleQueryPort).getTree(1L);
+
+        assertThat(teams.get(0).roles()).extracting(RoleNode::name).containsExactly("없음", "백엔드");
+        assertThat(teams.get(1).roles()).extracting(RoleNode::name).containsExactly("없음");
+    }
+
+    @Test
+    @DisplayName("아직 아무도 배정되지 않은 역할도 목록에 나온다 — 조직도와 다른 점이다")
+    void carriesRolesWithNoMembers() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team dev = repository.create(1L, "개발팀");
+
+        FakeRoleQueryPort roleQueryPort = new FakeRoleQueryPort();
+        roleQueryPort.addRole(7L, dev.id(), "백엔드");
+
+        List<TeamNode> teams = service(repository, new FakeMemberQueryPort(),
+                new FakeProjectQueryPort(), roleQueryPort).getTree(1L);
+
+        assertThat(teams.get(0).memberCount()).isZero();
+        assertThat(teams.get(0).roles()).extracting(RoleNode::name).containsExactly("백엔드");
     }
 
     @Test
@@ -229,7 +287,12 @@ class TeamServiceTest {
 
     private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort,
                                  TeamProjectQueryPort projectQueryPort) {
-        return new TeamService(repository, memberQueryPort, projectQueryPort);
+        return service(repository, memberQueryPort, projectQueryPort, new FakeRoleQueryPort());
+    }
+
+    private TeamService service(TeamRepository repository, TeamMemberQueryPort memberQueryPort,
+                                 TeamProjectQueryPort projectQueryPort, TeamRoleQueryPort roleQueryPort) {
+        return new TeamService(repository, memberQueryPort, projectQueryPort, roleQueryPort);
     }
 
     /* ── 테스트 더블 ──────────────────────────────────────────────────── */
@@ -308,6 +371,21 @@ class TeamServiceTest {
         @Override
         public boolean hasActiveMembers(Long teamId) {
             return members.stream().anyMatch(m -> teamId.equals(m.teamId()));
+        }
+    }
+
+    static final class FakeRoleQueryPort implements TeamRoleQueryPort {
+
+        private final List<RoleSummary> roles = new ArrayList<>();
+
+        /** teamId 가 null 이면 부서에 매이지 않은 시스템 역할이다(V2.3.9의 "없음"). */
+        void addRole(Long roleId, Long teamId, String name) {
+            roles.add(new RoleSummary(roleId, teamId, name));
+        }
+
+        @Override
+        public List<RoleSummary> findAssignableByCompany(Long companyId) {
+            return roles;
         }
     }
 

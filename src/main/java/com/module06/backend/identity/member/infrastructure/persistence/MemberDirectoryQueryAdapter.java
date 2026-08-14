@@ -27,7 +27,6 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
 
     /* 역할 "없음" — 전 회사 공용 시스템 행이다(V2.3.9). company_id 가 NULL 이라 회사 조회로는 안 잡힌다. */
     private static final long ROLE_NONE_ID = 2L;
-    private static final String ROLE_NONE_NAME = "없음";
 
     /* 아래 세 값은 handover 도메인의 HandoverStatus·HandoverType 과 값이 같다. */
     private static final String HANDOVER_REJECTED = "REJECTED";
@@ -60,17 +59,19 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
     }
 
     /**
-     * "없음"만 시드 id 로 바로 답한다 — 그 행은 어느 회사 소유도 아니라(company_id IS NULL) 회사
-     * 조건이 붙은 조회로는 절대 안 잡히는데, 역할을 비우는 유일한 값이라 못 찾으면 사용자가
-     * 역할을 되돌릴 방법이 없어진다. 나머지는 회사 안에서 이름으로 찾는다.
+     * "없음"만 시드 id 로 바로 통과시킨다 — 그 행은 어느 회사 소유도 아니라(company_id IS NULL)
+     * 회사 조건이 붙은 조회로는 절대 안 잡히는데, 역할을 비우는 유일한 값이라 막으면 사용자가
+     * 역할을 되돌릴 방법이 없어진다. 나머지는 회사와 부서가 모두 맞아야 한다.
      */
     @Override
-    public Optional<Long> findRoleIdByLabel(Long companyId, String label) {
-        if (ROLE_NONE_NAME.equals(label)) {
-            return Optional.of(ROLE_NONE_ID);
+    public boolean existsAssignableRole(Long companyId, Long teamId, Long roleId) {
+        if (roleId == null) {
+            return false;
         }
-        return roleRepository.findFirstByCompanyIdAndName(companyId, label)
-                .map(RoleWriteEntity::getId);
+        if (ROLE_NONE_ID == roleId) {
+            return true;
+        }
+        return roleRepository.existsByIdAndCompanyIdAndTeamId(roleId, companyId, teamId);
     }
 
     /**
@@ -140,6 +141,7 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
                 team == null ? null : team.getName(),
                 position == null ? null : position.getId(),
                 position == null ? null : position.getName(),
+                role == null ? null : role.getId(),
                 role == null ? null : role.getName(),
                 member.getAuthority(),
                 member.isAdmin(),
