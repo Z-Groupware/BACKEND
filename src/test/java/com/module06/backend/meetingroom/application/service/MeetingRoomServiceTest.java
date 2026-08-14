@@ -3,7 +3,6 @@ package com.module06.backend.meetingroom.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,8 +35,6 @@ class MeetingRoomServiceTest {
                 companyId,
                 "대회의실",
                 "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0),
                 null
         );
 
@@ -54,9 +51,7 @@ class MeetingRoomServiceTest {
                 new MeetingRoomSummary(
                         1L,
                         "대회의실",
-                        "박애관 421호",
-                        LocalTime.of(9, 0),
-                        LocalTime.of(18, 0)
+                        "박애관 421호"
                 )
         );
     }

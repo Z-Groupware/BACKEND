@@ -144,8 +144,8 @@ class UpcomingMeetingQueryServiceTest {
             public List<MeetingRoomSnapshot> findMeetingRooms(Long companyId, List<Long> meetingRoomIds) {
                 /* 서비스가 식별자 맵으로 정확히 조립하는지 확인할 두 회의실을 반환한다. */
                 return List.of(
-                        new MeetingRoomSnapshot(4L, "회의실 D", null, LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                        new MeetingRoomSnapshot(2L, "회의실 B", null, LocalTime.of(9, 0), LocalTime.of(18, 0))
+                        new MeetingRoomSnapshot(4L, "회의실 D", null),
+                        new MeetingRoomSnapshot(2L, "회의실 B", null)
                 );
             }
         };

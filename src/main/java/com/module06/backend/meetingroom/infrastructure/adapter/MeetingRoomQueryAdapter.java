@@ -51,9 +51,7 @@ public class MeetingRoomQueryAdapter implements MeetingRoomQueryPort {
         return new MeetingRoomSnapshot(
                 meetingRoom.getId(),
                 meetingRoom.getName(),
-                meetingRoom.getLocation(),
-                meetingRoom.getAvailableFrom(),
-                meetingRoom.getAvailableTo()
+                meetingRoom.getLocation()
         );
     }
 }

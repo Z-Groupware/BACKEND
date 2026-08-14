@@ -15,6 +15,7 @@ import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingDetailUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTranscriptStatus;
 import com.module06.backend.meeting.presentation.api.response.MeetingDetailResponse;
 
 /*
@@ -62,6 +63,7 @@ class MeetingDetailControllerTest {
         /* 종료 전 회의는 액션·요약 신호가 기본값(0건·NONE)으로 응답에 반영돼야 한다. */
         assertThat(response.getData().pendingActionCount()).isZero();
         assertThat(response.getData().summaryStatus()).isEqualTo("NONE");
+        assertThat(response.getData().transcriptStatus()).isEqualTo("NOT_STARTED");
         assertThat(response.getData().teamId()).isEqualTo(100L);
         assertThat(response.getData().originLabel()).isEqualTo("TEAM");
         assertThat(response.getData().agenda().mainTopic()).isEqualTo("Main agenda");
@@ -88,6 +90,7 @@ class MeetingDetailControllerTest {
                 true,
                 0L,
                 MeetingSummaryStatus.NONE,
+                MeetingTranscriptStatus.NOT_STARTED,
                 100L,
                 "TEAM",
                 new MeetingDetailResult.Agenda("Main agenda", List.of("First sub agenda")),

@@ -113,9 +113,7 @@ class MeetingRoomPersistenceAdapterTest {
         MeetingRoom meetingRoom = MeetingRoom.create(
                 10L,
                 "대회의실",
-                "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "박애관 421호"
         );
 
         /* 명령 저장소를 통해 실제 테스트 DB에 신규 회의실을 저장한다. */
@@ -125,7 +123,7 @@ class MeetingRoomPersistenceAdapterTest {
         assertThat(saved.getId()).isPositive();
         assertThat(saved.getCompanyId()).isEqualTo(10L);
         assertThat(saved.getName()).isEqualTo("대회의실");
-        assertThat(saved.getAvailableFrom()).isEqualTo(LocalTime.of(9, 0));
+        assertThat(saved.getLocation()).isEqualTo("박애관 421호");
         assertThat(saved.isActive()).isTrue();
     }
 
@@ -307,8 +305,6 @@ class MeetingRoomPersistenceAdapterTest {
                 companyId,
                 name,
                 "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0),
                 deletedAt
         );
     }

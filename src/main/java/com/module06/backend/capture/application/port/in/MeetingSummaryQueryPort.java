@@ -86,6 +86,34 @@ public interface MeetingSummaryQueryPort {
     }
 
     /*
+     * 회의 상세의 발화 기록 영역이 요약 파이프라인과 독립적으로 사용할 STT 정본 상태를 준다.
+     *
+     * 요약이 PROCESSING이어도 모든 STT 블록은 이미 DONE일 수 있으므로 SummaryStatus로 이 값을
+     * 추측하면 안 된다. 회사 범위를 통과하지 못한 회의는 Optional.empty()로 숨긴다.
+     */
+    java.util.Optional<MeetingTranscriptStatus> findTranscriptStatus(Long companyId, Long meetingId);
+
+    /* 회의 하나의 STT 정본 상태다. */
+    record MeetingTranscriptStatus(Long meetingId, TranscriptStatus status) {
+    }
+
+    /* 발화 기록 섹션이 사용하는 STT 처리 상태다. */
+    enum TranscriptStatus {
+
+        /* 생성된 STT 블록이 없어 받아쓰기를 시작하지 않은 상태다. */
+        NOT_STARTED,
+
+        /* PENDING·QUEUED·RUNNING 블록이 하나 이상 남아 있는 상태다. */
+        PROCESSING,
+
+        /* 생성된 모든 STT 블록의 정본 적재가 끝난 상태다. */
+        DONE,
+
+        /* STT 블록 하나 이상이 실패해 정본이 완성되지 않은 상태다. */
+        FAILED
+    }
+
+    /*
      * 화면이 구분해야 하는 요약 상태.
      *
      * <h2>⚠ 이 값을 호출자가 다시 계산하면 안 된다</h2>

@@ -1,7 +1,5 @@
 package com.module06.backend.meetingroom.application.service;
 
-import java.time.LocalTime;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,7 +11,6 @@ import com.module06.backend.meetingroom.application.command.CreateMeetingRoomCom
 import com.module06.backend.meetingroom.application.result.MeetingRoomCreationResult;
 import com.module06.backend.meetingroom.application.usecase.CreateMeetingRoomUseCase;
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
-import com.module06.backend.meetingroom.domain.model.SlotGrid;
 import com.module06.backend.meetingroom.domain.repository.MeetingRoomCommandRepository;
 import com.module06.backend.meetingroom.exception.MeetingRoomErrorCode;
 
@@ -34,9 +31,6 @@ public class MeetingRoomCommandService implements CreateMeetingRoomUseCase {
         /* Controller 밖의 내부 호출에서도 필수값과 문자열 길이 계약을 동일하게 보장한다. */
         validateRequiredValues(command);
 
-        /* 이용 시간의 선후 관계와 ROOM-02가 사용하는 30분 그리드 정합성을 확인한다. */
-        validateAvailableTime(command.availableFrom(), command.availableTo());
-
         /* 가장자리 공백이 다른 이름처럼 저장되지 않도록 중복 조회 전에 이름을 정규화한다. */
         String normalizedName = command.name().trim();
         if (meetingRoomCommandRepository.existsActiveByCompanyIdAndName(command.companyId(), normalizedName)) {
@@ -48,9 +42,7 @@ public class MeetingRoomCommandService implements CreateMeetingRoomUseCase {
         MeetingRoom meetingRoom = MeetingRoom.create(
                 command.companyId(),
                 normalizedName,
-                command.location(),
-                command.availableFrom(),
-                command.availableTo()
+                command.location()
         );
 
         /* 데이터베이스 생성 식별자가 반영된 회의실을 저장 결과로 받는다. */
@@ -60,16 +52,14 @@ public class MeetingRoomCommandService implements CreateMeetingRoomUseCase {
         return new MeetingRoomCreationResult(savedMeetingRoom.getId());
     }
 
-    /* 회사·이름·시간과 문자열 길이가 애플리케이션 계약에 맞는지 확인한다. */
+    /* 회사·이름과 문자열 길이가 애플리케이션 계약에 맞는지 확인한다. */
     private void validateRequiredValues(CreateMeetingRoomCommand command) {
         /* 필수값 누락과 양수가 아닌 회사 식별자는 공통 입력 오류로 거절한다. */
         if (command == null
                 || command.companyId() == null
                 || command.companyId() <= 0L
                 || command.name() == null
-                || command.name().isBlank()
-                || command.availableFrom() == null
-                || command.availableTo() == null) {
+                || command.name().isBlank()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
 
@@ -82,24 +72,4 @@ public class MeetingRoomCommandService implements CreateMeetingRoomUseCase {
         }
     }
 
-    /* 이용 종료 시각이 늦고 두 시각 모두 30분 슬롯 경계인지 확인한다. */
-    private void validateAvailableTime(LocalTime availableFrom, LocalTime availableTo) {
-        /* 같은 날 안에서 종료 시각은 시작 시각보다 반드시 늦어야 한다. */
-        if (!availableTo.isAfter(availableFrom)) {
-            throw new BusinessException(MeetingRoomErrorCode.INVALID_AVAILABLE_TIME_RANGE);
-        }
-
-        /* ROOM-02와 MEET-01이 같은 그리드를 사용하도록 분·초·나노초 정밀도를 검사한다. */
-        if (!isSlotBoundary(availableFrom) || !isSlotBoundary(availableTo)) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
-        }
-    }
-
-    /* 시각이 정확한 30분 그리드 경계인지 판단한다. */
-    private boolean isSlotBoundary(LocalTime time) {
-        /* 분은 0 또는 30이어야 하고 숨은 초·나노초 값도 없어야 한다. */
-        return time.getMinute() % SlotGrid.SLOT_MINUTES == 0
-                && time.getSecond() == 0
-                && time.getNano() == 0;
-    }
 }

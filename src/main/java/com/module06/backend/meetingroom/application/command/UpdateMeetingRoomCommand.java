@@ -1,7 +1,5 @@
 package com.module06.backend.meetingroom.application.command;
 
-import java.time.LocalTime;
-
 /*
  * ROOM-04 회의실 부분 수정에 필요한 인증·경로·필드 존재 여부를 묶은 애플리케이션 명령이다.
  *
@@ -15,19 +13,13 @@ public record UpdateMeetingRoomCommand(
         boolean nameProvided,
         String name,
         boolean locationProvided,
-        String location,
-        boolean availableFromProvided,
-        LocalTime availableFrom,
-        boolean availableToProvided,
-        LocalTime availableTo
+        String location
 ) {
 
     /* 수정할 속성이 하나라도 요청에 포함됐는지 확인한다. */
     public boolean hasAnyChange() {
-        /* 네 PATCH 필드 중 하나 이상의 존재 플래그가 true여야 한다. */
+        /* 이름과 위치 중 하나 이상의 존재 플래그가 true여야 한다. */
         return nameProvided
-                || locationProvided
-                || availableFromProvided
-                || availableToProvided;
+                || locationProvided;
     }
 }

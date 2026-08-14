@@ -1,7 +1,5 @@
 package com.module06.backend.meetingroom.application.result;
 
-import java.time.LocalTime;
-
 import com.module06.backend.meetingroom.domain.model.MeetingRoom;
 
 /*
@@ -13,15 +11,11 @@ import com.module06.backend.meetingroom.domain.model.MeetingRoom;
  * @param meetingRoomId 회의실 식별자
  * @param name 회의실 이름
  * @param location 회의실 위치
- * @param availableFrom 이용 가능 시작 시각
- * @param availableTo 이용 가능 종료 시각
  */
 public record MeetingRoomSummary(
         Long meetingRoomId,
         String name,
-        String location,
-        LocalTime availableFrom,
-        LocalTime availableTo
+        String location
 ) {
 
     /*
@@ -35,9 +29,7 @@ public record MeetingRoomSummary(
         return new MeetingRoomSummary(
                 meetingRoom.getId(),
                 meetingRoom.getName(),
-                meetingRoom.getLocation(),
-                meetingRoom.getAvailableFrom(),
-                meetingRoom.getAvailableTo()
+                meetingRoom.getLocation()
         );
     }
 }

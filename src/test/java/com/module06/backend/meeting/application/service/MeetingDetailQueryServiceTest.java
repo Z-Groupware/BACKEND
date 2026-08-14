@@ -22,6 +22,7 @@ import com.module06.backend.meeting.application.query.GetMeetingDetailQuery;
 import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTranscriptStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
@@ -69,9 +70,10 @@ class MeetingDetailQueryServiceTest {
                 .extracting(MeetingDetailResult.Attendee::teamId)
                 .containsExactly(100L, 200L, 300L);
 
-        /* 미확정 액션이 없고 요약도 중단되지 않았으면 0건과 알 수 없음(null)이어야 한다. */
+        /* 미확정 액션이 없고 A 처리가 끝났으면 요약·발화 기록 모두 완료 상태여야 한다. */
         assertThat(result.pendingActionCount()).isZero();
-        assertThat(result.summaryStatus()).isNull();
+        assertThat(result.summaryStatus()).isEqualTo(MeetingSummaryStatus.DONE);
+        assertThat(result.transcriptStatus()).isEqualTo(MeetingTranscriptStatus.DONE);
         assertThat(result.teamId()).isEqualTo(100L);
         assertThat(result.originLabel()).isEqualTo("TEAM");
         assertThat(result.agenda().mainTopic()).isEqualTo("Main agenda");
@@ -96,6 +98,7 @@ class MeetingDetailQueryServiceTest {
         /* C·A가 회의 ID 하나짜리 목록으로 돌려준 값이 그대로 반영돼야 한다. */
         assertThat(result.pendingActionCount()).isEqualTo(3L);
         assertThat(result.summaryStatus()).isEqualTo(MeetingSummaryStatus.STALLED);
+        assertThat(result.transcriptStatus()).isEqualTo(MeetingTranscriptStatus.DONE);
     }
 
     /* 아직 종료되지 않은 회의는 C·A Port를 아예 부르지 않고 기본값으로 확정하는지 검증한다. */
@@ -116,6 +119,7 @@ class MeetingDetailQueryServiceTest {
         /* Port를 부르지 않고도 0건과 NONE이 확정돼야 한다. */
         assertThat(result.pendingActionCount()).isZero();
         assertThat(result.summaryStatus()).isEqualTo(MeetingSummaryStatus.NONE);
+        assertThat(result.transcriptStatus()).isEqualTo(MeetingTranscriptStatus.PROCESSING);
     }
 
     /* 같은 팀 LEADER가 직접 참석하지 않아도 팀 회의를 읽을 수 있는지 검증한다. */
@@ -223,7 +227,7 @@ class MeetingDetailQueryServiceTest {
     /* 지정한 회의 Optional과 미확정 액션 0건·요약 정상인 기본 Port 대역으로 MEET-04 서비스를 만든다. */
     private MeetingDetailQueryService service(Optional<MeetingDetailSnapshot> meeting) {
         /* 대부분의 테스트는 액션·요약 신호 자체를 검증하지 않으므로 기본값 대역을 사용한다. */
-        return service(meeting, noPendingActionPort(), notStalledSummaryPort());
+        return service(meeting, noPendingActionPort(), completedSummaryPort());
     }
 
     /* 지정한 회의 Optional과 액션·요약 Port 대역으로 MEET-04 서비스를 만든다. */
@@ -273,9 +277,7 @@ class MeetingDetailQueryServiceTest {
                 return List.of(new MeetingRoomSnapshot(
                         2L,
                         "회의실 B",
-                        "박애관 422호",
-                        LocalTime.of(9, 0),
-                        LocalTime.of(18, 0)
+                        "박애관 422호"
                 ));
             }
         };
@@ -429,22 +431,56 @@ class MeetingDetailQueryServiceTest {
         };
     }
 
-    /* 요약이 중단되지 않았다고 답하는 A Port 대역을 만든다. */
-    private SummaryStatusQueryPort notStalledSummaryPort() {
-        /* 계약상 중단·실패가 아닌 회의는 결과에 아예 실리지 않는다. */
-        return (companyId, meetingIds) -> List.of();
+    /* 요약과 STT 정본이 모두 완료됐다고 답하는 A Port 대역을 만든다. */
+    private SummaryStatusQueryPort completedSummaryPort() {
+        return summaryStatusPort(MeetingSummaryStatus.DONE, MeetingTranscriptStatus.DONE);
     }
 
     /* 요청한 회의 ID의 요약이 중단됐다고 답하는 A Port 대역을 만든다. */
     private SummaryStatusQueryPort stalledSummaryPort(Long meetingId) {
-        return (companyId, meetingIds) ->
-                List.of(new SummaryStatusQueryPort.StalledSummaryMeeting(meetingId, true));
+        return summaryStatusPort(MeetingSummaryStatus.STALLED, MeetingTranscriptStatus.DONE);
+    }
+
+    /* 지정한 요약·발화 기록 상태를 반환하는 A Port 대역을 만든다. */
+    private SummaryStatusQueryPort summaryStatusPort(
+            MeetingSummaryStatus summaryStatus,
+            MeetingTranscriptStatus transcriptStatus
+    ) {
+        return new SummaryStatusQueryPort() {
+            @Override
+            public List<StalledSummaryMeeting> findStalledSummaries(Long companyId, List<Long> meetingIds) {
+                return List.of();
+            }
+
+            @Override
+            public List<SummaryStatusMeeting> findSummaryStatuses(Long companyId, List<Long> meetingIds) {
+                return List.of(new SummaryStatusMeeting(91L, summaryStatus));
+            }
+
+            @Override
+            public Optional<TranscriptStatusMeeting> findTranscriptStatus(Long companyId, Long meetingId) {
+                return Optional.of(new TranscriptStatusMeeting(meetingId, transcriptStatus));
+            }
+        };
     }
 
     /* 호출되면 즉시 실패하는 A Port 대역이다 — 종료 전 회의에서 호출되지 않아야 함을 검증한다. */
     private SummaryStatusQueryPort neverCalledSummaryStatusPort() {
-        return (companyId, meetingIds) -> {
-            throw new AssertionError("종료 전 회의는 요약 상태 배치 조회를 호출하면 안 됩니다.");
+        return new SummaryStatusQueryPort() {
+            @Override
+            public List<StalledSummaryMeeting> findStalledSummaries(Long companyId, List<Long> meetingIds) {
+                throw new AssertionError("종료 전 회의는 중단 상태 배치 조회를 호출하면 안 됩니다.");
+            }
+
+            @Override
+            public List<SummaryStatusMeeting> findSummaryStatuses(Long companyId, List<Long> meetingIds) {
+                throw new AssertionError("종료 전 회의는 요약 상태 배치 조회를 호출하면 안 됩니다.");
+            }
+
+            @Override
+            public Optional<TranscriptStatusMeeting> findTranscriptStatus(Long companyId, Long meetingId) {
+                throw new AssertionError("종료 전 회의는 STT 상태 조회를 호출하면 안 됩니다.");
+            }
         };
     }
 

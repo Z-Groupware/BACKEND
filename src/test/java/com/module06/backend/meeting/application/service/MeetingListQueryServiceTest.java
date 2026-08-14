@@ -408,8 +408,8 @@ class MeetingListQueryServiceTest {
             public List<MeetingRoomSnapshot> findMeetingRooms(Long companyId, List<Long> meetingRoomIds) {
                 /* 필터 검증과 페이지 표시 조합 모두에 사용할 회사 10의 회의실 목록이다. */
                 return List.of(
-                        new MeetingRoomSnapshot(4L, "회의실 D", null, LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                        new MeetingRoomSnapshot(2L, "회의실 B", null, LocalTime.of(9, 0), LocalTime.of(18, 0))
+                        new MeetingRoomSnapshot(4L, "회의실 D", null),
+                        new MeetingRoomSnapshot(2L, "회의실 B", null)
                 ).stream().filter(room -> meetingRoomIds.contains(room.meetingRoomId())).toList();
             }
         };

@@ -1,7 +1,5 @@
 package com.module06.backend.meetingroom.application.command;
 
-import java.time.LocalTime;
-
 /*
  * ROOM-03 회의실 등록에 필요한 인증 회사와 요청 속성을 묶은 애플리케이션 명령이다.
  *
@@ -10,8 +8,6 @@ import java.time.LocalTime;
 public record CreateMeetingRoomCommand(
         Long companyId,
         String name,
-        String location,
-        LocalTime availableFrom,
-        LocalTime availableTo
+        String location
 ) {
 }
