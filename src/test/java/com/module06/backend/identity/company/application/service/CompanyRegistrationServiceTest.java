@@ -181,8 +181,16 @@ class CompanyRegistrationServiceTest {
     @DisplayName("메일 발송이 실패해도 회사는 남는다 — 커밋 뒤라서 롤백되지 않는다")
     void mailFailureDoesNotUndoRegistration() {
         RecordingRepository repository = new RecordingRepository();
-        AccountMailPort exploding = (to, code, password) -> {
-            throw new IllegalStateException("SMTP down");
+        AccountMailPort exploding = new AccountMailPort() {
+            @Override
+            public void sendAccountIssued(String toEmail, String companyCode, String password) {
+                throw new IllegalStateException("SMTP down");
+            }
+
+            @Override
+            public boolean sendPasswordReset(String toEmail, String companyCode, String password) {
+                throw new UnsupportedOperationException("기업 등록은 재발급 메일을 쓰지 않는다");
+            }
         };
 
         assertThatThrownBy(() -> service(repository, new RecordingOwner(), exploding)
@@ -279,6 +287,12 @@ class CompanyRegistrationServiceTest {
         public void sendAccountIssued(String toEmail, String companyCode, String password) {
             sentTo.add(toEmail);
             sentPassword = password;
+        }
+
+        /** 기업 등록은 이 경로를 쓰지 않는다. 쓰면 이 구현 때문에 테스트가 깨져서 드러난다. */
+        @Override
+        public boolean sendPasswordReset(String toEmail, String companyCode, String password) {
+            throw new UnsupportedOperationException("기업 등록은 재발급 메일을 쓰지 않는다");
         }
     }
 }

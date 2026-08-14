@@ -29,4 +29,16 @@ public class LoggingAccountMailAdapter implements AccountMailPort {
                   비밀번호  : {}
                 """, toEmail, companyCode, password);
     }
+
+    /** 로컬에서는 항상 성공으로 본다 — 실패 경로는 실제 SMTP 가 있는 운영에서만 의미가 있다. */
+    @Override
+    public boolean sendPasswordReset(String toEmail, String companyCode, String password) {
+        log.warn("""
+                [비밀번호 재발급 메일 — 미발송, 로그 대체]
+                  받는 사람   : {}
+                  기업 코드   : {}
+                  새 비밀번호 : {}
+                """, toEmail, companyCode, password);
+        return true;
+    }
 }

@@ -40,6 +40,12 @@ class RecordingPasswordPort implements MemberPasswordPort {
         changeCount++;
     }
 
+    /** 변경과 달리 변경 시각을 비우지만, 이 대역은 시각을 들고 있지 않아 적재 규칙만 같게 흉내 낸다. */
+    @Override
+    public void resetPassword(Long memberId, Long companyId, String newPasswordHash) {
+        changePassword(memberId, companyId, newPasswordHash);
+    }
+
     String currentHash() {
         return currentHash;
     }

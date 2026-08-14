@@ -47,6 +47,28 @@ public class GmailAccountMailAdapter implements AccountMailPort {
         }
     }
 
+    /*
+     * 계정 발급과 달리 성공 여부를 돌려준다(포트 javadoc). 여기서 false 를 주면 호출자가
+     * 새 비밀번호를 저장하지 않으므로, 사용자의 기존 비밀번호는 그대로 살아 있다.
+     */
+    @Override
+    public boolean sendPasswordReset(String toEmail, String companyCode, String password) {
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, false, StandardCharsets.UTF_8.name());
+            helper.setTo(toEmail);
+            helper.setSubject("[Z-Groupware] 새 비밀번호가 발급됐습니다");
+            helper.setText(buildResetHtml(companyCode, password), true);
+
+            mailSender.send(mimeMessage);
+            log.info("비밀번호 재발급 메일 발송 성공: to={}", maskEmail(toEmail));
+            return true;
+        } catch (Exception exception) {
+            log.error("비밀번호 재발급 메일 발송 실패: to={}", maskEmail(toEmail), exception);
+            return false;
+        }
+    }
+
     private String buildHtml(String companyCode, String password) {
         return """
                 <div style="font-family: sans-serif; line-height: 1.6;">
@@ -58,6 +80,21 @@ public class GmailAccountMailAdapter implements AccountMailPort {
                   </table>
                   <p>비밀번호는 안전한 곳에 보관해 주세요.</p>
                   <p>로그인 후 마이페이지에서 직접 정한 비밀번호로 바꿀 수 있어요.</p>
+                </div>
+                """.formatted(companyCode, password);
+    }
+
+    private String buildResetHtml(String companyCode, String password) {
+        return """
+                <div style="font-family: sans-serif; line-height: 1.6;">
+                  <h2>새 비밀번호가 발급됐습니다</h2>
+                  <p>요청하신 계정의 비밀번호를 아래 값으로 바꿨습니다. 이전 비밀번호는 더 이상 쓸 수 없어요.</p>
+                  <table style="border-collapse: collapse;">
+                    <tr><td style="padding: 4px 12px 4px 0;">기업 코드</td><td><b>%s</b></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0;">새 비밀번호</td><td><b>%s</b></td></tr>
+                  </table>
+                  <p>로그인 후 마이페이지에서 직접 정한 비밀번호로 바꿀 수 있어요.</p>
+                  <p>본인이 요청하지 않았다면 관리자에게 알려 주세요.</p>
                 </div>
                 """.formatted(companyCode, password);
     }

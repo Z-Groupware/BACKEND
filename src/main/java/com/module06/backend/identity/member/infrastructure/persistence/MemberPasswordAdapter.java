@@ -40,12 +40,23 @@ public class MemberPasswordAdapter implements MemberPasswordPort {
      */
     @Override
     public void changePassword(Long memberId, Long companyId, String newPasswordHash) {
+        MemberJpaEntity member = archivePreviousHash(memberId, companyId);
+        member.changePassword(newPasswordHash, LocalDateTime.now(clock));
+    }
+
+    @Override
+    public void resetPassword(Long memberId, Long companyId, String newPasswordHash) {
+        MemberJpaEntity member = archivePreviousHash(memberId, companyId);
+        member.resetPassword(newPasswordHash);
+    }
+
+    /** 두 경로가 공유하는 부분 — 직전 해시를 이력으로 옮긴다. 갈리는 것은 변경 시각뿐이다. */
+    private MemberJpaEntity archivePreviousHash(Long memberId, Long companyId) {
         MemberJpaEntity member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
-        LocalDateTime now = LocalDateTime.now(clock);
 
-        passwordHistoryRepository.save(
-                PasswordHistoryJpaEntity.of(companyId, memberId, member.getPasswordHash(), now));
-        member.changePassword(newPasswordHash, now);
+        passwordHistoryRepository.save(PasswordHistoryJpaEntity.of(
+                companyId, memberId, member.getPasswordHash(), LocalDateTime.now(clock)));
+        return member;
     }
 }

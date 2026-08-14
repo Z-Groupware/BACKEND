@@ -1009,6 +1009,12 @@ class MemberDirectoryServiceTest {
             sentTo.add(toEmail);
             this.sentCompanyCode = companyCode;
         }
+
+        /** 계정 발급은 이 경로를 쓰지 않는다. 쓰면 이 구현 때문에 테스트가 깨져서 드러난다. */
+        @Override
+        public boolean sendPasswordReset(String toEmail, String companyCode, String password) {
+            throw new UnsupportedOperationException("계정 발급은 재발급 메일을 쓰지 않는다");
+        }
     }
 
     static final class FakeRefreshTokenStore implements RefreshTokenStore {
