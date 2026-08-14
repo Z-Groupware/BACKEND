@@ -169,8 +169,9 @@ class HandoverDomainIntegrationTest {
                 WRITER, TEAM, HandoverType.VACATION, LEAVE_START, LEAVE_END, null, null, List.of(ACTION_TODO)
         ));
 
-        handoverService.reassignItem(new ReassignItemCommand(handover.getId(), ACTION_TODO, TARGET, NOW));
-        Handover completed = handoverService.complete(handover.getId(), LEADER, NOW.plusHours(1));
+        handoverService.reassignItem(new ReassignItemCommand(handover.getId(), ACTION_TODO, TARGET, NOW,
+                leaderPrincipal()));
+        Handover completed = handoverService.complete(handover.getId(), leaderPrincipal(), NOW.plusHours(1));
 
         assertThat(completed.getStatus()).isEqualTo(HandoverStatus.REASSIGNED);
         assertThat(assigneeOfAction(ACTION_TODO)).isEqualTo(TARGET);
@@ -237,9 +238,7 @@ class HandoverDomainIntegrationTest {
         assertThat(handover.getItems()).extracting(HandoverItem::getActionId)
                 .containsExactlyInAnyOrder(ACTION_TODO, ACTION_DONE);
 
-        handoverService.reassignItem(new ReassignItemCommand(handover.getId(), ACTION_TODO, TARGET, NOW));
-        handoverService.complete(handover.getId(), LEADER, NOW.plusHours(1));
-        Handover finalized = handoverService.finalize(handover.getId(), LEADER, "Leader", NOW.plusHours(2));
+        Handover finalized = handoverService.finalize(handover.getId(), ownerPrincipal(), NOW.plusHours(2));
 
         assertThat(finalized.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         assertThat(statusOfMember(WRITER)).isEqualTo("RESIGNED");
@@ -260,10 +259,12 @@ class HandoverDomainIntegrationTest {
         Handover handover = handoverService.create(new CreateHandoverCommand(
                 WRITER, TEAM, HandoverType.VACATION, LEAVE_START, LEAVE_END, null, null, List.of(ACTION_TODO)
         ));
-        handoverService.reassignItem(new ReassignItemCommand(handover.getId(), ACTION_TODO, TARGET, NOW));
-        handoverService.complete(handover.getId(), LEADER, NOW.plusHours(1));
+        handoverService.reassignItem(new ReassignItemCommand(handover.getId(), ACTION_TODO, TARGET, NOW,
+                leaderPrincipal()));
+        handoverService.complete(handover.getId(), leaderPrincipal(), NOW.plusHours(1));
 
-        Handover rejected = handoverService.reject(new RejectHandoverCommand(handover.getId(), "rollback"));
+        Handover rejected = handoverService.reject(new RejectHandoverCommand(handover.getId(), "rollback",
+                leaderPrincipal()));
 
         assertThat(rejected.getStatus()).isEqualTo(HandoverStatus.REJECTED);
         assertThat(assigneeOfAction(ACTION_TODO)).isEqualTo(WRITER);
@@ -286,6 +287,14 @@ class HandoverDomainIntegrationTest {
         }
         em.flush();
         em.clear();
+    }
+
+    private static AuthPrincipal leaderPrincipal() {
+        return new AuthPrincipal(LEADER, COMPANY, "LEADER", false, TEAM);
+    }
+
+    private static AuthPrincipal ownerPrincipal() {
+        return new AuthPrincipal(LEADER, COMPANY, "OWNER", false, null);
     }
 
     private void insertCompany(Long id) {
