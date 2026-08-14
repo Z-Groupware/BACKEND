@@ -233,6 +233,7 @@ public class AnalysisOrchestrator {
     private final AnalysisArtifactRepository analysisArtifactRepository;
     private final MeetingDateProvider meetingDateProvider;
     private final SpeakerAttributionResolver speakerAttributionResolver;
+    private final NearNameAssigneeResolver nearNameAssigneeResolver;
     private final ConflictDetector conflictDetector;
     private final AutoConfirmGate autoConfirmGate;
     private final TupleDistributionService tupleDistributionService;
@@ -632,6 +633,11 @@ public class AnalysisOrchestrator {
             Map<Integer, TopicView> gatedBySeq = savedTopicsBySeq(companyId, meetingId);
 
             LocalDate meetingDate = meetingDateOf(meetingId);
+            /*
+             * 근접 매칭이 쓸 참석자 이름표. 명단 밖 탈출구(personId=null)는 빠진다 —
+             * 이름이 없는 항목이라 이을 대상이 아니다.
+             */
+            Map<Long, String> nameByMemberId = nameByMemberIdOf(participants);
 
             List<TupleRow> rows = new ArrayList<>();
             for (TopicSegment topic : topics) {
@@ -646,12 +652,26 @@ public class AnalysisOrchestrator {
                     continue;
                 }
 
+                List<Utterance> topicUtterances = utterancesOf(topic, byId);
+
                 ExtractTuplesResult result = aiLayerPort.extractTuples(
                         tenantId, meetingId, topic.topic(), toConfirmedItems(confirmed),
-                        utterancesOf(topic, byId), participants, meetingDate);
+                        topicUtterances, participants, meetingDate);
                 sink.add(result.run());
 
-                rows.addAll(toTupleRows(meetingId, result, confirmed, topic));
+                /*
+                 * L4 가 담당자를 비워 둔 tuple 을 코드가 이어 본다(NearNameAssigneeResolver).
+                 * **모델 호출이 아니라 계산이므로 토큰이 0 이다** — sink 에 더할 것이 없다.
+                 *
+                 * 저장 전에 부르는 이유: 이 판정이 담당자 컬럼 자체를 바꾸므로, 저장 뒤에 하면
+                 * L5·L6·L7 이 읽는 값과 저장된 값이 갈리는 순간이 생긴다. 그리고 L4 에 실어
+                 * 보낸 것과 **같은 발화 목록**을 넘겨야 한다 — 모델이 못 본 발화에서 이름을
+                 * 주우면 근거 발화와 담당자가 어긋난다.
+                 */
+                List<NearNameAssigneeResolver.Resolved> resolvedTuples =
+                        nearNameAssigneeResolver.resolve(result.tuples(), topicUtterances, nameByMemberId);
+
+                rows.addAll(toTupleRows(meetingId, resolvedTuples, result.run(), confirmed, topic));
             }
 
             /*
@@ -1016,6 +1036,23 @@ public class AnalysisOrchestrator {
     }
 
     /*
+     * 참석자 이름표(memberId → 이름). 명단 밖 탈출구(personId=null)는 빠진다 —
+     * attendeeMemberIdsOf 와 같은 이유이고, 이름 없는 항목은 이을 대상도 아니다.
+     *
+     * L1.5 주석(annotate)과 근접 매칭(NearNameAssigneeResolver)이 같은 표를 쓴다. 둘이 서로
+     * 다른 표를 들면 한쪽이 이름을 아는 참석자를 다른 쪽이 모르는 상태가 생긴다.
+     */
+    private Map<Long, String> nameByMemberIdOf(List<AiLayerPort.Participant> participants) {
+        Map<Long, String> nameByMemberId = new HashMap<>();
+        for (AiLayerPort.Participant participant : participants) {
+            if (participant.personId() != null) {
+                nameByMemberId.put(participant.personId(), participant.name());
+            }
+        }
+        return nameByMemberId;
+    }
+
+    /*
      * 상대 표현("다음 주까지")의 기준일이다. 없으면 계층이 상대 표현을 계산하지 않는다 —
      * 오늘 날짜로 대체하지 않는다. 재실행은 회의 몇 주 뒤일 수도 있고, 그때 오늘로 계산하면
      * 그럴듯하게 틀린 마감이 보드에 꽂힌다.
@@ -1235,8 +1272,8 @@ public class AnalysisOrchestrator {
      * 고르면 그 tuple 은 엉뚱한 결정에서 나온 것으로 기록되고, 사람이 검토할 때 근거 항목을
      * 눌러도 다른 내용이 나온다 — 근거를 모르는 것보다 나쁘다.
      */
-    private List<TupleRow> toTupleRows(long meetingId, ExtractTuplesResult result,
-                                       List<ItemView> confirmed, TopicSegment topic) {
+    private List<TupleRow> toTupleRows(long meetingId, List<NearNameAssigneeResolver.Resolved> resolvedTuples,
+                                       LayerRun run, List<ItemView> confirmed, TopicSegment topic) {
         Map<Long, Long> decisionIdByEvidence = new HashMap<>();
         Set<Long> ambiguous = new HashSet<>();
 
@@ -1252,14 +1289,15 @@ public class AnalysisOrchestrator {
         ambiguous.forEach(decisionIdByEvidence::remove);
 
         List<TupleRow> rows = new ArrayList<>();
-        for (AssignmentTuple tuple : result.tuples()) {
+        for (NearNameAssigneeResolver.Resolved resolved : resolvedTuples) {
+            AssignmentTuple tuple = resolved.tuple();
             Long decisionId = decisionIdByEvidence.get(tuple.evidenceUtteranceId());
             if (decisionId == null) {
                 log.info("tuple 의 근거 항목을 되짚지 못해 연결 없이 저장한다 — meetingId={} 주제={} 근거={}",
                         meetingId, topic.topic(), tuple.evidenceUtteranceId());
             }
             rows.add(new TupleRow(tuple, decisionId, topic.topicSeq(), topic.topic(),
-                    result.run().modelName(), result.run().promptVersion()));
+                    run.modelName(), run.promptVersion(), resolved.nearMatched()));
         }
         return rows;
     }
@@ -1280,12 +1318,7 @@ public class AnalysisOrchestrator {
             return utterances;
         }
 
-        Map<Long, String> nameByPersonId = new HashMap<>();
-        participants.forEach(participant -> {
-            if (participant.personId() != null) {
-                nameByPersonId.put(participant.personId(), participant.name());
-            }
-        });
+        Map<Long, String> nameByPersonId = nameByMemberIdOf(participants);
 
         Map<Long, List<ResolvedReference>> byUtteranceId = new HashMap<>();
         for (ResolvedReference reference : references) {

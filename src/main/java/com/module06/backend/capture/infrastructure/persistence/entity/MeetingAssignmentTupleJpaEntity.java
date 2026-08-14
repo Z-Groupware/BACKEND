@@ -72,6 +72,15 @@ public class MeetingAssignmentTupleJpaEntity {
     @Column(name = "assignee_source")
     private AssigneeSource assigneeSource;
 
+    /*
+     * 담당자를 코드가 이었는가(V5.22 · NearNameAssigneeResolver).
+     *
+     * Boolean(래퍼)이다. NULL 이 "근접 매칭 이전에 저장된 행"이고 FALSE(봤고 잇지 않았다)와
+     * 다르다 — 뭉치면 이 코드 이전 회의가 전부 기권으로 세어져 오답률 분모가 틀어진다.
+     */
+    @Column(name = "assignee_near_matched")
+    private Boolean assigneeNearMatched;
+
     /* NULL 이 정상이다 — 기한을 말하지 않았거나 기준일을 몰라 계산하지 않은 경우다. */
     @Column(name = "due_date")
     private LocalDate dueDate;
@@ -167,7 +176,8 @@ public class MeetingAssignmentTupleJpaEntity {
                                                      int topicSeq, String topic, String title,
                                                      Long assigneeCandidateMemberId, AssigneeSource assigneeSource,
                                                      LocalDate dueDate, Long evidenceTranscriptId,
-                                                     String modelName, String promptVersion, int sortOrder) {
+                                                     String modelName, String promptVersion,
+                                                     boolean assigneeNearMatched, int sortOrder) {
         MeetingAssignmentTupleJpaEntity entity = new MeetingAssignmentTupleJpaEntity();
         entity.companyId = companyId;
         entity.meetingId = meetingId;
@@ -177,6 +187,8 @@ public class MeetingAssignmentTupleJpaEntity {
         entity.title = clip(title, 300);
         entity.assigneeCandidateMemberId = assigneeCandidateMemberId;
         entity.assigneeSource = assigneeSource;
+        // 이 경로로 만들어진 행은 근접 매칭을 지났다 — NULL(미수행)은 이 코드 이전 행뿐이다.
+        entity.assigneeNearMatched = assigneeNearMatched;
         entity.dueDate = dueDate;
         entity.evidenceTranscriptId = evidenceTranscriptId;
         entity.modelName = clip(modelName, 60);

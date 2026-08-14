@@ -218,7 +218,7 @@ class TupleDistributionServiceTest {
     }
 
     private static AssignmentTupleRepository.StoredTuple stored(long id, AssignmentTuple tuple) {
-        return new AssignmentTupleRepository.StoredTuple(id, tuple, 1, "제품 로드맵", true);
+        return new AssignmentTupleRepository.StoredTuple(id, tuple, 1, "제품 로드맵", true, false);
     }
 
     /* 분배가 읽고 되짚는 것만 구현한 가짜. 나머지는 이 테스트가 부르지 않는다. */

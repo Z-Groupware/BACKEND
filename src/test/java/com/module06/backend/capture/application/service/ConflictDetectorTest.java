@@ -171,7 +171,8 @@ class ConflictDetectorTest {
     }
 
     private static StoredTuple stored(long id, AssignmentTuple tuple) {
-        return new StoredTuple(id, tuple, 1, "제품 로드맵", true);
+        // 근접 매칭 여부는 L6 판정에 쓰이지 않는다(L7 만 본다) — 기본을 false 로 둔다.
+        return new StoredTuple(id, tuple, 1, "제품 로드맵", true, false);
     }
 
     private static AssignmentTuple tuple(long ignoredSeq, String title, Long assignee,

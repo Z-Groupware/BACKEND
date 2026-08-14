@@ -94,6 +94,9 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                      ORDER BY rl.id DESC
                      LIMIT 1)                    AS reject_reason,
                    t.topic                       AS topic,
+                   -- 담당자를 코드가 이었는가(V5.22). action 에는 대응 컬럼이 없고 tuple 에만
+                   -- 있다 — 이미 JOIN 하고 있으므로 여기서 같이 읽는다.
+                   t.assignee_near_matched       AS assignee_near_matched,
                    t.gate_auto_confirmed         AS gate_auto_confirmed,
                    t.gate_has_evidence           AS gate_has_evidence,
                    t.gate_assignee_in_roster     AS gate_assignee_in_roster,
@@ -190,6 +193,9 @@ public class ActionReviewJdbcAdapter implements ActionReviewQueryPort {
                 rs.getString("detail"),
                 rs.getObject("due_date", java.time.LocalDate.class),
                 rs.getBoolean("due_date_defaulted"),
+                // NULL 을 false 로 바꾸지 않는다 — 미수행(과거 행·수동 액션)과 "모델이 정함"이
+                // 뭉치면 화면이 둘을 같게 보여준다.
+                nullableBoolean(rs, "assignee_near_matched"),
                 rs.getString("topic"),
                 rs.getBoolean("is_manual"),
                 rs.getString("review_status"),
