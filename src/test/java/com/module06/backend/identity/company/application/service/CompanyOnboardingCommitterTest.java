@@ -29,6 +29,7 @@ import com.module06.backend.identity.member.application.port.out.MemberDirectory
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
+import com.module06.backend.identity.member.domain.model.Role;
 import com.module06.backend.identity.member.domain.repository.RoleRepository;
 import com.module06.backend.identity.position.domain.model.Position;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
@@ -464,6 +465,7 @@ class CompanyOnboardingCommitterTest {
         }
     }
 
+    /* 온보딩이 쓰는 것은 create 뿐이다 — 나머지는 역할 CRUD(§6-10~6-12) 전용이라 여기선 비워 둔다. */
     private static final class FakeRole implements RoleRepository {
 
         private long nextId = 200L;
@@ -471,6 +473,24 @@ class CompanyOnboardingCommitterTest {
         @Override
         public Long create(Long companyId, Long teamId, String name) {
             return nextId++;
+        }
+
+        @Override
+        public Optional<Role> findByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean existsByTeamIdAndName(Long teamId, String name) {
+            return false;
+        }
+
+        @Override
+        public void rename(Long roleId, String name) {
+        }
+
+        @Override
+        public void delete(Long roleId) {
         }
     }
 

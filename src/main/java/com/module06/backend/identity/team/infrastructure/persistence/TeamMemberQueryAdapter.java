@@ -25,4 +25,9 @@ public class TeamMemberQueryAdapter implements TeamMemberQueryPort {
     public boolean hasActiveMembers(Long teamId) {
         return repository.existsByTeamIdAndDeletedAtIsNull(teamId);
     }
+
+    @Override
+    public boolean hasActiveMembersWithRole(Long roleId) {
+        return repository.existsByRoleIdAndDeletedAtIsNull(roleId);
+    }
 }

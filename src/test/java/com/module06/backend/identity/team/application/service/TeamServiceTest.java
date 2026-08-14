@@ -359,8 +359,18 @@ class TeamServiceTest {
 
         private final List<TeamMemberSummary> members = new ArrayList<>();
 
+        /*
+         * 역할은 TeamMemberSummary 에 없다 — 부서 목록이 역할별 인원 수를 쓰지 않아서다. 역할
+         * 삭제 검사(§6-12)에만 필요하므로 그 축만 따로 둔다.
+         */
+        private final Set<Long> roleIdsInUse = new HashSet<>();
+
         void addActiveMember(Long memberId, Long teamId, String name) {
             members.add(new TeamMemberSummary(memberId, teamId, name));
+        }
+
+        void assignRole(Long roleId) {
+            roleIdsInUse.add(roleId);
         }
 
         @Override
@@ -371,6 +381,11 @@ class TeamServiceTest {
         @Override
         public boolean hasActiveMembers(Long teamId) {
             return members.stream().anyMatch(m -> teamId.equals(m.teamId()));
+        }
+
+        @Override
+        public boolean hasActiveMembersWithRole(Long roleId) {
+            return roleIdsInUse.contains(roleId);
         }
     }
 
