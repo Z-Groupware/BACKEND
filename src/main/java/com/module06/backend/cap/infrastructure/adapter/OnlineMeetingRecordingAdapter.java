@@ -9,7 +9,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
-import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingFilePolicy;
@@ -20,7 +19,7 @@ import com.module06.backend.meeting.application.port.out.OnlineMeetingRecordingP
 import com.module06.backend.metering.application.command.ReportMeetingStorageUsageCommand;
 import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 
-/* D의 MEET-18 녹음 확정 포트를 CAP recording·S3·STT에 연결하는 어댑터다. */
+/* D의 MEET-18 녹음 확정 포트를 CAP recording·S3에 연결하는 어댑터다. */
 @Component
 @RequiredArgsConstructor
 public class OnlineMeetingRecordingAdapter implements OnlineMeetingRecordingPort {
@@ -30,7 +29,6 @@ public class OnlineMeetingRecordingAdapter implements OnlineMeetingRecordingPort
 
     private final RecordingRepository recordingRepository;
     private final CapObjectStoragePort capObjectStoragePort;
-    private final MeetingRecordingSttPort meetingRecordingSttPort;
     private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
 
     @Override
@@ -98,22 +96,13 @@ public class OnlineMeetingRecordingAdapter implements OnlineMeetingRecordingPort
         recordingRepository.save(Recording.register(
                 registration.meetingId(), registration.fileName(), s3Key, registration.sizeBytes(), true));
 
-        /* DB 커밋이 끝난 뒤에만 비동기 후속 처리를 시작한다. */
+        /* DB 커밋이 끝난 뒤에만 저장 용량 집계를 시작한다. */
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                triggerSttBestEffort(registration.meetingId(), s3Key);
                 reportStorageBestEffort(registration);
             }
         });
-    }
-
-    private void triggerSttBestEffort(Long meetingId, String s3Key) {
-        try {
-            meetingRecordingSttPort.triggerWholeFileStt(meetingId, s3Key);
-        } catch (RuntimeException exception) {
-            log.error("비대면 회의 STT 시작 실패 — meetingId={}", meetingId, exception);
-        }
     }
 
     private void reportStorageBestEffort(Registration registration) {

@@ -16,7 +16,7 @@ import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.meeting.application.port.out.OnlineMeetingRecordingPort;
 
-/* MEET-18 녹음 확정의 DB 커밋·S3 보상 삭제·커밋 후 STT 순서를 검증한다. */
+/* MEET-18 녹음 확정의 DB 커밋·S3 보상 삭제·커밋 후 용량 집계 순서를 검증한다. */
 class OnlineMeetingRecordingAdapterTest {
 
     @BeforeEach
@@ -32,16 +32,14 @@ class OnlineMeetingRecordingAdapterTest {
     }
 
     @Test
-    @DisplayName("recording 저장 후 커밋된 경우에만 STT와 용량 집계를 시작한다")
+    @DisplayName("recording 저장 후 커밋된 경우에만 용량 집계를 시작한다")
     void startsDownstreamOnlyAfterCommit() {
         RecordingRepositoryStub repository = new RecordingRepositoryStub();
         StorageStub storage = new StorageStub();
-        long[] sttMeetingId = new long[1];
         long[] reportedMeetingId = new long[1];
         OnlineMeetingRecordingAdapter adapter = new OnlineMeetingRecordingAdapter(
                 repository,
                 storage,
-                (meetingId, s3Key) -> sttMeetingId[0] = meetingId,
                 command -> reportedMeetingId[0] = command.meetingId()
         );
 
@@ -49,14 +47,13 @@ class OnlineMeetingRecordingAdapterTest {
         adapter.register(registration());
 
         assertThat(repository.saved).isNotNull();
-        assertThat(sttMeetingId[0]).isZero();
+        assertThat(reportedMeetingId[0]).isZero();
         TransactionSynchronizationManager.getSynchronizations()
                 .forEach(TransactionSynchronization::afterCommit);
         TransactionSynchronizationManager.getSynchronizations()
                 .forEach(synchronization ->
                         synchronization.afterCompletion(TransactionSynchronization.STATUS_COMMITTED));
 
-        assertThat(sttMeetingId[0]).isEqualTo(91L);
         assertThat(reportedMeetingId[0]).isEqualTo(91L);
         assertThat(storage.deletedKey).isNull();
     }
@@ -66,7 +63,7 @@ class OnlineMeetingRecordingAdapterTest {
     void deletesPendingObjectAfterRollback() {
         StorageStub storage = new StorageStub();
         OnlineMeetingRecordingAdapter adapter = new OnlineMeetingRecordingAdapter(
-                new RecordingRepositoryStub(), storage, (meetingId, s3Key) -> { }, command -> { });
+                new RecordingRepositoryStub(), storage, command -> { });
 
         adapter.prepare(preparation());
         adapter.register(registration());
