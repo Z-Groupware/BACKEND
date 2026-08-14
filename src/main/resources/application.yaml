@@ -115,6 +115,15 @@ rate-limit:
   password-change-per-member:
     limit: 5
     window: 5m
+  # 비밀번호 찾기. 공개 경로라 익명 대량 요청의 표면이다.
+  password-reset-per-ip:
+    limit: 5
+    window: 1m
+  # ⚠️ 여기만 성공도 센다. 성공하는 순간 그 계정 비밀번호가 실제로 바뀌어 로그인이 막히므로,
+  #    성공 자체가 공격 수단이다(로그인과 정반대). 그래서 전 경로 중 가장 좁다.
+  password-reset-per-account:
+    limit: 3
+    window: 24h
 
 server:
   # 컨테이너는 리버스 프록시 뒤에 있다. 이 설정이 없으면 getRemoteAddr() 이 프록시 주소만 줘서

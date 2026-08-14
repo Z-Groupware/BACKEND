@@ -27,6 +27,7 @@ import com.module06.backend.identity.auth.application.usecase.ChangeMyPasswordUs
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
+import com.module06.backend.identity.auth.application.usecase.ResetPasswordUseCase;
 import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.usecase.GetMyProfileUseCase;
 import com.module06.backend.identity.member.application.usecase.UpdateMyProfileUseCase;
@@ -76,6 +77,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private ChangeMyPasswordUseCase changeMyPasswordUseCase;
+
+    @MockitoBean
+    private ResetPasswordUseCase resetPasswordUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -383,6 +387,37 @@ class AuthControllerTest {
         assertThat(response).contains("newPassword");
         assertThat(response).doesNotContain("onlyletters");
         verify(changeMyPasswordUseCase, org.mockito.Mockito.never()).changePassword(any());
+    }
+
+    /*
+     * 새 비밀번호가 응답에 실리면 이메일 소유를 확인하지 않고도 화면에서 남의 비밀번호를 읽을 수
+     * 있게 되어, 이 API 가 곧 계정 탈취 도구가 된다. 메일이 유일한 전달 경로여야 한다.
+     */
+    @Test
+    @DisplayName("비밀번호 찾기 응답에는 새 비밀번호가 실리지 않는다")
+    void resetResponseCarriesNoPassword() throws Exception {
+        mockMvc.perform(post("/api/auth/password/reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyCode":"8AS2-G8T1","email":"hayun@zgroup.co.kr"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        verify(resetPasswordUseCase).resetPassword(any());
+    }
+
+    @Test
+    @DisplayName("비밀번호 찾기는 기업 코드가 없으면 400 — 이메일만으로는 계정을 특정할 수 없다")
+    void resetRequiresCompanyCode() throws Exception {
+        mockMvc.perform(post("/api/auth/password/reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"hayun@zgroup.co.kr"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(resetPasswordUseCase, org.mockito.Mockito.never()).resetPassword(any());
     }
 
     @Test
