@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 class StorageMeteringServiceTest {
 
     private static final Long COMPANY = 7L;
+    private static final Long PROJECT = 9L;
     private static final Long MEETING = 500L;
     private static final Clock FIXED_CLOCK =
             Clock.fixed(Instant.parse("2026-08-07T03:00:00Z"), ZoneId.of("Asia/Seoul"));
@@ -54,7 +55,7 @@ class StorageMeteringServiceTest {
     void reportSavesSnapshotWithFixedClockTimestamp() {
         ArgumentCaptor<MeetingStorageUsage> captor = ArgumentCaptor.forClass(MeetingStorageUsage.class);
 
-        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 12_345L, 1L));
+        service.report(new ReportMeetingStorageUsageCommand(COMPANY, PROJECT, MEETING, 12_345L, 1L));
 
         verify(meetingStorageUsageRepository).reportIfNewer(captor.capture());
         MeetingStorageUsage saved = captor.getValue();
@@ -72,8 +73,8 @@ class StorageMeteringServiceTest {
     void reportDelegatesEveryCallToRepositoryRegardlessOfRevisionOrdering() {
         // revision 비교·무시 판정은 MeetingStorageUsageRepository 구현(락 기반 CAS)의 책임이다 —
         // 서비스는 매번 그대로 위임만 한다는 걸 확인한다.
-        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 20_000L, 5L));
-        service.report(new ReportMeetingStorageUsageCommand(COMPANY, MEETING, 10_000L, 3L));
+        service.report(new ReportMeetingStorageUsageCommand(COMPANY, PROJECT, MEETING, 20_000L, 5L));
+        service.report(new ReportMeetingStorageUsageCommand(COMPANY, PROJECT, MEETING, 10_000L, 3L));
 
         verify(meetingStorageUsageRepository, times(2)).reportIfNewer(any());
     }

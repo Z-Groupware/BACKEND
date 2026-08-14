@@ -80,6 +80,11 @@ class CompletePartUploadWriterTest {
             public void deleteByMeetingId(Long meetingId) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
+
+            @Override
+            public java.util.List<RecordingPart> findAllByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
         CaptureUploadStateRepository stateRepo = new CaptureUploadStateRepository() {
             @Override
@@ -188,6 +193,11 @@ class CompletePartUploadWriterTest {
 
             @Override
             public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public java.util.List<RecordingPart> findAllByMeetingId(Long meetingId) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };

@@ -1,6 +1,9 @@
 package com.module06.backend.metering.domain.repository;
 
 import com.module06.backend.metering.domain.model.MeetingStorageUsage;
+import com.module06.backend.metering.domain.model.ProjectStorageSummary;
+
+import java.util.List;
 
 public interface MeetingStorageUsageRepository {
 
@@ -13,4 +16,10 @@ public interface MeetingStorageUsageRepository {
 
     /** 이 회사의 모든 회의 스냅샷을 합산한 현재 총 사용량. */
     long sumUsedBytesByCompanyId(Long companyId);
+
+    /**
+     * 이 회사의 모든 회의 스냅샷을 project_id로 묶어 프로젝트별 음성 사용량·회의 수·마지막 녹음
+     * 일시를 낸다(저장소 관리 화면의 프로젝트별 내역용).
+     */
+    List<ProjectStorageSummary> summarizeByProjectId(Long companyId);
 }

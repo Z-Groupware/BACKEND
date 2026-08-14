@@ -11,21 +11,25 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
 import com.module06.backend.cap.application.command.StartRecordingAssemblyCommand;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
+import com.module06.backend.cap.application.command.IssueManualRecordingUploadUrlCommand;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
+import com.module06.backend.cap.application.usecase.IssueManualRecordingUploadUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.presentation.api.dto.request.ManualRecordingRequest;
+import com.module06.backend.cap.presentation.api.dto.request.ManualRecordingUploadUrlRequest;
 import com.module06.backend.cap.presentation.api.dto.request.StartRecordingAssemblyRequest;
 import com.module06.backend.cap.presentation.api.dto.response.DeleteRecordingResponse;
 import com.module06.backend.cap.presentation.api.dto.response.ManualRecordingResponse;
+import com.module06.backend.cap.presentation.api.dto.response.ManualRecordingUploadUrlResponse;
 import com.module06.backend.cap.presentation.api.dto.response.PlaybackUrlResponse;
 import com.module06.backend.cap.presentation.api.dto.response.RecordingAssemblyResponse;
 import com.module06.backend.global.response.ApiResponse;
 
 /*
- * CAP-05 조립 · CAP-10 수동 업로드 · CAP-14 재생 URL · CAP-15 삭제 Controller가 인증 principal·본문을
- * 유스케이스에 넘기고 공통 응답으로 변환하는지 검증하는 단위 테스트다.
+ * CAP-05 조립 · CAP-10 수동 업로드(및 그 presign) · CAP-14 재생 URL · CAP-15 삭제 Controller가
+ * 인증 principal·본문을 유스케이스에 넘기고 공통 응답으로 변환하는지 검증하는 단위 테스트다.
  */
 @DisplayName("CAP-05·10·14·15 녹음 Controller")
 class RecordingControllerTest {
@@ -39,8 +43,8 @@ class RecordingControllerTest {
             captured[0] = command;
             return new StartRecordingAssemblyUseCase.Result("ASSEMBLING", List.of());
         };
-        RecordingController controller =
-                new RecordingController(assembleUseCase, failingManual(), failingPlayback(), failingDelete());
+        RecordingController controller = new RecordingController(assembleUseCase, failingIssueUploadUrl(),
+                failingManual(), failingPlayback(), failingDelete());
 
         ApiResponse<RecordingAssemblyResponse> response =
                 controller.assemble(500L, 7L, new StartRecordingAssemblyRequest(0, 241));
@@ -49,6 +53,33 @@ class RecordingControllerTest {
         assertThat(captured[0].callerId()).isEqualTo(7L);
         assertThat(response.getHttpStatus()).isEqualTo(202);
         assertThat(response.getData()).isNotNull().satisfies(d -> assertThat(d.status()).isEqualTo("ASSEMBLING"));
+    }
+
+    /* 수동 업로드용 presigned URL 발급이 200 응답에 s3Key·URL로 매핑되는지 검증한다. */
+    @Test
+    @DisplayName("수동 녹음 업로드 URL 발급을 200 공통 응답으로 반환한다")
+    void returnsManualRecordingUploadUrl() {
+        IssueManualRecordingUploadUrlCommand[] captured = new IssueManualRecordingUploadUrlCommand[1];
+        IssueManualRecordingUploadUrlUseCase issueUploadUrlUseCase = command -> {
+            captured[0] = command;
+            return new IssueManualRecordingUploadUrlUseCase.Result(
+                    "recordings/org-1/meeting-500/recording.ogg", "https://s3/presigned-put", 900);
+        };
+        RecordingController controller = new RecordingController(failingAssemble(), issueUploadUrlUseCase,
+                failingManual(), failingPlayback(), failingDelete());
+
+        ApiResponse<ManualRecordingUploadUrlResponse> response = controller.manualUploadUrl(
+                500L, 7L, new ManualRecordingUploadUrlRequest("recording.ogg", "audio/ogg"));
+
+        assertThat(captured[0].meetingId()).isEqualTo(500L);
+        assertThat(captured[0].callerId()).isEqualTo(7L);
+        assertThat(captured[0].fileName()).isEqualTo("recording.ogg");
+        assertThat(response.getHttpStatus()).isEqualTo(200);
+        assertThat(response.getData()).isNotNull().satisfies(d -> {
+            assertThat(d.s3Key()).isEqualTo("recordings/org-1/meeting-500/recording.ogg");
+            assertThat(d.uploadUrl()).isEqualTo("https://s3/presigned-put");
+            assertThat(d.expiresInSeconds()).isEqualTo(900);
+        });
     }
 
     /* 수동 업로드가 200 응답에 DONE으로 매핑되는지 검증한다. */
@@ -60,8 +91,8 @@ class RecordingControllerTest {
             captured[0] = command;
             return new RegisterManualRecordingUseCase.Result(command.meetingId(), 0L, command.sizeBytes(), "DONE");
         };
-        RecordingController controller =
-                new RecordingController(failingAssemble(), manualUseCase, failingPlayback(), failingDelete());
+        RecordingController controller = new RecordingController(failingAssemble(), failingIssueUploadUrl(),
+                manualUseCase, failingPlayback(), failingDelete());
 
         ApiResponse<ManualRecordingResponse> response = controller.manual(
                 500L, 7L, new ManualRecordingRequest("recordings/org-1/meeting-500/recording.ogg", 15_000_000L));
@@ -83,8 +114,8 @@ class RecordingControllerTest {
             capturedRequester[0] = requester;
             return new GetPlaybackUrlUseCase.Result("https://s3/playback.ogg", 10800, 3_612_000L);
         };
-        RecordingController controller =
-                new RecordingController(failingAssemble(), failingManual(), playbackUseCase, failingDelete());
+        RecordingController controller = new RecordingController(failingAssemble(), failingIssueUploadUrl(),
+                failingManual(), playbackUseCase, failingDelete());
 
         ApiResponse<PlaybackUrlResponse> response = controller.playbackUrl(500L, 7L, 1L, null, "MEMBER", false);
 
@@ -112,8 +143,8 @@ class RecordingControllerTest {
             capturedConfirm[0] = confirm;
             return new DeleteRecordingUseCase.Result(LocalDateTime.of(2026, 8, 10, 9, 0), 10_485_760L);
         };
-        RecordingController controller =
-                new RecordingController(failingAssemble(), failingManual(), failingPlayback(), deleteUseCase);
+        RecordingController controller = new RecordingController(failingAssemble(), failingIssueUploadUrl(),
+                failingManual(), failingPlayback(), deleteUseCase);
 
         ApiResponse<DeleteRecordingResponse> response = controller.delete(500L, 1L, true);
 
@@ -134,6 +165,12 @@ class RecordingControllerTest {
     private StartRecordingAssemblyUseCase failingAssemble() {
         return command -> {
             throw new AssertionError("이 테스트에서 assemble 유스케이스는 호출되면 안 됩니다.");
+        };
+    }
+
+    private IssueManualRecordingUploadUrlUseCase failingIssueUploadUrl() {
+        return command -> {
+            throw new AssertionError("이 테스트에서 issueManualRecordingUploadUrl 유스케이스는 호출되면 안 됩니다.");
         };
     }
 

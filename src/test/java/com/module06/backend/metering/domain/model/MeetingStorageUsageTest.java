@@ -14,19 +14,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MeetingStorageUsageTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 11, 0, 0);
+    private static final Long PROJECT_ID = 9L;
 
     @Test
     void higherRevisionIsNewer() {
-        MeetingStorageUsage stored = MeetingStorageUsage.restore(500L, 7L, 10_000L, 3L, NOW);
-        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, 20_000L, 5L, NOW);
+        MeetingStorageUsage stored = MeetingStorageUsage.restore(500L, 7L, PROJECT_ID, 10_000L, 3L, NOW);
+        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, PROJECT_ID, 20_000L, 5L, NOW);
 
         assertThat(incoming.isNewerThan(stored)).isTrue();
     }
 
     @Test
     void equalRevisionIsNotNewer() {
-        MeetingStorageUsage stored = MeetingStorageUsage.restore(500L, 7L, 10_000L, 5L, NOW);
-        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, 999_999L, 5L, NOW);
+        MeetingStorageUsage stored = MeetingStorageUsage.restore(500L, 7L, PROJECT_ID, 10_000L, 5L, NOW);
+        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, PROJECT_ID, 999_999L, 5L, NOW);
 
         assertThat(incoming.isNewerThan(stored)).isFalse();
     }
@@ -34,15 +35,15 @@ class MeetingStorageUsageTest {
     @Test
     void lowerRevisionArrivingLateIsNotNewer() {
         // 뒤바뀐 순서로 도착한 report — revision이 더 작으면 usedBytes가 더 커도 무시해야 한다.
-        MeetingStorageUsage stored = MeetingStorageUsage.restore(500L, 7L, 20_000L, 5L, NOW);
-        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, 999_999L, 3L, NOW);
+        MeetingStorageUsage stored = MeetingStorageUsage.restore(500L, 7L, PROJECT_ID, 20_000L, 5L, NOW);
+        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, PROJECT_ID, 999_999L, 3L, NOW);
 
         assertThat(incoming.isNewerThan(stored)).isFalse();
     }
 
     @Test
     void anyRevisionIsNewerWhenNothingStoredYet() {
-        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, 1_000L, 0L, NOW);
+        MeetingStorageUsage incoming = MeetingStorageUsage.report(500L, 7L, PROJECT_ID, 1_000L, 0L, NOW);
 
         assertThat(incoming.isNewerThan(null)).isTrue();
     }
