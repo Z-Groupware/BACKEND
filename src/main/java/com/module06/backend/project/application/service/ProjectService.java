@@ -152,7 +152,7 @@ public class ProjectService implements
                     Project project = projectRepository.findById(item.projectId())
                             .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
                     projectOwnerOnlyPolicy.check(project, command.requesterId());
-                    project.changeStatus(item.status());
+                    project.changeStatus(item.status(), LocalDate.now());
                     return project;
                 })
                 .toList();
