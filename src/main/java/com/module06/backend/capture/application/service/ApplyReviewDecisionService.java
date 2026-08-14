@@ -58,6 +58,12 @@ import com.module06.backend.global.exception.BusinessException;
  * <h2>회사 스코프를 두 겹으로 지난다</h2>
  * MeetingAccessGuard 가 회의를, 조회가 actionId 를 본다. 관문은 회의까지만 보므로 회의는 내
  * 것인데 actionId 만 남의 것을 넣는 경로가 남는다 — 그건 조회에서 걸러진다(#100 과 같은 자리).
+ *
+ * <h2>teamId 는 담당자의 대체재다(2026-08-13, 오너 회의 검토화면 부서선택)</h2>
+ * AI가 회의에서 부서를 자동 추론하지 못해(텍스트 기반 추론 자체를 포기함, 8/13 팀 확정)
+ * 사람이 여기서 부서를 직접 골라 PERSONAL을 TEAM으로 전환한다. 담당자와 상호 배타적이고
+ * ({@link #requireDecisionShape}), 확정 관문도 담당자와 같은 자리에서 함께 면제된다
+ * ({@link #requireAssigneeForConfirm}).
  */
 @Slf4j
 @Service
@@ -105,15 +111,15 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
          */
         if (command.decision() == ReviewDecision.REJECT) {
             actionReviewApplyPort.apply(command.companyId(), target.actionId(),
-                    null, null, null, null, null, reviewStatus);
+                    null, null, null, null, null, null, reviewStatus);
         } else {
             /*
              * 인자 순서에 LocalDate 가 둘이다(dueDate · plannedStartDate). 포트 주석의 경고가
              * 이 호출을 가리킨다 — 뒤집으면 컴파일되고 아무 예외도 안 나며, 기한과 예정
              * 시작일이 서로 바뀌어 저장된다.
              */
-            actionReviewApplyPort.apply(command.companyId(), target.actionId(), assignee, command.dueDate(),
-                    command.title(), command.detail(), command.plannedStartDate(), reviewStatus);
+            actionReviewApplyPort.apply(command.companyId(), target.actionId(), assignee, command.teamId(),
+                    command.dueDate(), command.title(), command.detail(), command.plannedStartDate(), reviewStatus);
         }
 
         List<Long> reviewLogIds = appendReviewLogs(command, target, assignee, roster);
@@ -146,6 +152,11 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
      *
      * <b>값</b> — CONFIRM 에는 담당자·기한·제목·내용을 함께 보낼 수 없다(이유는 기존과 동일).
      * <b>MODIFY 값</b> — 넷 다 null이면 "뭘 고쳤다는 건지" 알 수 없어 거절한다(2026-08-11 추가).
+     *
+     * <b>teamId(2026-08-13 추가)</b> — 담당자와 상호 배타적이다. 같은 액션이 사람 하나와
+     * 부서 하나를 동시에 가질 수 없다(ActionTypeShapePolicy). CONFIRM 금지·MODIFY 유효값
+     * 취급은 담당자와 동일하게 다룬다 — AI 값을 "고치는" 게 아니라 화면이 담당자 대신 부서를
+     * 보여주는 것뿐이라 성격이 같다(plannedStartDate 와는 다르다).
      */
     private void requireDecisionShape(ReviewDecisionCommand command) {
         boolean needsReason = command.decision() == ReviewDecision.REJECT;
@@ -154,6 +165,9 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         }
         if (command.decision() == ReviewDecision.REJECT && !command.rejectReason().isHumanSelectable()) {
             throw new BusinessException(CaptureErrorCode.REVIEW_REASON_NOT_SELECTABLE);
+        }
+        if (command.assignee() != null && command.teamId() != null) {
+            throw new BusinessException(CaptureErrorCode.REVIEW_ASSIGNEE_TEAM_CONFLICT);
         }
         /*
          * ⚠ plannedStartDate 는 이 검사에서 **일부러 빠진다**(#386 후속).
@@ -165,7 +179,7 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
          * 별도 요청으로 다시 보내야 한다.
          */
         if (command.decision() == ReviewDecision.CONFIRM
-                && (command.assignee() != null || command.dueDate() != null
+                && (command.assignee() != null || command.teamId() != null || command.dueDate() != null
                     || command.title() != null || command.detail() != null)) {
             throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_WITH_VALUE);
         }
@@ -175,7 +189,7 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
          * 빈 요청이다.
          */
         if (command.decision() == ReviewDecision.MODIFY
-                && command.assignee() == null && command.dueDate() == null
+                && command.assignee() == null && command.teamId() == null && command.dueDate() == null
                 && command.title() == null && command.detail() == null
                 && command.plannedStartDate() == null) {
             throw new BusinessException(CaptureErrorCode.REVIEW_MODIFY_VALUE_REQUIRED);
@@ -224,9 +238,15 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
      * ⚠ TEAM 액션도 대상이 아니다. 담당자 개념이 없으므로(ActionTypeShapePolicy) 함께 막으면
      * 팀 액션은 영원히 확정되지 않는다. actionType 을 읽지 못한 경우(null)는 면제하지 않는다 —
      * 게이트는 조이는 방향으로만 쓴다.
+     *
+     * 2026-08-13 — 이번 요청이 teamId 로 전환하는 중이면(target.actionType() 은 아직 이전
+     * DB 값이라 PERSONAL 로 읽힌다) 마찬가지로 면제한다. 전환 뒤에는 TEAM 이 될 것이 확정된
+     * 요청이라, 여기서 담당자를 요구하면 전환 자체가 막힌다.
      */
     private void requireAssigneeForConfirm(ReviewDecisionCommand command, ReviewTarget target, Long assignee) {
-        if (command.decision() == ReviewDecision.REJECT || target.actionType() == ActionType.TEAM) {
+        if (command.decision() == ReviewDecision.REJECT
+                || target.actionType() == ActionType.TEAM
+                || command.teamId() != null) {
             return;
         }
         if (assignee == null && target.assigneeMemberId() == null) {
@@ -415,6 +435,10 @@ public class ApplyReviewDecisionService implements ApplyReviewDecisionUseCase {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("title", !rejected && command.title() != null ? command.title() : target.title());
         value.put("detail", !rejected && command.detail() != null ? command.detail() : target.detail());
+        // teamId 전환은 라벨을 안 남긴다(appendReviewLogs, teamId 단독 요청은 changedFieldReasons가
+        // 비어 이 메서드까지 안 온다) — 그래서 여기 assigneeMemberId는 항상 담당자 관점 값이다.
+        // 부서선택 화면엔 제목·내용 입력이 없어(홍근 8/13 확정) teamId+제목/내용을 같이 보내는
+        // 조합은 FE가 안 만든다.
         value.put("assigneeMemberId", assignee != null ? assignee : target.assigneeMemberId());
         LocalDate dueDate = !rejected && command.dueDate() != null ? command.dueDate() : target.dueDate();
         value.put("dueDate", dueDate != null ? dueDate.toString() : null);

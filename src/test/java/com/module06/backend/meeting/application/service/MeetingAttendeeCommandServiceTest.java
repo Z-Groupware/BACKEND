@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.application.command.ReplaceMeetingAttendeesCommand;
 import com.module06.backend.meeting.application.event.MeetingAttendeesAddedEvent;
+import com.module06.backend.meeting.application.event.MeetingAttendeesRemovedEvent;
 import com.module06.backend.meeting.application.event.MeetingReservedEvent;
 import com.module06.backend.meeting.application.port.out.MeetingEventPublisher;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
@@ -62,6 +63,34 @@ class MeetingAttendeeCommandServiceTest {
         /* 기존 명단에 없던 11번 구성원만 초대 이벤트 대상이어야 한다. */
         assertThat(eventPublisher.attendeeEvents).singleElement().satisfies(event ->
                 assertThat(event.addedAttendeeMemberIds()).containsExactly(11L)
+        );
+
+        /* 제외된 구성원이 없으므로 제외 이벤트는 발행되지 않아야 한다. */
+        assertThat(eventPublisher.removedEvents).isEmpty();
+    }
+
+    /* 기존 명단에만 있던 구성원이 빠지면 제외 이벤트만 발행되는지 검증한다. */
+    @Test
+    @DisplayName("명단에서 빠진 구성원만 제외 이벤트를 발행한다")
+    void publishesRemovedEventForDroppedAttendee() {
+        /* 기존 3·7·11 명단에서 11번을 뺀 교체를 요청한다. */
+        RecordingMeetingRepository writeRepository = new RecordingMeetingRepository();
+        RecordingEventPublisher eventPublisher = new RecordingEventPublisher();
+        MeetingAttendeeCommandService service = service(
+                meeting(MeetingStatus.SCHEDULED, List.of(3L, 7L, 11L)),
+                writeRepository,
+                eventPublisher,
+                members(3L, 7L)
+        );
+
+        service.replaceMeetingAttendees(command(3L, "MEMBER", false, List.of(7L)));
+
+        /* 새로 추가된 구성원이 없으므로 추가 이벤트는 발행되지 않아야 한다. */
+        assertThat(eventPublisher.attendeeEvents).isEmpty();
+
+        /* 기존 명단에만 있던 11번만 제외 이벤트 대상이어야 한다. */
+        assertThat(eventPublisher.removedEvents).singleElement().satisfies(event ->
+                assertThat(event.removedAttendeeMemberIds()).containsExactly(11L)
         );
     }
 
@@ -280,6 +309,13 @@ class MeetingAttendeeCommandServiceTest {
             throw new AssertionError("MEET-09에서는 신규 회의를 저장하면 안 됩니다.");
         }
 
+        /* MEET-18 신규 온라인 회의 저장도 MEET-09 서비스 테스트에서 사용하지 않는다. */
+        @Override
+        public Meeting saveOnlineReservation(Meeting meeting) {
+            /* 호출되지 않는 계약이므로 테스트 실패로 잘못된 경로를 드러낸다. */
+            throw new AssertionError("MEET-09에서는 신규 온라인 회의를 저장하면 안 됩니다.");
+        }
+
         /* 대상 회의와 최종 참석자 명단을 검증할 수 있도록 기록한다. */
         @Override
         public void replaceAttendees(Long meetingId, List<Long> attendeeMemberIds) {
@@ -289,11 +325,14 @@ class MeetingAttendeeCommandServiceTest {
         }
     }
 
-    /* MEET-09가 발행한 새 참석자 이벤트만 기록하는 이벤트 Publisher 대역이다. */
+    /* MEET-09가 발행한 참석자 추가·제외 이벤트를 기록하는 이벤트 Publisher 대역이다. */
     private static final class RecordingEventPublisher implements MeetingEventPublisher {
 
         /* 검증할 참석자 추가 이벤트 목록이다. */
         private final List<MeetingAttendeesAddedEvent> attendeeEvents = new ArrayList<>();
+
+        /* 검증할 참석자 제외 이벤트 목록이다. */
+        private final List<MeetingAttendeesRemovedEvent> removedEvents = new ArrayList<>();
 
         /* 예약 이벤트는 MEET-09 서비스 테스트에서 사용하지 않는다. */
         @Override
@@ -307,6 +346,13 @@ class MeetingAttendeeCommandServiceTest {
         public void publish(MeetingAttendeesAddedEvent event) {
             /* 이벤트 발행 횟수와 대상 구성원을 확인할 수 있도록 저장한다. */
             attendeeEvents.add(event);
+        }
+
+        /* 참석자 제외 이벤트를 검증 목록에 기록한다. */
+        @Override
+        public void publish(MeetingAttendeesRemovedEvent event) {
+            /* 이벤트 발행 횟수와 대상 구성원을 확인할 수 있도록 저장한다. */
+            removedEvents.add(event);
         }
     }
 }

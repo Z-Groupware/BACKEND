@@ -18,15 +18,20 @@ import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
+import com.module06.backend.meeting.application.result.OnlineMeetingCreationResult;
 import com.module06.backend.meeting.application.usecase.CreateMeetingUseCase;
+import com.module06.backend.meeting.application.usecase.CreateOnlineMeetingUseCase;
 import com.module06.backend.meeting.presentation.api.request.CreateMeetingRequest;
+import com.module06.backend.meeting.presentation.api.request.CreateOnlineMeetingRequest;
 import com.module06.backend.meeting.presentation.api.response.CreateMeetingResponse;
+import com.module06.backend.meeting.presentation.api.response.CreateOnlineMeetingResponse;
 
 /*
  * 회의 REST API의 진입점이다.
  *
  * MEET-01에서는 인증 principal의 회사·구성원·팀 식별자와 요청 본문을 합쳐 회의 예약 유스케이스를 실행한다.
  * companyId와 hostMemberId를 본문으로 받지 않아 다른 회사 또는 다른 사용자를 가장한 예약을 차단한다.
+ * MEET-18은 같은 방식으로 회의실과 예약 시간 없이 비대면 회의를 개설한다.
  */
 @Tag(name = "Meeting", description = "회의 예약 및 진행 API")
 @RestController
@@ -36,6 +41,9 @@ public class MeetingController {
 
     /* MEET-01 프레젠테이션 계층과 애플리케이션 계층 사이의 인바운드 포트다. */
     private final CreateMeetingUseCase createMeetingUseCase;
+
+    /* MEET-18 프레젠테이션 계층과 애플리케이션 계층 사이의 인바운드 포트다. */
+    private final CreateOnlineMeetingUseCase createOnlineMeetingUseCase;
 
     /*
      * 회의실, 시간, 프로젝트와 참석자를 확정해 새 회의를 예약한다.
@@ -75,6 +83,47 @@ public class MeetingController {
         return ApiResponse.created(
                 "회의를 예약했습니다.",
                 CreateMeetingResponse.from(result)
+        );
+    }
+
+    /*
+     * 회의실과 시작·종료 일시 없이 비대면 회의를 개설하고 참석자 명단을 확정한다.
+     * 개설자는 요청 참석자 목록에 없어도 유스케이스에서 자동으로 포함한다.
+     *
+     * @param companyId 인증 principal에서 추출한 회사 식별자
+     * @param memberId 인증 principal에서 추출한 개설자 식별자
+     * @param teamId 인증 principal에서 추출한 개설자 소속 팀 식별자
+     * @param role 인증 principal에서 추출한 개설자 역할
+     * @param request 검증된 비대면 회의 개설 요청 본문
+     * @return 공통 생성 성공 응답으로 감싼 온라인 회의 개설 결과
+     */
+    @Operation(
+            summary = "비대면 회의 개설",
+            description = "회의실과 예약 시간 없이 비대면 회의를 개설하고 개설자를 포함한 참석자 명단을 확정합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping("/online")
+    public ApiResponse<CreateOnlineMeetingResponse> createOnlineMeeting(
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "companyId") Long companyId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "teamId") Long teamId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal(expression = "authority") String role,
+            @Valid @RequestBody CreateOnlineMeetingRequest request
+    ) {
+        /* 인증 정보와 요청 값을 결합한 명령으로 온라인 회의 개설 유스케이스를 실행한다. */
+        OnlineMeetingCreationResult result = createOnlineMeetingUseCase.createOnlineMeeting(
+                request.toCommand(companyId, memberId, teamId, role)
+        );
+
+        /* 201 Created 상태와 명세의 응답 data를 프로젝트 공통 래퍼로 반환한다. */
+        return ApiResponse.created(
+                "비대면 회의를 개설했습니다.",
+                CreateOnlineMeetingResponse.from(result)
         );
     }
 

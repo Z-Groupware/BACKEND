@@ -73,6 +73,26 @@ public class MeetingPersistenceAdapter implements
         return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
     }
 
+    /*
+     * 회의 기본 행과 참석자만 저장한다(MEET-18 비대면 회의).
+     *
+     * 회의실이 없어 예약 슬롯을 점유하지 않으므로 물리 회의와 달리 슬롯 저장을 생략한다.
+     *
+     * @param meeting 저장할 신규 온라인 회의
+     * @return 데이터베이스 생성 값이 반영된 회의
+     */
+    @Override
+    public Meeting saveOnlineReservation(Meeting meeting) {
+        /* IDENTITY 식별자를 확보해 참석자 행에 사용할 수 있게 한다. */
+        MeetingJpaEntity savedMeeting = springDataMeetingRepository.saveAndFlush(MeetingJpaEntity.from(meeting));
+
+        /* 개설자를 포함해 검증된 참석자 전체를 입장 허용 명단으로 저장한다. */
+        persistAttendees(meeting, savedMeeting.getId());
+
+        /* 저장된 회의 값과 원래의 참석자 순서를 합쳐 도메인 애그리거트로 복원한다. */
+        return savedMeeting.toDomain(meeting.getAttendeeMemberIds());
+    }
+
     /* 회사 범위의 회의를 잠그고 종료 응답과 A 스냅숏에 필요한 최신 참석자까지 복원한다. */
     @Override
     public Optional<Meeting> findForCompletion(Long companyId, Long meetingId) {

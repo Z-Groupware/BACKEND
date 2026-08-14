@@ -191,7 +191,7 @@ class ProjectControllerTest {
     @DisplayName("목록도 토큰의 회사로만 조회한다")
     void listTakesCompanyFromToken() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any(), any(), any(), any(), anyInt(), anyInt())).thenReturn(
+        when(getProjectListUseCase.list(any(), any(), any(), any(), any(), anyInt(), anyInt())).thenReturn(
                 new GetProjectListUseCase.ProjectListResult(
                         List.of(new GetProjectListUseCase.ProjectListItem(project(1L), 0, 0, 0, List.of())), 1L));
 
@@ -199,27 +199,27 @@ class ProjectControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].description").value("설명"));
 
-        verify(getProjectListUseCase).list(1L, null, null, "desc", 0, 20);
+        verify(getProjectListUseCase).list(1L, null, null, null, "desc", 0, 20);
     }
 
     @Test
     @DisplayName("목록 조회도 헤더를 무시한다")
     void listIgnoresSpoofedHeader() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getProjectListUseCase.list(any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetProjectListUseCase.ProjectListResult(List.of(), 0L));
 
         mockMvc.perform(get("/api/projects").header("X-Company-Id", "999"))
                 .andExpect(status().isOk());
 
-        verify(getProjectListUseCase).list(eq(1L), eq(null), eq(null), eq("desc"), eq(0), eq(20));
+        verify(getProjectListUseCase).list(eq(1L), eq(null), eq(null), eq(null), eq("desc"), eq(0), eq(20));
     }
 
     @Test
     @DisplayName("목록 조회는 page/size 쿼리파라미터를 그대로 UseCase에 전달한다")
     void listPassesPageAndSizeThrough() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getProjectListUseCase.list(any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetProjectListUseCase.ProjectListResult(List.of(), 0L));
 
         mockMvc.perform(get("/api/projects").param("page", "2").param("size", "5"))
@@ -227,14 +227,14 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.size").value(5));
 
-        verify(getProjectListUseCase).list(1L, null, null, "desc", 2, 5);
+        verify(getProjectListUseCase).list(1L, null, null, null, "desc", 2, 5);
     }
 
     @Test
     @DisplayName("목록 조회는 status·sort·order 쿼리파라미터도 그대로 전달한다 (2026-08-10, 이홍근 요청)")
     void listPassesFilterAndSortThrough() throws Exception {
         authenticateAs(1L, 3L);
-        when(getProjectListUseCase.list(any(), any(), any(), any(), anyInt(), anyInt()))
+        when(getProjectListUseCase.list(any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new GetProjectListUseCase.ProjectListResult(List.of(), 0L));
 
         mockMvc.perform(get("/api/projects")
@@ -243,7 +243,20 @@ class ProjectControllerTest {
                         .param("order", "asc"))
                 .andExpect(status().isOk());
 
-        verify(getProjectListUseCase).list(1L, ProjectStatus.IN_PROGRESS, "dueDate", "asc", 0, 20);
+        verify(getProjectListUseCase).list(1L, null, ProjectStatus.IN_PROGRESS, "dueDate", "asc", 0, 20);
+    }
+
+    @Test
+    @DisplayName("목록 조회는 keyword 쿼리파라미터도 그대로 전달한다 (2026-08-13, 이홍근 요청)")
+    void listPassesKeywordThrough() throws Exception {
+        authenticateAs(1L, 3L);
+        when(getProjectListUseCase.list(any(), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(new GetProjectListUseCase.ProjectListResult(List.of(), 0L));
+
+        mockMvc.perform(get("/api/projects").param("keyword", "제브라"))
+                .andExpect(status().isOk());
+
+        verify(getProjectListUseCase).list(1L, "제브라", null, null, "desc", 0, 20);
     }
 
     @Test

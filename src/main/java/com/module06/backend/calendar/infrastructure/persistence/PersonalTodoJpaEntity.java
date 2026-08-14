@@ -46,6 +46,9 @@ public class PersonalTodoJpaEntity {
     @Column(name = "date", nullable = false)
     private LocalDate date;
 
+    @Column(name = "end_date", nullable = false)
+    private LocalDate endDate;
+
     @Column(name = "is_done", nullable = false)
     private boolean isDone;
 
@@ -59,13 +62,14 @@ public class PersonalTodoJpaEntity {
 
     @Builder
     private PersonalTodoJpaEntity(
-            Long id, Long companyId, Long memberId, String title, LocalDate date, boolean isDone
+            Long id, Long companyId, Long memberId, String title, LocalDate date, LocalDate endDate, boolean isDone
     ) {
         this.id = id;
         this.companyId = companyId;
         this.memberId = memberId;
         this.title = title;
         this.date = date;
+        this.endDate = endDate;
         this.isDone = isDone;
     }
 }

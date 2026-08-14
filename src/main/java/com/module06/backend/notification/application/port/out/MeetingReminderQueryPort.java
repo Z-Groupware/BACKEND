@@ -22,7 +22,12 @@ public interface MeetingReminderQueryPort {
             LocalDateTime startAt,
             LocalDateTime endAt,
             Long meetingRoomId,
-            String meetingRoomName
+            String meetingRoomName,
+            List<Long> attendeeMemberIds
     ) {
+        /* 어댑터가 반환한 최종 참석자 명단을 이후 단계에서 변경할 수 없게 고정한다. */
+        public MeetingReminderTarget {
+            attendeeMemberIds = List.copyOf(attendeeMemberIds);
+        }
     }
 }

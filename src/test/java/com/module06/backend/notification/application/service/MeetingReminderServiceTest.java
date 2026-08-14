@@ -11,13 +11,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.module06.backend.notification.application.port.out.CompanyMemberQueryPort;
 import com.module06.backend.notification.application.port.out.MeetingReminderQueryPort;
 import com.module06.backend.notification.application.port.out.MeetingReminderQueryPort.MeetingReminderTarget;
 import com.module06.backend.notification.application.port.out.NotificationEvent;
@@ -26,7 +24,7 @@ import com.module06.backend.notification.domain.model.Notification;
 import com.module06.backend.notification.domain.repository.NotificationRepository;
 
 /*
- * 회의 10분 전 시간창·회사 전체 수신자·중복 방지·장애 격리 계약을 검증한다.
+ * 회의 10분 전 시간창·예약 참석자 수신·중복 방지·장애 격리 계약을 검증한다.
  */
 @DisplayName("회의 10분 전 알림 서비스")
 class MeetingReminderServiceTest {
@@ -55,7 +53,6 @@ class MeetingReminderServiceTest {
                     capturedTo.set(toExclusive);
                     return List.of();
                 },
-                companyId -> List.of(),
                 notification -> true,
                 (memberId, event) -> {
                     throw new AssertionError("대상 회의가 없으면 발행하면 안 됩니다.");
@@ -70,26 +67,21 @@ class MeetingReminderServiceTest {
         assertThat(capturedTo.get()).isEqualTo(LocalDateTime.of(2026, 8, 10, 13, 31));
     }
 
-    /* 같은 회사의 여러 회의가 있어도 회사 회원 전체를 한 번 조회해 모두 알리는지 검증한다. */
+    /* 각 회의의 최종 예약 참석자에게만 알림을 보내는지 검증한다. */
     @Test
-    @DisplayName("같은 회사 활성 회원 전체에게 저장·발행하고 수신자 조회를 재사용한다")
-    void notifiesAllActiveCompanyMembersAndCachesRecipients() {
-        /* 같은 회사의 동일 시간창 회의 두 건을 준비한다. */
+    @DisplayName("회의별 최종 예약 참석자에게만 저장하고 발행한다")
+    void notifiesOnlyReservedAttendeesForEachMeeting() {
+        /* 참석자 구성이 서로 다른 동일 시간창 회의 두 건을 준비한다. */
         List<MeetingReminderTarget> targets = List.of(
-                target(501L, "스프린트 회고", 21L, "대회의실"),
-                target(502L, "주간 계획", 22L, "소회의실")
+                target(501L, "스프린트 회고", 21L, "대회의실", List.of(3L, 7L)),
+                target(502L, "주간 계획", 22L, "소회의실", List.of(7L, 9L))
         );
-        AtomicInteger recipientQueryCount = new AtomicInteger();
         List<Notification> savedNotifications = new ArrayList<>();
         List<PublishedNotification> publishedNotifications = new ArrayList<>();
 
-        /* 회사 구성원 세 명에게 두 회의 알림을 저장·발행하는 서비스 대역을 조립한다. */
+        /* 회의별 참석자에게 두 회의 알림을 저장·발행하는 서비스 대역을 조립한다. */
         MeetingReminderService service = service(
                 (fromInclusive, toExclusive) -> targets,
-                companyId -> {
-                    recipientQueryCount.incrementAndGet();
-                    return List.of(3L, 7L, 9L);
-                },
                 notification -> {
                     savedNotifications.add(notification);
                     return true;
@@ -100,13 +92,12 @@ class MeetingReminderServiceTest {
         /* 한 번의 분 단위 알림 실행을 수행한다. */
         service.sendReminders();
 
-        /* 같은 회사 회원 조회는 한 번이고 회의 2건과 회원 3명의 조합 6건이 처리돼야 한다. */
-        assertThat(recipientQueryCount).hasValue(1);
-        assertThat(savedNotifications).hasSize(6);
-        assertThat(publishedNotifications).hasSize(6);
+        /* 각 회의의 참석자 두 명씩 총 네 건만 처리되고 비참석자는 해당 회의 알림을 받지 않아야 한다. */
+        assertThat(savedNotifications).hasSize(4);
+        assertThat(publishedNotifications).hasSize(4);
         assertThat(savedNotifications)
                 .extracting(Notification::getMemberId)
-                .containsExactly(3L, 7L, 9L, 3L, 7L, 9L);
+                .containsExactly(3L, 7L, 7L, 9L);
         assertThat(savedNotifications)
                 .extracting(Notification::getType)
                 .containsOnly("MEETING_REMINDER");
@@ -132,7 +123,6 @@ class MeetingReminderServiceTest {
         List<Long> publishedMemberIds = new ArrayList<>();
         MeetingReminderService service = service(
                 (fromInclusive, toExclusive) -> List.of(target(501L, "스프린트 회고", 21L, "대회의실")),
-                companyId -> List.of(3L, 7L, 9L, 11L),
                 notification -> {
                     if (notification.getMemberId().equals(9L)) {
                         throw new RuntimeException("회원별 저장 실패");
@@ -158,9 +148,6 @@ class MeetingReminderServiceTest {
                 (fromInclusive, toExclusive) -> {
                     throw new RuntimeException("회의 조회 실패");
                 },
-                companyId -> {
-                    throw new AssertionError("회의 조회 실패 뒤에는 회원을 조회하면 안 됩니다.");
-                },
                 notification -> {
                     throw new AssertionError("회의 조회 실패 뒤에는 저장하면 안 됩니다.");
                 },
@@ -180,6 +167,18 @@ class MeetingReminderServiceTest {
             Long meetingRoomId,
             String meetingRoomName
     ) {
+        /* 기본 방어 테스트는 네 명의 최종 예약 참석자를 사용한다. */
+        return target(meetingId, title, meetingRoomId, meetingRoomName, List.of(3L, 7L, 9L, 11L));
+    }
+
+    /* 테스트별 참석자 명단을 포함한 알림 대상 회의를 생성한다. */
+    private MeetingReminderTarget target(
+            Long meetingId,
+            String title,
+            Long meetingRoomId,
+            String meetingRoomName,
+            List<Long> attendeeMemberIds
+    ) {
         /* 고정 시간창 안의 13:30 회의를 알림 읽기 모델로 반환한다. */
         return new MeetingReminderTarget(
                 1L,
@@ -188,14 +187,14 @@ class MeetingReminderServiceTest {
                 LocalDateTime.of(2026, 8, 10, 13, 30),
                 LocalDateTime.of(2026, 8, 10, 14, 0),
                 meetingRoomId,
-                meetingRoomName
+                meetingRoomName,
+                attendeeMemberIds
         );
     }
 
     /* 함수형 대역으로 서비스의 다섯 의존성을 간결하게 조립한다. */
     private MeetingReminderService service(
             MeetingReminderQueryPort meetingReminderQueryPort,
-            CompanyMemberQueryPort companyMemberQueryPort,
             java.util.function.Predicate<Notification> saveIfAbsent,
             NotificationPublishPort notificationPublishPort
     ) {
@@ -203,7 +202,6 @@ class MeetingReminderServiceTest {
         NotificationRepository notificationRepository = saveIfAbsent::test;
         return new MeetingReminderService(
                 meetingReminderQueryPort,
-                companyMemberQueryPort,
                 notificationRepository,
                 notificationPublishPort,
                 FIXED_CLOCK

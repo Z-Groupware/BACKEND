@@ -15,7 +15,9 @@ import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingListUseCase;
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
 import com.module06.backend.meeting.presentation.api.response.MeetingListResponse;
 
 /*
@@ -47,6 +49,7 @@ class MeetingListControllerTest {
                 "2026-08-01",
                 "2026-08-07",
                 "DONE",
+                "HOSTED",
                 "1",
                 "20"
         );
@@ -56,10 +59,11 @@ class MeetingListControllerTest {
         assertThat(capturedQuery[0].requesterMemberId()).isEqualTo(3L);
         assertThat(capturedQuery[0].companyWideRead()).isTrue();
 
-        /* 날짜·상태·페이지 문자열은 정확한 타입으로 변환돼야 한다. */
+        /* 날짜·상태·scope·페이지 문자열은 정확한 타입으로 변환돼야 한다. */
         assertThat(capturedQuery[0].from()).isEqualTo(LocalDate.of(2026, 8, 1));
         assertThat(capturedQuery[0].to()).isEqualTo(LocalDate.of(2026, 8, 7));
         assertThat(capturedQuery[0].status()).isEqualTo(MeetingStatus.DONE);
+        assertThat(capturedQuery[0].scope()).isEqualTo(MeetingListScope.HOSTED);
         assertThat(capturedQuery[0].page()).isEqualTo(1);
         assertThat(capturedQuery[0].size()).isEqualTo(20);
 
@@ -68,10 +72,20 @@ class MeetingListControllerTest {
         assertThat(response.getMessage()).isEqualTo("회의 목록 조회에 성공했습니다.");
         assertThat(response.getData().page().totalElements()).isEqualTo(37L);
 
-        /* 회의 일시와 중첩 회의실·프로젝트 표시값이 외부 응답 형식으로 변환돼야 한다. */
+        /* 회의 일시와 중첩 회의실·프로젝트·참석자 표시값이 외부 응답 형식으로 변환돼야 한다. */
         var meeting = response.getData().meetings().get(0);
         assertThat(meeting.startAt()).isEqualTo("2026-08-04T14:00:00");
         assertThat(meeting.actionCount()).isEqualTo(5L);
+        assertThat(meeting.teamId()).isEqualTo(100L);
+        assertThat(meeting.originLabel()).isEqualTo("TEAM");
+        assertThat(meeting.summaryStatus()).isEqualTo("STALLED");
+        assertThat(meeting.agendaPreview().mainTopic()).isEqualTo("Main agenda");
+        assertThat(meeting.isHost()).isTrue();
+        assertThat(meeting.entryAvailable()).isFalse();
+        assertThat(meeting.durationMinutes()).isEqualTo(60);
+        assertThat(meeting.attendees())
+                .extracting(MeetingListResponse.AttendeeResponse::memberId)
+                .containsExactly(3L, 7L);
         assertThat(meeting.meetingRoom().name()).isEqualTo("회의실 B");
         assertThat(meeting.project().tag()).isEqualTo("acommerce");
     }
@@ -91,6 +105,7 @@ class MeetingListControllerTest {
         /* MEMBER principal로 필터 없는 기본 목록 조회를 호출한다. */
         controller.getMeetings(
                 new AuthPrincipal(7L, 10L, "MEMBER", false, 100L),
+                null,
                 null,
                 null,
                 null,
@@ -117,33 +132,48 @@ class MeetingListControllerTest {
 
         /* ISO 날짜가 아닌 from은 명확한 입력 오류 메시지와 함께 거절돼야 한다. */
         assertThatThrownBy(() -> controller.getMeetings(
-                principal, null, null, "2026/08/01", null, null, "0", "20"
+                principal, null, null, "2026/08/01", null, null, null, "0", "20"
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("from은 yyyy-MM-dd 형식이어야 합니다.");
 
-        /* 정의되지 않은 상태와 정수가 아닌 페이지도 같은 입력 오류 계열이어야 한다. */
+        /* 정의되지 않은 상태와 scope, 정수가 아닌 페이지도 같은 입력 오류 계열이어야 한다. */
         assertThatThrownBy(() -> controller.getMeetings(
-                principal, null, null, null, null, "CANCELLED", "0", "20"
+                principal, null, null, null, null, "CANCELLED", null, "0", "20"
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("status 값이 올바르지 않습니다.");
         assertThatThrownBy(() -> controller.getMeetings(
-                principal, null, null, null, null, null, "first", "20"
+                principal, null, null, null, null, null, "TEAM", "0", "20"
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("scope 값이 올바르지 않습니다.");
+        assertThatThrownBy(() -> controller.getMeetings(
+                principal, null, null, null, null, null, null, "first", "20"
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("page은 정수여야 합니다.");
     }
 
     /* Controller 응답 변환에 사용할 완성된 회의 목록 결과를 만든다. */
     private MeetingListResult result() {
-        /* API 명세 예시와 같은 회의·회의실·프로젝트 및 페이지 값을 반환한다. */
+        /* API 명세 예시와 같은 회의·회의실·프로젝트·참석자 및 페이지 값을 반환한다. */
         return new MeetingListResult(
                 List.of(new MeetingListResult.MeetingItem(
                         91L,
                         "A커머스 온보딩 킥오프",
                         MeetingStatus.DONE,
+                        100L,
+                        "TEAM",
+                        MeetingSummaryStatus.STALLED,
                         LocalDateTime.of(2026, 8, 4, 14, 0),
                         LocalDateTime.of(2026, 8, 4, 15, 0),
                         4,
                         5L,
+                        true,
+                        false,
+                        60,
+                        List.of(
+                                new MeetingListResult.Attendee(3L, "지우"),
+                                new MeetingListResult.Attendee(7L, "이든")
+                        ),
+                        new MeetingListResult.AgendaPreview("Main agenda", "First sub agenda"),
                         new MeetingListResult.MeetingRoom(2L, "회의실 B"),
                         new MeetingListResult.Project(12L, "acommerce", "A커머스 온보딩")
                 )),

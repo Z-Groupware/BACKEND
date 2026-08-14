@@ -51,7 +51,7 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
 
     @Override
     @Transactional
-    public void apply(long companyId, long actionId, Long assigneeMemberId, LocalDate dueDate,
+    public void apply(long companyId, long actionId, Long assigneeMemberId, Long teamId, LocalDate dueDate,
                        String title, String detail, LocalDate plannedStartDate, String reviewStatus) {
         /*
          * 둘 다 ACTION_NOT_FOUND(404)다. 자바 기본 예외를 던지면 회사 불일치가 500 으로,
@@ -67,6 +67,16 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
         }
 
         /*
+         * 2026-08-13 — teamId도 같은 회사 소속인지 확인한다(ActionService#create의
+         * existsTeamInCompany와 동일 이유) — 아니면 다른 회사 팀에 액션을 붙이는 IDOR이 된다.
+         * A가 넘겨준 값이라도 신뢰하지 않는다 — 이 포트가 공개된 인바운드 경계이기 때문이다
+         * (클래스 주석 "회사 스코프를 다시 확인한다").
+         */
+        if (teamId != null && !actionReferenceRepository.existsTeamInCompany(teamId, companyId)) {
+            throw new BusinessException(ActionErrorCode.ACTION_TEAM_NOT_FOUND);
+        }
+
+        /*
          * 프로젝트 마감일은 **예정 시작일이 실제로 올 때만** 꺼낸다.
          *
          * 항상 조회하면 예정 시작일과 무관한 판정(담당자만 고치는 확정 · 반려)에도 쿼리가
@@ -77,7 +87,7 @@ public class ActionReviewApplyAdapter implements ActionReviewApplyPort {
 
         // detail → Action.description. 파라미터명이 갈리는 이유는 ActionReviewApplyPort 주석 참고.
         action.applyHumanReview(
-                assigneeMemberId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail,
+                assigneeMemberId, teamId, dueDate, ActionReviewStatus.valueOf(reviewStatus), title, detail,
                 plannedStartDate, projectDueDate);
         actionRepository.save(action);
     }

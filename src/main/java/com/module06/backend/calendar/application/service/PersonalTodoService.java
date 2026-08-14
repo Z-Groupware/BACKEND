@@ -1,5 +1,7 @@
 package com.module06.backend.calendar.application.service;
 
+import java.time.LocalDate;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,8 +32,13 @@ public class PersonalTodoService implements CreateTodoUseCase, ToggleTodoComplet
     @Override
     @Transactional
     public PersonalTodo create(CreateTodoCommand command) {
+        LocalDate endDate = command.endDate() != null ? command.endDate() : command.date();
+        if (endDate.isBefore(command.date())) {
+            throw new BusinessException(CalendarErrorCode.TODO_INVALID_DATE_RANGE);
+        }
+
         PersonalTodo todo = PersonalTodo.create(
-                command.companyId(), command.memberId(), command.title(), command.date());
+                command.companyId(), command.memberId(), command.title(), command.date(), endDate);
         return personalTodoRepository.save(todo);
     }
 

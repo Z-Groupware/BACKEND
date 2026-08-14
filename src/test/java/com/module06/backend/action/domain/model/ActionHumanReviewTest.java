@@ -18,6 +18,7 @@ class ActionHumanReviewTest {
 
     private static final long ALICE = 42L;
     private static final long BOB = 43L;
+    private static final long TEAM = 5L;
 
     @Test
     @DisplayName("반려는 이전 확정 시각을 지운다 — 확정 상태와 확정 시각이 어긋난 행을 남기지 않는다")
@@ -26,7 +27,7 @@ class ActionHumanReviewTest {
         Action action = confirmedAction();
         assertThat(action.getConfirmedAt()).isNotNull();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.REJECTED, null, null, null, null);
+        action.applyHumanReview(null, null, null, ActionReviewStatus.REJECTED, null, null, null, null);
 
         assertThat(action.getReviewStatus()).isEqualTo(ActionReviewStatus.REJECTED);
         assertThat(action.getConfirmedAt()).isNull();
@@ -37,7 +38,7 @@ class ActionHumanReviewTest {
     void 확정은_시각을_찍는다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+        action.applyHumanReview(null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getConfirmedAt()).isNotNull();
     }
@@ -48,7 +49,8 @@ class ActionHumanReviewTest {
         Action action = pendingAction();
         assertThat(action.isDueDateDefaulted()).isTrue();
 
-        action.applyHumanReview(BOB, LocalDate.of(2026, 8, 20), ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+        action.applyHumanReview(
+                BOB, null, LocalDate.of(2026, 8, 20), ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(action.isDueDateDefaulted()).isFalse();
@@ -60,7 +62,7 @@ class ActionHumanReviewTest {
     void null_은_값을_비우지_않는다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+        action.applyHumanReview(null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getAssigneeMemberId()).isEqualTo(ALICE);
         assertThat(action.getDueDate()).isEqualTo(LocalDate.of(2026, 8, 8));
@@ -93,7 +95,7 @@ class ActionHumanReviewTest {
         LocalDate withinRange = LocalDate.now().plusDays(3);
 
         action.applyHumanReview(
-                null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
+                null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
                 withinRange, LocalDate.now().plusDays(10));
 
         assertThat(action.getPlannedStartDate()).isEqualTo(withinRange);
@@ -109,7 +111,7 @@ class ActionHumanReviewTest {
         LocalDate yesterday = LocalDate.now().minusDays(1);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
-                null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
+                null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
                 yesterday, yesterday.plusDays(10))
         ).isInstanceOf(IllegalArgumentException.class);
     }
@@ -121,7 +123,7 @@ class ActionHumanReviewTest {
         LocalDate invalidPlannedStartDate = LocalDate.now(); // 익일 미만이라 거부됨
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
-                BOB, LocalDate.of(2026, 9, 1), ActionReviewStatus.HUMAN_CONFIRMED, "새 제목", "새 내용",
+                BOB, null, LocalDate.of(2026, 9, 1), ActionReviewStatus.HUMAN_CONFIRMED, "새 제목", "새 내용",
                 invalidPlannedStartDate, invalidPlannedStartDate.plusDays(10))
         ).isInstanceOf(IllegalArgumentException.class);
 
@@ -138,7 +140,7 @@ class ActionHumanReviewTest {
         LocalDate projectDueDate = LocalDate.now().plusDays(5);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.applyHumanReview(
-                null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
+                null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null,
                 projectDueDate.plusDays(1), projectDueDate)
         ).isInstanceOf(IllegalArgumentException.class);
     }
@@ -148,8 +150,45 @@ class ActionHumanReviewTest {
     void 예정_시작일이_null이면_범위검증을_건너뛴다() {
         Action action = pendingAction();
 
-        action.applyHumanReview(null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+        action.applyHumanReview(null, null, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
 
         assertThat(action.getPlannedStartDate()).isNull();
+    }
+
+    // ── 2026-08-13 · 오너 회의 검토화면 부서선택(teamId → TEAM 전환) ─────────────────
+
+    @Test
+    @DisplayName("teamId 를 보내면 PERSONAL이 TEAM으로 바뀌고 담당자는 비워진다")
+    void 부서를_보내면_TEAM으로_전환된다() {
+        Action action = pendingAction();
+        assertThat(action.getActionType()).isEqualTo(ActionType.PERSONAL);
+
+        action.applyHumanReview(null, TEAM, null, ActionReviewStatus.HUMAN_CONFIRMED, null, null, null, null);
+
+        assertThat(action.getActionType()).isEqualTo(ActionType.TEAM);
+        assertThat(action.getTeamId()).isEqualTo(TEAM);
+        assertThat(action.getAssigneeMemberId()).isNull();
+        // teamId 전환도 확정 시각을 찍는다 — 다른 다섯과 같은 확정 규칙을 따른다.
+        assertThat(action.getConfirmedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("TEAM 액션은 담당자를 다시 채울 수 없다 — reassignTo가 이미 막고 있다")
+    void 전환된_TEAM_액션은_담당자를_못_채운다() {
+        Action action = pendingAction();
+        action.convertToTeam(TEAM);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.reassignTo(BOB))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("이미 TEAM인 액션은 다시 전환할 수 없다 — reassignTo와 대칭인 방어")
+    void 이미_TEAM인_액션은_다시_전환할_수_없다() {
+        Action action = pendingAction();
+        action.convertToTeam(TEAM);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> action.convertToTeam(9L))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

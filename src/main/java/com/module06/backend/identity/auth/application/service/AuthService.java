@@ -1,12 +1,14 @@
 package com.module06.backend.identity.auth.application.service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.global.security.JwtTokenProvider;
@@ -91,13 +93,26 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
 
     @Override
     @Transactional(readOnly = true)
-    public ReissuedTokens reissue(String refreshToken, boolean keepSignedIn) {
+    public ReissuedTokens reissue(String refreshToken) {
         JwtTokenProvider.RefreshClaims claims = tokenProvider.parseRefreshToken(refreshToken);
+
+        // 로테이션으로 이어붙인 세션도 최초 로그인 시각 기준으로는 끝난다.
+        // 이 표만 지운다(revokeAll 이 아니다) — 다른 기기의 세션은 각자의 authTime 으로 판정받는다.
+        // 코드는 REFRESH_TOKEN_INVALID 를 쓴다: 프론트 대응이 "재로그인"으로 같고, 따로 내리면
+        // 공격자에게 "서명은 맞았고 세션만 늙었다"를 알려주게 된다(AuthErrorCode 머리말과 같은 이유).
+        if (tokenProvider.refreshSessionExpired(claims.authTime())) {
+            refreshTokenStore.revoke(claims.memberId(), claims.jti());
+            throw new BusinessException(AuthErrorCode.REFRESH_TOKEN_INVALID);
+        }
 
         if (!refreshTokenStore.exists(claims.memberId(), claims.jti())) {
             // 서명은 유효한데 목록에 없다 = 이미 쓴 표가 다시 왔다 = 탈취 정황이다.
             // 정상 사용자도 함께 끊기지만, 탈취자가 계속 갱신하는 것보다 낫다.
             refreshTokenStore.revokeAllByMember(claims.memberId());
+            // 여기서 남긴다 — 예외 핸들러는 이 표가 누구 것이었는지 모른다(재발급은 공개
+            // 엔드포인트라 인증 주체가 없다). 끊는 것과 알리는 것은 다른 일이고, 알림이 없으면
+            // 이 코드가 주석에 적어 둔 "탈취 정황"이 발생해도 아무도 모른다.
+            AuthzAuditLogger.refreshTokenReused(claims.memberId(), AuthErrorCode.REFRESH_TOKEN_REUSED.getCode());
             throw new BusinessException(AuthErrorCode.REFRESH_TOKEN_REUSED);
         }
 
@@ -112,12 +127,15 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
 
         refreshTokenStore.revoke(claims.memberId(), claims.jti());
 
+        // keepSignedIn·authTime 둘 다 앞 표에서 승계한다. 요청 바디에서 받지 않는 이유는
+        // 승급(1일 → 14일)과 절대 수명 리셋을 클라이언트가 할 수 있게 되기 때문이다.
         String jti = UUID.randomUUID().toString();
-        refreshTokenStore.save(claims.memberId(), jti, tokenProvider.refreshTtl(keepSignedIn));
+        refreshTokenStore.save(claims.memberId(), jti, tokenProvider.refreshTtl(claims.keepSignedIn()));
 
         return new ReissuedTokens(
                 tokenProvider.createAccessToken(principalOf(member)),
-                tokenProvider.createRefreshToken(claims.memberId(), jti, keepSignedIn));
+                tokenProvider.createRefreshToken(
+                        claims.memberId(), jti, claims.keepSignedIn(), claims.authTime()));
     }
 
     @Override
@@ -129,7 +147,10 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
         String accessToken = tokenProvider.createAccessToken(principalOf(member));
 
         String jti = UUID.randomUUID().toString();
-        String refreshToken = tokenProvider.createRefreshToken(member.memberId(), jti, keepSignedIn);
+        // 여기서만 authTime 을 새로 찍는다. 재발급은 이 값을 승계한다 — 그래야 절대 수명이
+        // 세션 전체를 재는 값이 된다.
+        String refreshToken = tokenProvider.createRefreshToken(
+                member.memberId(), jti, keepSignedIn, Instant.now());
         Duration ttl = tokenProvider.refreshTtl(keepSignedIn);
 
         // 갱신표에 올리지 않으면 방금 발급한 토큰으로 재발급이 거부된다.

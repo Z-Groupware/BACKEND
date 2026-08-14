@@ -24,6 +24,7 @@ jwt:
   access-ttl: 30m
   refresh-ttl-default: 1d
   refresh-ttl-extended: 14d
+  refresh-absolute-max: 30d
 
 # ── CORS ──
 # 위 JWT 경고와 같은 이유로 여기에도 둔다. main 의 app.cors 는 부팅 시 검증되므로(CorsProperties)

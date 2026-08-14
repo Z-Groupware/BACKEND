@@ -3,6 +3,7 @@ package com.module06.backend.meeting.domain.repository;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 
 /*
@@ -26,22 +27,30 @@ public interface MeetingListRepository {
             LocalDateTime fromInclusive,
             LocalDateTime toInclusive,
             MeetingStatus status,
+            MeetingListScope scope,
             int page,
             int size
     ) {
     }
 
-    /* 조회된 회의 한 건과 배치 계산된 참석자 수를 담는 읽기 모델이다. */
+    /* 조회된 회의 한 건과 배치 조회된 참석자 식별자를 담는 읽기 모델이다. */
     record MeetingListSnapshot(
             Long meetingId,
             Long projectId,
+            Long teamId,
             Long meetingRoomId,
             String title,
             MeetingStatus status,
             LocalDateTime startAt,
             LocalDateTime endAt,
-            int attendeeCount
+            Long hostMemberId,
+            List<Long> attendeeMemberIds
     ) {
+
+        /* 참석자 식별자 목록을 생성 이후 변경하지 못하도록 불변 복사한다. */
+        public MeetingListSnapshot {
+            attendeeMemberIds = List.copyOf(attendeeMemberIds);
+        }
     }
 
     /* 현재 페이지의 회의와 전체 결과 규모를 함께 반환하는 저장소 결과다. */

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
 
 /*
  * MEET-02 조회 결과를 프레젠테이션 계층에 전달하는 애플리케이션 결과 객체다.
@@ -26,13 +27,26 @@ public record MeetingListResult(
             Long meetingId,
             String title,
             MeetingStatus status,
+            Long teamId,
+            String originLabel,
+            MeetingSummaryStatus summaryStatus,
             LocalDateTime startAt,
             LocalDateTime endAt,
             int attendeeCount,
             long actionCount,
+            boolean isHost,
+            boolean entryAvailable,
+            int durationMinutes,
+            List<Attendee> attendees,
+            AgendaPreview agendaPreview,
             MeetingRoom meetingRoom,
             Project project
     ) {
+
+        /* 아바타 표시용 참석자 목록을 생성 이후 변경하지 못하도록 불변 복사한다. */
+        public MeetingItem {
+            attendees = List.copyOf(attendees);
+        }
     }
 
     /* 회의실 도메인에서 받은 식별자와 표시 이름이다. */
@@ -41,6 +55,13 @@ public record MeetingListResult(
 
     /* 프로젝트 도메인에서 받은 식별자와 태그·표시 이름이다. */
     public record Project(Long projectId, String tag, String name) {
+    }
+
+    /* 카드 아바타 표시용 참석자 식별자와 이름이다. 직급 등 전체 명단은 상세(MEET-04)에서 조회한다. */
+    public record Attendee(Long memberId, String name) {
+    }
+
+    public record AgendaPreview(String mainTopic, String firstSubTopic) {
     }
 
     /* 현재 페이지와 전체 결과 규모를 나타내는 페이지 메타데이터다. */

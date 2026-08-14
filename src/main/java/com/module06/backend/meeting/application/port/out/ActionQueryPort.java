@@ -1,6 +1,7 @@
 package com.module06.backend.meeting.application.port.out;
 
 import java.util.List;
+import java.util.Optional;
 
 /*
  * 회의 도메인이 액션 상태를 물을 때 사용하는 아웃바운드 포트다.
@@ -10,8 +11,8 @@ import java.util.List;
  */
 public interface ActionQueryPort {
 
-    /* MEET-01이 회의에 연결하려는 액션이 같은 회사에 존재하는지 확인한다. */
-    boolean existsAction(Long companyId, Long actionId);
+    /* MEET-01이 연결할 액션의 회사 범위 존재 여부와 팀·종류를 한 번에 조회한다. */
+    Optional<ActionTeamReference> findActionTeamReference(Long companyId, Long actionId);
 
     /* MEET-10 후보 회의 중 아직 보드로 분배되지 않은 액션이 남은 회의만 일괄 조회한다. */
     List<UndispatchedActionMeeting> findMeetingsWithUndispatchedActions(
@@ -36,5 +37,18 @@ public interface ActionQueryPort {
 
     /* MEET-02 목록 카드에 표시할 회의 식별자와 전체 액션 수다. */
     record MeetingActionCount(Long meetingId, long actionCount) {
+    }
+
+    /* 회의 팀과 비교할 액션의 팀 식별자와 TEAM·PERSONAL 구분이다. */
+    record ActionTeamReference(Long teamId, ActionKind actionKind) {
+    }
+
+    /* C 도메인의 enum을 D 서비스까지 전파하지 않기 위한 액션 종류 읽기 값이다. */
+    enum ActionKind {
+        /* 팀 전체에 속하는 상위 팀 액션이다. */
+        TEAM,
+
+        /* 개인 담당자에게 속하는 하위 개인 액션이다. */
+        PERSONAL
     }
 }
