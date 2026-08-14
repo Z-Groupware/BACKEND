@@ -61,12 +61,21 @@ public class ProjectAttachmentService implements
         return projectAttachmentStoragePort.issueUploadUrl(s3Key, command.fileSize());
     }
 
-    /* project-attachments/company-{companyId}/project-{projectId}/{uuid}-{fileName} — CapObjectStoragePort의
+    /* project-attachments/company-{companyId}/project-{projectId}/{uuid}{.ext} — CapObjectStoragePort의
        buildS3Key(CaptureUploadService)와 같은 이유로 회사·프로젝트 접두를 둔다: 운영 버킷이 company/CAP과
        공유라 접두가 없으면 서로 다른 도메인 오브젝트가 한 네임스페이스에 섞인다. UUID는 동일 파일명
-       재업로드 시 키 충돌(덮어쓰기)을 막는다. */
+       재업로드 시 키 충돌(덮어쓰기)을 막는다.
+
+       원본 파일명은 더 이상 키에 안 넣는다(2026-08-14, 현지님 지적) — 한글·공백이 든 파일명(녹음 앱
+       기본 파일명 등)이 그대로 키에 들어가면 presigned PUT의 SigV4 서명이 클라이언트 쪽 URL 인코딩과
+       어긋나 403으로 거절된다. 표시용 원본 파일명은 지금처럼 confirm()이 DB(fileName 컬럼)에만 남긴다. */
     private String buildS3Key(Long companyId, Long projectId, String fileName) {
-        return "%s%s-%s".formatted(s3KeyPrefix(companyId, projectId), UUID.randomUUID(), fileName);
+        return "%s%s%s".formatted(s3KeyPrefix(companyId, projectId), UUID.randomUUID(), extensionOf(fileName));
+    }
+
+    private String extensionOf(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        return dotIndex > 0 ? fileName.substring(dotIndex) : "";
     }
 
     private String s3KeyPrefix(Long companyId, Long projectId) {
