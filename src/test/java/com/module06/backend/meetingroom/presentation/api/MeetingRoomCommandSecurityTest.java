@@ -110,7 +110,7 @@ class MeetingRoomCommandSecurityTest {
     /*
      * JwtAuthenticationFilter는 isAdmin() 플래그가 있으면 base role 권한에 ROLE_ADMIN을
      * 더해 부여한다(어드민은 Authority 값이 아니라 member.is_admin 겸직 플래그이기 때문).
-     * hasAnyRole('OWNER', 'ADMIN') 같은 식은 이 ROLE_ADMIN으로 매칭되므로, 겸직 사용자를
+     * hasRole('ADMIN')은 이 ROLE_ADMIN으로 매칭되므로, 겸직 사용자를
      * 재현하려면 base role과 ROLE_ADMIN을 함께 부여해야 한다.
      */
     private Authentication authenticationOf(String role, boolean isAdmin) {
@@ -169,9 +169,32 @@ class MeetingRoomCommandSecurityTest {
         verifyNoInteractions(createMeetingRoomUseCase);
     }
 
+    /* 회사 OWNER라도 ADMIN 겸직 권한이 없으면 ROOM-03을 호출할 수 없는지 검증한다. */
+    @Test
+    @DisplayName("OWNER의 POST 요청을 403으로 거절한다")
+    void rejectsOwnerCreateRequest() throws Exception {
+        /* ADMIN 권한이 없는 OWNER 인증으로 정상 등록 본문을 전송한다. */
+        mockMvc.perform(post("/api/rooms")
+                        .with(authentication(authenticationOf("OWNER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "대회의실",
+                                  "location": "박애관 421호",
+                                  "availableFrom": "09:00",
+                                  "availableTo": "18:00"
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("MR-004"));
+
+        /* @PreAuthorize에서 거절된 요청은 ROOM-03 유스케이스에 도달하면 안 된다. */
+        verifyNoInteractions(createMeetingRoomUseCase);
+    }
+
     /*
      * 어드민 겸직 MEMBER가 ROOM-03을 호출할 수 있는지 검증한다. ADMIN은 Authority 값이
-     * 아니라 member.is_admin 겸직 플래그이므로, hasAnyRole('OWNER', 'ADMIN')이 base role과
+     * 아니라 member.is_admin 겸직 플래그이므로, hasRole('ADMIN')이 base role과
      * 무관하게 ROLE_ADMIN 겸직자를 통과시키는지가 핵심이다.
      */
     @Test
