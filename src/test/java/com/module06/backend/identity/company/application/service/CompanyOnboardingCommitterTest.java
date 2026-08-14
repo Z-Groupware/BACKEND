@@ -116,6 +116,41 @@ class CompanyOnboardingCommitterTest {
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SUB_TEAM_NOT_IN_TEAM);
     }
 
+    /*
+     * UK_ROLE_TEAM_NAME(V2.3.23) 이 세워지기 전에는 DB 가 막지 않아 검사도 없었다. 이제는
+     * 여기서 걸러내지 않으면 제약 위반이 그대로 500(Z-003)이 된다 — 사용자가 화면에서 만들 수
+     * 있는 입력이므로 400 이어야 한다.
+     */
+    @Test
+    @DisplayName("같은 부서 안에 같은 이름의 역할을 두 개 넣으면 거절한다")
+    void rejectsDuplicateRoleNameInSameTeam() {
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀",
+                                List.of(subTeam("s1", "백엔드"), subTeam("s2", "백엔드")))),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_ROLE_NAME_DUPLICATED);
+    }
+
+    @Test
+    @DisplayName("부서가 다르면 같은 이름의 역할을 허용한다 — 부서마다 백엔드가 있는 게 정상이다")
+    void allowsSameRoleNameInDifferentTeams() {
+        FakeRole role = new FakeRole();
+
+        CompanyOnboardingCommitter.CommitResult result = committer(new FakeCompany(null), new FakeTeam(), role,
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of(subTeam("s1", "백엔드"))),
+                                teamNode("t2", "플랫폼팀", List.of(subTeam("s2", "백엔드")))),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of()));
+
+        assertThat(result.subTeamCount()).isEqualTo(2);
+    }
+
     @Test
     @DisplayName("같은 부서에 팀장 직급을 두 명 넣으면 거절한다")
     void rejectsDuplicateTeamLeader() {
@@ -477,6 +512,11 @@ class CompanyOnboardingCommitterTest {
 
         @Override
         public Optional<Role> findByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<Role> lockByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId) {
             return Optional.empty();
         }
 

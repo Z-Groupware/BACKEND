@@ -203,14 +203,21 @@ class CompanyOnboardingCommitter {
      * 가 이 검사를 통과하고 DB 에서 터져 결국 500 이 된다. (악센트까지 같게 보는 콜레이션의
      * 나머지 규칙은 따라가지 않는다 — 한글·영문 부서명에서 실질적으로 걸리지 않는다.)
      *
-     * <p>역할(role)명은 보지 않는다 — role 테이블에 이름 UNIQUE 가 없어 중복이 DB 에서
-     * 터지지 않는다(부서마다 "백엔드" 역할을 두는 게 정상이다).
+     * <p>역할(role)명은 <b>같은 부서 안에서만</b> 본다. 부서마다 "백엔드" 역할을 두는 게 정상이라
+     * 회사 단위로 보면 안 되고, 한 부서 안 중복은 {@code UK_ROLE_TEAM_NAME}(V2.3.23)이 막아
+     * 여기서 걸러내지 않으면 {@code DataIntegrityViolationException} 으로 500 이 된다.
      */
     private void assertNoDuplicateNames(OnboardCompanyCommand command) {
         Set<String> teamNames = new HashSet<>();
         for (OnboardCompanyCommand.TeamNode team : command.teams()) {
             if (!teamNames.add(nameKey(team.name()))) {
                 throw new BusinessException(AuthErrorCode.ONBOARDING_TEAM_NAME_DUPLICATED);
+            }
+            Set<String> roleNames = new HashSet<>();
+            for (OnboardCompanyCommand.SubTeamNode subTeam : team.subTeams()) {
+                if (!roleNames.add(nameKey(subTeam.name()))) {
+                    throw new BusinessException(AuthErrorCode.ONBOARDING_ROLE_NAME_DUPLICATED);
+                }
             }
         }
 

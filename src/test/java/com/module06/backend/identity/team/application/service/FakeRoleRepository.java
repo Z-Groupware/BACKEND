@@ -41,6 +41,12 @@ final class FakeRoleRepository implements RoleRepository {
                 .findFirst();
     }
 
+    /* 잠금은 인메모리 더블이 흉내 낼 수 없다 — 조건이 같으므로 같은 결과를 돌려준다. */
+    @Override
+    public Optional<Role> lockByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId) {
+        return findByIdAndCompanyIdAndTeamId(roleId, companyId, teamId);
+    }
+
     @Override
     public boolean existsByTeamIdAndName(Long teamId, String name) {
         return roles.stream().anyMatch(r -> teamId.equals(r.teamId()) && r.name().equals(name));

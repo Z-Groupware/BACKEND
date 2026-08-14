@@ -29,7 +29,21 @@ public interface RoleRepository {
      */
     Optional<Role> findByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId);
 
-    /** 같은 부서 안 이름 중복 검사. 다른 부서에 같은 이름이 있는 것은 정상이다(§6-10). */
+    /**
+     * 삭제 대상을 <b>잠그고</b> 읽는다. 조건은 {@link #findByIdAndCompanyIdAndTeamId} 와 같다.
+     *
+     * <p>역할 삭제와 역할 배정(§7-4)이 겹치면 구성원이 사라진 역할을 가리키게 된다 — {@code role}
+     * 은 {@code member} 에서 FK 로 묶여 있지 않아 데이터베이스가 막아 주지 않는다. 배정 쪽이
+     * 같은 행에 공유 잠금을 잡으므로, 이 잠금과 맞물려 늦게 온 쪽이 앞선 쪽의 결과를 본다.
+     */
+    Optional<Role> lockByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId);
+
+    /**
+     * 같은 부서 안 이름 중복 검사. 다른 부서에 같은 이름이 있는 것은 정상이다(§6-10).
+     *
+     * <p>최종 관문은 {@code UK_ROLE_TEAM_NAME}(V2.3.23)이다 — 이 검사와 저장 사이에 다른 요청이
+     * 끼어들 수 있어, 사전 검사만으로는 동시 요청의 중복 생성을 막지 못한다.
+     */
     boolean existsByTeamIdAndName(Long teamId, String name);
 
     void rename(Long roleId, String name);

@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -15,9 +16,15 @@ import lombok.NoArgsConstructor;
  * (§6-10~6-12)가 함께 쓴다. 화면 표시용 읽기 전용 {@link RoleRefEntity}와 같은 테이블을
  * 매핑하지만, 그쪽은 {@code @Immutable}이라 INSERT를 타지 않으므로 이 엔티티의 IDENTITY
  * 채번과 충돌하지 않는다.
+ *
+ * <p>{@code UK_ROLE_TEAM_NAME}(V2.3.23)을 매핑에도 적는다. 운영 스키마는 마이그레이션이
+ * 만들지만, 테스트는 Hibernate {@code create-drop} 으로 스키마를 만들어 마이그레이션을 타지
+ * 않는다 — 여기 없으면 제약 위반을 {@code ROLE_NAME_DUPLICATED} 로 바꾸는 경로를 테스트가
+ * 통과시켜 버린다(제약이 없으니 애초에 위반이 나지 않는다).
  */
 @Entity
-@Table(name = "role")
+@Table(name = "role", uniqueConstraints = @UniqueConstraint(
+        name = "UK_ROLE_TEAM_NAME", columnNames = {"team_id", "name"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RoleWriteEntity {

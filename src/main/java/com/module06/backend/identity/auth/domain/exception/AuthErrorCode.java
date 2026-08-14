@@ -117,6 +117,14 @@ public enum AuthErrorCode implements ErrorCode {
     ONBOARDING_POSITION_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-038", "직급명이 중복되었습니다."),
 
     /*
+     * 같은 부서 안 역할명 중복(§4-1). 부서·직급과 달리 이 검사는 원래 없었다 — role 에 이름
+     * UNIQUE 가 없어 DB 에서 터지지 않았기 때문이다. V2.3.23 이 UK_ROLE_TEAM_NAME 을 세우면서
+     * 막지 않으면 DataIntegrityViolationException 이 되고, 그건 사용자가 화면에서 만들 수 있는
+     * 입력이므로 400 이어야 한다(ONBOARDING_TEAM_NAME_DUPLICATED 와 같은 이유).
+     */
+    ONBOARDING_ROLE_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-044", "같은 부서 안 역할명이 중복되었습니다."),
+
+    /*
      * 역할 지정(§5-1 발급 · §7-4 변경). 없는 역할과 "있지만 다른 부서·다른 회사의 역할"을 가르지
      * 않고 한 코드로 답한다 — 남의 회사 역할 id 를 찍어 봤을 때 404 와 400 이 갈리면 그 id 가
      * 존재한다는 것 자체가 새어 나간다. 화면의 대응도 어느 쪽이든 같다(부서의 역할 목록을 새로

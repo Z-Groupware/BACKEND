@@ -1,5 +1,7 @@
 package com.module06.backend.identity.team.application.service;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -69,7 +71,7 @@ public class TeamRoleService implements CreateTeamRoleUseCase, RenameTeamRoleUse
     @Override
     @Transactional
     public RoleNode rename(RenameTeamRoleCommand command) {
-        Role role = findEditableRole(command.companyId(), command.teamId(), command.roleId());
+        Role role = findEditableRole(command.companyId(), command.teamId(), command.roleId(), LockMode.NONE);
 
         String name = normalize(command.name());
         assertNotSystemRoleName(name);
@@ -96,7 +98,7 @@ public class TeamRoleService implements CreateTeamRoleUseCase, RenameTeamRoleUse
     @Override
     @Transactional
     public void delete(Long companyId, Long teamId, Long roleId) {
-        Role role = findEditableRole(companyId, teamId, roleId);
+        Role role = findEditableRole(companyId, teamId, roleId, LockMode.LOCK);
 
         if (memberQueryPort.countActiveMembersWithRole(role.id()) > 0) {
             throw new BusinessException(AuthErrorCode.ROLE_IN_USE);
@@ -110,13 +112,24 @@ public class TeamRoleService implements CreateTeamRoleUseCase, RenameTeamRoleUse
         }
     }
 
-    private Role findEditableRole(Long companyId, Long teamId, Long roleId) {
+    private Role findEditableRole(Long companyId, Long teamId, Long roleId, LockMode lockMode) {
         if (Role.isSystemRole(roleId)) {
             throw new BusinessException(AuthErrorCode.ROLE_SYSTEM_NOT_MODIFIABLE);
         }
         assertTeamExists(companyId, teamId);
-        return roleRepository.findByIdAndCompanyIdAndTeamId(roleId, companyId, teamId)
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.ROLE_NOT_FOUND));
+        Optional<Role> role = lockMode == LockMode.LOCK
+                ? roleRepository.lockByIdAndCompanyIdAndTeamId(roleId, companyId, teamId)
+                : roleRepository.findByIdAndCompanyIdAndTeamId(roleId, companyId, teamId);
+        return role.orElseThrow(() -> new BusinessException(AuthErrorCode.ROLE_NOT_FOUND));
+    }
+
+    /**
+     * 삭제만 대상 행을 잠근다. 이름 변경은 참조 무결성을 건드리지 않아(구성원이 가리키는 행이
+     * 그대로 있다) 잠글 이유가 없고, 이름 중복은 {@code UK_ROLE_TEAM_NAME}(V2.3.23)이 최종적으로
+     * 막는다.
+     */
+    private enum LockMode {
+        LOCK, NONE
     }
 
     /**
