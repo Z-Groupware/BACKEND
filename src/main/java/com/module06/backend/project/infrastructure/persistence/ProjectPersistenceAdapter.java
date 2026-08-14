@@ -68,6 +68,12 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     }
 
     @Override
+    public Optional<Project> findByCompanyIdAndTag(Long companyId, String tag) {
+        return springDataProjectRepository.findByCompanyIdAndTagAndDeletedAtIsNull(companyId, tag)
+                .map(entity -> toDomain(entity, findTeamIds(entity.getId())));
+    }
+
+    @Override
     public boolean existsByTag(String tag) {
         return springDataProjectRepository.existsByTag(tag);
     }

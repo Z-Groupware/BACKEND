@@ -169,11 +169,19 @@ class MeetingRoomCommandSecurityTest {
         verifyNoInteractions(createMeetingRoomUseCase);
     }
 
-    /* 회사 OWNER라도 ADMIN 겸직 권한이 없으면 ROOM-03을 호출할 수 없는지 검증한다. */
+    /*
+     * 회사 OWNER가 ADMIN 겸직 없이도 ROOM-03을 호출할 수 있는지 검증한다.
+     * 등록은 수정·삭제(ROOM-04·05)와 같은 hasAnyRole('OWNER', 'ADMIN') 규칙이라,
+     * base role OWNER면 겸직 플래그와 무관하게 유스케이스까지 통과해야 한다.
+     */
     @Test
-    @DisplayName("OWNER의 POST 요청을 403으로 거절한다")
-    void rejectsOwnerCreateRequest() throws Exception {
-        /* ADMIN 권한이 없는 OWNER 인증으로 정상 등록 본문을 전송한다. */
+    @DisplayName("OWNER의 POST 요청을 유스케이스까지 통과시킨다")
+    void allowsOwnerCreateRequest() throws Exception {
+        /* 등록 유스케이스가 정상 결과를 반환하도록 스텁을 준비한다. */
+        when(createMeetingRoomUseCase.createMeetingRoom(any()))
+                .thenReturn(new MeetingRoomCreationResult(101L));
+
+        /* ADMIN 겸직이 없는 순수 OWNER 인증으로 정상 등록 본문을 전송한다. */
         mockMvc.perform(post("/api/rooms")
                         .with(authentication(authenticationOf("OWNER")))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -185,16 +193,12 @@ class MeetingRoomCommandSecurityTest {
                                   "availableTo": "18:00"
                                 }
                                 """))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("MR-004"));
-
-        /* @PreAuthorize에서 거절된 요청은 ROOM-03 유스케이스에 도달하면 안 된다. */
-        verifyNoInteractions(createMeetingRoomUseCase);
+                .andExpect(status().isCreated());
     }
 
     /*
      * 어드민 겸직 MEMBER가 ROOM-03을 호출할 수 있는지 검증한다. ADMIN은 Authority 값이
-     * 아니라 member.is_admin 겸직 플래그이므로, hasRole('ADMIN')이 base role과
+     * 아니라 member.is_admin 겸직 플래그이므로, hasAnyRole('OWNER', 'ADMIN')이 base role과
      * 무관하게 ROLE_ADMIN 겸직자를 통과시키는지가 핵심이다.
      */
     @Test

@@ -21,8 +21,18 @@ public record CreateOnlineMeetingCommand(
         Long relatedActionId,
         List<Long> attendeeMemberIds,
         String mainTopic,
-        List<String> subTopics
+        List<String> subTopics,
+        RecordingReference recording
 ) {
+
+    /* 프론트가 S3 직접 업로드를 마친 뒤 최종 회의 생성 요청으로 전달하는 녹음 참조다. */
+    public record RecordingReference(
+            String s3Key,
+            String fileName,
+            String contentType,
+            Long sizeBytes
+    ) {
+    }
 
     /* 외부에서 참석자와 소주제 목록을 바꾸지 못하도록 생성 시점에 불변 복사한다. */
     public CreateOnlineMeetingCommand {

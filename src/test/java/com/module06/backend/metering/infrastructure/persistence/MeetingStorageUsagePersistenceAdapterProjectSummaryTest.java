@@ -32,6 +32,9 @@ class MeetingStorageUsagePersistenceAdapterProjectSummaryTest {
     @Autowired
     private MeetingStorageUsageRepository meetingStorageUsageRepository;
 
+    @Autowired
+    private SpringDataMeetingStorageUsageRepository springDataMeetingStorageUsageRepository;
+
     @Test
     void groupsByProjectAndSumsBytes() {
         Long company = 5_010_001L;
@@ -105,6 +108,37 @@ class MeetingStorageUsagePersistenceAdapterProjectSummaryTest {
         assertThat(summaryA).isPresent();
         assertThat(summaryA.get().usedBytes()).isEqualTo(1_000L);
         assertThat(summaryA.get().meetingCount()).isEqualTo(1L);
+    }
+
+    @Test
+    void clearByCompanyIdAndProjectIdZerosOnlyMatchingProjectRowsAndBumpsRevision() {
+        Long company = 5_050_001L;
+        Long otherCompany = 5_050_002L;
+        Long projectA = 6_050_001L;
+        Long projectB = 6_050_002L;
+        LocalDateTime reportedAt = LocalDateTime.of(2026, 8, 1, 0, 0);
+        long revision = reportedAt.toEpochSecond(ZoneOffset.UTC);
+        report(7_050_001L, company, projectA, 1_000L, reportedAt);
+        report(7_050_002L, company, projectB, 2_000L, reportedAt);
+        report(7_050_003L, otherCompany, projectA, 3_000L, reportedAt);
+
+        meetingStorageUsageRepository.clearByCompanyIdAndProjectId(company, projectA);
+
+        MeetingStorageUsage cleared = springDataMeetingStorageUsageRepository.findById(7_050_001L)
+                .orElseThrow()
+                .toDomain();
+        MeetingStorageUsage otherProject = springDataMeetingStorageUsageRepository.findById(7_050_002L)
+                .orElseThrow()
+                .toDomain();
+        MeetingStorageUsage otherCompanyRow = springDataMeetingStorageUsageRepository.findById(7_050_003L)
+                .orElseThrow()
+                .toDomain();
+        assertThat(cleared.getUsedBytes()).isZero();
+        assertThat(cleared.getRevision()).isEqualTo(revision + 1);
+        assertThat(otherProject.getUsedBytes()).isEqualTo(2_000L);
+        assertThat(otherProject.getRevision()).isEqualTo(revision);
+        assertThat(otherCompanyRow.getUsedBytes()).isEqualTo(3_000L);
+        assertThat(otherCompanyRow.getRevision()).isEqualTo(revision);
     }
 
     private void report(Long meetingId, Long companyId, Long projectId, long usedBytes, LocalDateTime updatedAt) {

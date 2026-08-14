@@ -14,6 +14,8 @@ public interface MeetingStorageUsageRepository {
      */
     void reportIfNewer(MeetingStorageUsage usage);
 
+    void clearByCompanyIdAndProjectId(Long companyId, Long projectId);
+
     /** 이 회사의 모든 회의 스냅샷을 합산한 현재 총 사용량. */
     long sumUsedBytesByCompanyId(Long companyId);
 

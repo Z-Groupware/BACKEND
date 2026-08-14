@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.capture.application.event.AnalysisCompletedEvent;
 import com.module06.backend.capture.application.event.AnalysisFailedEvent;
+import com.module06.backend.capture.application.event.SttTranscriptCompletedEvent;
 import com.module06.backend.capture.application.port.out.AnalysisEventPublisher;
 import com.module06.backend.capture.application.result.AnalysisOutcome;
 import com.module06.backend.capture.application.usecase.RunAnalysisUseCase;
@@ -41,6 +42,8 @@ class MeetingCompletedAnalysisTriggerTest {
 
     private static final MeetingTitleProvider DEFAULT_TITLE_PROVIDER = meetingId -> Optional.of(TITLE);
     private static final MeetingHostProvider DEFAULT_HOST_PROVIDER = meetingId -> Optional.of(HOST);
+    private static final MeetingCompanyProvider DEFAULT_COMPANY_PROVIDER = meetingId ->
+            Optional.of(new MeetingCompanyProvider.AutomaticAnalysisTarget(COMPANY, true));
 
     @Test
     @DisplayName("회의가 끝나면 분석을 부른다 — force 없이 부른다")
@@ -57,6 +60,50 @@ class MeetingCompletedAnalysisTriggerTest {
          * 강제 재실행은 별도 권한과 확인 모달을 요구하는 사람의 판단이다(명세 ANLZ-01).
          */
         assertThat(analysis.calls.get(0).force()).isFalse();
+    }
+
+    @Test
+    @DisplayName("STT 전체 완료도 기존 자동 분석 경로를 force 없이 호출한다")
+    void STT_전체_완료가_분석을_시작한다() {
+        RecordingRunAnalysis analysis = new RecordingRunAnalysis();
+
+        trigger(analysis, Duration.ofMinutes(42))
+                .onSttTranscriptCompleted(new SttTranscriptCompletedEvent(MEETING));
+
+        assertThat(analysis.calls).singleElement().satisfies(call -> {
+            assertThat(call.companyId()).isEqualTo(COMPANY);
+            assertThat(call.meetingId()).isEqualTo(MEETING);
+            assertThat(call.force()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("STT 완료 회의의 회사를 읽지 못하면 분석하지 않는다")
+    void STT_완료_회의가_없으면_분석하지_않는다() {
+        RecordingRunAnalysis analysis = new RecordingRunAnalysis();
+        MeetingCompanyProvider missing = meetingId -> Optional.empty();
+        MeetingCompletedAnalysisTrigger trigger = new MeetingCompletedAnalysisTrigger(
+                analysis, meetingId -> Optional.of(Duration.ofMinutes(42)), missing,
+                DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher());
+
+        trigger.onSttTranscriptCompleted(new SttTranscriptCompletedEvent(MEETING));
+
+        assertThat(analysis.calls).isEmpty();
+    }
+
+    @Test
+    @DisplayName("진행 중 회의의 현재 블록이 전부 끝나도 분석을 시작하지 않는다")
+    void 진행_중_회의는_STT_완료만으로_분석하지_않는다() {
+        RecordingRunAnalysis analysis = new RecordingRunAnalysis();
+        MeetingCompanyProvider inProgress = meetingId ->
+                Optional.of(new MeetingCompanyProvider.AutomaticAnalysisTarget(COMPANY, false));
+        MeetingCompletedAnalysisTrigger trigger = new MeetingCompletedAnalysisTrigger(
+                analysis, meetingId -> Optional.of(Duration.ofMinutes(42)), inProgress,
+                DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher());
+
+        trigger.onSttTranscriptCompleted(new SttTranscriptCompletedEvent(MEETING));
+
+        assertThat(analysis.calls).isEmpty();
     }
 
     @Test
@@ -88,7 +135,7 @@ class MeetingCompletedAnalysisTriggerTest {
          * 건너뛰는 쪽으로 기울면 멀쩡한 회의의 분석이 조용히 사라지고, 사용자는 분석이 안 됐다는
          * 사실조차 모른다. 반대 방향의 손해는 토큰이고 그건 로그에 남는다.
          */
-        new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.empty(),
+        new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.empty(), DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
                 .onMeetingCompleted(event());
 
@@ -108,7 +155,7 @@ class MeetingCompletedAnalysisTriggerTest {
             throw new IllegalStateException("커넥션 풀이 말랐다");
         };
 
-        new MeetingCompletedAnalysisTrigger(analysis, exploding,
+        new MeetingCompletedAnalysisTrigger(analysis, exploding, DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
                 .onMeetingCompleted(event());
 
@@ -207,6 +254,7 @@ class MeetingCompletedAnalysisTriggerTest {
         RecordingAnalysisEventPublisher publisher = new RecordingAnalysisEventPublisher();
 
         new MeetingCompletedAnalysisTrigger(done, meetingId -> Optional.of(Duration.ofMinutes(42)),
+                DEFAULT_COMPANY_PROVIDER,
                 meetingId -> Optional.empty(), DEFAULT_HOST_PROVIDER, publisher)
                 .onMeetingCompleted(event());
 
@@ -232,6 +280,7 @@ class MeetingCompletedAnalysisTriggerTest {
 
         assertThatCode(() -> new MeetingCompletedAnalysisTrigger(
                 done, meetingId -> Optional.of(Duration.ofMinutes(42)),
+                DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, exploding)
                 .onMeetingCompleted(event()))
                 .doesNotThrowAnyException();
@@ -239,11 +288,13 @@ class MeetingCompletedAnalysisTriggerTest {
 
     private MeetingCompletedAnalysisTrigger trigger(RunAnalysisUseCase analysis, Duration length) {
         return new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.of(length),
+                DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher());
     }
 
     private MeetingCompletedAnalysisTrigger trigger(RunAnalysisUseCase analysis, AnalysisEventPublisher publisher) {
         return new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.of(Duration.ofMinutes(42)),
+                DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, publisher);
     }
 

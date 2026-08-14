@@ -114,7 +114,13 @@ class MeetingControllerTest {
                 305L,
                 List.of(7L, 11L),
                 "스프린트 회고",
-                List.of("개선 항목 정리")
+                List.of("개선 항목 정리"),
+                new CreateOnlineMeetingRequest.RecordingRequest(
+                        "recordings/org-10/member-3/online-pending/upload-id/meeting.mp3",
+                        "meeting.mp3",
+                        "audio/mpeg",
+                        1_024L
+                )
         );
 
         /* 인증 principal에서 추출됐다고 가정한 값과 요청 본문으로 API 메서드를 호출한다. */
@@ -133,6 +139,8 @@ class MeetingControllerTest {
 
         /* 비대면 회의는 녹음 동의 없이 성립하지 않으므로 요청 필드 없이 항상 true로 고정돼야 한다. */
         assertThat(capturedCommand[0].recordingConsent()).isTrue();
+        assertThat(capturedCommand[0].recording().fileName()).isEqualTo("meeting.mp3");
+        assertThat(capturedCommand[0].recording().sizeBytes()).isEqualTo(1_024L);
 
         /* 응답은 회의실·시작·종료 일시 없이 isOnline만 true로 고정돼야 한다. */
         assertThat(response.getData().isOnline()).isTrue();

@@ -182,12 +182,14 @@ public class HandoverController {
     }
 
     @PatchMapping("/{id}/items/{actionId}/reassign")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('LEADER', 'OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> reassignItem(@PathVariable Long id,
                                                       @PathVariable Long actionId,
+                                                      @Parameter(hidden = true)
+                                                      @AuthenticationPrincipal AuthPrincipal principal,
                                                       @Valid @RequestBody ReassignItemRequest request) {
         Handover handover = reassignHandoverItemUseCase.reassignItem(
-                request.toCommand(id, actionId, LocalDateTime.now())
+                request.toCommand(id, actionId, LocalDateTime.now(), principal)
         );
         return ApiResponse.success("Handover item reassigned.", HandoverResponse.from(handover));
     }
@@ -201,8 +203,8 @@ public class HandoverController {
     @PreAuthorize("hasAnyRole('LEADER', 'OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> complete(@PathVariable Long id,
                                                   @Parameter(hidden = true)
-                                                  @AuthenticationPrincipal(expression = "memberId") Long memberId) {
-        Handover handover = completeHandoverUseCase.complete(id, memberId, LocalDateTime.now());
+                                                  @AuthenticationPrincipal AuthPrincipal principal) {
+        Handover handover = completeHandoverUseCase.complete(id, principal, LocalDateTime.now());
         return ApiResponse.success("Handover completed.", HandoverResponse.from(handover));
     }
 
@@ -211,9 +213,8 @@ public class HandoverController {
     @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> finalize(@PathVariable Long id,
                                                   @Parameter(hidden = true)
-                                                  @AuthenticationPrincipal(expression = "memberId") Long memberId) {
-        OrgQueryPort.MemberSnapshot approver = orgQueryPort.findMember(memberId);
-        Handover handover = finalizeHandoverUseCase.finalize(id, memberId, approver.name(), LocalDateTime.now());
+                                                  @AuthenticationPrincipal AuthPrincipal principal) {
+        Handover handover = finalizeHandoverUseCase.finalize(id, principal, LocalDateTime.now());
         return ApiResponse.success("Handover finalized.", HandoverResponse.from(handover));
     }
 
@@ -240,8 +241,10 @@ public class HandoverController {
     @PatchMapping("/{id}/reject")
     @PreAuthorize("hasAnyRole('LEADER', 'OWNER', 'ADMIN')")
     public ApiResponse<HandoverResponse> reject(@PathVariable Long id,
+                                                @Parameter(hidden = true)
+                                                @AuthenticationPrincipal AuthPrincipal principal,
                                                 @Valid @RequestBody RejectHandoverRequest request) {
-        Handover handover = rejectHandoverUseCase.reject(request.toCommand(id));
+        Handover handover = rejectHandoverUseCase.reject(request.toCommand(id, principal));
         return ApiResponse.success("Handover rejected.", HandoverResponse.from(handover));
     }
 

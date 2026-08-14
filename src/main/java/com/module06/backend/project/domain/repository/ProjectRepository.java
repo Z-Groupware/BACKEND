@@ -16,6 +16,8 @@ public interface ProjectRepository {
 
     Optional<Project> findById(Long id);
 
+    Optional<Project> findByCompanyIdAndTag(Long companyId, String tag);
+
     boolean existsByTag(String tag);
 
     // 2026-08-10 페이지네이션+필터+정렬 도입(이홍근 요청) — page는 0부터 시작.
