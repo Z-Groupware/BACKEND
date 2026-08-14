@@ -6,7 +6,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.identity.member.domain.model.MemberStatus;
-import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.model.Authority;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,7 +36,7 @@ class MyProfileTest {
                 "홍길동", "owner@techstart.co.kr", "010-0000-0000",
                 null, null, null, null, null,
                 Authority.OWNER, false, false,
-                MemberStatus.ACTIVE, LocalDate.of(2026, 8, 5), Plan.FREE);
+                MemberStatus.ACTIVE, LocalDate.of(2026, 8, 5), "FREE");
 
         assertThat(owner.teamId()).isNull();
         assertThat(owner.positionId()).isNull();
@@ -50,6 +49,6 @@ class MyProfileTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-1000-0003",
                 2L, "개발팀", "프론트엔드", 4L, "선임",
                 role, isAdmin, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.FREE);
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE");
     }
 }

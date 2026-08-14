@@ -52,8 +52,6 @@ import com.module06.backend.identity.member.application.usecase.UpdateMemberRole
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.PendingHandoverType;
-import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.policy.SeatLimitPolicy;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
 import com.module06.backend.identity.team.domain.model.Team;
 import com.module06.backend.identity.team.domain.repository.TeamRepository;
@@ -84,7 +82,6 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
     private final PasswordGenerator passwordGenerator;
     private final PasswordEncoder passwordEncoder;
     private final RefreshTokenStore refreshTokenStore;
-    private final SeatLimitPolicy seatLimitPolicy;
 
     @Override
     @Transactional(readOnly = true)
@@ -408,7 +405,6 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         if (command.role() == Authority.LEADER && team.leaderMemberId() != null) {
             throw new BusinessException(AuthErrorCode.MEMBER_TEAM_LEADER_ALREADY_EXISTS);
         }
-        assertSeatAvailable(command.companyId());
 
         String password = passwordGenerator.generate();
         String passwordHash = passwordEncoder.encode(password);
@@ -422,15 +418,6 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
         return new IssuedMember(issued.memberId(), issued.name(), issued.email(), issued.teamName(),
                 issued.positionName(), issued.authority(), issued.isAdmin(), issued.status());
-    }
-
-    private void assertSeatAvailable(Long companyId) {
-        Plan plan = queryPort.findActivePlan(companyId).orElse(null);
-        int maxSeats = seatLimitPolicy.maxSeats(plan);
-        long currentSeats = queryPort.findActiveByCompany(companyId).size();
-        if (currentSeats + 1 > maxSeats) {
-            throw new BusinessException(AuthErrorCode.MEMBER_SEAT_LIMIT_EXCEEDED);
-        }
     }
 
     /** 직급으로도 구성원 상세로도 권한을 OWNER 로 상승시킬 경로를 없앤다(§0-1, §7-4 검증 1). */

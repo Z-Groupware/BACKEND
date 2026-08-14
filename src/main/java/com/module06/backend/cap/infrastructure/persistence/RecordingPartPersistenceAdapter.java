@@ -68,4 +68,13 @@ public class RecordingPartPersistenceAdapter implements RecordingPartRepository 
                 .map(RecordingPartJpaEntity::toDomain)
                 .toList();
     }
+
+    // 이 회의의 잔여 청크 조각 전체 — CAP-15가 S3 객체를 먼저 지우는 데 쓴다.
+    @Override
+    public List<RecordingPart> findAllByMeetingId(Long meetingId) {
+        return springDataRecordingPartRepository.findByMeetingId(meetingId)
+                .stream()
+                .map(RecordingPartJpaEntity::toDomain)
+                .toList();
+    }
 }

@@ -25,6 +25,15 @@ public interface RecordingPartRepository {
     void deleteByMeetingId(Long meetingId);
 
     /**
+     * 이 회의의 잔여 청크 조각 전체(세그먼트·순번 무관) — CAP-15가 DB 행을 지우기 전에 실제
+     * s3Key를 읽어 S3 객체를 먼저 지우는 데 쓴다. 정상 조립 경로(RecordingAssemblyS3FfmpegAdapter)는
+     * 성공 시 parts를 이미 다 지워서 보통 비어 있지만, "등록은 됐는데 parts 정리는 실패한" 채로
+     * 남는 경우(그 어댑터 클래스 주석 "실패하면 parts를 남긴다") 여기 남은 행들이 이 메서드의
+     * 실질적인 대상이다.
+     */
+    List<RecordingPart> findAllByMeetingId(Long meetingId);
+
+    /**
      * seq 목록에서 최댓값을 구한다(없으면 0) — "이 세그먼트에 실제로 올라온 마지막 순번"을 뜻한다.
      * RecordingGapChecker(CAP-05/MEET-08 seq 연속성 검증)와 RecordingAssemblyS3FfmpegAdapter
      * (실제 조립 대상 범위 계산) 양쪽이 "중간 세그먼트의 target은 최대 순번"이라는 같은 규칙을

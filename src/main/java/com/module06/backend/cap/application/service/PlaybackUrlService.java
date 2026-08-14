@@ -5,24 +5,28 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
+import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// 재생용 presigned URL 발급(CAP-14): 열람 권한(CapMeetingAccessGuard) 확인 → 녹음본 조회 → presigned GET 발급.
-// 읽기 전용 조회.
+// 재생용 presigned URL 발급(CAP-14): 회의 존재(404) → 열람 권한(CapMeetingAccessGuard) → 녹음본
+// 조회 → presigned GET 발급. 읽기 전용 조회.
 @Service
 @Transactional(readOnly = true)
 public class PlaybackUrlService implements GetPlaybackUrlUseCase {
 
+    private final MeetingReferenceRepository meetingReferenceRepository;
     private final CapMeetingAccessGuard accessGuard;
     private final RecordingRepository recordingRepository;
     private final CapObjectStoragePort capObjectStoragePort;
 
-    public PlaybackUrlService(CapMeetingAccessGuard accessGuard,
+    public PlaybackUrlService(MeetingReferenceRepository meetingReferenceRepository,
+                              CapMeetingAccessGuard accessGuard,
                               RecordingRepository recordingRepository,
                               CapObjectStoragePort capObjectStoragePort) {
+        this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.capObjectStoragePort = capObjectStoragePort;
@@ -30,6 +34,10 @@ public class PlaybackUrlService implements GetPlaybackUrlUseCase {
 
     @Override
     public Result getPlaybackUrl(Long meetingId, CapMeetingAccessGuard.ViewerContext requester) {
+        // 회의가 없으면 404 — 다른 CAP 조회 서비스(GetCaptionsService 등)와 동일 순서·동일 이유다.
+        if (!meetingReferenceRepository.existsById(meetingId)) {
+            throw new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND);
+        }
         // 열람 권한(403): 참석자 / 같은 회사 owner·admin / 프로젝트 멤버. 아니면 거부.
         if (!accessGuard.canView(meetingId, requester)) {
             throw new BusinessException(CapErrorCode.CAP_NOT_ATTENDEE);

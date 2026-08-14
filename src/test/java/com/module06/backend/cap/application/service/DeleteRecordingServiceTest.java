@@ -3,6 +3,7 @@ package com.module06.backend.cap.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,6 +40,7 @@ class DeleteRecordingServiceTest {
     private final boolean[] partsDeleted = new boolean[1];
     private final boolean[] recordingDeleted = new boolean[1];
     private final boolean[] captureStateDeleted = new boolean[1];
+    private final List<String> deletedS3Keys = new ArrayList<>();
     private final ReportMeetingStorageUsageCommand[] reportedUsage = new ReportMeetingStorageUsageCommand[1];
 
     /* 회의(녹음)가 없으면 CAP-016으로 거절하는지 검증한다. */
@@ -107,6 +109,30 @@ class DeleteRecordingServiceTest {
         assertAllDeleted();
     }
 
+    /*
+     * 등록은 됐는데 조립의 parts 정리가 실패해 recording_part가 남아있는 경우(정상 조립 경로에서는
+     * 보통 비어 있음), 그 잔여 청크의 S3 객체도 최종 파일과 함께 지우는지 검증한다 — DB 행만 지우고
+     * S3 객체를 안 지우면 다시는 찾을 수 없는 고아 객체로 영영 남는다.
+     */
+    @Test
+    @DisplayName("잔여 청크가 남아있으면 그 S3 객체도 최종 파일과 함께 지운다")
+    void deletesLeftoverPartObjectsAlongsideFinalFile() {
+        List<RecordingPart> leftover = List.of(
+                RecordingPart.create(500L, 0, 1, "stt-temp/org-1/meeting-500/segments/0/parts/0001.webm",
+                        "audio/webm", 100L, 7L),
+                RecordingPart.create(500L, 0, 2, "stt-temp/org-1/meeting-500/segments/0/parts/0002.webm",
+                        "audio/webm", 100L, 7L));
+        DeleteRecordingService service = service(Optional.of(1L), Optional.of(recording()), false, null, leftover);
+
+        service.deleteRecording(500L, 1L, false);
+
+        assertThat(deletedS3Keys).contains(
+                "stt-temp/org-1/meeting-500/segments/0/parts/0001.webm",
+                "stt-temp/org-1/meeting-500/segments/0/parts/0002.webm",
+                KEY);
+        assertThat(partsDeleted[0]).isTrue();
+    }
+
     /* recording.sttTriggered가 완료 판정 저장소로 그대로 전달되는지 검증한다(0건=완료 오판 방지, #11 코드리뷰 반영). */
     @Test
     @DisplayName("recording의 sttTriggered를 완료 판정에 그대로 넘긴다")
@@ -150,16 +176,24 @@ class DeleteRecordingServiceTest {
     // 회의 companyId·녹음본·미완료여부를 지정해 서비스를 조립한다. 삭제 부수효과를 기록한다.
     private DeleteRecordingService service(Optional<Long> companyId, Optional<Recording> recording,
                                           boolean unfinished) {
-        return service(companyId, recording, unfinished, null);
+        return service(companyId, recording, unfinished, null, List.of());
     }
 
     // 완료 판정 저장소를 직접 지정하고 싶을 때(예: sttTriggered 전달값 검증)를 위한 오버로드.
     private DeleteRecordingService service(Optional<Long> companyId, Optional<Recording> recording,
                                           boolean unfinished, ProcessingCompletionRepository completionOverride) {
+        return service(companyId, recording, unfinished, completionOverride, List.of());
+    }
+
+    // 잔여 청크(recording_part) 목록까지 직접 지정하고 싶을 때(예: 잔여 청크 S3 삭제 검증)를 위한 오버로드.
+    private DeleteRecordingService service(Optional<Long> companyId, Optional<Recording> recording,
+                                          boolean unfinished, ProcessingCompletionRepository completionOverride,
+                                          List<RecordingPart> leftoverParts) {
         storageDeleted[0] = false;
         partsDeleted[0] = false;
         recordingDeleted[0] = false;
         captureStateDeleted[0] = false;
+        deletedS3Keys.clear();
         reportedUsage[0] = null;
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
@@ -190,7 +224,8 @@ class DeleteRecordingServiceTest {
 
             @Override
             public Optional<Long> findProjectId(Long meetingId) {
-                return Optional.empty();
+                // 회의는 프로젝트 1 소속 고정 — companyId와 동일한 패턴.
+                return companyId.isPresent() ? Optional.of(1L) : Optional.empty();
             }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
@@ -235,6 +270,11 @@ class DeleteRecordingServiceTest {
                                                                  int toSeq) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
+
+            @Override
+            public List<RecordingPart> findAllByMeetingId(Long meetingId) {
+                return leftoverParts;
+            }
         };
         ProcessingCompletionRepository completion = completionOverride != null
                 ? completionOverride
@@ -253,6 +293,7 @@ class DeleteRecordingServiceTest {
             @Override
             public void deleteRecording(String s3Key) {
                 storageDeleted[0] = true;
+                deletedS3Keys.add(s3Key);
             }
 
             @Override

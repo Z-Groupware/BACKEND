@@ -140,6 +140,7 @@ class HandoverControllerTest {
 
     @Test
     void reassignMapsPathAndBodyToCommand() throws Exception {
+        authenticateAs(APPROVER);
         when(reassignHandoverItemUseCase.reassignItem(any(ReassignItemCommand.class))).thenReturn(submitted());
 
         mockMvc.perform(patch("/api/handovers/{id}/items/{actionId}/reassign", HANDOVER_ID, ACTION)
@@ -156,19 +157,22 @@ class HandoverControllerTest {
         assertThat(captor.getValue().actionId()).isEqualTo(ACTION);
         assertThat(captor.getValue().toMemberId()).isEqualTo(TARGET);
         assertThat(captor.getValue().reassignedAt()).isNotNull();
+        assertThat(captor.getValue().requester().memberId()).isEqualTo(APPROVER);
     }
 
     @Test
     void completeUsesTokenMemberIdAndCurrentTime() throws Exception {
         authenticateAs(APPROVER);
-        when(completeHandoverUseCase.complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class)))
+        when(completeHandoverUseCase.complete(eq(HANDOVER_ID), any(AuthPrincipal.class), any(LocalDateTime.class)))
                 .thenReturn(reassigned());
 
         mockMvc.perform(patch("/api/handovers/{id}/complete", HANDOVER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("REASSIGNED"));
 
-        verify(completeHandoverUseCase).complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class));
+        ArgumentCaptor<AuthPrincipal> captor = ArgumentCaptor.forClass(AuthPrincipal.class);
+        verify(completeHandoverUseCase).complete(eq(HANDOVER_ID), captor.capture(), any(LocalDateTime.class));
+        assertThat(captor.getValue().memberId()).isEqualTo(APPROVER);
     }
 
     /*
@@ -178,21 +182,22 @@ class HandoverControllerTest {
     @Test
     void completeIgnoresSpoofedMemberIdHeader() throws Exception {
         authenticateAs(APPROVER);
-        when(completeHandoverUseCase.complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class)))
+        when(completeHandoverUseCase.complete(eq(HANDOVER_ID), any(AuthPrincipal.class), any(LocalDateTime.class)))
                 .thenReturn(reassigned());
 
         mockMvc.perform(patch("/api/handovers/{id}/complete", HANDOVER_ID)
                         .header("X-Member-Id", 999L))
                 .andExpect(status().isOk());
 
-        verify(completeHandoverUseCase).complete(eq(HANDOVER_ID), eq(APPROVER), any(LocalDateTime.class));
+        ArgumentCaptor<AuthPrincipal> captor = ArgumentCaptor.forClass(AuthPrincipal.class);
+        verify(completeHandoverUseCase).complete(eq(HANDOVER_ID), captor.capture(), any(LocalDateTime.class));
+        assertThat(captor.getValue().memberId()).isEqualTo(APPROVER);
     }
 
     @Test
-    void finalizeResolvesApproverNameFromOrgPort() throws Exception {
+    void finalizePassesTokenPrincipalAndCurrentTime() throws Exception {
         authenticateAs(APPROVER);
-        when(orgQueryPort.findMember(APPROVER)).thenReturn(new OrgQueryPort.MemberSnapshot(APPROVER, "Park", "Leader"));
-        when(finalizeHandoverUseCase.finalize(eq(HANDOVER_ID), eq(APPROVER), eq("Park"), any(LocalDateTime.class)))
+        when(finalizeHandoverUseCase.finalize(eq(HANDOVER_ID), any(AuthPrincipal.class), any(LocalDateTime.class)))
                 .thenReturn(finalized());
 
         mockMvc.perform(patch("/api/handovers/{id}/finalize", HANDOVER_ID))
@@ -200,15 +205,15 @@ class HandoverControllerTest {
                 .andExpect(jsonPath("$.data.status").value("FINALIZED"))
                 .andExpect(jsonPath("$.data.finalApproverNameSnap").value("Park"));
 
-        verify(orgQueryPort).findMember(APPROVER);
-        verify(finalizeHandoverUseCase).finalize(eq(HANDOVER_ID), eq(APPROVER), eq("Park"), any(LocalDateTime.class));
+        ArgumentCaptor<AuthPrincipal> captor = ArgumentCaptor.forClass(AuthPrincipal.class);
+        verify(finalizeHandoverUseCase).finalize(eq(HANDOVER_ID), captor.capture(), any(LocalDateTime.class));
+        assertThat(captor.getValue().memberId()).isEqualTo(APPROVER);
     }
 
     @Test
     void finalizeIgnoresSpoofedMemberIdHeader() throws Exception {
         authenticateAs(APPROVER);
-        when(orgQueryPort.findMember(APPROVER)).thenReturn(new OrgQueryPort.MemberSnapshot(APPROVER, "Park", "Leader"));
-        when(finalizeHandoverUseCase.finalize(eq(HANDOVER_ID), eq(APPROVER), eq("Park"), any(LocalDateTime.class)))
+        when(finalizeHandoverUseCase.finalize(eq(HANDOVER_ID), any(AuthPrincipal.class), any(LocalDateTime.class)))
                 .thenReturn(finalized());
 
         mockMvc.perform(patch("/api/handovers/{id}/finalize", HANDOVER_ID)
@@ -216,11 +221,14 @@ class HandoverControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.finalApproverNameSnap").value("Park"));
 
-        verify(orgQueryPort).findMember(APPROVER);
+        ArgumentCaptor<AuthPrincipal> captor = ArgumentCaptor.forClass(AuthPrincipal.class);
+        verify(finalizeHandoverUseCase).finalize(eq(HANDOVER_ID), captor.capture(), any(LocalDateTime.class));
+        assertThat(captor.getValue().memberId()).isEqualTo(APPROVER);
     }
 
     @Test
     void rejectMapsReasonToCommand() throws Exception {
+        authenticateAs(APPROVER);
         when(rejectHandoverUseCase.reject(any(RejectHandoverCommand.class))).thenReturn(rejected());
 
         mockMvc.perform(patch("/api/handovers/{id}/reject", HANDOVER_ID)
@@ -235,6 +243,7 @@ class HandoverControllerTest {
         verify(rejectHandoverUseCase).reject(captor.capture());
         assertThat(captor.getValue().handoverId()).isEqualTo(HANDOVER_ID);
         assertThat(captor.getValue().reason()).isEqualTo("needs more detail");
+        assertThat(captor.getValue().requester().memberId()).isEqualTo(APPROVER);
     }
 
     /*

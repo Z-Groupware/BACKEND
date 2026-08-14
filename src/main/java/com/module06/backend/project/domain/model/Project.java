@@ -52,8 +52,8 @@ public class Project {
         this.name = name;
         this.description = description;
         this.color = color;
-        this.status = status;
         this.startDate = startDate;
+        this.status = deriveStatus(status, startDate, LocalDate.now());
         this.dueDate = dueDate;
         this.createdBy = createdBy;
         this.teamIds = new ArrayList<>(teamIds);
@@ -105,20 +105,49 @@ public class Project {
         );
     }
 
-    // tag는 파라미터로 받지 않는다 — FR-PJ-04 강제. startDate는 FE 보드 화면의 할일/진행중
-    // 칸 구분용 표시값일 뿐 status(raw enum, bulk API가 직접 씀)엔 영향 없다(2026-08-10, 이홍근 요청).
+    // tag는 파라미터로 받지 않는다 — FR-PJ-04 강제.
     public void update(String name, String description, String color, LocalDate startDate, LocalDate dueDate, List<Long> teamIds) {
         this.name = name;
         this.description = description;
         this.color = color;
         this.startDate = startDate;
+        this.status = deriveStatus(this.status, startDate, LocalDate.now());
         this.dueDate = dueDate;
         this.teamIds.clear();
         this.teamIds.addAll(teamIds);
     }
 
-    public void changeStatus(ProjectStatus status) {
-        this.status = status;
+    /*
+     * 보드 상태변경(이슈 #497). 2026-08-10엔 "startDate는 표시값일 뿐 status엔 영향 없다"로
+     * 갔었는데(커밋 8abbae3, 이홍근 요청) — 그때는 보드 화면 하나만 이 값을 쓴다고 가정했지만,
+     * 목록 API도 같은 값을 신뢰해야 하는 두 번째 소비자로 붙으면서 "저장된 status를 그대로
+     * 믿는 소비자"와 "매번 계산하는 소비자"가 갈라지는 문제가 드러나 2026-08-14 정반대로
+     * 뒤집었다(이홍근 재확인). ProjectStatus.java의 "전환 제약 없음, 단계 건너뛰기·되돌리기
+     * 모두 허용" 정책은 그대로 유지한다 — Action처럼 start()/complete()/reopen() 셋으로
+     * 나눠 IllegalStateException으로 막지 않는다.
+     */
+    public void changeStatus(ProjectStatus targetStatus, LocalDate today) {
+        switch (targetStatus) {
+            case TODO -> this.startDate = null;
+            case IN_PROGRESS -> {
+                if (this.startDate == null || this.startDate.isAfter(today)) {
+                    this.startDate = today;
+                }
+            }
+            case DONE -> {
+            }
+        }
+        this.status = targetStatus;
+    }
+
+    // DONE은 사람이 직접 지정할 때만 세팅되는 값이라 그대로 신뢰한다 — 그 외엔 startDate와
+    // 오늘을 비교해 매번 다시 계산한다. project 테이블엔 is_done 컬럼이 없어(action과 달리)
+    // 저장된 status==DONE 자체를 완료 신호로 재사용한다.
+    private static ProjectStatus deriveStatus(ProjectStatus storedStatus, LocalDate startDate, LocalDate today) {
+        if (storedStatus == ProjectStatus.DONE) {
+            return ProjectStatus.DONE;
+        }
+        return (startDate == null || today.isBefore(startDate)) ? ProjectStatus.TODO : ProjectStatus.IN_PROGRESS;
     }
 
     public boolean isOwnedBy(Long memberId) {

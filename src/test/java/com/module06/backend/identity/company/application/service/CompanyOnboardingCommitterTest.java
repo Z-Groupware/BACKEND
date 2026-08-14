@@ -29,8 +29,6 @@ import com.module06.backend.identity.member.application.port.out.MemberDirectory
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
-import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.policy.SeatLimitPolicy;
 import com.module06.backend.identity.member.domain.repository.RoleRepository;
 import com.module06.backend.identity.position.domain.model.Position;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
@@ -154,42 +152,31 @@ class CompanyOnboardingCommitterTest {
         assertThat(command.issuedIds).isEmpty();
     }
 
+    /*
+     * 좌석 상한은 2026-08-14 에 삭제했다(§0-4 개정) — 확정 과금 모델(정액 + 사용량 초과)에 무료 등급이
+     * 없어 상한의 근거가 사라졌고, 온보딩은 결제 '전'에 일어나므로 상한이 남아 있으면 직원 5명 이상인
+     * 회사가 온보딩 자체를 못 끝냈다. 상한이 조용히 되살아나면 이 테스트가 깨져야 한다.
+     */
     @Test
-    @DisplayName("좌석 한도를 넘으면 거절한다")
-    void rejectsSeatLimitExceeded() {
+    @DisplayName("인원이 몇 명이든 온보딩을 끝낼 수 있다 — 좌석 상한은 없다")
+    void onboardsAnyNumberOfInvites() {
         FakeMemberQuery query = new FakeMemberQuery();
         query.currentSeats = 5;
 
-        List<OnboardCompanyCommand.InviteNode> invites = List.of(
-                invite("a", "a@company.com", "t1", null, "p1", false));
+        List<OnboardCompanyCommand.InviteNode> invites = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            invites.add(invite("사원" + i, "member" + i + "@company.com", "t1", null, "p1", false));
+        }
 
-        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
-                new FakePosition(), query, new FakeMemberCommand())
-                .commit(onboardCommand(
-                        List.of(teamNode("t1", "개발팀", List.of())),
-                        List.of(position("p1", "사원", Authority.MEMBER)),
-                        invites)))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.MEMBER_SEAT_LIMIT_EXCEEDED);
-    }
-
-    @Test
-    @DisplayName("좌석 한도는 실제 발급 대상 수만 센다 — 중복으로 skip될 초대는 좌석을 잡아먹지 않는다")
-    void seatLimitCountsOnlyActuallyIssuedInvites() {
-        FakeMemberQuery query = new FakeMemberQuery();
-        query.currentSeats = 4; // FREE 상한 5 — 남은 좌석 1개
-
-        /* 요청은 2건이지만 이메일이 겹쳐 실제 발급은 1건뿐이다 — invites().size()(2)로 셌다면 거절됐어야 한다. */
         CompanyOnboardingCommitter.CommitResult result = committer(new FakeCompany(null), new FakeTeam(),
                 new FakeRole(), new FakePosition(), query, new FakeMemberCommand())
                 .commit(onboardCommand(
                         List.of(teamNode("t1", "개발팀", List.of())),
                         List.of(position("p1", "사원", Authority.MEMBER)),
-                        List.of(invite("홍길동", "dup@company.com", "t1", null, "p1", false),
-                                invite("김서준", "dup@company.com", "t1", null, "p1", false))));
+                        invites));
 
-        assertThat(result.issuedAccounts()).hasSize(1);
-        assertThat(result.skipped()).hasSize(1);
+        assertThat(result.issuedAccounts()).hasSize(30);
+        assertThat(result.skipped()).isEmpty();
     }
 
     @Test
@@ -362,7 +349,7 @@ class CompanyOnboardingCommitterTest {
                                                   FakeMemberCommand command) {
         PasswordEncoder encoder = new BCryptPasswordEncoder();
         return new CompanyOnboardingCommitter(company, company, team, role, position, query, command,
-                new SeatLimitPolicy(), PasswordGenerator.secure(), encoder);
+                PasswordGenerator.secure(), encoder);
     }
 
     private OnboardCompanyCommand onboardCommand(List<OnboardCompanyCommand.TeamNode> teams,
@@ -546,11 +533,6 @@ class CompanyOnboardingCommitterTest {
         @Override
         public boolean existsActiveEmail(Long companyId, String email) {
             return existingEmails.contains(email);
-        }
-
-        @Override
-        public Optional<Plan> findActivePlan(Long companyId) {
-            return Optional.empty();
         }
 
         @Override

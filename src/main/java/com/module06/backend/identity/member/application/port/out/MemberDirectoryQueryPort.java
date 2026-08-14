@@ -7,7 +7,6 @@ import java.util.Optional;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.PendingHandoverType;
-import com.module06.backend.identity.member.domain.model.Plan;
 
 /**
  * 구성원 관리 화면(§7)이 읽는 창구. 목록·조직도·상세가 전부 같은 회사 소속 재직자 스냅샷에서
@@ -24,9 +23,6 @@ public interface MemberDirectoryQueryPort {
 
     /** 이메일 중복 확인(§5-1 검증 3). 퇴사자의 이메일은 다시 쓸 수 있다 — deleted_at IS NULL 만 본다. */
     boolean existsActiveEmail(Long companyId, String email);
-
-    /** 좌석 상한 판정용(§5-1 검증 5). 살아 있는 구독이 없으면 empty — FREE 로 둘러대지 않는다. */
-    Optional<Plan> findActivePlan(Long companyId);
 
     /**
      * §7-4 역할 라벨 변경. 화면이 라벨을 id 가 아니라 이름으로 보내므로(역할 select 의 값이 곧

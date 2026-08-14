@@ -184,7 +184,7 @@ class MemberControllerTest {
      * 조용히 뒤집히는 것을 여기서 잡는다.
      */
     @Test
-    @DisplayName("조직도는 로그인한 사원 누구나, 명부 목록은 관리자만")
+    @DisplayName("조직도는 로그인한 사원 누구나, 명부 목록은 관리자와 팀장까지")
     void orgChartIsOpenToAllMembersButListIsNot() throws Exception {
         PreAuthorize orgChart = MemberController.class
                 .getMethod("orgChart", Long.class).getAnnotation(PreAuthorize.class);
@@ -193,7 +193,8 @@ class MemberControllerTest {
                 .getAnnotation(PreAuthorize.class);
 
         assertThat(orgChart.value()).isEqualTo("isAuthenticated()");
-        assertThat(list.value()).isEqualTo("hasAnyRole('OWNER','ADMIN')");
+        /* 팀장 포함은 PO 결정이다(2026-08-14) — MEMBER 까지 번지면 이 테스트가 깨져야 한다. */
+        assertThat(list.value()).isEqualTo("hasAnyRole('OWNER','ADMIN','LEADER')");
     }
 
     /*

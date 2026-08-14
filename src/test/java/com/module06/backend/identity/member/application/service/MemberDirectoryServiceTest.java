@@ -25,6 +25,7 @@ import com.module06.backend.identity.member.application.command.DeleteMemberComm
 import com.module06.backend.identity.member.application.command.IssueMemberCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberAdminCommand;
 import com.module06.backend.identity.member.application.command.UpdateMemberRoleCommand;
+import com.module06.backend.identity.member.application.dto.IssuedMember;
 import com.module06.backend.identity.member.application.dto.MemberDetail;
 import com.module06.backend.identity.member.application.dto.MemberListFilter;
 import com.module06.backend.identity.member.application.dto.MemberPage;
@@ -35,8 +36,6 @@ import com.module06.backend.identity.member.application.port.out.MemberDirectory
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.PendingHandoverType;
-import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.policy.SeatLimitPolicy;
 import com.module06.backend.identity.position.domain.model.Position;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
 import com.module06.backend.identity.team.domain.model.Team;
@@ -585,23 +584,25 @@ class MemberDirectoryServiceTest {
                 .isEqualTo(AuthErrorCode.MEMBER_TEAM_LEADER_ALREADY_EXISTS);
     }
 
+    /*
+     * 좌석 상한은 2026-08-14 에 삭제했다(§0-4 개정). 상한이 조용히 되살아나면 이 테스트가 깨져야 한다.
+     */
     @Test
-    @DisplayName("Free 요금제 좌석(5석)을 넘기면 발급할 수 없다 — 잠금 아래 재검증에서도 걸린다")
-    void rejectsIssueOverSeatLimit() {
+    @DisplayName("인원이 몇 명이든 계정을 발급할 수 있다 — 좌석 상한은 없다")
+    void issuesRegardlessOfHeadcount() {
         FakeDirectory directory = new FakeDirectory();
         FakeTeamRepository teams = new FakeTeamRepository();
         FakePositionRepository positions = new FakePositionRepository();
         Team team = teams.create(COMPANY_ID, "개발팀");
         Position position = positions.create(COMPANY_ID, "사원", Authority.MEMBER, "설명");
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 50; i++) {
             directory.addActive(COMPANY_ID, "구성원" + i, null, null);
         }
 
-        assertThatThrownBy(() -> service(directory, teams, positions).issue(new IssueMemberCommand(
-                COMPANY_ID, "홍길동", "new@company.kr", team.id(), position.id(), Authority.MEMBER, null)))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(AuthErrorCode.MEMBER_SEAT_LIMIT_EXCEEDED);
+        IssuedMember issued = service(directory, teams, positions).issue(new IssueMemberCommand(
+                COMPANY_ID, "홍길동", "new@company.kr", team.id(), position.id(), Authority.MEMBER, null));
+
+        assertThat(issued.name()).isEqualTo("홍길동");
     }
 
     @Test
@@ -616,9 +617,9 @@ class MemberDirectoryServiceTest {
         companies.put(COMPANY_ID, "COMP01");
 
         MemberDirectoryService service = new MemberDirectoryService(
-                directory, directory, new MemberIssuer(directory, directory, teams, companies, new SeatLimitPolicy()),
+                directory, directory, new MemberIssuer(directory, directory, teams, companies),
                 teams, positions, companies, new FakeAccountMailPort(), PasswordGenerator.secure(),
-                new BCryptPasswordEncoder(), new FakeRefreshTokenStore(), new SeatLimitPolicy());
+                new BCryptPasswordEncoder(), new FakeRefreshTokenStore());
 
         service.issue(new IssueMemberCommand(
                 COMPANY_ID, "홍길동", "hong@company.kr", team.id(), position.id(), Authority.MEMBER, null));
@@ -639,9 +640,9 @@ class MemberDirectoryServiceTest {
         companies.put(COMPANY_ID, "COMP01");
 
         MemberDirectoryService service = new MemberDirectoryService(
-                directory, directory, new MemberIssuer(directory, directory, teams, companies, new SeatLimitPolicy()),
+                directory, directory, new MemberIssuer(directory, directory, teams, companies),
                 teams, positions, companies, mailPort, PasswordGenerator.secure(),
-                new BCryptPasswordEncoder(), new FakeRefreshTokenStore(), new SeatLimitPolicy());
+                new BCryptPasswordEncoder(), new FakeRefreshTokenStore());
 
         var issued = service.issue(new IssueMemberCommand(
                 COMPANY_ID, "홍길동", "hong@company.kr", team.id(), position.id(), Authority.LEADER, null));
@@ -728,11 +729,10 @@ class MemberDirectoryServiceTest {
     private MemberDirectoryService service(FakeDirectory directory, FakeTeamRepository teams,
                                             FakePositionRepository positions, RefreshTokenStore tokenStore) {
         FakeCompanyRepository companies = new FakeCompanyRepository();
-        SeatLimitPolicy seatLimitPolicy = new SeatLimitPolicy();
-        MemberIssuer issuer = new MemberIssuer(directory, directory, teams, companies, seatLimitPolicy);
+        MemberIssuer issuer = new MemberIssuer(directory, directory, teams, companies);
         return new MemberDirectoryService(directory, directory, issuer, teams, positions,
                 companies, new FakeAccountMailPort(), PasswordGenerator.secure(),
-                new BCryptPasswordEncoder(), tokenStore, seatLimitPolicy);
+                new BCryptPasswordEncoder(), tokenStore);
     }
 
     /* ── 테스트 더블 ──────────────────────────────────────────────────── */
@@ -740,7 +740,6 @@ class MemberDirectoryServiceTest {
     static final class FakeDirectory implements MemberDirectoryQueryPort, MemberDirectoryCommandPort {
 
         private final Map<Long, MutableRow> rows = new HashMap<>();
-        private final Map<Long, Plan> planByCompany = new HashMap<>();
         private final Map<Long, Long> issuedRoleIds = new HashMap<>();
         /** 회사별 역할 카탈로그 — 이름→id. 실제 어댑터의 role 테이블 조회를 대신한다. */
         private final Map<Long, Map<String, Long>> rolesByCompany = new HashMap<>();
@@ -828,11 +827,6 @@ class MemberDirectoryServiceTest {
         @Override
         public boolean existsActiveEmail(Long companyId, String email) {
             return rows.values().stream().anyMatch(r -> r.companyId.equals(companyId) && r.email.equals(email));
-        }
-
-        @Override
-        public Optional<Plan> findActivePlan(Long companyId) {
-            return Optional.ofNullable(planByCompany.get(companyId));
         }
 
         /** 실제 어댑터와 같이 "없음"은 회사 카탈로그를 보지 않고 시스템 역할 id 로 답한다. */

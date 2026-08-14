@@ -19,6 +19,9 @@ public enum CapErrorCode implements ErrorCode {
     CAP_RECORDING_KEY_MISMATCH(HttpStatus.BAD_REQUEST, "CAP-015", "녹음 파일 경로가 올바르지 않습니다."),
     CAP_PART_NOT_UPLOADED(HttpStatus.BAD_REQUEST, "CAP-019", "청크가 실제로 업로드되지 않았거나 크기가 일치하지 않습니다."),
     CAP_BLOCK_OFFSET_INVALID(HttpStatus.BAD_REQUEST, "CAP-021", "STT 블록 끝 지점이 이전 블록보다 앞서 있습니다."),
+    CAP_RECORDING_NOT_UPLOADED(HttpStatus.BAD_REQUEST, "CAP-023", "녹음 파일이 실제로 업로드되지 않았거나 크기가 일치하지 않습니다."),
+    CAP_RECORDING_SIZE_INVALID(HttpStatus.PAYLOAD_TOO_LARGE, "CAP-024", "녹음 파일은 0바이트보다 크고 5GiB 이하여야 합니다."),
+    CAP_RECORDING_FORMAT_UNSUPPORTED(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "CAP-025", "지원하지 않는 녹음 파일 형식입니다."),
 
     CAP_MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "CAP-002", "회의를 찾을 수 없습니다."),
     CAP_RECORDING_NOT_FOUND(HttpStatus.NOT_FOUND, "CAP-016", "녹음 파일이 존재하지 않습니다."),

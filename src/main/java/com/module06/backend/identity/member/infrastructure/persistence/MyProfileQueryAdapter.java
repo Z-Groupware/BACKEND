@@ -7,7 +7,6 @@ import org.springframework.stereotype.Repository;
 import com.module06.backend.identity.company.infrastructure.persistence.CompanyJpaEntity;
 import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.port.out.MyProfileQueryPort;
-import com.module06.backend.identity.member.domain.model.Plan;
 
 import lombok.RequiredArgsConstructor;
 
@@ -62,9 +61,9 @@ public class MyProfileQueryAdapter implements MyProfileQueryPort {
      * <p>결제 없이는 이용할 수 없는 구조이므로, 구독 행이 없는 회사는 "무료 플랜 이용자"가 아니라
      * "이용 권한이 없는 상태"다. FREE 를 내리면 프론트가 정상 이용자로 취급해 결제 안내를 띄우지 못한다.
      */
-    private Plan planOf(Long companyId) {
+    private String planOf(Long companyId) {
         return subscriptionRepository.findFirstByCompanyIdAndStatusOrderByIdDesc(companyId, ACTIVE)
-                .map(SubscriptionRefEntity::getPlan)
+                .map(SubscriptionRefEntity::getPlanCode)
                 .orElse(null);
     }
 }

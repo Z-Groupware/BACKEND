@@ -1,8 +1,11 @@
 package com.module06.backend.cap.application.service;
 
+import com.module06.backend.cap.application.command.IssueManualRecordingUploadUrlCommand;
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
+import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
+import com.module06.backend.cap.application.usecase.IssueManualRecordingUploadUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
@@ -17,11 +20,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 // 수동 녹음 업로드(CAP-10): 회의 존재 → Host 검증 → s3Key 검증 → 중복 제출 확인 → recording 등록 → 단일 블록 STT 트리거.
-// [녹음] 버튼 대신 외부(온라인 회의 등)에서 녹음한 파일을 직접 첨부하는 대체 경로다. 업로드 자체는 별도 presigned 절차이고,
-// 이 API는 완료된 파일의 메타데이터 등록 + STT 트리거만 담당한다.
+// [녹음] 버튼 대신 외부(온라인 회의 등)에서 녹음한 파일을 직접 첨부하는 대체 경로다.
+//
+// presign(issueManualRecordingUploadUrl)과 register(registerManualRecording)를 한 클래스에 같이 둔다 —
+// CaptureUploadService가 presign/complete를 함께 갖는 것과 동일 이유다. 두 메서드가 같은 s3Key 접두
+// 규칙(recordings/org-{orgId}/meeting-{meetingId}/)을 공유해야 하는데, 갈라두면 한쪽만 바뀌었을 때
+// 정상 발급된 키를 register가 거부하는 자기부정이 생긴다.
 @Service
 @Transactional
-public class ManualRecordingService implements RegisterManualRecordingUseCase {
+public class ManualRecordingService implements RegisterManualRecordingUseCase, IssueManualRecordingUploadUrlUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ManualRecordingService.class);
 
@@ -37,21 +44,70 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
     private final RecordingRepository recordingRepository;
     private final MeetingRecordingSttPort meetingRecordingSttPort;
     private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    private final CapObjectStoragePort capObjectStoragePort;
 
     public ManualRecordingService(MeetingReferenceRepository meetingReferenceRepository,
                                   CapMeetingAccessGuard accessGuard,
                                   RecordingRepository recordingRepository,
                                   MeetingRecordingSttPort meetingRecordingSttPort,
-                                  ReportMeetingStorageUsagePort reportMeetingStorageUsagePort) {
+                                  ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
+                                  CapObjectStoragePort capObjectStoragePort) {
         this.meetingReferenceRepository = meetingReferenceRepository;
         this.accessGuard = accessGuard;
         this.recordingRepository = recordingRepository;
         this.meetingRecordingSttPort = meetingRecordingSttPort;
         this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
+        this.capObjectStoragePort = capObjectStoragePort;
+    }
+
+    // presign 자체는 로컬 서명 계산이라 네트워크 호출이 없다(CaptureUploadService.issuePartUploadUrls와 동일 이유) —
+    // @Transactional 안에 있어도 커넥션을 오래 붙들지 않는다.
+    @Override
+    public IssueManualRecordingUploadUrlUseCase.Result issueManualRecordingUploadUrl(
+            IssueManualRecordingUploadUrlCommand command) {
+        Long companyId = meetingReferenceRepository.findCompanyId(command.meetingId())
+                .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
+
+        if (!accessGuard.isHost(command.meetingId(), command.callerId())) {
+            throw new BusinessException(CapErrorCode.CAP_NOT_HOST);
+        }
+
+        // fileName 자체를 검증한다(register의 최종 키 검증과 별개) — "..".pdf 같은 이름이 그대로
+        // 키에 들어가면, 정상 발급된 자기 키인데도 register의 접두 검증이 경로 조작으로 오판해
+        // 거부한다(ProjectAttachmentService.issueUploadUrl과 동일 취지 — #313).
+        String fileName = command.fileName();
+        if (fileName == null || fileName.isBlank() || fileName.contains("..")) {
+            throw new BusinessException(CapErrorCode.CAP_RECORDING_KEY_MISMATCH);
+        }
+
+        // 이미 제출된 녹음이 있으면 여기서 먼저 막는다 — 헛되이 presigned URL을 발급하고
+        // 클라이언트가 업로드까지 끝낸 뒤에야 register(CAP-10)에서 409를 받는 것보다,
+        // 업로드 시작 전에 바로 알려주는 편이 낫다(회의당 recording은 평생 단 하나).
+        if (recordingRepository.existsByMeetingId(command.meetingId())) {
+            throw new BusinessException(CapErrorCode.CAP_RECORDING_ALREADY_SUBMITTED);
+        }
+
+        String s3Key = buildManualRecordingS3Key(companyId, command.meetingId(), fileName);
+        CapObjectStoragePort.IssuedPartUploadUrl issued =
+                capObjectStoragePort.issuePartUploadUrl(s3Key, command.contentType());
+        return new IssueManualRecordingUploadUrlUseCase.Result(s3Key, issued.presignedUrl(), issued.expiresInSeconds());
+    }
+
+    // registerManualRecording의 접두 검증과 반드시 같은 규칙이어야 한다 — 한 클래스에 같이 둔
+    // 이유가 이 일치를 보장하기 위해서다. 접두 자체는 s3KeyPrefix()로 한 곳에서만 만든다.
+    private String buildManualRecordingS3Key(Long companyId, Long meetingId, String fileName) {
+        return s3KeyPrefix(companyId, meetingId) + fileName;
+    }
+
+    // recordings/org-{orgId}/meeting-{meetingId}/ — 영구 보관 경로 접두. 발급(presign)과
+    // 검증(register) 양쪽이 이 메서드 하나만 본다 — 문자열을 두 곳에 따로 적으면 한쪽만 바뀌었을 때
+    // 정상 발급된 키를 register가 경로 조작으로 오판해 거부하는 자기부정이 생긴다.
+    private String s3KeyPrefix(Long companyId, Long meetingId) {
+        return "recordings/org-%d/meeting-%d/".formatted(companyId, meetingId);
     }
 
     @Override
-    public Result registerManualRecording(RegisterManualRecordingCommand command) {
+    public RegisterManualRecordingUseCase.Result registerManualRecording(RegisterManualRecordingCommand command) {
         // 회의 존재 확인(404) + companyId 확보(키 검증용).
         Long companyId = meetingReferenceRepository.findCompanyId(command.meetingId())
                 .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
@@ -61,9 +117,9 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
             throw new BusinessException(CapErrorCode.CAP_NOT_HOST);
         }
 
-        // s3Key는 서버가 기대하는 영구 보관 경로 접두(recordings/org-{orgId}/meeting-{meetingId}/)로 시작해야 한다 —
-        // 타 회사·타 회의·임시(stt-temp) 경로나 경로 조작(..)을 막는다(PR1 complete의 키 검증과 동일 취지).
-        String expectedPrefix = "recordings/org-%d/meeting-%d/".formatted(companyId, command.meetingId());
+        // s3Key는 서버가 기대하는 영구 보관 경로 접두로 시작해야 한다 — 타 회사·타 회의·임시
+        // (stt-temp) 경로나 경로 조작(..)을 막는다(PR1 complete의 키 검증과 동일 취지).
+        String expectedPrefix = s3KeyPrefix(companyId, command.meetingId());
         String s3Key = command.s3Key();
         if (s3Key == null || s3Key.contains("..") || !s3Key.startsWith(expectedPrefix)) {
             throw new BusinessException(CapErrorCode.CAP_RECORDING_KEY_MISMATCH);
@@ -78,6 +134,14 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
             throw new BusinessException(CapErrorCode.CAP_RECORDING_ALREADY_SUBMITTED);
         }
 
+        // 요청 본문 sizeBytes를 그대로 믿지 않는다(CaptureUploadService.completePartUpload와 동일 취지) —
+        // 실제로 그 크기로 업로드가 됐는지 S3 HEAD로 확인한다. 없거나 크기가 다르면 클라이언트가
+        // 업로드도 안 하고(또는 presign만 받고) 등록을 시도한 것이므로, 존재하지 않는 파일을 등록해
+        // 가짜 저장 용량이 report되거나 존재하지 않는 객체로 STT가 트리거되는 것을 막는다.
+        if (!capObjectStoragePort.objectMatches(s3Key, command.sizeBytes())) {
+            throw new BusinessException(CapErrorCode.CAP_RECORDING_NOT_UPLOADED);
+        }
+
         // 메타 등록(durationSec은 파이프라인이 async로 채움) + 단일 블록 STT 트리거(스텁).
         // sttTriggered=true로 등록 — 트리거 직후엔 stt_block이 아직 0건이라, CAP-15 삭제 차단 판정이
         // 이를 "완료"가 아니라 "진행 중"으로 읽게 한다.
@@ -86,7 +150,7 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
         reportStorageUsageBestEffort(companyId, command.meetingId(), command.sizeBytes());
 
         // durationMs=0(파이프라인이 채움), status="DONE"(제출=완료 리터럴, meeting.status는 D 소유라 쓰지 않음).
-        return new Result(command.meetingId(), 0L, command.sizeBytes(), "DONE");
+        return new RegisterManualRecordingUseCase.Result(command.meetingId(), 0L, command.sizeBytes(), "DONE");
     }
 
     // 단일 블록 STT를 트리거한다 — 실패해도 등록 자체를 되돌리지 않는다(MeetingRecordingSttPort의
@@ -105,8 +169,10 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase {
     // (CaptureUploadService.reportStorageUsageBestEffort와 동일 패턴).
     private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long usedBytes) {
         try {
+            Long projectId = meetingReferenceRepository.findProjectId(meetingId)
+                    .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
             reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                    companyId, meetingId, usedBytes, CREATE_REVISION));
+                    companyId, projectId, meetingId, usedBytes, CREATE_REVISION));
         } catch (RuntimeException e) {
             log.error("저장 용량 미터링 기록 실패 — 녹음 등록은 완료됨, 원장만 누락. meetingId={}", meetingId, e);
         }

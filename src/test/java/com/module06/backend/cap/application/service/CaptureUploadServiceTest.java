@@ -468,6 +468,11 @@ class CaptureUploadServiceTest {
                                                                  int toSeq) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
+
+            @Override
+            public List<RecordingPart> findAllByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
         CapObjectStoragePort storage = new CapObjectStoragePort() {
             @Override
@@ -539,8 +544,30 @@ class CaptureUploadServiceTest {
             throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
         };
         SttBlockFormedWriter sttBlockFormedWriter = new SttBlockFormedWriter(stateRepo);
+        CapObjectStoragePort cutWindowStoragePort = new CapObjectStoragePort() {
+            @Override
+            public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
+                throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
+            }
+
+            @Override
+            public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+                throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
+            }
+
+            @Override
+            public void deleteRecording(String s3Key) {
+                throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
+            }
+
+            @Override
+            public boolean objectMatches(String s3Key, long expectedSizeBytes) {
+                throw new AssertionError("40청크 미만이므로 호출되면 안 됩니다.");
+            }
+        };
         SttBlockCutTrigger sttBlockCutTrigger = new SttBlockCutTrigger(
-                audioAssemblyPort, cutDetectionPort, createSttBlockPort, stateRepo, sttBlockFormedWriter);
+                audioAssemblyPort, cutDetectionPort, createSttBlockPort, stateRepo, sttBlockFormedWriter,
+                cutWindowStoragePort);
 
         StorageQuotaPort storageQuotaPort = quotaCompanyId -> {
             quotaLookupCount[0]++;

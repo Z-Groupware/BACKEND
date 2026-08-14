@@ -121,6 +121,15 @@ class PlaybackUrlServiceTest {
         assertErrorCode(() -> service.getPlaybackUrl(500L, new ViewerContext(7L, 2L, 9L, "MEMBER", false)), "CAP-010");
     }
 
+    /* 회의가 없으면 권한 판정 전에 CAP-002로 거절되는지 검증한다(GetCaptionsService 등과 동일 순서). */
+    @Test
+    @DisplayName("회의가 없으면 CAP-002로 거절한다")
+    void rejectsWhenMeetingMissing() {
+        PlaybackUrlService service = service(false, false, Optional.of(recording(100)), List.of());
+
+        assertErrorCode(() -> service.getPlaybackUrl(500L, member(7L, 1L)), "CAP-002");
+    }
+
     /* 녹음본이 없으면 CAP-016으로 거절되는지 검증한다(권한 통과 후). */
     @Test
     @DisplayName("녹음본이 없으면 CAP-016으로 거절한다")
@@ -150,13 +159,19 @@ class PlaybackUrlServiceTest {
         return Recording.restore(1L, 500L, "recording.ogg", KEY, 15_000_000L, durationSec, null, null);
     }
 
-    // 참석 여부·녹음본·프로젝트에 배정된 팀 목록을 지정해 서비스를 조립한다. 회의는 회사 1·프로젝트 12 소속,
-    // 스토리지는 키 기반 가짜 GET URL을 돌려준다.
+    // 참석 여부·녹음본·프로젝트에 배정된 팀 목록을 지정해 서비스를 조립한다(회의는 항상 존재).
+    // 회의는 회사 1·프로젝트 12 소속, 스토리지는 키 기반 가짜 GET URL을 돌려준다.
     private PlaybackUrlService service(boolean attendee, Optional<Recording> recording, List<Long> assignedTeamIds) {
+        return service(true, attendee, recording, assignedTeamIds);
+    }
+
+    // 회의 존재 여부까지 직접 지정하고 싶을 때(예: 회의 없음 케이스)를 위한 오버로드.
+    private PlaybackUrlService service(boolean meetingExists, boolean attendee, Optional<Recording> recording,
+                                       List<Long> assignedTeamIds) {
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
             public boolean existsById(Long meetingId) {
-                return true;
+                return meetingExists;
             }
 
             @Override
@@ -228,7 +243,7 @@ class PlaybackUrlServiceTest {
                 throw new AssertionError("재생 경로에서 objectMatches는 호출되면 안 됩니다.");
             }
         };
-        return new PlaybackUrlService(accessGuard, recordingRepo, storage);
+        return new PlaybackUrlService(meetingRef, accessGuard, recordingRepo, storage);
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

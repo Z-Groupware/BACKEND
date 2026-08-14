@@ -17,7 +17,9 @@ import com.module06.backend.project.domain.model.Project;
 import com.module06.backend.project.domain.model.ProjectStatus;
 import com.module06.backend.project.domain.repository.ProjectRepository;
 
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
 
 /* comment.
@@ -63,6 +65,12 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     public Optional<Project> findById(Long id) {
         return springDataProjectRepository.findById(id)
                 .map(entity -> toDomain(entity, findTeamIds(id)));
+    }
+
+    @Override
+    public Optional<Project> findByCompanyIdAndTag(Long companyId, String tag) {
+        return springDataProjectRepository.findByCompanyIdAndTagAndDeletedAtIsNull(companyId, tag)
+                .map(entity -> toDomain(entity, findTeamIds(entity.getId())));
     }
 
     @Override
@@ -112,18 +120,40 @@ public class ProjectPersistenceAdapter implements ProjectRepository {
     // content 쿼리와 count 쿼리가 항상 같은 조건을 쓰도록 이 메서드 하나로 통일한다
     // (totalElements가 필터링 전 기준이면 화면이 거짓말을 하게 된다).
     // 2026-08-13 keyword 검색 추가 — null/빈문자열이면 조건에서 빠진다. name에 대소문자 무시 LIKE.
+    // 2026-08-14(코드래빗 지적, PR #499) — status는 이제 조회 시점에 재계산되는 파생값이라
+    // (Project.deriveStatus, 이슈 #497), 저장된 raw 컬럼을 그대로 비교하면 아무도 재저장하지
+    // 않은 행이 필터에서 빠지거나 잘못 잡힌다. Project.deriveStatus와 같은 조건을 SQL로도 맞춘다.
     private Specification<ProjectJpaEntity> buildProjectSpecification(Long companyId, String keyword, ProjectStatus status) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("companyId"), companyId));
             predicates.add(cb.isNull(root.get("deletedAt")));
             if (status != null) {
-                predicates.add(cb.equal(root.get("status"), status));
+                predicates.add(buildDerivedStatusPredicate(root, cb, status));
             }
             if (keyword != null && !keyword.isBlank()) {
                 predicates.add(cb.like(cb.lower(root.get("name")), "%" + keyword.toLowerCase(Locale.ROOT) + "%"));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+
+    private Predicate buildDerivedStatusPredicate(Root<ProjectJpaEntity> root, CriteriaBuilder cb, ProjectStatus status) {
+        LocalDate today = LocalDate.now();
+        return switch (status) {
+            case DONE -> cb.equal(root.get("status"), ProjectStatus.DONE);
+            case IN_PROGRESS -> cb.and(
+                    cb.notEqual(root.get("status"), ProjectStatus.DONE),
+                    cb.isNotNull(root.get("startDate")),
+                    cb.lessThanOrEqualTo(root.get("startDate"), today)
+            );
+            case TODO -> cb.and(
+                    cb.notEqual(root.get("status"), ProjectStatus.DONE),
+                    cb.or(
+                            cb.isNull(root.get("startDate")),
+                            cb.greaterThan(root.get("startDate"), today)
+                    )
+            );
         };
     }
 

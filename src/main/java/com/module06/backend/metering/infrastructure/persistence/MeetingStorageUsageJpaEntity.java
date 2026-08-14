@@ -22,6 +22,9 @@ public class MeetingStorageUsageJpaEntity {
     @Column(name = "company_id", nullable = false)
     private Long companyId;
 
+    @Column(name = "project_id", nullable = false)
+    private Long projectId;
+
     @Column(name = "used_bytes", nullable = false)
     private long usedBytes;
 
@@ -34,21 +37,22 @@ public class MeetingStorageUsageJpaEntity {
     protected MeetingStorageUsageJpaEntity() {
     }
 
-    private MeetingStorageUsageJpaEntity(Long meetingId, Long companyId, long usedBytes, long revision,
-                                         LocalDateTime updatedAt) {
+    private MeetingStorageUsageJpaEntity(Long meetingId, Long companyId, Long projectId, long usedBytes,
+                                         long revision, LocalDateTime updatedAt) {
         this.meetingId = meetingId;
         this.companyId = companyId;
+        this.projectId = projectId;
         this.usedBytes = usedBytes;
         this.revision = revision;
         this.updatedAt = updatedAt;
     }
 
     static MeetingStorageUsageJpaEntity from(MeetingStorageUsage usage) {
-        return new MeetingStorageUsageJpaEntity(usage.getMeetingId(), usage.getCompanyId(), usage.getUsedBytes(),
-                usage.getRevision(), usage.getUpdatedAt());
+        return new MeetingStorageUsageJpaEntity(usage.getMeetingId(), usage.getCompanyId(), usage.getProjectId(),
+                usage.getUsedBytes(), usage.getRevision(), usage.getUpdatedAt());
     }
 
     MeetingStorageUsage toDomain() {
-        return MeetingStorageUsage.restore(meetingId, companyId, usedBytes, revision, updatedAt);
+        return MeetingStorageUsage.restore(meetingId, companyId, projectId, usedBytes, revision, updatedAt);
     }
 }

@@ -27,6 +27,7 @@ import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort;
 import com.module06.backend.meeting.application.port.out.MeetingRoomQueryPort.MeetingRoomSnapshot;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort;
 import com.module06.backend.meeting.application.port.out.MemberQueryPort.MemberSnapshot;
+import com.module06.backend.meeting.application.port.out.OnlineMeetingRecordingPort;
 import com.module06.backend.meeting.application.port.out.ProjectQueryPort;
 import com.module06.backend.meeting.application.result.MeetingCreationResult;
 import com.module06.backend.meeting.application.result.OnlineMeetingCreationResult;
@@ -71,6 +72,9 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
 
     /* 예약 완료 이벤트를 발행하는 기술 독립 포트다. */
     private final MeetingEventPublisher meetingEventPublisher;
+
+    /* S3에 직접 업로드된 온라인 녹음을 CAP recording으로 확정하는 연동 포트다. */
+    private final OnlineMeetingRecordingPort onlineMeetingRecordingPort;
 
     /* 과거 예약 판정을 테스트 가능하게 만드는 KST 기준 시계다. */
     private final Clock clock;
@@ -172,6 +176,17 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
         /* Controller 밖에서 호출돼도 필수 계약이 깨지지 않도록 기본 입력을 재검증한다. */
         validateRequiredOnlineValues(command);
 
+        /* 회의 검증 도중 실패해도 선행 업로드된 S3 파일이 남지 않도록 롤백 보상을 먼저 등록한다. */
+        CreateOnlineMeetingCommand.RecordingReference recording = command.recording();
+        onlineMeetingRecordingPort.prepare(new OnlineMeetingRecordingPort.Preparation(
+                command.companyId(),
+                command.hostMemberId(),
+                recording.s3Key(),
+                recording.fileName(),
+                recording.contentType(),
+                recording.sizeBytes()
+        ));
+
         /* 역할별 상위 팀 액션 규칙과 host 외 참석자 최소 인원을 외부 조회 전에 검증한다. */
         validateRelatedActionPolicy(command.hostRole(), command.relatedActionId());
         validateInvitedAttendees(command.hostMemberId(), command.attendeeMemberIds());
@@ -215,8 +230,8 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
          * 자체가 안 생김) MeetingCompletionRequestedEvent를 발행해 자동 조립·자동 분석 트리거를
          * 깨우는데, 개설 시점엔 녹음 파일이 아직 없어 그 자동 트리거가 그대로 발동하면 안 된다.
          * 그래서 도메인 전이만 체이닝해 캡처 세션·이벤트 없이 DONE 회의를 만든다. 시작·종료
-         * 시각이 같아 실측 시간은 0분이지만 표시상의 문제일 뿐이다. 녹음 업로드 후 요약은
-         * 상태 전제가 없는 수동 분석 요청(ANLZ-01)으로 받는다.
+         * 시각이 같아 실측 시간은 0분이지만 표시상의 문제일 뿐이다. 녹음은 프론트가 S3에 먼저
+         * 직접 업로드하고, 아래 recording 확정이 커밋된 뒤 전체 파일 STT를 자동 시작한다.
          */
         LocalDateTime completedAt = LocalDateTime.now(clock);
         Meeting completedMeeting = meeting.enter(completedAt).complete(completedAt);
@@ -226,6 +241,18 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
 
         /* 회의와 MAIN·SUB 안건은 같은 트랜잭션으로 묶여 어느 한쪽만 커밋되지 않게 한다. */
         meetingTopicRepository.saveAgenda(savedMeeting.getId(), agenda);
+
+        /* S3 객체 검증과 recording 저장도 같은 DB 트랜잭션에 참여시켜 일부 저장을 막는다. */
+        onlineMeetingRecordingPort.register(new OnlineMeetingRecordingPort.Registration(
+                savedMeeting.getCompanyId(),
+                savedMeeting.getHostMemberId(),
+                savedMeeting.getProjectId(),
+                savedMeeting.getId(),
+                recording.s3Key(),
+                recording.fileName(),
+                recording.contentType(),
+                recording.sizeBytes()
+        ));
 
         /* 비대면 회의 개설은 합의된 정책에 따라 예약 완료 알림을 발행하지 않는다. */
         return toOnlineResult(savedMeeting, members);
@@ -261,7 +288,12 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
                 || command.projectId() == null
                 || command.title() == null
                 || command.title().isBlank()
-                || command.attendeeMemberIds() == null) {
+                || command.attendeeMemberIds() == null
+                || command.recording() == null
+                || command.recording().s3Key() == null
+                || command.recording().fileName() == null
+                || command.recording().contentType() == null
+                || command.recording().sizeBytes() == null) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT_VALUE);
         }
     }
