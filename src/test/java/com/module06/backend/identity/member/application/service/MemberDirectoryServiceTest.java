@@ -178,13 +178,77 @@ class MemberDirectoryServiceTest {
         Team team = teams.create(COMPANY_ID, "개발팀");
         directory.addActiveWithRoleLabel(COMPANY_ID, "김서준", team.id(), "개발팀", "백엔드");
         directory.addActiveWithRoleLabel(COMPANY_ID, "박민수", team.id(), "개발팀", "프론트엔드");
-        directory.addActive(COMPANY_ID, "오너", null, null);
 
         List<OrgChartTeam> chart = service(directory, teams, new FakePositionRepository()).getOrgChart(COMPANY_ID);
 
         assertThat(chart).hasSize(1);
         assertThat(chart.get(0).subTeams()).extracting(s -> s.roleLabel()).containsExactly("백엔드", "프론트엔드");
         assertThat(chart.get(0).subTeams().get(0).members()).extracting(m -> m.name()).containsExactly("김서준");
+    }
+
+    /*
+     * 팀 미배정을 버리면 모든 회사에서 오너가 조직도에서 사라진다 — 오너 계정은 부서 없이 생성되고
+     * (OwnerAccountAdapter), 스키마도 team_id 를 NULL 허용으로 두고 있다. 같은 스냅샷을 쓰는
+     * 명부(§7-1)와 인원 수가 어긋나던 원인이라(2026-08-14 FE 제기), 잔여 묶음으로 담는다.
+     */
+    @Test
+    @DisplayName("팀 미배정 인원은 맨 뒤 '미배정' 묶음(teamId=null)으로 담긴다 — 명부와 인원이 맞는다")
+    void orgChartKeepsUnassignedMembersInResidualGroup() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        Team team = teams.create(COMPANY_ID, "개발팀");
+        directory.addActiveWithRoleLabel(COMPANY_ID, "김서준", team.id(), "개발팀", "백엔드");
+        directory.addActiveWithRoleLabel(COMPANY_ID, "팀없는오너", null, null, "없음");
+
+        List<OrgChartTeam> chart = service(directory, teams, new FakePositionRepository()).getOrgChart(COMPANY_ID);
+
+        assertThat(chart).extracting(OrgChartTeam::name).containsExactly("개발팀", "미배정");
+        assertThat(chart.get(1).teamId()).isNull();
+        assertThat(chart.get(1).subTeams()).singleElement()
+                .satisfies(subTeam -> assertThat(subTeam.members()).extracting(m -> m.name())
+                        .containsExactly("팀없는오너"));
+
+        long chartMemberCount = chart.stream()
+                .flatMap(t -> t.subTeams().stream())
+                .flatMap(s -> s.members().stream())
+                .count();
+        MemberPage roster = service(directory, teams, new FakePositionRepository())
+                .getMembers(COMPANY_ID, MemberListFilter.ALL, null, 0, 20);
+        assertThat(chartMemberCount).isEqualTo(roster.totalElements());
+    }
+
+    /* 미배정이 없으면 묶음을 넣지 않는다 — 넣으면 빈 부서 카드가 화면에 남는다. */
+    @Test
+    @DisplayName("팀 미배정이 없으면 '미배정' 묶음은 응답에 없다")
+    void orgChartOmitsResidualGroupWhenEveryoneHasTeam() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        Team team = teams.create(COMPANY_ID, "개발팀");
+        directory.addActiveWithRoleLabel(COMPANY_ID, "김서준", team.id(), "개발팀", "백엔드");
+
+        List<OrgChartTeam> chart = service(directory, teams, new FakePositionRepository()).getOrgChart(COMPANY_ID);
+
+        assertThat(chart).extracting(OrgChartTeam::name).containsExactly("개발팀");
+    }
+
+    /*
+     * roleLabel 은 role_id 가 NOT NULL 이라 실사용에서 비지 않지만(V2.3.10), 한 행만 어긋나도
+     * Collectors.groupingBy 가 NPE 를 던져 조직도 전체가 500 이 된다. 미배정 인원까지 담기 시작하면
+     * 그 경로가 실제로 열리므로 여기서 고정한다.
+     */
+    @Test
+    @DisplayName("roleLabel 이 비어도 조직도는 터지지 않는다 — null 묶음이 맨 앞에 온다")
+    void orgChartToleratesMissingRoleLabel() {
+        FakeDirectory directory = new FakeDirectory();
+        FakeTeamRepository teams = new FakeTeamRepository();
+        Team team = teams.create(COMPANY_ID, "개발팀");
+        directory.addActiveWithRoleLabel(COMPANY_ID, "라벨있음", team.id(), "개발팀", "백엔드");
+        directory.addActive(COMPANY_ID, "라벨없음", team.id(), "개발팀");
+
+        List<OrgChartTeam> chart = service(directory, teams, new FakePositionRepository()).getOrgChart(COMPANY_ID);
+
+        assertThat(chart.get(0).subTeams()).extracting(s -> s.roleLabel()).containsExactly(null, "백엔드");
+        assertThat(chart.get(0).subTeams().get(0).members()).extracting(m -> m.name()).containsExactly("라벨없음");
     }
 
     @Test
