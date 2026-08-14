@@ -49,7 +49,7 @@ class MeetingRoomControllerTest {
                     LocalDate.of(2026, 8, 14),
                     30,
                     new MeetingRoomAvailabilitySummary(
-                            query.meetingRoomId(), "회의실", LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                            query.meetingRoomId(), "회의실"),
                     List.of()
             );
 
@@ -64,9 +64,7 @@ class MeetingRoomControllerTest {
                 new MeetingRoomSummary(
                         1L,
                         "대회의실",
-                        "박애관 421호",
-                        LocalTime.of(9, 0),
-                        LocalTime.of(18, 0)
+                        "박애관 421호"
                 )
         );
         MeetingRoomController controller = new MeetingRoomController(useCase, UNUSED_AVAILABILITY_USE_CASE);
@@ -78,12 +76,10 @@ class MeetingRoomControllerTest {
         assertThat(response.getHttpStatus()).isEqualTo(200);
         assertThat(response.getMessage()).isEqualTo("회의실 목록 조회에 성공했습니다.");
 
-        /* 회의실 기본 정보와 시각 문자열이 API 명세대로 변환됐는지 확인한다. */
+        /* 회의실 기본 정보가 API 명세대로 변환됐는지 확인한다. */
         assertThat(response.getData().meetingRooms()).hasSize(1);
         assertThat(response.getData().meetingRooms().get(0).meetingRoomId()).isEqualTo(1L);
         assertThat(response.getData().meetingRooms().get(0).name()).isEqualTo("대회의실");
-        assertThat(response.getData().meetingRooms().get(0).availableFrom()).isEqualTo("09:00");
-        assertThat(response.getData().meetingRooms().get(0).availableTo()).isEqualTo("18:00");
     }
 
     /*
@@ -131,9 +127,7 @@ class MeetingRoomControllerTest {
                 30,
                 new MeetingRoomAvailabilitySummary(
                         2L,
-                        "회의실 B",
-                        LocalTime.of(9, 0),
-                        LocalTime.of(18, 0)
+                        "회의실 B"
                 ),
                 List.of(new MeetingRoomDayAvailability(
                         LocalDate.of(2026, 8, 10),
@@ -162,7 +156,6 @@ class MeetingRoomControllerTest {
 
         /* 단일 회의실 정보와 월요일 슬롯 상태·제목이 명세대로 변환됐는지 확인한다. */
         assertThat(response.getData().meetingRoom().meetingRoomId()).isEqualTo(2L);
-        assertThat(response.getData().meetingRoom().availableTo()).isEqualTo("18:00");
         assertThat(response.getData().days()).hasSize(1);
         assertThat(response.getData().days().get(0).date()).isEqualTo("2026-08-10");
         assertThat(response.getData().days().get(0).dayOfWeek()).isEqualTo("MON");
@@ -195,7 +188,7 @@ class MeetingRoomControllerTest {
                     LocalDate.of(2026, 8, 7),
                     30,
                     new MeetingRoomAvailabilitySummary(
-                            query.meetingRoomId(), "회의실", LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                            query.meetingRoomId(), "회의실"),
                     List.of()
             );
         };
@@ -226,7 +219,7 @@ class MeetingRoomControllerTest {
                     LocalDate.of(2026, 8, 14),
                     30,
                     new MeetingRoomAvailabilitySummary(
-                            query.meetingRoomId(), "회의실", LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                            query.meetingRoomId(), "회의실"),
                     List.of()
             );
         };

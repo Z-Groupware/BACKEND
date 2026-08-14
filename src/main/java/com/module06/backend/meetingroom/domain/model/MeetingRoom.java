@@ -35,12 +35,6 @@ public class MeetingRoom {
     /* 건물과 호수 등 회의실의 물리적 위치다. */
     private final String location;
 
-    /* 하루 중 회의실 이용을 시작할 수 있는 시각이다. */
-    private final LocalTime availableFrom;
-
-    /* 하루 중 회의실 이용을 종료해야 하는 시각이다. */
-    private final LocalTime availableTo;
-
     /* 회의실 비활성화 시각이며, 활성 상태에서는 null이다. */
     private final LocalDateTime deletedAt;
 
@@ -51,8 +45,6 @@ public class MeetingRoom {
      * @param companyId 소속 회사 식별자
      * @param name 회의실 이름
      * @param location 회의실 위치
-     * @param availableFrom 이용 가능 시작 시각
-     * @param availableTo 이용 가능 종료 시각
      * @param deletedAt 비활성화 시각
      */
     public MeetingRoom(
@@ -60,8 +52,6 @@ public class MeetingRoom {
             Long companyId,
             String name,
             String location,
-            LocalTime availableFrom,
-            LocalTime availableTo,
             LocalDateTime deletedAt
     ) {
         /* 전달받은 식별자와 회의실 속성을 변경 불가능한 필드에 저장한다. */
@@ -69,8 +59,6 @@ public class MeetingRoom {
         this.companyId = companyId;
         this.name = name;
         this.location = location;
-        this.availableFrom = availableFrom;
-        this.availableTo = availableTo;
         this.deletedAt = deletedAt;
     }
 
@@ -78,9 +66,7 @@ public class MeetingRoom {
     public static MeetingRoom create(
             Long companyId,
             String name,
-            String location,
-            LocalTime availableFrom,
-            LocalTime availableTo
+            String location
     ) {
         /* 이름과 위치의 가장자리 공백을 제거하고 빈 위치는 미등록 값인 null로 정규화한다. */
         String normalizedLocation = location == null || location.trim().isEmpty()
@@ -93,8 +79,6 @@ public class MeetingRoom {
                 companyId,
                 name.trim(),
                 normalizedLocation,
-                availableFrom,
-                availableTo,
                 null
         );
     }
@@ -102,9 +86,7 @@ public class MeetingRoom {
     /* 검증된 최종 속성으로 식별자와 활성 상태를 유지한 새 회의실 상태를 만든다. */
     public MeetingRoom update(
             String name,
-            String location,
-            LocalTime availableFrom,
-            LocalTime availableTo
+            String location
     ) {
         /* 빈 위치는 미등록 상태인 null로 통일하고 그 외 문자열의 가장자리 공백을 제거한다. */
         String normalizedLocation = location == null || location.trim().isEmpty()
@@ -117,8 +99,6 @@ public class MeetingRoom {
                 companyId,
                 name.trim(),
                 normalizedLocation,
-                availableFrom,
-                availableTo,
                 deletedAt
         );
     }
@@ -141,8 +121,6 @@ public class MeetingRoom {
                 companyId,
                 name,
                 location,
-                availableFrom,
-                availableTo,
                 deactivatedAt
         );
     }
@@ -158,13 +136,12 @@ public class MeetingRoom {
     }
 
     /*
-     * 이 회의실의 하루 예약 그리드를 구성하는 슬롯 시작 시각을 계산한다.
-     * 이용 가능 시간 밖의 슬롯은 만들지 않으므로, ROOM-02 응답에는 예약할 수 있는 칸만 담긴다.
+     * 이 회의실의 24시간 예약 그리드를 구성하는 슬롯 시작 시각을 계산한다.
      *
-     * @return 이용 가능 시간을 30분으로 분할한 슬롯 시작 시각 목록
+     * @return 00:00부터 23:30까지의 30분 슬롯 48개
      */
     public List<LocalTime> slotStartTimes() {
-        /* 슬롯 길이와 분할 규칙은 회의 개설과 공유하는 기준이므로 도메인 규칙에 위임한다. */
-        return SlotGrid.slotStarts(availableFrom, availableTo);
+        /* 모든 회의실은 운영시간 제한 없이 공통 24시간 그리드를 사용한다. */
+        return SlotGrid.slotStarts();
     }
 }

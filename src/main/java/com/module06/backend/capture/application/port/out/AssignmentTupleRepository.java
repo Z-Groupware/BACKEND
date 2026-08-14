@@ -98,7 +98,17 @@ public interface AssignmentTupleRepository {
             int topicSeq,
             String topic,
             String modelName,
-            String promptVersion
+            String promptVersion,
+            /*
+             * 담당자를 **코드가 이었는가**(NearNameAssigneeResolver). tuple 안에 넣지 않는 이유는
+             * AssignmentTuple 이 L4 산출을 담는 계약이기 때문이다 — 코드가 이었다는 사실은
+             * "어디서 나왔는지"에 속하고, 그게 이 레코드의 몫이다.
+             *
+             * 원시형 boolean 이다. 이 레코드가 만들어졌다는 것 자체가 근접 매칭을 지났다는
+             * 뜻이므로 미수행(NULL)을 표현할 필요가 없다 — 미수행은 이 코드 이전에 저장된
+             * 행이고, 그건 DB 에만 남는 상태다(V5.22 주석).
+             */
+            boolean assigneeNearMatched
     ) {
     }
 
@@ -122,7 +132,16 @@ public interface AssignmentTupleRepository {
              * 게이트는 TRUE 만 통과시킨다. NULL 을 통과시키면 검증하지 않은 배정이 "확신도
              * 높음"으로 올라가는데, 그건 게이트가 막으려던 상태 그대로다.
              */
-            Boolean verifyAgree
+            Boolean verifyAgree,
+
+            /*
+             * 담당자를 코드가 이었는가(V5.22). L7 이 이 행을 자동확정에서 뺄지 가른다.
+             *
+             * **3-상태다** — TRUE(코드가 이음) · FALSE(기권했거나 모델이 정함) ·
+             * NULL(근접 매칭 이전에 저장된 행). 게이트는 TRUE 만 뺀다. NULL 을 빼면
+             * 이 코드 이전 회의의 자동확정이 통째로 사라진다.
+             */
+            Boolean assigneeNearMatched
     ) {
     }
 

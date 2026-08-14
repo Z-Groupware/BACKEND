@@ -1,7 +1,6 @@
 package com.module06.backend.meetingroom.infrastructure.persistence.entity;
 
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -44,14 +43,6 @@ public class MeetingRoomJpaEntity {
     @Column(name = "location", length = 150)
     private String location;
 
-    /* 회의실을 이용할 수 있는 하루 중 시작 시각이다. */
-    @Column(name = "available_from", nullable = false)
-    private LocalTime availableFrom;
-
-    /* 회의실 이용을 종료해야 하는 하루 중 종료 시각이다. */
-    @Column(name = "available_to", nullable = false)
-    private LocalTime availableTo;
-
     /* 소프트 삭제에 사용하는 비활성화 시각이며 활성 회의실은 null이다. */
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
@@ -64,8 +55,6 @@ public class MeetingRoomJpaEntity {
      * @param companyId 소속 회사 식별자
      * @param name 회의실 이름
      * @param location 회의실 위치
-     * @param availableFrom 이용 가능 시작 시각
-     * @param availableTo 이용 가능 종료 시각
      * @param deletedAt 비활성화 시각
      */
     public MeetingRoomJpaEntity(
@@ -73,8 +62,6 @@ public class MeetingRoomJpaEntity {
             Long companyId,
             String name,
             String location,
-            LocalTime availableFrom,
-            LocalTime availableTo,
             LocalDateTime deletedAt
     ) {
         /* 전달받은 값을 meeting_room 테이블의 각 컬럼과 대응하는 필드에 저장한다. */
@@ -82,8 +69,6 @@ public class MeetingRoomJpaEntity {
         this.companyId = companyId;
         this.name = name;
         this.location = location;
-        this.availableFrom = availableFrom;
-        this.availableTo = availableTo;
         this.deletedAt = deletedAt;
     }
 
@@ -95,8 +80,6 @@ public class MeetingRoomJpaEntity {
                 meetingRoom.getCompanyId(),
                 meetingRoom.getName(),
                 meetingRoom.getLocation(),
-                meetingRoom.getAvailableFrom(),
-                meetingRoom.getAvailableTo(),
                 meetingRoom.getDeletedAt()
         );
     }

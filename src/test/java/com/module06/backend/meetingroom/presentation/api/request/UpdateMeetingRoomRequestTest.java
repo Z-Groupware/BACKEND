@@ -18,15 +18,15 @@ class UpdateMeetingRoomRequestTest {
     /* 실제 HTTP 역직렬화와 같은 Jackson ObjectMapper다. */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /* location 키를 보내지 않으면 기존 위치 유지 명령이 되는지 검증한다. */
+    /* location 키를 보내지 않고 이름만 보내면 기존 위치 유지 명령이 되는지 검증한다. */
     @Test
     @DisplayName("location 미전달은 기존 위치 유지로 변환한다")
     void distinguishesOmittedLocation() throws Exception {
-        /* 종료 시각만 포함한 PATCH JSON을 요청 DTO로 역직렬화한다. */
+        /* 이름만 포함한 PATCH JSON을 요청 DTO로 역직렬화한다. */
         UpdateMeetingRoomRequest request = objectMapper.readValue(
                 """
                         {
-                          "availableTo": "20:00"
+                          "name": "대회의실"
                         }
                         """,
                 UpdateMeetingRoomRequest.class
@@ -36,8 +36,8 @@ class UpdateMeetingRoomRequestTest {
         UpdateMeetingRoomCommand command = request.toCommand(10L, "OWNER", 2L);
         assertThat(command.locationProvided()).isFalse();
         assertThat(command.location()).isNull();
-        assertThat(command.availableToProvided()).isTrue();
-        assertThat(command.availableTo()).isEqualTo(java.time.LocalTime.of(20, 0));
+        assertThat(command.nameProvided()).isTrue();
+        assertThat(command.name()).isEqualTo("대회의실");
     }
 
     /* location null을 명시하면 위치 삭제 명령이 되는지 검증한다. */

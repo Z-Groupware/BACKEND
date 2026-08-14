@@ -66,9 +66,7 @@ class MeetingRoomCommandSecurityTest {
                         .content("""
                                 {
                                   "name": "대회의실",
-                                  "location": "박애관 421호",
-                                  "availableFrom": "09:00",
-                                  "availableTo": "18:00"
+                                  "location": "박애관 421호"
                                 }
                                 """))
                 .andExpect(status().isUnauthorized())
@@ -134,9 +132,7 @@ class MeetingRoomCommandSecurityTest {
                         .content("""
                                 {
                                   "name": "대회의실",
-                                  "location": "박애관 421호",
-                                  "availableFrom": "09:00",
-                                  "availableTo": "18:00"
+                                  "location": "박애관 421호"
                                 }
                                 """))
                 .andExpect(status().isForbidden())
@@ -157,9 +153,7 @@ class MeetingRoomCommandSecurityTest {
                         .content("""
                                 {
                                   "name": "대회의실",
-                                  "location": "박애관 421호",
-                                  "availableFrom": "09:00",
-                                  "availableTo": "18:00"
+                                  "location": "박애관 421호"
                                 }
                                 """))
                 .andExpect(status().isForbidden())
@@ -188,9 +182,7 @@ class MeetingRoomCommandSecurityTest {
                         .content("""
                                 {
                                   "name": "대회의실",
-                                  "location": "박애관 421호",
-                                  "availableFrom": "09:00",
-                                  "availableTo": "18:00"
+                                  "location": "박애관 421호"
                                 }
                                 """))
                 .andExpect(status().isCreated());
@@ -215,9 +207,7 @@ class MeetingRoomCommandSecurityTest {
                         .content("""
                                 {
                                   "name": "대회의실",
-                                  "location": "박애관 421호",
-                                  "availableFrom": "09:00",
-                                  "availableTo": "18:00"
+                                  "location": "박애관 421호"
                                 }
                                 """))
                 .andExpect(status().isCreated());

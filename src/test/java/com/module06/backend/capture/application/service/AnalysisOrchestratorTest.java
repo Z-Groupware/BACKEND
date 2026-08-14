@@ -891,7 +891,8 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
                         // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
                         (companyId, meetingId) -> true, new ObjectMapper()),
@@ -921,7 +922,8 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions,
                         // meeting.project_id 는 NOT NULL 이라, 비었다는 것은 회의 행을 못 읽은
                         // 것이다 — 분배할 것이 없는 정상 상태가 아니라 데이터 오류다.
@@ -1253,7 +1255,8 @@ class AnalysisOrchestratorTest {
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, layers.runs != null ? layers.runs : new FakeRunRepository(),
                 summaries, tuples, artifacts, meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, new RecordingDistributionPort(),
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
                         new ObjectMapper()),
@@ -1313,7 +1316,8 @@ class AnalysisOrchestratorTest {
                 summaries, tuples, new FakeArtifactRepository(), dates,
                 // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
                 // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new ConflictDetector(), new AutoConfirmGate(),
                 /*
                  * 분배 서비스도 실물이다. **같은 tuple 저장소를 넘기는 것이 요점**이다 —
                  * 분배가 무엇을 읽어 무엇을 만드는지는 tuple 을 공유해야만 검증된다.
@@ -1335,7 +1339,8 @@ class AnalysisOrchestratorTest {
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeRunRepository(), summaries, tuples,
                 new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new ConflictDetector(), new AutoConfirmGate(),
+                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, new RecordingDistributionPort(),
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
                         new ObjectMapper()),
@@ -1793,7 +1798,10 @@ class AnalysisOrchestratorTest {
             for (TupleRow row : rows) {
                 long id = nextId++;
                 // 저장 시점의 verify_agree 는 항상 NULL 이다 — L5 가 아직 안 돌았다.
-                storedById.put(id, new StoredTuple(id, row.tuple(), row.topicSeq(), row.topic(), null));
+                // 근접 매칭 여부는 저장 행이 들고 온 값을 그대로 실어야 한다 — L7 이 그 값을
+                // 읽어 자동확정에서 빼므로, 여기서 버리면 그 경로가 테스트에서 안 돈다.
+                storedById.put(id, new StoredTuple(id, row.tuple(), row.topicSeq(), row.topic(),
+                        null, row.assigneeNearMatched()));
             }
         }
 
@@ -1815,7 +1823,8 @@ class AnalysisOrchestratorTest {
                 if (existing != null) {
                     verifications.put(verification.tupleId(), verification);
                     storedById.put(existing.id(), new StoredTuple(existing.id(), existing.tuple(),
-                            existing.topicSeq(), existing.topic(), verification.agree()));
+                            existing.topicSeq(), existing.topic(), verification.agree(),
+                            existing.assigneeNearMatched()));
                     applied++;
                 }
             }

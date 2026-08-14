@@ -176,6 +176,8 @@ class ActionReviewServiceTest {
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 7),
                 // 회의에서 나온 기한이다 — 프로젝트 마감일로 채운 것이 아니다.
                 false,
+                // 담당자도 모델이 정했다 — 근접 매칭이 이어 준 것이 아니다.
+                false,
                 "제품 로드맵", false, "PENDING",
                 // 아직 판정을 받지 않았으므로 사유가 없다.
                 null,
@@ -193,7 +195,8 @@ class ActionReviewServiceTest {
     private static ActionReviewQueryPort.ReviewAction manualAction(long actionId) {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.PERSONAL, ALICE, "김서준", null, "직접 추가한 일", null, null,
-                false, null, true, "HUMAN_CONFIRMED", null, null, null, null);
+                // 기한도 담당자도 사람이 넣었다. 근접 매칭 여부는 tuple 이 없어 null 이다.
+                false, null, null, true, "HUMAN_CONFIRMED", null, null, null, null);
     }
 
     /* 사람이 반려한 액션 — 화면의 「반려됨 · 이미 있는 것과 중복」이 이 모양이다. */
@@ -201,7 +204,7 @@ class ActionReviewServiceTest {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.PERSONAL, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL,
                 "온보딩 플로우 검토", null,
-                LocalDate.of(2026, 8, 7), false, "온보딩", false, "REJECTED",
+                LocalDate.of(2026, 8, 7), false, false, "온보딩", false, "REJECTED",
                 RejectReason.DUPLICATE,
                 new ActionReviewQueryPort.Evidence(8812L, "박대표", "먼저 검토합시다.", 1_122_000),
                 new GateSignals(true, true, true, true), true);
@@ -212,7 +215,7 @@ class ActionReviewServiceTest {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.PERSONAL, ALICE, "김서준", AssigneeSource.EXPLICIT_CALL,
                 "API 문서 최신화", null,
-                LocalDate.of(2026, 8, 31), true, "인증 개편", false, "PENDING", null,
+                LocalDate.of(2026, 8, 31), true, false, "인증 개편", false, "PENDING", null,
                 new ActionReviewQueryPort.Evidence(8813L, "박도현", "API 문서에도 반영이 필요합니다.", 24_000),
                 new GateSignals(true, true, true, true), true);
     }

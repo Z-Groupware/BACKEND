@@ -132,13 +132,11 @@ class MeetingReminderQueryAdapterTest {
 
     /* 회사별 회의실 표시값을 가진 Port 스냅숏을 만든다. */
     private MeetingRoomSnapshot room(Long meetingRoomId, String name) {
-        /* 위치와 운영 시간은 이번 알림 payload에서 사용하지 않으므로 최소 유효값만 넣는다. */
+        /* 위치는 이번 알림 payload에서 사용하지 않으므로 최소 유효값만 넣는다. */
         return new MeetingRoomSnapshot(
                 meetingRoomId,
                 name,
-                "3층",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "3층"
         );
     }
 

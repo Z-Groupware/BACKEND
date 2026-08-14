@@ -138,7 +138,7 @@ class QualityGoldSetServiceTest {
             actions.add(new ReviewAction(
                     100L + i, com.module06.backend.action.domain.model.ActionType.PERSONAL,
                     42L, "김서준", null, "로드맵 초안 작성", null,
-                    LocalDate.of(2026, 8, 8), false, "제품 로드맵", false, statuses[i], null,
+                    LocalDate.of(2026, 8, 8), false, false, "제품 로드맵", false, statuses[i], null,
                     new ActionReviewQueryPort.Evidence(8812L, "김서준", "제가 정리할게요", 1000),
                     null, null));
         }

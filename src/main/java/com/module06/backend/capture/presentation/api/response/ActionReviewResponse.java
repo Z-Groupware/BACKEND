@@ -65,6 +65,14 @@ public record ActionReviewResponse(
              * "회의에서 정해지지 않음"을 함께 보여주면 된다.
              */
             boolean dueDateDefaulted,
+            /*
+             * 담당자를 **코드가 이어 준 것**인지(V5.22). dueDateDefaulted 와 같은 자리의 값이다 —
+             * 이것이 없으면 화면에서 AI 가 정한 담당자와 구분되지 않고, 사람은 확인해야 할 이름을
+             * 그냥 넘긴다. true 면 화면이 "이름이 비슷해 연결됨"을 함께 보여주면 된다.
+             *
+             * null 은 tuple 이 없는 수동 액션이거나 근접 매칭 이전에 저장된 배정이다.
+             */
+            Boolean assigneeNearMatched,
             String topic,
             boolean isManual,
             String reviewStatus,
@@ -88,6 +96,7 @@ public record ActionReviewResponse(
                     action.detail(),
                     action.dueDate(),
                     action.dueDateDefaulted(),
+                    action.assigneeNearMatched(),
                     action.topic(),
                     action.manual(),
                     action.reviewStatus(),

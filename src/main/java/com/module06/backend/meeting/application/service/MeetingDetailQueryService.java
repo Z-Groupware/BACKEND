@@ -26,6 +26,7 @@ import com.module06.backend.meeting.application.result.MeetingDetailResult;
 import com.module06.backend.meeting.application.usecase.GetMeetingDetailUseCase;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
+import com.module06.backend.meeting.domain.model.MeetingTranscriptStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository.MeetingDetailSnapshot;
@@ -112,6 +113,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         /* 종료 전 회의는 액션·요약 자체가 없으므로 C·A Port를 부르지 않고 기본값으로 확정한다. */
         long pendingActionCount = resolvePendingActionCount(meeting);
         MeetingSummaryStatus summaryStatus = resolveSummaryStatus(meeting);
+        MeetingTranscriptStatus transcriptStatus = resolveTranscriptStatus(meeting);
         MeetingDetailResult.Agenda agenda = resolveAgenda(meeting);
 
         /* D 회의 메타와 다섯 Port의 표시 정보를 외부 응답과 독립적인 애플리케이션 결과로 만든다. */
@@ -126,6 +128,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 meeting.recordingConsent(),
                 pendingActionCount,
                 summaryStatus,
+                transcriptStatus,
                 meeting.teamId(),
                 originLabel(meeting.teamId()),
                 agenda,
@@ -200,15 +203,33 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
             return MeetingSummaryStatus.NONE;
         }
 
-        /* MEET-15와 같은 계약이다 — 중단·실패가 아니면 회의 ID가 결과에 아예 없다. */
-        boolean stalled = summaryStatusQueryPort
-                .findStalledSummaries(meeting.companyId(), List.of(meeting.meetingId()))
+        /* A가 CAP-06과 같은 규칙으로 접은 전체 상태를 받아 D에서 다시 계산하지 않는다. */
+        return summaryStatusQueryPort
+                .findSummaryStatuses(meeting.companyId(), List.of(meeting.meetingId()))
                 .stream()
-                .findAny()
-                .isPresent();
+                .filter(status -> status.meetingId().equals(meeting.meetingId()))
+                .findFirst()
+                .map(SummaryStatusQueryPort.SummaryStatusMeeting::status)
+                /* A는 회사 범위 내 모든 입력에 항목을 주지만 방어적으로 미시작 상태를 유지한다. */
+                .orElse(MeetingSummaryStatus.NONE);
+    }
 
-        /* 종료됐고 중단도 아니면 A가 PROCESSING·DONE을 구분해 주지 않아 실제 상태를 모른다 — 추측 대신 null. */
-        return stalled ? MeetingSummaryStatus.STALLED : null;
+    /* 발화 기록은 AI 요약과 다른 생명주기이므로 별도 상태로 계산한다. */
+    private MeetingTranscriptStatus resolveTranscriptStatus(MeetingDetailSnapshot meeting) {
+        if (meeting.status() == MeetingStatus.SCHEDULED || meeting.status() == MeetingStatus.CANCELED) {
+            return MeetingTranscriptStatus.NOT_STARTED;
+        }
+
+        /* 진행 중 회의는 이후 오디오가 더 들어올 수 있어 현재 블록이 끝났어도 전체 정본은 미완성이다. */
+        if (meeting.status() == MeetingStatus.IN_PROGRESS) {
+            return MeetingTranscriptStatus.PROCESSING;
+        }
+
+        /* DONE 회의만 A의 실제 STT 블록 상태를 조회해 정본 완료·실패를 구분한다. */
+        return summaryStatusQueryPort
+                .findTranscriptStatus(meeting.companyId(), meeting.meetingId())
+                .map(SummaryStatusQueryPort.TranscriptStatusMeeting::status)
+                .orElse(MeetingTranscriptStatus.NOT_STARTED);
     }
 
     /* Controller 밖의 내부 호출에서도 인증 식별자와 회의 식별자의 기본 계약을 지킨다. */

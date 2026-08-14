@@ -29,17 +29,11 @@ public enum MeetingRoomErrorCode implements ErrorCode {
     /* ROOM-03·04 — 같은 회사의 활성 회의실 이름이 중복된 경우다. */
     MEETING_ROOM_NAME_DUPLICATE(HttpStatus.CONFLICT, "MR-002", "이미 사용 중인 회의실 이름입니다."),
 
-    /* ROOM-03·04 — 이용 가능 종료 시각이 시작 시각보다 빠르거나 같은 경우다. */
-    INVALID_AVAILABLE_TIME_RANGE(HttpStatus.BAD_REQUEST, "MR-003", "이용 가능 종료 시각은 시작 시각보다 늦어야 합니다."),
-
     /* ROOM-04·05 — OWNER·ADMIN이 아닌 요청자가 회의실을 관리하려는 경우다. */
     MEETING_ROOM_MANAGEMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "MR-004", "회의실 관리 권한이 없습니다."),
 
     /* ROOM-05 — 미래 SCHEDULED 예약이 남아 있어 비활성화할 수 없는 경우다. */
-    MEETING_ROOM_HAS_RESERVATION(HttpStatus.CONFLICT, "MR-005", "예약이 남아 있는 회의실은 비활성화할 수 없습니다."),
-
-    /* ROOM-04 — 이용 가능 시간을 좁혔을 때 그 밖에 이미 예약이 존재하는 경우다. */
-    RESERVATION_OUTSIDE_AVAILABLE_TIME(HttpStatus.CONFLICT, "MR-006", "변경한 이용 가능 시간 밖에 이미 예약이 있습니다.");
+    MEETING_ROOM_HAS_RESERVATION(HttpStatus.CONFLICT, "MR-005", "예약이 남아 있는 회의실은 비활성화할 수 없습니다.");
 
     /* 예외를 응답으로 변환할 때 사용할 HTTP 상태다. */
     private final HttpStatus httpStatus;

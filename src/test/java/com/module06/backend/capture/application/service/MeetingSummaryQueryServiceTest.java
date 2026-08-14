@@ -10,8 +10,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.module06.backend.capture.application.port.in.MeetingSummaryQueryPort.MeetingSummaryStatus;
+import com.module06.backend.capture.application.port.in.MeetingSummaryQueryPort.MeetingTranscriptStatus;
 import com.module06.backend.capture.application.port.in.MeetingSummaryQueryPort.StalledMeetingSummary;
 import com.module06.backend.capture.application.port.in.MeetingSummaryQueryPort.SummaryStatus;
+import com.module06.backend.capture.application.port.in.MeetingSummaryQueryPort.TranscriptStatus;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository;
 import com.module06.backend.capture.application.port.out.AnalysisLayerRepository.LayerState;
 import com.module06.backend.capture.application.port.out.LayerRun;
@@ -19,6 +21,7 @@ import com.module06.backend.capture.application.port.out.MeetingAccessPort;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.SttBlockStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -341,6 +344,68 @@ class MeetingSummaryQueryServiceTest {
         assertThat(layers.batchCalls).isZero();
     }
 
+    // ── MEET-04 · 발화 기록 정본 상태 ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("STT 블록이 없으면 발화 기록은 NOT_STARTED다")
+    void 블록이_없으면_발화_기록은_미시작이다() {
+        MeetingSummaryQueryService service = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> true,
+                new FakeLayerStates(),
+                blocksWithStatuses()
+        );
+
+        assertThat(service.findTranscriptStatus(COMPANY, 500L))
+                .contains(new MeetingTranscriptStatus(500L, TranscriptStatus.NOT_STARTED));
+    }
+
+    @Test
+    @DisplayName("미완 블록과 전체 완료 블록을 PROCESSING·DONE으로 구분한다")
+    void 발화_기록_진행과_완료를_구분한다() {
+        MeetingSummaryQueryService processingService = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> true,
+                new FakeLayerStates(),
+                blocksWithStatuses(SttBlockStatus.DONE, SttBlockStatus.RUNNING)
+        );
+        MeetingSummaryQueryService doneService = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> true,
+                new FakeLayerStates(),
+                blocksWithStatuses(SttBlockStatus.DONE, SttBlockStatus.DONE)
+        );
+
+        assertThat(processingService.findTranscriptStatus(COMPANY, 501L))
+                .contains(new MeetingTranscriptStatus(501L, TranscriptStatus.PROCESSING));
+        assertThat(doneService.findTranscriptStatus(COMPANY, 502L))
+                .contains(new MeetingTranscriptStatus(502L, TranscriptStatus.DONE));
+    }
+
+    @Test
+    @DisplayName("실패 블록이 하나라도 있으면 완료 블록보다 FAILED가 우선한다")
+    void 실패한_발화_기록은_실패로_답한다() {
+        MeetingSummaryQueryService service = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> true,
+                new FakeLayerStates(),
+                blocksWithStatuses(SttBlockStatus.DONE, SttBlockStatus.FAILED)
+        );
+
+        assertThat(service.findTranscriptStatus(COMPANY, 503L))
+                .contains(new MeetingTranscriptStatus(503L, TranscriptStatus.FAILED));
+    }
+
+    @Test
+    @DisplayName("다른 회사 회의의 STT 상태는 조회하지 않고 숨긴다")
+    void 다른_회사_발화_기록은_숨긴다() {
+        SttBlockRepository blocks = blocksWithStatuses(SttBlockStatus.DONE);
+        MeetingSummaryQueryService service = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> false,
+                new FakeLayerStates(),
+                blocks
+        );
+
+        assertThat(service.findTranscriptStatus(COMPANY, 999L)).isEmpty();
+        verify(blocks, never()).findByMeeting(999L);
+    }
+
     // ── 조립 ────────────────────────────────────────────────────────────────────
 
     /* 회사 관문은 통과시키고 계층 상태만 보는 조립. 받아쓰기는 도는 것이 없다고 답한다. */
@@ -356,6 +421,20 @@ class MeetingSummaryQueryServiceTest {
     private static SttBlockRepository blocksWaitingFor(Long... waitingMeetingIds) {
         SttBlockRepository blocks = mock(SttBlockRepository.class);
         when(blocks.findMeetingsWithUnfinishedBlocks(anyList())).thenReturn(Set.of(waitingMeetingIds));
+        return blocks;
+    }
+
+    /* 지정 상태를 가진 STT 블록 목록을 반환하는 저장소 대역을 만든다. */
+    private static SttBlockRepository blocksWithStatuses(SttBlockStatus... statuses) {
+        SttBlockRepository blocks = mock(SttBlockRepository.class);
+        List<SttBlockRepository.SttBlockView> views = java.util.Arrays.stream(statuses)
+                .map(status -> {
+                    SttBlockRepository.SttBlockView view = mock(SttBlockRepository.SttBlockView.class);
+                    when(view.status()).thenReturn(status);
+                    return view;
+                })
+                .toList();
+        when(blocks.findByMeeting(org.mockito.ArgumentMatchers.anyLong())).thenReturn(views);
         return blocks;
     }
 

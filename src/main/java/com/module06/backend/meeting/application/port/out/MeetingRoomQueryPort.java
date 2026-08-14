@@ -1,6 +1,5 @@
 package com.module06.backend.meeting.application.port.out;
 
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,9 +20,7 @@ public interface MeetingRoomQueryPort {
     record MeetingRoomSnapshot(
             Long meetingRoomId,
             String name,
-            String location,
-            LocalTime availableFrom,
-            LocalTime availableTo
+            String location
     ) {
     }
 }

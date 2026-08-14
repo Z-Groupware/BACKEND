@@ -42,7 +42,7 @@ public class MeetingAssignmentTuplePersistenceAdapter implements AssignmentTuple
                     companyId, meetingId, row.decisionId(), row.topicSeq(), row.topic(),
                     tuple.title(), tuple.assigneeCandidateMemberId(), tuple.assigneeSource(),
                     tuple.dueDate(), tuple.evidenceUtteranceId(),
-                    row.modelName(), row.promptVersion(), sortOrder++));
+                    row.modelName(), row.promptVersion(), row.assigneeNearMatched(), sortOrder++));
         }
         tupleRepository.saveAll(entities);
     }
@@ -63,7 +63,10 @@ public class MeetingAssignmentTuplePersistenceAdapter implements AssignmentTuple
                         entity.getTopic(),
                         // L7 게이트의 네 번째 조건. NULL(L5 미수행)을 그대로 넘긴다 —
                         // 여기서 false 로 바꾸면 "검증에서 걸림"과 "검증 안 함"이 뭉친다.
-                        entity.getVerifyAgree()))
+                        entity.getVerifyAgree(),
+                        // 근접 매칭 여부(V5.22). NULL(이 코드 이전 행)도 그대로 넘긴다 —
+                        // false 로 바꾸면 미수행이 "기권"과 뭉쳐 오답률 분모가 틀어진다.
+                        entity.getAssigneeNearMatched()))
                 .toList();
     }
 

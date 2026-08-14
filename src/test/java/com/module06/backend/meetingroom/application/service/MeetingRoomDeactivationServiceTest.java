@@ -52,7 +52,7 @@ class MeetingRoomDeactivationServiceTest {
         assertThat(commandRepository.savedMeetingRoom.getDeletedAt())
                 .isEqualTo(LocalDateTime.of(2026, 8, 6, 9, 0));
         assertThat(commandRepository.savedMeetingRoom.getName()).isEqualTo("회의실 B");
-        assertThat(commandRepository.savedMeetingRoom.getAvailableTo()).isEqualTo(LocalTime.of(18, 0));
+        assertThat(commandRepository.savedMeetingRoom.getLocation()).isEqualTo("박애관 422호");
 
         /* 예약 조회에는 토큰 회사·Path ID·동일한 현재 시각이 전달돼야 한다. */
         assertThat(reservationRepository.capturedCompanyId).isEqualTo(10L);
@@ -166,14 +166,12 @@ class MeetingRoomDeactivationServiceTest {
 
     /* 테스트에서 비활성화할 기존 활성 회의실을 만든다. */
     private MeetingRoom existingRoom() {
-        /* 회사·표시·운영 속성과 식별자를 가진 활성 회의실이다. */
+        /* 회사·표시 속성과 식별자를 가진 활성 회의실이다. */
         return new MeetingRoom(
                 2L,
                 10L,
                 "회의실 B",
                 "박애관 422호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0),
                 null
         );
     }

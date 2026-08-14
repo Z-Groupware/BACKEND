@@ -62,19 +62,15 @@ class MeetingRoomCommandControllerTest {
         /* 인증 principal의 회사 식별자와 명세 형식의 본문으로 Controller 메서드를 호출한다. */
         CreateMeetingRoomRequest request = new CreateMeetingRoomRequest(
                 "대회의실",
-                "박애관 421호",
-                "09:00",
-                "18:00"
+                "박애관 421호"
         );
         ApiResponse<CreateMeetingRoomResponse> response = controller.createMeetingRoom(10L, request);
 
-        /* 본문에 없는 회사 식별자와 파싱된 시각이 애플리케이션 명령에 포함돼야 한다. */
+        /* 본문에 없는 회사 식별자가 애플리케이션 명령에 포함돼야 한다. */
         assertThat(capturedCommand[0]).isEqualTo(new CreateMeetingRoomCommand(
                 10L,
                 "대회의실",
-                "박애관 421호",
-                LocalTime.of(9, 0),
-                LocalTime.of(18, 0)
+                "박애관 421호"
         ));
 
         /* 공통 응답 본문은 201 상태, 명세 메시지, 생성 식별자를 가져야 한다. */
@@ -97,22 +93,20 @@ class MeetingRoomCommandControllerTest {
         assertThat(responseStatus.value()).isEqualTo(HttpStatus.CREATED);
     }
 
-    /* 요청 DTO가 이름·30분 시각 형식을 입구에서 거절하는지 검증한다. */
+    /* 요청 DTO가 빈 이름을 입구에서 거절하는지 검증한다. */
     @Test
     @DisplayName("잘못된 등록 본문을 Bean Validation 단계에서 거절한다")
     void rejectsInvalidRequestBody() {
-        /* 빈 이름과 30분 경계가 아닌 시각을 가진 요청을 준비한다. */
+        /* 빈 이름을 가진 요청을 준비한다. */
         CreateMeetingRoomRequest request = new CreateMeetingRoomRequest(
                 " ",
-                "박애관 421호",
-                "09:10",
-                "18:00"
+                "박애관 421호"
         );
 
         /* 각 제약 위반의 속성 경로를 수집해 입력 경계 계약을 확인한다. */
         assertThat(validator.validate(request))
                 .extracting(violation -> ((ConstraintViolation<CreateMeetingRoomRequest>) violation)
                         .getPropertyPath().toString())
-                .contains("name", "availableFrom");
+                .containsExactly("name");
     }
 }

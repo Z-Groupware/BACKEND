@@ -2,7 +2,6 @@ package com.module06.backend.meeting.application.service;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -258,20 +257,10 @@ public class MeetingUpdateService implements UpdateMeetingUseCase {
             throw new BusinessException(MeetingErrorCode.PAST_MEETING_TIME);
         }
 
-        /* 예약 생성·회의실 운영 시간 수정과 직렬화되도록 활성 회의실 행을 잠금 조회한다. */
+        /* 예약 생성과 직렬화되도록 활성 회의실 행을 잠금 조회한다. */
         MeetingRoomSnapshot room = meetingRoomQueryPort
                 .findActiveMeetingRoom(companyId, meetingRoomId)
                 .orElseThrow(() -> new BusinessException(MeetingRoomErrorCode.MEETING_ROOM_NOT_FOUND));
-
-        /* 일일 운영 계약이므로 날짜를 넘거나 시작·종료가 운영 범위를 벗어나면 거절한다. */
-        boolean differentDay = !startAt.toLocalDate().equals(endAt.toLocalDate());
-        LocalTime startTime = startAt.toLocalTime();
-        LocalTime endTime = endAt.toLocalTime();
-        if (differentDay
-                || startTime.isBefore(room.availableFrom())
-                || endTime.isAfter(room.availableTo())) {
-            throw new BusinessException(MeetingErrorCode.OUTSIDE_MEETING_ROOM_HOURS);
-        }
 
         /* 검증과 잠금에 사용한 동일 스냅숏을 응답 조립에서도 재사용한다. */
         return room;
