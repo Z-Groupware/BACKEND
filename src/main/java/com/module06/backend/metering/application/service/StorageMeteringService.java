@@ -42,7 +42,7 @@ public class StorageMeteringService implements ReportMeetingStorageUsagePort, St
     @Override
     public void report(ReportMeetingStorageUsageCommand command) {
         MeetingStorageUsage usage = MeetingStorageUsage.report(command.meetingId(), command.companyId(),
-                command.usedBytes(), command.revision(), LocalDateTime.now(clock));
+                command.projectId(), command.usedBytes(), command.revision(), LocalDateTime.now(clock));
         meetingStorageUsageRepository.reportIfNewer(usage);
     }
 

@@ -18,6 +18,9 @@ import com.module06.backend.cap.domain.model.CaptionChunk;
 import com.module06.backend.cap.domain.repository.CaptionChunkRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.metering.application.command.ReportMeetingTextStorageUsageCommand;
+import com.module06.backend.metering.application.port.in.ReportMeetingTextStorageUsagePort;
+import com.module06.backend.metering.domain.model.TextStorageSource;
 
 /*
  * CAP-11 자막 청크 배치 전송 서비스의 회의 존재·host 검증, rms 필수(422), 저장·브로드캐스트 규칙을 검증한다.
@@ -28,9 +31,10 @@ class SubmitCaptionsServiceTest {
     private static final Long MEETING_ID = 500L;
     private static final Long MEMBER_ID = 7L;
 
-    // 저장·브로드캐스트 호출 기록(테스트별 새로).
+    // 저장·브로드캐스트·용량 리포트 호출 기록(테스트별 새로).
     private final List<CaptionChunk> savedChunks = new ArrayList<>();
     private final List<CaptionChunk> broadcastChunks = new ArrayList<>();
+    private final List<ReportMeetingTextStorageUsageCommand> reportedUsage = new ArrayList<>();
 
     /* 회의가 없으면 CAP-002로 거절하는지 검증한다. */
     @Test
@@ -88,6 +92,22 @@ class SubmitCaptionsServiceTest {
         assertThat(broadcastChunks).hasSize(2);
     }
 
+    /* 새로 저장된 조각이 있으면 저장소 관리 화면용 자막 용량도 CAPTION 소스로 리포트되는지 검증한다. */
+    @Test
+    @DisplayName("새로 저장된 조각이 있으면 자막 용량을 CAPTION 소스로 리포트한다")
+    void reportsCaptionStorageUsageWhenNewChunksSaved() {
+        SubmitCaptionsService service = service(true, true);
+
+        service.submitCaptions(command(chunk(41, "-12.4"), chunk(42, "-8.1")));
+
+        assertThat(reportedUsage).hasSize(1);
+        ReportMeetingTextStorageUsageCommand reported = reportedUsage.get(0);
+        assertThat(reported.meetingId()).isEqualTo(MEETING_ID);
+        assertThat(reported.companyId()).isEqualTo(1L);
+        assertThat(reported.projectId()).isEqualTo(1L);
+        assertThat(reported.source()).isEqualTo(TextStorageSource.CAPTION);
+    }
+
     private SubmitCaptionsCommand.ChunkInput chunk(int seq, String rms) {
         return new SubmitCaptionsCommand.ChunkInput(seq, seq * 1000, seq * 1000 + 500, "text-" + seq,
                 rms == null ? null : new BigDecimal(rms));
@@ -101,6 +121,7 @@ class SubmitCaptionsServiceTest {
     private SubmitCaptionsService service(boolean meetingExists, boolean host) {
         savedChunks.clear();
         broadcastChunks.clear();
+        reportedUsage.clear();
 
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -130,7 +151,7 @@ class SubmitCaptionsServiceTest {
 
             @Override
             public Optional<Long> findProjectId(Long meetingId) {
-                return Optional.empty();
+                return Optional.of(1L);
             }
         };
         CaptionChunkRepository captionChunkRepository = new CaptionChunkRepository() {
@@ -147,8 +168,9 @@ class SubmitCaptionsServiceTest {
         };
         CaptionBroadcastPort broadcastPort = (meetingId, newChunks) -> broadcastChunks.addAll(newChunks);
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, (projectId, teamId) -> false);
+        ReportMeetingTextStorageUsagePort storagePort = reportedUsage::add;
 
-        return new SubmitCaptionsService(meetingRef, accessGuard, captionChunkRepository, broadcastPort);
+        return new SubmitCaptionsService(meetingRef, accessGuard, captionChunkRepository, broadcastPort, storagePort);
     }
 
     private void assertErrorCode(Runnable execution, String expectedCode) {

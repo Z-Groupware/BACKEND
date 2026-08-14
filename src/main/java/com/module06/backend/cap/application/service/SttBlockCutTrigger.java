@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
 import com.module06.backend.cap.application.port.out.SttBlockCutDetectionPort;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
@@ -61,17 +62,20 @@ public class SttBlockCutTrigger {
     private final CreateSttBlockPort createSttBlockPort;
     private final CaptureUploadStateRepository captureUploadStateRepository;
     private final SttBlockFormedWriter sttBlockFormedWriter;
+    private final CapObjectStoragePort capObjectStoragePort;
 
     public SttBlockCutTrigger(SttBlockAudioAssemblyPort audioAssemblyPort,
                               SttBlockCutDetectionPort cutDetectionPort,
                               CreateSttBlockPort createSttBlockPort,
                               CaptureUploadStateRepository captureUploadStateRepository,
-                              SttBlockFormedWriter sttBlockFormedWriter) {
+                              SttBlockFormedWriter sttBlockFormedWriter,
+                              CapObjectStoragePort capObjectStoragePort) {
         this.audioAssemblyPort = audioAssemblyPort;
         this.cutDetectionPort = cutDetectionPort;
         this.createSttBlockPort = createSttBlockPort;
         this.captureUploadStateRepository = captureUploadStateRepository;
         this.sttBlockFormedWriter = sttBlockFormedWriter;
+        this.capObjectStoragePort = capObjectStoragePort;
     }
 
     /*
@@ -111,6 +115,12 @@ public class SttBlockCutTrigger {
             SttBlockCutDetectionPort.CutDetectionResult cut = cutDetectionPort.detectCutPoint(
                     meetingId, window.s3Key(), window.windowStartOffsetMs(), targetOffsetMs);
 
+            // cut-window wav는 절단 지점을 찾는 데만 쓰는 임시본이다 — AI-01 호출이 끝난 이
+            // 시점 이후로는 코드 어디서도 다시 참조하지 않으므로 바로 지운다(그동안 아무도
+            // 안 지워서 S3에 영구히 쌓이고 있었다). best-effort — 삭제가 실패해도 블록 파이프라인
+            // 자체는 계속 진행한다(청소 실패로 STT가 밀리면 안 된다).
+            deleteCutWindowBestEffort(window.s3Key());
+
             String blockAudioS3Key = audioAssemblyPort.assembleBlockAudio(companyId, meetingId,
                     segmentSeq, blockSeq, lastBlockEndOffsetMs, cut.cutOffsetMs());
 
@@ -126,6 +136,17 @@ public class SttBlockCutTrigger {
         } catch (RuntimeException e) {
             // 클래스 주석대로 던지지 않는다 — 다음 청크가 같은 지점에서 다시 트리거한다.
             log.error("10분 블록 자동 트리거 실패 — meetingId={}", meetingId, e);
+        }
+    }
+
+    // cut-window wav를 지운다 — 실패해도 로그만 남기고 넘어간다(청소 실패가 STT 파이프라인을
+    // 막으면 안 된다). CapObjectStoragePort.deleteRecording은 이름과 달리 범용 단일 키 삭제다
+    // (DeleteRecordingService가 잔여 청크를 지울 때도 같은 메서드를 재사용한다).
+    private void deleteCutWindowBestEffort(String s3Key) {
+        try {
+            capObjectStoragePort.deleteRecording(s3Key);
+        } catch (RuntimeException e) {
+            log.warn("cut-window 임시 오디오 삭제 실패 — s3Key={}", s3Key, e);
         }
     }
 

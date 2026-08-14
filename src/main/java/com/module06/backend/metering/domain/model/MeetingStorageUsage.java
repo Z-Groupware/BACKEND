@@ -23,14 +23,16 @@ public class MeetingStorageUsage {
 
     private final Long meetingId;
     private final Long companyId;
+    private final Long projectId;
     private final long usedBytes;
     private final long revision;
     private final LocalDateTime updatedAt;
 
-    private MeetingStorageUsage(Long meetingId, Long companyId, long usedBytes, long revision,
+    private MeetingStorageUsage(Long meetingId, Long companyId, Long projectId, long usedBytes, long revision,
                                 LocalDateTime updatedAt) {
         this.meetingId = Objects.requireNonNull(meetingId, "meetingId must not be null");
         this.companyId = Objects.requireNonNull(companyId, "companyId must not be null");
+        this.projectId = Objects.requireNonNull(projectId, "projectId must not be null");
         if (usedBytes < 0 || revision < 0) {
             throw new BusinessException(MeteringErrorCode.MT_STORAGE_RECORD_COMMAND_INVALID);
         }
@@ -40,15 +42,15 @@ public class MeetingStorageUsage {
     }
 
     // 신규 report — cap이 이 회의의 현재 용량을 보고할 때. updatedAt은 서비스가 Clock으로 채운다.
-    public static MeetingStorageUsage report(Long meetingId, Long companyId, long usedBytes, long revision,
-                                             LocalDateTime updatedAt) {
-        return new MeetingStorageUsage(meetingId, companyId, usedBytes, revision, updatedAt);
+    public static MeetingStorageUsage report(Long meetingId, Long companyId, Long projectId, long usedBytes,
+                                             long revision, LocalDateTime updatedAt) {
+        return new MeetingStorageUsage(meetingId, companyId, projectId, usedBytes, revision, updatedAt);
     }
 
     // DB에서 읽어온 값으로 복원.
-    public static MeetingStorageUsage restore(Long meetingId, Long companyId, long usedBytes, long revision,
-                                              LocalDateTime updatedAt) {
-        return new MeetingStorageUsage(meetingId, companyId, usedBytes, revision, updatedAt);
+    public static MeetingStorageUsage restore(Long meetingId, Long companyId, Long projectId, long usedBytes,
+                                              long revision, LocalDateTime updatedAt) {
+        return new MeetingStorageUsage(meetingId, companyId, projectId, usedBytes, revision, updatedAt);
     }
 
     /** 이 report가 저장된 상태보다 최신인지(revision이 더 큰지) — 같거나 오래되면 무시해야 한다. */
@@ -62,6 +64,10 @@ public class MeetingStorageUsage {
 
     public Long getCompanyId() {
         return companyId;
+    }
+
+    public Long getProjectId() {
+        return projectId;
     }
 
     public long getUsedBytes() {

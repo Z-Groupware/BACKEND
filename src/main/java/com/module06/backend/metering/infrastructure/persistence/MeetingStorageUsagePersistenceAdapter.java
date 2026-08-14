@@ -1,9 +1,16 @@
 package com.module06.backend.metering.infrastructure.persistence;
 
 import com.module06.backend.metering.domain.model.MeetingStorageUsage;
+import com.module06.backend.metering.domain.model.ProjectStorageSummary;
 import com.module06.backend.metering.domain.repository.MeetingStorageUsageRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Repository
 public class MeetingStorageUsagePersistenceAdapter implements MeetingStorageUsageRepository {
@@ -40,5 +47,42 @@ public class MeetingStorageUsagePersistenceAdapter implements MeetingStorageUsag
         return repository.findByCompanyId(companyId).stream()
                 .mapToLong(entity -> entity.toDomain().getUsedBytes())
                 .sum();
+    }
+
+    /*
+     * QUERY_002(CI Gate 1, 신규 @Query 금지)에 걸려 recording을 project로 조인하는 GROUP BY를 못
+     * 쓴다 — findByCompanyId로 이미 회사 전체를 한 번에 읽어 오는 기존 경로를 그대로 재사용해
+     * Java에서 프로젝트별로 묶는다(ActionPersistenceAdapter의 "프로젝션+자바 집계" 패턴과 동일).
+     */
+    @Override
+    public List<ProjectStorageSummary> summarizeByProjectId(Long companyId) {
+        List<MeetingStorageUsage> usages = repository.findByCompanyId(companyId).stream()
+                .map(MeetingStorageUsageJpaEntity::toDomain)
+                .toList();
+
+        Map<Long, Long> bytesByProject = usages.stream()
+                .collect(Collectors.groupingBy(MeetingStorageUsage::getProjectId,
+                        Collectors.summingLong(MeetingStorageUsage::getUsedBytes)));
+
+        // meetingCount·lastRecordedAt은 "지금 녹음이 남아있는" 회의만 센다(usedBytes=0은 삭제된
+        // 회의) — ProjectStorageSummary 클래스 주석 참고.
+        List<MeetingStorageUsage> withRecording = usages.stream()
+                .filter(usage -> usage.getUsedBytes() > 0)
+                .toList();
+        Map<Long, Long> meetingCountByProject = withRecording.stream()
+                .collect(Collectors.groupingBy(MeetingStorageUsage::getProjectId, Collectors.counting()));
+        Map<Long, LocalDateTime> lastRecordedAtByProject = withRecording.stream()
+                .collect(Collectors.groupingBy(MeetingStorageUsage::getProjectId,
+                        Collectors.mapping(MeetingStorageUsage::getUpdatedAt,
+                                Collectors.maxBy(Comparator.naturalOrder()))))
+                .entrySet().stream()
+                .filter(entry -> entry.getValue().isPresent())
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().get()));
+
+        return bytesByProject.keySet().stream()
+                .map(projectId -> new ProjectStorageSummary(projectId, bytesByProject.get(projectId),
+                        meetingCountByProject.getOrDefault(projectId, 0L),
+                        lastRecordedAtByProject.get(projectId)))
+                .toList();
     }
 }

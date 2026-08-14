@@ -224,7 +224,8 @@ class DeleteRecordingServiceTest {
 
             @Override
             public Optional<Long> findProjectId(Long meetingId) {
-                return Optional.empty();
+                // 회의는 프로젝트 1 소속 고정 — companyId와 동일한 패턴.
+                return companyId.isPresent() ? Optional.of(1L) : Optional.empty();
             }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {

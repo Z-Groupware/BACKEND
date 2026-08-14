@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
 import com.module06.backend.cap.application.port.out.SttBlockCutDetectionPort;
@@ -223,7 +224,32 @@ class MeetingCompletedAssemblyTriggerTest {
                 },
                 command -> { },
                 acceptingReservation,
-                new SttBlockFormedWriter(acceptingReservation));
+                new SttBlockFormedWriter(acceptingReservation),
+                noOpObjectStoragePort());
+    }
+
+    private CapObjectStoragePort noOpObjectStoragePort() {
+        return new CapObjectStoragePort() {
+            @Override
+            public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteRecording(String s3Key) {
+                // 컷윈도우 삭제는 best-effort라 이 테스트들에서는 호출 여부를 검증하지 않는다.
+            }
+
+            @Override
+            public boolean objectMatches(String s3Key, long expectedSizeBytes) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
     }
 
     // TAIL 예약 경합에서 항상 져서 finalizeTailBlockOnMeetingCompletion이 false를 돌려주게 만든다
@@ -272,7 +298,8 @@ class MeetingCompletedAssemblyTriggerTest {
                     throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
                 },
                 refusingReservation,
-                new SttBlockFormedWriter(refusingReservation));
+                new SttBlockFormedWriter(refusingReservation),
+                noOpObjectStoragePort());
     }
 
     private RecordingRepository recordingRepo(boolean exists) {

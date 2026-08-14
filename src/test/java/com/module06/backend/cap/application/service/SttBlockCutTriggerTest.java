@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
 import com.module06.backend.cap.application.port.out.SttBlockCutDetectionPort;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
@@ -77,6 +78,69 @@ class SttBlockCutTriggerTest {
         // 파이프라인이 끝까지 성공했으므로 카운터가 전진해야 한다.
         assertThat(state.getBlocksFormed()).isEqualTo(1);
         assertThat(state.getLastBlockEndOffsetMs()).isEqualTo(600_000L);
+    }
+
+    /*
+     * cut-window wav는 절단 지점을 찾는 데만 쓰는 임시본이라, AI-01 호출(detectCutPoint)이 끝난
+     * 뒤에는 코드 어디서도 다시 참조하지 않는다 — 그동안 아무도 안 지워서 S3에 영구히 쌓이던
+     * 것을 오늘 고쳤다. 삭제가 detectCutPoint 이후에, extractCutWindow가 돌려준 바로 그 키로
+     * 일어나는지 검증한다.
+     */
+    @Test
+    @DisplayName("절단 지점 탐지 후 cut-window 임시 오디오를 삭제한다")
+    void deletesCutWindowAfterDetection() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        state.recordUpload(7L, 40);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
+        RecordingCreatePort createPort = new RecordingCreatePort();
+        RecordingObjectStoragePort storagePort = new RecordingObjectStoragePort();
+
+        trigger(stateRepo, audioPort, cutPort, createPort, storagePort)
+                .triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        assertThat(storagePort.deletedKeys).containsExactly("stt-temp/org-1/meeting-500/cut-window.wav");
+    }
+
+    /* 삭제가 실패해도(S3 일시 오류 등) 블록 파이프라인 자체는 끝까지 정상 진행되는지 검증한다. */
+    @Test
+    @DisplayName("cut-window 삭제가 실패해도 블록 생성 파이프라인은 계속 진행한다")
+    void continuesPipelineWhenCutWindowDeleteFails() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        state.recordUpload(7L, 40);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        RecordingCutDetectionPort cutPort = new RecordingCutDetectionPort();
+        RecordingCreatePort createPort = new RecordingCreatePort();
+        CapObjectStoragePort failingStoragePort = new CapObjectStoragePort() {
+            @Override
+            public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
+                throw new AssertionError("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+                throw new AssertionError("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteRecording(String s3Key) {
+                throw new RuntimeException("S3 삭제 실패(가정)");
+            }
+
+            @Override
+            public boolean objectMatches(String s3Key, long expectedSizeBytes) {
+                throw new AssertionError("이 테스트는 대상 밖입니다.");
+            }
+        };
+
+        trigger(stateRepo, audioPort, cutPort, createPort, failingStoragePort)
+                .triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        // 삭제는 실패했지만 블록 생성까지는 정상적으로 끝났어야 한다.
+        assertThat(createPort.received).hasSize(1);
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
     }
 
     @Test
@@ -336,7 +400,39 @@ class SttBlockCutTriggerTest {
 
     private SttBlockCutTrigger trigger(CaptureUploadStateRepository stateRepo, SttBlockAudioAssemblyPort audioPort,
                                        SttBlockCutDetectionPort cutPort, CreateSttBlockPort createPort) {
-        return new SttBlockCutTrigger(audioPort, cutPort, createPort, stateRepo, new SttBlockFormedWriter(stateRepo));
+        return trigger(stateRepo, audioPort, cutPort, createPort, noOpObjectStoragePort());
+    }
+
+    private SttBlockCutTrigger trigger(CaptureUploadStateRepository stateRepo, SttBlockAudioAssemblyPort audioPort,
+                                       SttBlockCutDetectionPort cutPort, CreateSttBlockPort createPort,
+                                       CapObjectStoragePort objectStoragePort) {
+        return new SttBlockCutTrigger(audioPort, cutPort, createPort, stateRepo, new SttBlockFormedWriter(stateRepo),
+                objectStoragePort);
+    }
+
+    // 대부분의 테스트는 cut-window 삭제 자체엔 관심이 없다 — 조용히 아무 일도 안 하는 대역.
+    private CapObjectStoragePort noOpObjectStoragePort() {
+        return new CapObjectStoragePort() {
+            @Override
+            public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
+                throw new AssertionError("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+                throw new AssertionError("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteRecording(String s3Key) {
+                // no-op — cut-window 삭제 자체를 검증하는 테스트는 RecordingObjectStoragePort를 쓴다.
+            }
+
+            @Override
+            public boolean objectMatches(String s3Key, long expectedSizeBytes) {
+                throw new AssertionError("이 테스트는 대상 밖입니다.");
+            }
+        };
     }
 
     // 실제 CAS 동작을 흉내낸다 — expectedBlocksFormed가 현재 state.blocksFormed와 같을 때만
@@ -426,6 +522,30 @@ class SttBlockCutTriggerTest {
                                                  long targetOffsetMs) {
             detectCalls.add(targetOffsetMs);
             return new CutDetectionResult(targetOffsetMs, "VAD_SILENCE", 700L);
+        }
+    }
+
+    private static final class RecordingObjectStoragePort implements CapObjectStoragePort {
+        private final List<String> deletedKeys = new ArrayList<>();
+
+        @Override
+        public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
+            throw new AssertionError("이 테스트는 대상 밖입니다.");
+        }
+
+        @Override
+        public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+            throw new AssertionError("이 테스트는 대상 밖입니다.");
+        }
+
+        @Override
+        public void deleteRecording(String s3Key) {
+            deletedKeys.add(s3Key);
+        }
+
+        @Override
+        public boolean objectMatches(String s3Key, long expectedSizeBytes) {
+            throw new AssertionError("이 테스트는 대상 밖입니다.");
         }
     }
 

@@ -207,10 +207,14 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     }
 
     // metering에 최종 크기로 report한다 — 실패해도 조립 자체(recording 등록·parts 정리)는 계속한다.
+    // projectId 조회도 이 try 안에서 한다 — 밖에서 하면 조회 실패(사실상 안 일어나지만)가 바깥
+    // catch로 튀어 그 뒤의 parts 정리까지 건너뛰게 만든다(바로 위 report 자체와 같은 이유).
     private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long sizeBytes) {
         try {
+            Long projectId = meetingReferenceRepository.findProjectId(meetingId)
+                    .orElseThrow(() -> new IllegalStateException("회의를 찾을 수 없습니다 — meetingId=" + meetingId));
             reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                    companyId, meetingId, sizeBytes, CREATE_REVISION));
+                    companyId, projectId, meetingId, sizeBytes, CREATE_REVISION));
         } catch (RuntimeException e) {
             log.warn("저장 용량 미터링 기록 실패 — 조립은 계속 진행. meetingId={}", meetingId, e);
         }

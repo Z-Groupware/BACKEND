@@ -169,8 +169,10 @@ public class ManualRecordingService implements RegisterManualRecordingUseCase, I
     // (CaptureUploadService.reportStorageUsageBestEffort와 동일 패턴).
     private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long usedBytes) {
         try {
+            Long projectId = meetingReferenceRepository.findProjectId(meetingId)
+                    .orElseThrow(() -> new BusinessException(CapErrorCode.CAP_MEETING_NOT_FOUND));
             reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                    companyId, meetingId, usedBytes, CREATE_REVISION));
+                    companyId, projectId, meetingId, usedBytes, CREATE_REVISION));
         } catch (RuntimeException e) {
             log.error("저장 용량 미터링 기록 실패 — 녹음 등록은 완료됨, 원장만 누락. meetingId={}", meetingId, e);
         }
