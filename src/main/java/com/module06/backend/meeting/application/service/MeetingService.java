@@ -209,8 +209,20 @@ public class MeetingService implements CreateMeetingUseCase, CreateOnlineMeeting
                 command.attendeeMemberIds()
         );
 
+        /*
+         * 비대면 회의는 "개설 = 입장 = 종료"다 — 물리 회의의 MEET-08(MeetingCompletionService)은
+         * 재사용하지 않는다. 그 로직은 CaptureSession이 반드시 있어야 하고(온라인 회의는 세션
+         * 자체가 안 생김) MeetingCompletionRequestedEvent를 발행해 자동 조립·자동 분석 트리거를
+         * 깨우는데, 개설 시점엔 녹음 파일이 아직 없어 그 자동 트리거가 그대로 발동하면 안 된다.
+         * 그래서 도메인 전이만 체이닝해 캡처 세션·이벤트 없이 DONE 회의를 만든다. 시작·종료
+         * 시각이 같아 실측 시간은 0분이지만 표시상의 문제일 뿐이다. 녹음 업로드 후 요약은
+         * 상태 전제가 없는 수동 분석 요청(ANLZ-01)으로 받는다.
+         */
+        LocalDateTime completedAt = LocalDateTime.now(clock);
+        Meeting completedMeeting = meeting.enter(completedAt).complete(completedAt);
+
         /* 예약 슬롯이 없으므로 회의와 참석자만 저장한다. */
-        Meeting savedMeeting = meetingRepository.saveOnlineReservation(meeting);
+        Meeting savedMeeting = meetingRepository.saveOnlineReservation(completedMeeting);
 
         /* 회의와 MAIN·SUB 안건은 같은 트랜잭션으로 묶여 어느 한쪽만 커밋되지 않게 한다. */
         meetingTopicRepository.saveAgenda(savedMeeting.getId(), agenda);

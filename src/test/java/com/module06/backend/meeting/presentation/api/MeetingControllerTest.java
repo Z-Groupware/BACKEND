@@ -107,11 +107,10 @@ class MeetingControllerTest {
         };
         MeetingController controller = new MeetingController(useCase, onlineUseCase);
 
-        /* 회의실·시작·종료 일시 필드 자체가 없는 비대면 회의 개설 요청을 준비한다. */
+        /* 회의실·시작·종료 일시·녹음 동의 필드 자체가 없는 비대면 회의 개설 요청을 준비한다. */
         CreateOnlineMeetingRequest request = new CreateOnlineMeetingRequest(
                 "비대면 스프린트 회고",
                 12L,
-                null,
                 305L,
                 List.of(7L, 11L),
                 "스프린트 회고",
@@ -132,8 +131,8 @@ class MeetingControllerTest {
         assertThat(capturedCommand[0].hostTeamId()).isEqualTo(100L);
         assertThat(capturedCommand[0].hostRole()).isEqualTo("LEADER");
 
-        /* 생략한 녹음 동의 값은 명세 기본값 false로 전달돼야 한다. */
-        assertThat(capturedCommand[0].recordingConsent()).isFalse();
+        /* 비대면 회의는 녹음 동의 없이 성립하지 않으므로 요청 필드 없이 항상 true로 고정돼야 한다. */
+        assertThat(capturedCommand[0].recordingConsent()).isTrue();
 
         /* 응답은 회의실·시작·종료 일시 없이 isOnline만 true로 고정돼야 한다. */
         assertThat(response.getData().isOnline()).isTrue();
@@ -145,12 +144,12 @@ class MeetingControllerTest {
 
     /* Controller 대역이 반환할 완성된 온라인 회의 애플리케이션 결과를 만든다. */
     private OnlineMeetingCreationResult onlineResult() {
-        /* 회의실 없이 개설자와 참석자만 있는 온라인 회의 결과를 사용한다. */
+        /* 개설=입장=종료라 DONE 상태이며 회의실 없이 개설자와 참석자만 있는 온라인 회의 결과를 사용한다. */
         return new OnlineMeetingCreationResult(
                 92L,
-                MeetingStatus.SCHEDULED,
+                MeetingStatus.DONE,
                 "비대면 스프린트 회고",
-                false,
+                true,
                 new OnlineMeetingCreationResult.Host(3L, "지우"),
                 List.of(
                         new OnlineMeetingCreationResult.Attendee(3L, "지우", "기획"),

@@ -22,9 +22,6 @@ public record CreateOnlineMeetingRequest(
         /* 회의가 소속될 필수 프로젝트 식별자다. */
         @NotNull @Positive Long projectId,
 
-        /* 녹음 동의 안내를 확인했는지 나타내는 선택 값이다. */
-        Boolean recordingConsent,
-
         /* 액션 보드에서 회의를 예약한 경우 연결할 선택 식별자다. */
         @Positive Long relatedActionId,
 
@@ -53,9 +50,6 @@ public record CreateOnlineMeetingRequest(
 
     /* 인증 정보와 본문을 합쳐 애플리케이션 유스케이스 명령으로 변환한다. */
     public CreateOnlineMeetingCommand toCommand(Long companyId, Long hostMemberId, Long hostTeamId, String hostRole) {
-        /* 선택값을 보내지 않으면 명세의 기본값인 false를 사용한다. */
-        boolean consent = Boolean.TRUE.equals(recordingConsent);
-
         /* 테넌트와 개설자 식별자는 인증 principal에서만 가져온다. */
         return new CreateOnlineMeetingCommand(
                 companyId,
@@ -64,7 +58,8 @@ public record CreateOnlineMeetingRequest(
                 hostRole,
                 title,
                 projectId,
-                consent,
+                /* 비대면 회의는 "녹음 파일 제출 → AI 요약"이 전제라 동의 없이는 성립하지 않아 서버가 항상 true로 고정한다. */
+                true,
                 relatedActionId,
                 attendeeMemberIds,
                 mainTopic,

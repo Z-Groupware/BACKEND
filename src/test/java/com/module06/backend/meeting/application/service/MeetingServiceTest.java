@@ -114,14 +114,19 @@ class MeetingServiceTest {
         /* 회의실·시간 필드 자체가 없는 정상 온라인 회의 개설 요청을 실행한다. */
         OnlineMeetingCreationResult result = service.createOnlineMeeting(validOnlineCommand());
 
-        /* 저장된 회의는 생성 ID와 SCHEDULED 상태를 가지고 회의실·시간이 없어야 한다. */
+        /* 저장된 회의는 생성 ID와 함께 개설 즉시 DONE 상태이고 예약 회의실·시간이 없어야 한다. */
         assertThat(result.meetingId()).isEqualTo(91L);
-        assertThat(result.status().name()).isEqualTo("SCHEDULED");
+        assertThat(result.status().name()).isEqualTo("DONE");
         assertThat(repository.savedMeeting).isNotNull();
         assertThat(repository.savedMeeting.getMeetingRoomId()).isNull();
         assertThat(repository.savedMeeting.getStartAt()).isNull();
         assertThat(repository.savedMeeting.getEndAt()).isNull();
         assertThat(repository.savedMeeting.isOnline()).isTrue();
+
+        /* 개설=입장=종료라 실제 시작·종료 시각이 같은 서버 시각으로 채워져야 한다. */
+        LocalDateTime completedAt = LocalDateTime.now(FIXED_CLOCK);
+        assertThat(repository.savedMeeting.getStartedAt()).isEqualTo(completedAt);
+        assertThat(repository.savedMeeting.getEndedAt()).isEqualTo(completedAt);
 
         /* 저장된 회의 식별자 아래에 안건도 함께 저장돼야 한다. */
         assertThat(topicRepository.savedMeetingId).isEqualTo(91L);
