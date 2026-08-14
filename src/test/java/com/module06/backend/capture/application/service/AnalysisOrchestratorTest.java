@@ -837,15 +837,23 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
-    @DisplayName("담당자 미정 tuple 은 분배하지 않는다 — PERSONAL 액션은 담당자가 필수다")
-    void 담당자가_없는_tuple은_분배하지_않는다() {
+    @DisplayName("담당자 미정 tuple 도 분배한다 — 거르면 검토 화면에서 통째로 사라진다")
+    void 담당자가_없는_tuple도_분배한다() {
+        /*
+         * 2026-08-07 합의로 C 가 AI 분배 경로의 담당자 미정을 허용한다
+         * (ActionTypeShapePolicy.checkDistribution). 사람이 "+"로 추가하는 checkManual 은
+         * 그대로 담당자가 필수다 — 지어낼 사람이 없는 쪽만 열어 둔 것이다.
+         *
+         * 거르면 그 tuple 은 action 이 없어 RVW-01 조회에 안 걸리고, 담당자가 없다는 사실을
+         * 사람이 볼 방법이 사라진다. 확정을 막는 것은 RVW-05 의 몫이다
+         * (ApplyReviewDecisionService.requireAssigneeForConfirm).
+         */
         FakeSummaryRepository summaries = new FakeSummaryRepository();
         RecordingAiLayerPort ai = new RecordingAiLayerPort(
                 List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
                 decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
         ai.tuples = List.of(
-                // 명단 밖을 가리켰거나 담당자를 못 정한 tuple 이다. 이것을 TEAM 으로 돌리면
-                // 다른 종류의 액션을 지어내는 것이 된다(분석 경로는 PERSONAL 만 생산한다).
+                // 명단 밖을 가리켰거나 담당자를 못 정한 tuple 이다.
                 new AssignmentTuple("누군가 정리", null, null, null, 1L),
                 new AssignmentTuple("로드맵 초안 작성", 42L, AssigneeSource.EXPLICIT_CALL, null, 2L));
         FakeTupleRepository tuples = new FakeTupleRepository();
@@ -855,10 +863,12 @@ class AnalysisOrchestratorTest {
                 .run(TENANT, COMPANY, MEETING, PARTICIPANTS, false);
 
         assertThat(actions.items).extracting(ActionDistributionItem::title)
-                .containsExactly("로드맵 초안 작성");
-        // 대기실에는 남아 있다 — 지우지 않는다. 다만 action 이 없어 검토 화면에는 안 보인다.
+                .containsExactly("누군가 정리", "로드맵 초안 작성");
+        // 담당자가 없다고 TEAM 으로 돌리지 않는다 — 다른 종류의 액션을 지어내는 것이다.
+        assertThat(actions.items).extracting(ActionDistributionItem::assigneeMemberId)
+                .containsExactly(null, 42L);
         assertThat(tuples.saved).hasSize(2);
-        assertThat(tuples.distributions).hasSize(1);
+        assertThat(tuples.distributions).hasSize(2);
     }
 
     @Test
