@@ -289,6 +289,28 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("과금이 쓴 요금제 코드를 그대로 내린다 — FREE·TEAM 이 아닌 값이어도 /me 는 200 이다")
+    void returnsPlanCodeUnknownToThisDomain() throws Exception {
+        /*
+         * 회귀: plan 을 enum(FREE·TEAM)으로 다루던 시절 과금이 plan='STANDARD' 를 쓰기 시작하자
+         * 결제한 회사의 /me 가 통째로 500 이 됐다. 값 목록의 주인은 과금 도메인이므로 여기서
+         * 복제하지 않는다 — 계약은 "코드 문자열을 그대로 전달"이다. FREE·TEAM 만 검증하면
+         * enum 만 처리하는 회귀가 그대로 통과하므로, 이 도메인이 모르는 코드로 못 박는다.
+         */
+        authenticateAs(5L);
+        when(getMyProfileUseCase.get(5L)).thenReturn(new MyProfile(
+                5L, 1L, "(주)결제완료", "H7QW-2M4X",
+                "최결제", "paid@zgroup.co.kr", "010-2222-3333",
+                1L, "개발팀", "프론트엔드", 4L, "선임",
+                Authority.MEMBER, false, true,
+                MemberStatus.ACTIVE, LocalDate.of(2026, 4, 4), "STANDARD"));
+
+        mockMvc.perform(get("/api/auth/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan").value("STANDARD"));
+    }
+
+    @Test
     @DisplayName("온보딩 전 오너는 부서·직급·라벨·구독이 전부 null 로 나가고 200 이다")
     void returnsNullFieldsForOwnerBeforeOnboarding() throws Exception {
         authenticateAs(9L);
