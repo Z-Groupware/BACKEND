@@ -25,15 +25,18 @@ public interface MemberDirectoryQueryPort {
     boolean existsActiveEmail(Long companyId, String email);
 
     /**
-     * §7-4 역할 라벨 변경. 화면이 라벨을 id 가 아니라 이름으로 보내므로(역할 select 의 값이 곧
-     * 이름이다) 이름을 회사 안에서 id 로 되돌린다. 없는 이름이면 empty — 호출자가 404 로 답한다.
+     * §5-1·§7-4 역할 지정. 화면이 {@code GET /api/teams} 로 받은 부서별 역할 목록에서 고른 id 를
+     * 그대로 보내므로, 그 id 가 이 회사·이 부서의 것인지만 확인한다.
      *
-     * <p>여기서 역할을 새로 만들지 않는다. 역할 생성은 온보딩·부서 관리의 일이라, 오타 하나가
-     * 조용히 새 역할을 만들면 역할 목록이 사람마다 다른 이름으로 불어난다.
+     * <p>이름이 아니라 id 로 받는 이유: {@code role} 에는 (company_id, name) UNIQUE 가 없어
+     * 같은 이름이 두 부서에 하나씩 있을 수 있다. 이름으로 되돌리면 화면이 고른 역할과 저장되는
+     * 행이 갈린다 — id 로 받으면 해석 단계 자체가 없다.
      *
-     * @param label 전 회사 공용 시스템 역할("없음")도 찾을 수 있다 — 그건 회사 소유가 아니다
+     * <p>{@code teamId} 를 같이 보는 이유: 역할은 부서에 매인 값이라(V2.3.8) 다른 부서의 역할을
+     * 붙이면 조직도에서 그 사원이 자기 부서에 없는 역할로 묶인다. 부서에 매이지 않은 시스템
+     * 역할("없음", V2.3.9)만 예외로 어느 부서에나 붙는다.
      */
-    Optional<Long> findRoleIdByLabel(Long companyId, String label);
+    boolean existsAssignableRole(Long companyId, Long teamId, Long roleId);
 
     record MemberRow(
             Long memberId,
@@ -43,6 +46,7 @@ public interface MemberDirectoryQueryPort {
             String teamName,
             Long positionId,
             String positionName,
+            Long roleId,
             String roleLabel,
             Authority authority,
             boolean isAdmin,

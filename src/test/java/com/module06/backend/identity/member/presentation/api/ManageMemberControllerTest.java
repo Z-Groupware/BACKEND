@@ -58,7 +58,7 @@ class ManageMemberControllerTest {
     }
 
     @Test
-    @DisplayName("요청 키 6개를 그대로 커맨드로 넘긴다 — name·email·teamId·jobPositionId·role·roleLabel")
+    @DisplayName("요청 키 6개를 그대로 커맨드로 넘긴다 — name·email·teamId·jobPositionId·role·roleId")
     void passesRequestKeysThrough() throws Exception {
         authenticateAs(1L);
         when(issueMemberUseCase.issue(any())).thenReturn(issued());
@@ -67,7 +67,7 @@ class ManageMemberControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"홍길동","email":"name@company.kr",
-                                 "teamId":2,"jobPositionId":4,"role":"MEMBER","roleLabel":null}
+                                 "teamId":2,"jobPositionId":4,"role":"MEMBER","roleId":7}
                                 """))
                 .andExpect(status().isOk());
 
@@ -80,7 +80,7 @@ class ManageMemberControllerTest {
         assertThat(command.teamId()).isEqualTo(2L);
         assertThat(command.jobPositionId()).isEqualTo(4L);
         assertThat(command.role()).isEqualTo(Authority.MEMBER);
-        assertThat(command.roleLabel()).isNull();
+        assertThat(command.roleId()).isEqualTo(7L);
     }
 
     @Test

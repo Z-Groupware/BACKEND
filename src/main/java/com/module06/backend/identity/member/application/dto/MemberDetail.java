@@ -20,6 +20,8 @@ public record MemberDetail(
         String positionName,
         Authority role,
         boolean isAdmin,
+        /** 역할 변경 카드가 현재 역할을 선택 상태로 그리려면 이름이 아니라 id 가 필요하다(§7-4). */
+        Long roleId,
         String roleLabel,
         MemberStatus workStatus,
         String email,
