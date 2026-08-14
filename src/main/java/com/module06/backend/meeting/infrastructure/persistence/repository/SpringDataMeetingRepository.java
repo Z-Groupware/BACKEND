@@ -53,6 +53,17 @@ public interface SpringDataMeetingRepository
             MeetingStatus status
     );
 
+    /*
+     * MEET-15 후보 조회 — MEET-10과 같은 조건에 MEET-18 온라인 회의(startAt 없음) 제외를 더한다.
+     * startAt 기준 필터·정렬을 그대로 쓰는 화면이라 companyId·hostMemberId·status만 공유하는
+     * MEET-10용 메서드를 그대로 쓰면 안 되고, isOnline=false로 걸러야 startAt null 비교가 없어진다.
+     */
+    List<MeetingJpaEntity> findAllByCompanyIdAndHostMemberIdAndStatusAndIsOnlineFalseOrderByStartAtDescIdDesc(
+            Long companyId,
+            Long hostMemberId,
+            MeetingStatus status
+    );
+
     /* 배치 참석자 조회 전에 요청 회사에 속한 회의 식별자만 선별한다. */
     List<MeetingJpaEntity> findAllByIdInAndCompanyId(List<Long> ids, Long companyId);
 

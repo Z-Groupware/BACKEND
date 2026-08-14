@@ -88,6 +88,24 @@ class DashboardMeetingPersistenceAdapterTest {
                 .containsExactly(hosted.getId());
     }
 
+    /* MEET-18 온라인 회의는 startAt이 없어 이 카드 정렬·표시와 맞지 않으므로 스코프와 무관하게 제외돼야 한다. */
+    @Test
+    @DisplayName("MEET-18 온라인 회의는 스코프와 무관하게 제외한다")
+    void excludesOnlineMeetings() {
+        MeetingJpaEntity hosted = springDataMeetingRepository.save(
+                meeting(10L, 5L, 100L, 3L, null, "내가 개설한 회의", LocalDateTime.of(2026, 8, 10, 14, 0))
+        );
+        springDataMeetingRepository.save(onlineMeeting(10L, 5L, 100L, 3L, "내가 개설한 온라인 회의"));
+
+        List<DashboardMeetingCandidate> candidates = dashboardMeetingRepository.findDashboardMeetings(
+                new DashboardMeetingCriteria(10L, DashboardMeetingScope.OWNER, 3L, null, 5)
+        );
+
+        assertThat(candidates)
+                .extracting(DashboardMeetingCandidate::meetingId)
+                .containsExactly(hosted.getId());
+    }
+
     /* scope=TEAM은 팀 소속이면서 상위 팀 액션이 연결된 회의만 남기고 나머지는 제외해야 한다. */
     @Test
     @DisplayName("scope=TEAM은 같은 팀이면서 related_action_id가 있는 회의만 반환한다")
@@ -162,6 +180,27 @@ class DashboardMeetingPersistenceAdapterTest {
                 false,
                 relatedActionId,
                 List.of(hostMemberId)
+        );
+        return MeetingJpaEntity.from(created);
+    }
+
+    /* MEET-18 온라인 회의 — meetingRoomId·startAt·endAt 없이 isOnline=true로 만든다. */
+    private MeetingJpaEntity onlineMeeting(
+            Long companyId,
+            Long projectId,
+            Long teamId,
+            Long hostMemberId,
+            String title
+    ) {
+        Meeting created = Meeting.createOnline(
+                companyId,
+                projectId,
+                teamId,
+                hostMemberId,
+                title,
+                true,
+                null,
+                List.of()
         );
         return MeetingJpaEntity.from(created);
     }
