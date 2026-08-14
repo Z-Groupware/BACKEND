@@ -20,7 +20,6 @@ import com.module06.backend.identity.member.application.port.out.MyProfileComman
 import com.module06.backend.identity.member.application.port.out.MyProfileQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
-import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.position.domain.model.Position;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
 import com.module06.backend.identity.team.domain.model.Team;
@@ -164,7 +163,7 @@ class MyProfileServiceTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-1000-0003",
                 2L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.MEMBER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), Plan.FREE);
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE");
     }
 
     private static MyProfile leaderProfile() {
@@ -173,7 +172,7 @@ class MyProfileServiceTest {
                 "김서준", "seojun@zgroup.co.kr", "010-1000-0004",
                 2L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.LEADER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2021, 3, 2), Plan.FREE);
+                MemberStatus.ACTIVE, LocalDate.of(2021, 3, 2), "FREE");
     }
 
     private static final class FakeQuery implements MyProfileQueryPort {

@@ -24,8 +24,6 @@ import com.module06.backend.identity.company.domain.repository.CompanyRepository
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryCommandPort;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
-import com.module06.backend.identity.member.domain.model.Plan;
-import com.module06.backend.identity.member.domain.policy.SeatLimitPolicy;
 import com.module06.backend.identity.member.domain.repository.RoleRepository;
 import com.module06.backend.identity.position.domain.model.Position;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
@@ -55,7 +53,6 @@ class CompanyOnboardingCommitter {
     private final PositionRepository positionRepository;
     private final MemberDirectoryQueryPort memberQueryPort;
     private final MemberDirectoryCommandPort memberCommandPort;
-    private final SeatLimitPolicy seatLimitPolicy;
     private final PasswordGenerator passwordGenerator;
     private final PasswordEncoder passwordEncoder;
 
@@ -84,9 +81,8 @@ class CompanyOnboardingCommitter {
         assertNoDuplicateTeamLeader(command, positionAuthorityByTempId);
 
         /*
-         * 좌석 검사는 "실제로 발급될 계정 수"를 봐야 한다 — 요청 안 중복·기존 재직자와 겹치는
-         * 이메일은 애초에 발급되지 않으므로, invites().size() 를 그대로 쓰면 스킵될 초대까지
-         * 좌석을 잡아먹는 것으로 오판해 통과해야 할 온보딩을 거절할 수 있다(코드래빗 지적).
+         * 요청 안 중복·기존 재직자와 겹치는 이메일은 발급하지 않고 skipped 에 담아 200 으로 돌려준다
+         * (§4-1 검증 3) — 초대 한 줄 때문에 온보딩 전체를 되돌리지 않는다.
          */
         List<OnboardCompanyCommand.InviteNode> toIssue = new ArrayList<>();
         List<SkippedInvite> skipped = new ArrayList<>();
@@ -99,7 +95,6 @@ class CompanyOnboardingCommitter {
             }
             toIssue.add(invite);
         }
-        assertSeatAvailable(companyId, toIssue.size());
 
         Map<String, Long> teamIdByTempId = new HashMap<>();
         Map<String, Long> subTeamIdByTempId = new HashMap<>();
@@ -286,15 +281,6 @@ class CompanyOnboardingCommitter {
             if (count > 1) {
                 throw new BusinessException(AuthErrorCode.TEAM_LEADER_DUPLICATED);
             }
-        }
-    }
-
-    private void assertSeatAvailable(Long companyId, int inviteCount) {
-        Plan plan = memberQueryPort.findActivePlan(companyId).orElse(null);
-        int maxSeats = seatLimitPolicy.maxSeats(plan);
-        long currentSeats = memberQueryPort.findActiveByCompany(companyId).size();
-        if (currentSeats + inviteCount > maxSeats) {
-            throw new BusinessException(AuthErrorCode.MEMBER_SEAT_LIMIT_EXCEEDED);
         }
     }
 
