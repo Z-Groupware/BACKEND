@@ -110,6 +110,11 @@ rate-limit:
   registration-per-ip:
     limit: 5
     window: 1m
+  # 인증이 필요한 경로인데도 거는 유일한 자리. 액세스 토큰 하나를 훔친 사람이 현재 비밀번호를
+  # 반복해 넣어 볼 수 있는 통로라, 로그인과 같은 값으로 막는다. 실패만 센다.
+  password-change-per-member:
+    limit: 5
+    window: 5m
 
 server:
   # 컨테이너는 리버스 프록시 뒤에 있다. 이 설정이 없으면 getRemoteAddr() 이 프록시 주소만 줘서

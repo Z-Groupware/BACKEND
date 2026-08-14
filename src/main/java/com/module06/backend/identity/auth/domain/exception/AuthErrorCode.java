@@ -153,7 +153,29 @@ public enum AuthErrorCode implements ErrorCode {
     ROLE_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-040", "역할을 찾을 수 없습니다."),
     ROLE_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-041", "이미 있는 역할명입니다."),
     ROLE_IN_USE(HttpStatus.CONFLICT, "AU-042", "해당 역할인 구성원이 있어 삭제할 수 없습니다."),
-    ROLE_SYSTEM_NOT_MODIFIABLE(HttpStatus.FORBIDDEN, "AU-043", "시스템 역할은 변경할 수 없습니다.");
+    ROLE_SYSTEM_NOT_MODIFIABLE(HttpStatus.FORBIDDEN, "AU-043", "시스템 역할은 변경할 수 없습니다."),
+
+    /*
+     * 마이페이지 비밀번호 변경(PATCH /api/auth/me/password).
+     *
+     * 넷 다 401 이 아니라 400 이다. 이 프로젝트의 401 은 전부 "다시 로그인해라" 신호이므로
+     * (AU-004·005·006), 현재 비밀번호를 틀렸다고 401 을 내리면 프론트 인터셉터가 토큰 만료로
+     * 오해해서 멀쩡한 세션을 끊는다. 여기서 틀린 것은 토큰이 아니라 입력값이다.
+     *
+     * 로그인(LOGIN_FAILED)처럼 하나로 합치지 않는 이유: 여기는 이미 본인이 인증된 자리라
+     * 구분해 답해도 남의 계정 정보가 새지 않고, 화면이 어느 입력칸에 오류를 붙일지 알아야 한다.
+     *
+     * NEW_PASSWORD_SAME_AS_CURRENT 와 PASSWORD_ALREADY_USED 를 나누는 것도 화면 때문이다 —
+     * 사용자가 "지금 쓰는 것"과 "예전에 쓰던 것"을 구분해 들으면 다음 시도가 달라진다.
+     *
+     * 번호는 AU-045 부터다. 원래 이 넷은 AU-040~043 이었지만, 이 기능이 죽은 브랜치에 갇혀 있는
+     * 동안 develop 이 그 번호를 역할 CRUD(ROLE_*)에 먼저 썼다. 배포된 적이 없어 이 코드를 받아 본
+     * 화면이 없으므로, 이미 프론트가 붙잡고 있는 ROLE_* 쪽을 두고 이쪽을 비켰다.
+     */
+    PASSWORD_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "AU-045", "새 비밀번호가 서로 일치하지 않습니다."),
+    CURRENT_PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "AU-046", "현재 비밀번호가 올바르지 않습니다."),
+    NEW_PASSWORD_SAME_AS_CURRENT(HttpStatus.BAD_REQUEST, "AU-047", "지금 쓰고 있는 비밀번호와 같습니다."),
+    PASSWORD_ALREADY_USED(HttpStatus.BAD_REQUEST, "AU-048", "이전에 사용한 적이 있는 비밀번호입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

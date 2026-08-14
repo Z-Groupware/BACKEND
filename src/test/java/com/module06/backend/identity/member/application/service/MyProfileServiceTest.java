@@ -163,7 +163,7 @@ class MyProfileServiceTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-1000-0003",
                 2L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.MEMBER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE");
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE", true);
     }
 
     private static MyProfile leaderProfile() {
@@ -172,7 +172,7 @@ class MyProfileServiceTest {
                 "김서준", "seojun@zgroup.co.kr", "010-1000-0004",
                 2L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.LEADER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2021, 3, 2), "FREE");
+                MemberStatus.ACTIVE, LocalDate.of(2021, 3, 2), "FREE", true);
     }
 
     private static final class FakeQuery implements MyProfileQueryPort {
