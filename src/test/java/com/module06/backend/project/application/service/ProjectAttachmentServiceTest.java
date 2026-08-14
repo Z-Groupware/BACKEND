@@ -72,11 +72,33 @@ class ProjectAttachmentServiceTest {
         assertThat(result.fileUrl()).isEqualTo("https://s3/spec.pdf");
 
         // s3Key가 회사·프로젝트로 네임스페이싱됐는지 — 다른 회사/프로젝트 첨부와 섞이면 안 된다.
+        // 원본 파일명은 확장자만 남기고 키에서 빠진다(아래 한글/공백 파일명 테스트가 이유를 검증).
         org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(projectAttachmentStoragePort).issueUploadUrl(keyCaptor.capture(), eq(1024L));
         assertThat(keyCaptor.getValue())
                 .startsWith("project-attachments/company-%d/project-%d/".formatted(COMPANY, PROJECT_ID))
-                .endsWith("-spec.pdf");
+                .endsWith(".pdf")
+                .doesNotContain("spec");
+    }
+
+    // 한글·공백이 든 파일명(녹음 앱 기본 파일명 등)이 presigned PUT 서명을 깨던 문제 — S3 키에
+    // 원본 파일명을 더 이상 안 넣는다. 표시용 원본 파일명은 confirm()이 DB에 별도로 남긴다.
+    @Test
+    void 한글이나_공백이_든_파일명이어도_S3_키엔_원본_파일명이_들어가지_않는다() {
+        when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
+        when(projectAttachmentStoragePort.issueUploadUrl(anyString(), eq(1024L)))
+                .thenReturn(new IssuedUploadUrl("https://s3/upload", "https://s3/key"));
+
+        service.issueUploadUrl(new IssueAttachmentUploadUrlCommand(
+                COMPANY, PROJECT_ID, "음성 260814_124512.m4a", 1024L));
+
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(projectAttachmentStoragePort).issueUploadUrl(keyCaptor.capture(), eq(1024L));
+        assertThat(keyCaptor.getValue())
+                .startsWith("project-attachments/company-%d/project-%d/".formatted(COMPANY, PROJECT_ID))
+                .endsWith(".m4a")
+                .doesNotContain("음성")
+                .doesNotContain(" ");
     }
 
     @Test
