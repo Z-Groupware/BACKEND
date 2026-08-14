@@ -103,6 +103,34 @@ class SttBlockCutTriggerTest {
         assertThat(storagePort.deletedKeys).containsExactly("stt-temp/org-1/meeting-500/cut-window.wav");
     }
 
+    /*
+     * detectCutPoint(AI-01 호출)가 실패해도 cut-window는 지워져야 한다(CodeRabbit 지적) —
+     * try/finally로 감싸기 전에는 삭제 코드가 detectCutPoint 성공 시에만 실행돼, 이 실패 경로에서
+     * 정확히 "고치려던" orphan이 여전히 남는 반쪽짜리 수정이었다.
+     */
+    @Test
+    @DisplayName("절단 지점 탐지가 실패해도 cut-window 임시 오디오는 지운다")
+    void deletesCutWindowEvenWhenDetectionFails() {
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        state.recordUpload(7L, 40);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingAudioAssemblyPort audioPort = new RecordingAudioAssemblyPort();
+        SttBlockCutDetectionPort failingCutPort = (meetingId, windowAudioS3Key, windowStartOffsetMs,
+                                                    targetOffsetMs) -> {
+            throw new RuntimeException("AI-01 호출 실패(가정)");
+        };
+        RecordingCreatePort createPort = new RecordingCreatePort();
+        RecordingObjectStoragePort storagePort = new RecordingObjectStoragePort();
+
+        // 예외가 바깥으로 안 새어나가야 한다(best-effort).
+        trigger(stateRepo, audioPort, failingCutPort, createPort, storagePort)
+                .triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        assertThat(storagePort.deletedKeys).containsExactly("stt-temp/org-1/meeting-500/cut-window.wav");
+        // 절단 탐지 이후 단계(블록 조립·생성)는 당연히 안 돈다.
+        assertThat(createPort.received).isEmpty();
+    }
+
     /* 삭제가 실패해도(S3 일시 오류 등) 블록 파이프라인 자체는 끝까지 정상 진행되는지 검증한다. */
     @Test
     @DisplayName("cut-window 삭제가 실패해도 블록 생성 파이프라인은 계속 진행한다")

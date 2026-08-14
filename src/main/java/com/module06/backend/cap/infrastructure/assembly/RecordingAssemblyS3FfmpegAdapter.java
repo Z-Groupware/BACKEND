@@ -185,6 +185,11 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         } catch (RuntimeException | IOException e) {
             // best-effort — 실패해도 회의 종료/CAP-05 응답을 되돌리지 않는다. 사람이 CAP-05로 재시도한다.
             log.error("회의 녹음 조립 실패 — meetingId={}", meetingId, e);
+            // 디스크 부족이 아닌 이유로 실패했다(CodeRabbit 지적) — 이 시도가 재시도 스케줄러가
+            // 디스패치한 것이었다면(inFlight=true) 여기서 안 풀어주면 다음 주기부터 영원히
+            // "진행 중"으로 오판돼 재시도도 MAX_ATTEMPTS 소진도 못 밟는다. 애초에 대기 목록에
+            // 없던 첫 시도의 실패라면 이 호출은 아무 일도 안 한다(releaseInFlight의 계약).
+            pendingAssemblyRetryRegistry.releaseInFlight(meetingId);
         }
     }
 

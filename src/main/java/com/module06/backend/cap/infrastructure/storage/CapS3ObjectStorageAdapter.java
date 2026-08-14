@@ -120,9 +120,15 @@ public class CapS3ObjectStorageAdapter implements CapObjectStoragePort {
         } catch (NoSuchKeyException e) {
             return false;
         } catch (S3Exception e) {
-            if (e.statusCode() == 403) {
-                log.warn("S3 HEAD 403 — 존재하지 않는 키로 간주한다(최소권한 IAM 환경 예상 동작). "
-                        + "이 로그가 대량으로 반복되면 IAM 권한 자체를 의심할 것. s3Key={}", s3Key);
+            // HeadObject는 응답 본문이 없어(HEAD 명세) SDK가 에러 코드를 body에서 못 읽고 상태
+            // 코드만으로 예외를 만든다 — 그래서 404(NoSuchKey)가 위 NoSuchKeyException으로 안
+            // 잡히고 여기 일반 S3Exception(statusCode=404)으로 떨어질 수 있다(CodeRabbit 지적,
+            // s3:ListBucket이 있는 환경). 403(최소권한 IAM, ListBucket 없음)과 404 둘 다
+            // "존재하지 않는 키"로 취급한다 — 둘 다 "업로드 안 함"이 원인일 뿐 서버 결함이 아니다.
+            if (e.statusCode() == 403 || e.statusCode() == 404) {
+                log.warn("S3 HEAD {} — 존재하지 않는 키로 간주한다(403=최소권한 IAM, 404=ListBucket "
+                        + "있는 환경의 진짜 404 예상 동작). 대량 반복되면 IAM 권한 자체를 의심할 것. "
+                        + "statusCode={} s3Key={}", e.statusCode(), e.statusCode(), s3Key);
                 return false;
             }
             throw e;

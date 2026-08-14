@@ -154,6 +154,25 @@ class CapS3ObjectStorageAdapterTest {
     }
 
     /*
+     * s3:ListBucket이 있는 환경에서는 없는 키의 HeadObject가 NoSuchKeyException으로 안 잡히고
+     * 일반 S3Exception(statusCode=404)으로 온다(HEAD 응답은 본문이 없어 SDK가 에러 코드를 body에서
+     * 못 읽고 상태 코드만으로 예외를 만든다 — CodeRabbit 지적). 이것도 "없음"으로 처리해야 한다.
+     */
+    @Test
+    @DisplayName("objectMatches: 일반 S3Exception(404)도 없는 것으로 보고 false다")
+    void objectMatches_falseWhenNotFoundAsGenericS3Exception() {
+        S3Client s3Client = mock(S3Client.class);
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(S3Exception.builder()
+                        .statusCode(404)
+                        .message("Not Found")
+                        .build());
+        CapS3ObjectStorageAdapter adapter = new CapS3ObjectStorageAdapter(s3Client, presigner, properties());
+
+        assertThat(adapter.objectMatches(KEY, 1_000L)).isFalse();
+    }
+
+    /*
      * 403 이외의 S3Exception(예: 500 InternalError)은 "없음"으로 단정하지 않고 그대로 던져야
      * 한다 — S3 쪽 진짜 장애를 업로드 미완료로 오판하면 안 된다.
      */

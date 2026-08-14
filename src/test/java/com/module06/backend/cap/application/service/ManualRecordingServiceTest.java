@@ -100,6 +100,9 @@ class ManualRecordingServiceTest {
         assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 15_000_000L)), "CAP-023");
         assertThat(savedRecording[0]).isNull();
         assertThat(sttTriggered[0]).isFalse();
+        // objectMatches가 등록보다 먼저 걸려서 막혀야 한다 — report가 먼저 이동하면 실제로
+        // 업로드도 안 한 가짜 크기가 metering 원장에 기록된다(CodeRabbit 지적).
+        assertThat(reportedUsage[0]).isNull();
     }
 
     /* 정상: 메타를 저장하고 STT를 트리거하며 durationMs=0·status=DONE을 반환하는지 검증한다. */

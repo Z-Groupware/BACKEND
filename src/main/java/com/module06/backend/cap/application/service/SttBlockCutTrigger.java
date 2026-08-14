@@ -112,14 +112,22 @@ public class SttBlockCutTrigger {
                     audioAssemblyPort.extractCutWindow(companyId, meetingId, segmentSeq, targetOffsetMs,
                             availableUpToMs);
 
-            SttBlockCutDetectionPort.CutDetectionResult cut = cutDetectionPort.detectCutPoint(
-                    meetingId, window.s3Key(), window.windowStartOffsetMs(), targetOffsetMs);
-
             // cut-window wav는 절단 지점을 찾는 데만 쓰는 임시본이다 — AI-01 호출이 끝난 이
             // 시점 이후로는 코드 어디서도 다시 참조하지 않으므로 바로 지운다(그동안 아무도
             // 안 지워서 S3에 영구히 쌓이고 있었다). best-effort — 삭제가 실패해도 블록 파이프라인
             // 자체는 계속 진행한다(청소 실패로 STT가 밀리면 안 된다).
-            deleteCutWindowBestEffort(window.s3Key());
+            //
+            // detectCutPoint를 try/finally로 감싼다(CodeRabbit 지적) — finally 밖에 두면
+            // detectCutPoint가 던질 때(AI-01 호출 실패 등) 아래로 못 내려가 방금 만든 cut-window를
+            // 영영 못 지운다 — 이 정리를 새로 넣은 이유가 바로 그 orphan을 없애는 거였는데, 실패
+            // 경로에서는 여전히 orphan이 남는 반쪽짜리 수정이 된다.
+            SttBlockCutDetectionPort.CutDetectionResult cut;
+            try {
+                cut = cutDetectionPort.detectCutPoint(
+                        meetingId, window.s3Key(), window.windowStartOffsetMs(), targetOffsetMs);
+            } finally {
+                deleteCutWindowBestEffort(window.s3Key());
+            }
 
             String blockAudioS3Key = audioAssemblyPort.assembleBlockAudio(companyId, meetingId,
                     segmentSeq, blockSeq, lastBlockEndOffsetMs, cut.cutOffsetMs());

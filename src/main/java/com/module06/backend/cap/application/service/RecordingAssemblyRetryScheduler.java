@@ -83,6 +83,14 @@ public class RecordingAssemblyRetryScheduler {
         }
         log.info("디스크 용량 부족으로 미뤄둔 조립 재시도 — meetingId={} 시도={}/{}",
                 meetingId, retry.attempts(), MAX_ATTEMPTS);
-        recordingAssemblyDispatcher.dispatch(meetingId, retry.lastSegmentSeq(), retry.lastSeq());
+        try {
+            recordingAssemblyDispatcher.dispatch(meetingId, retry.lastSegmentSeq(), retry.lastSeq());
+        } catch (RuntimeException e) {
+            // dispatch(@Async) 제출 자체가 실패했다(예: 비동기 풀 포화로 태스크 거부) — 실제 조립은
+            // 시작도 안 됐으니 방금 tryMarkInFlight로 세운 진행 중 표시를 여기서 풀어야 다음
+            // 주기에 다시 시도된다(CodeRabbit 지적 — 안 풀면 영원히 "진행 중"으로 오판돼 stuck).
+            log.error("조립 재시도 디스패치 자체가 실패 — meetingId={}", meetingId, e);
+            registry.releaseInFlight(meetingId);
+        }
     }
 }

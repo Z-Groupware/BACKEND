@@ -59,6 +59,17 @@ public class PendingAssemblyRetryRegistry {
         return Map.copyOf(pending);
     }
 
+    // inFlight만 false로 되돌리고 대기 목록·시도 횟수는 그대로 둔다(CodeRabbit 지적) — dispatch
+    // 자체가 던지거나(비동기 풀 포화 등), 조립이 디스크 부족이 아닌 다른 이유로 실패하면
+    // recordFailure/clear 어느 쪽도 안 불려서 inFlight=true가 영원히 안 풀린다. 그러면
+    // retryOne이 매 주기 "이미 진행 중"으로 오판해 이 회의는 재시도도, MAX_ATTEMPTS 소진에 따른
+    // 포기 로그도 영영 못 밟는다 — 메모리에 stuck 상태로 계속 남는다. 대기 목록에 없으면(이미
+    // 성공해서 clear됐으면) 아무 일도 하지 않는다.
+    public void releaseInFlight(Long meetingId) {
+        pending.computeIfPresent(meetingId, (id, current) ->
+                new PendingRetry(current.attempts(), current.lastSegmentSeq(), current.lastSeq(), false));
+    }
+
     public record PendingRetry(int attempts, int lastSegmentSeq, int lastSeq, boolean inFlight) {
     }
 }

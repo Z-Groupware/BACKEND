@@ -73,14 +73,16 @@ public class SubmitCaptionsService implements SubmitCaptionsUseCase {
         // 저장 — 이미 전송된 (meetingId, memberId, seq)는 재전송으로 보고 조용히 건너뛴다(멱등).
         List<CaptionChunk> newlySaved = captionChunkRepository.saveAllSkippingDuplicates(chunks);
 
-        // 새로 저장된 조각만, 커밋 후에 브로드캐스트한다 — 커밋 전에 부르면 (1) 브로드캐스트가 던진 예외가
-        // 저장까지 롤백시키고 (2) 커밋이 실패해도 구독자는 이미 못 받은 자막을 받게 된다.
+        // 새로 저장된 조각만, 커밋 후에 브로드캐스트·용량 리포트한다 — 커밋 전에 부르면 (1) 그
+        // 작업이 던진 예외가 저장까지 롤백시키고 (2) 커밋이 실패해도 구독자·metering 원장은 이미
+        // 반영된 걸 보게 된다(리포트는 REQUIRES_NEW라 독립 커밋되므로 특히 문제 — CodeRabbit 지적:
+        // 커밋 전에 부르면 바깥 트랜잭션이 나중에 실패해도 이미 리포트는 커밋된 채로 남는다).
         // 트랜잭션 동기화가 없는 컨텍스트(순수 단위 테스트)에서는 즉시 호출로 대체한다.
         if (!newlySaved.isEmpty()) {
-            broadcastAfterCommit(command.meetingId(), newlySaved);
+            runAfterCommit(() -> captionBroadcastPort.broadcast(command.meetingId(), newlySaved));
             // 전부 재전송(중복)이었으면 caption_chunk가 안 늘어나므로 다시 잴 이유가 없다 — 새로
             // 저장된 게 있을 때만 재계산한다.
-            reportCaptionStorageUsageBestEffort(command.meetingId());
+            runAfterCommit(() -> reportCaptionStorageUsageBestEffort(command.meetingId()));
         }
     }
 
@@ -105,15 +107,17 @@ public class SubmitCaptionsService implements SubmitCaptionsUseCase {
         }
     }
 
-    private void broadcastAfterCommit(Long meetingId, List<CaptionChunk> newlySaved) {
+    // 커밋 후에만 부작용(브로드캐스트·리포트)을 실행한다 — 트랜잭션 동기화가 없는 컨텍스트
+    // (순수 단위 테스트)에서는 즉시 실행으로 대체한다.
+    private void runAfterCommit(Runnable action) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            captionBroadcastPort.broadcast(meetingId, newlySaved);
+            action.run();
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                captionBroadcastPort.broadcast(meetingId, newlySaved);
+                action.run();
             }
         });
     }

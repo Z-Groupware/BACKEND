@@ -24,7 +24,13 @@ public interface SpringDataRecordingPartRepository extends JpaRepository<Recordi
     // 이 회의의 잔여 청크 조각 삭제(하드 삭제) — 파생 삭제 쿼리(QUERY_002 준수). 트랜잭션 안에서 호출.
     void deleteByMeetingId(Long meetingId);
 
-    // CAP-15가 DB 행 삭제 전에 실제 s3Key를 읽어 S3 객체를 먼저 지우는 데 쓴다 — 전체 컬럼이
-    // 필요해(s3Key) 프로젝션이 아니라 엔티티 전체를 읽는다. 파생 쿼리(QUERY_002 준수).
+    /*
+     * TENANT_001 예외: 유일한 호출자 DeleteRecordingService.deleteRecording이 이 메서드를 부르기
+     * 전에 이미 accessGuard.isSameCompany(meetingId, companyId)로 회사 스코프를 확인한다(line 76,
+     * 101). meetingId만으로 다른 회사 행을 찾아 나설 경로가 없다 — CAP-15가 DB 행 삭제 전에 실제
+     * s3Key를 읽어 S3 객체를 먼저 지우는 데 쓴다. 전체 컬럼이 필요해(s3Key) 프로젝션이 아니라
+     * 엔티티 전체를 읽는다. 파생 쿼리(QUERY_002 준수).
+     */
+    // nosemgrep: tenant-derived-query-without-company-scope
     List<RecordingPartJpaEntity> findByMeetingId(Long meetingId);
 }
