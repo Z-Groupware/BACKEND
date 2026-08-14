@@ -9,6 +9,7 @@ import com.module06.backend.capture.application.result.ProcessingStatus;
 import com.module06.backend.capture.application.result.ProcessingStatus.LayerProgress;
 import com.module06.backend.capture.domain.model.LayerName;
 import com.module06.backend.capture.domain.model.LayerStatus;
+import com.module06.backend.capture.domain.model.SttProgress;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,5 +78,16 @@ class ProcessingStatusResponseTest {
 
         assertThat(response.status()).isEqualTo("RUNNING");
         assertThat(response.layers().get(0).stalled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("분석 계층이 비어 있어도 STT 블록 실패가 있으면 FAILED 로 내려간다")
+    void sttBlockFailureWinsOverEmptyLayers() {
+        ProcessingStatusResponse response = ProcessingStatusResponse.from(
+                ProcessingStatus.of(List.of(), List.of(), true, new SttProgress(1, 0, 1, 0)));
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.layers()).isEmpty();
+        assertThat(response.blocks().failed()).isEqualTo(1);
     }
 }
