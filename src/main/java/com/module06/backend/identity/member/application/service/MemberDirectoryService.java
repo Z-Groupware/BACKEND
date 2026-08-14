@@ -265,28 +265,36 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         }
         positionRepository.findByIdAndCompanyId(command.jobPositionId(), command.companyId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.POSITION_NOT_FOUND));
-        Long roleId = resolveRoleLabel(command.companyId(), command.roleLabel());
+        assertRoleAssignable(command.companyId(), target.teamId(), command.roleId());
 
         applyLeaderSideEffects(command.companyId(), target, command.role());
-        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId(), roleId);
+        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId(),
+                command.roleId());
         refreshTokenStore.revokeAllByMember(command.targetMemberId());
 
         return getDetail(command.companyId(), command.targetMemberId());
     }
 
     /**
-     * 역할 라벨은 선택 값이라 안 보내면(null) 그대로 둔다. 보냈으면 회사 안에 실제로 있는 이름이어야
-     * 한다 — 없는 이름을 조용히 "없음"으로 접으면 사용자가 고른 역할이 사라진 채 200 이 나간다.
+     * 역할은 선택 값이라 안 보내면(null) 그대로 둔다. 보냈으면 이 회사·대상의 <b>현재 소속 부서</b>에
+     * 있는 역할이어야 한다 — 없는 역할을 조용히 "없음"으로 접으면 사용자가 고른 역할이 사라진 채
+     * 200 이 나간다.
+     *
+     * <p>부서까지 보는 이유: 역할은 부서에 매인 값이라(V2.3.8) 다른 부서의 역할이 붙으면 조직도에서
+     * 그 사원이 자기 부서에 없는 역할로 묶인다. 이름이 아니라 id 로 받게 된 뒤(2026-08-14)
+     * 이 검사가 가능해졌다 — 이름으로 받던 때는 같은 이름이 두 부서에 있으면 어느 행이 붙을지
+     * 자체가 정해지지 않았다.
      *
      * <p>직급 검증과 같은 자리에서, 쓰기 전에 끝낸다. 나중에 확인하면 이미 권한이 바뀐 뒤에 실패해
      * 트랜잭션이 롤백되더라도 팀장 교체 부수효과의 순서 가정이 흐트러진다.
      */
-    private Long resolveRoleLabel(Long companyId, String roleLabel) {
-        if (roleLabel == null) {
-            return null;
+    private void assertRoleAssignable(Long companyId, Long teamId, Long roleId) {
+        if (roleId == null) {
+            return;
         }
-        return queryPort.findRoleIdByLabel(companyId, roleLabel)
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND));
+        if (!queryPort.existsAssignableRole(companyId, teamId, roleId)) {
+            throw new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND);
+        }
     }
 
     /**
@@ -415,7 +423,8 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
 
     private MemberDetail toDetail(MemberRow row) {
         return new MemberDetail(row.memberId(), row.name(), row.teamId(), row.teamName(),
-                row.positionId(), row.positionName(), row.authority(), row.isAdmin(), row.roleLabel(),
+                row.positionId(), row.positionName(), row.authority(), row.isAdmin(),
+                row.roleId(), row.roleLabel(),
                 row.status(), row.email(), row.joinedOn());
     }
 }

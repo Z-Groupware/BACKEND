@@ -140,7 +140,7 @@ class CompanyOnboardingCommitter {
 
             String password = passwordGenerator.generate();
             String passwordHash = passwordEncoder.encode(password);
-            Long memberId = memberCommandPort.issueWithRole(
+            Long memberId = memberCommandPort.issue(
                     companyId, teamId, positionId, roleId, invite.name(), email, passwordHash, authority);
 
             if (authority == Authority.LEADER) {

@@ -532,7 +532,7 @@ class CompanyOnboardingCommitterTest {
             List<MemberRow> rows = new ArrayList<>();
             for (int i = 0; i < currentSeats; i++) {
                 rows.add(new MemberRow((long) i, "기존" + i, "existing" + i + "@company.com", null, null,
-                        null, null, null, Authority.MEMBER, false, MemberStatus.ACTIVE,
+                        null, null, null, null, Authority.MEMBER, false, MemberStatus.ACTIVE,
                         LocalDate.now(), null, null, null));
             }
             return rows;
@@ -554,8 +554,8 @@ class CompanyOnboardingCommitterTest {
         }
 
         @Override
-        public Optional<Long> findRoleIdByLabel(Long companyId, String label) {
-            return Optional.empty();
+        public boolean existsAssignableRole(Long companyId, Long teamId, Long roleId) {
+            return true;
         }
     }
 
@@ -583,16 +583,8 @@ class CompanyOnboardingCommitterTest {
         }
 
         @Override
-        public Long issue(Long companyId, Long teamId, Long positionId, String roleLabel, String name,
+        public Long issue(Long companyId, Long teamId, Long positionId, Long roleId, String name,
                            String email, String passwordHash, Authority authority) {
-            long id = nextId++;
-            issuedIds.add(id);
-            return id;
-        }
-
-        @Override
-        public Long issueWithRole(Long companyId, Long teamId, Long positionId, Long roleId, String name,
-                                   String email, String passwordHash, Authority authority) {
             long id = nextId++;
             issuedIds.add(id);
             return id;
