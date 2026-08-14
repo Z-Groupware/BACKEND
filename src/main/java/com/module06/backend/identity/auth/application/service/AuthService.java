@@ -8,6 +8,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.global.security.JwtTokenProvider;
@@ -108,6 +109,10 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
             // 서명은 유효한데 목록에 없다 = 이미 쓴 표가 다시 왔다 = 탈취 정황이다.
             // 정상 사용자도 함께 끊기지만, 탈취자가 계속 갱신하는 것보다 낫다.
             refreshTokenStore.revokeAllByMember(claims.memberId());
+            // 여기서 남긴다 — 예외 핸들러는 이 표가 누구 것이었는지 모른다(재발급은 공개
+            // 엔드포인트라 인증 주체가 없다). 끊는 것과 알리는 것은 다른 일이고, 알림이 없으면
+            // 이 코드가 주석에 적어 둔 "탈취 정황"이 발생해도 아무도 모른다.
+            AuthzAuditLogger.refreshTokenReused(claims.memberId(), AuthErrorCode.REFRESH_TOKEN_REUSED.getCode());
             throw new BusinessException(AuthErrorCode.REFRESH_TOKEN_REUSED);
         }
 

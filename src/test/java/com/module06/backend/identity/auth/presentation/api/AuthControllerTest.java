@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -15,8 +16,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.module06.backend.global.audit.AuthzAuditLogger;
+import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.identity.auth.application.command.LoginCommand;
+import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.auth.application.dto.LoginResult;
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
@@ -27,6 +31,10 @@ import com.module06.backend.identity.member.application.usecase.UpdateMyProfileU
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.model.Authority;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -143,6 +151,40 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(loginUseCase, org.mockito.Mockito.never()).login(any());
+    }
+
+    /*
+     * 감사 기록은 GlobalExceptionHandler 가 남긴다. @WebMvcTest 슬라이스가 @RestControllerAdvice 를
+     * 등록하므로 여기서 그 배선이 실제로 도는지 볼 수 있다 — 로거 단위 테스트만으로는
+     * "핸들러가 부르지 않는다"를 못 잡는다(P1 #5 가 그 상태였다).
+     */
+    @Test
+    @DisplayName("로그인 실패는 감사 로그로 남는다 — 막지도 알지도 못하는 상태에서 벗어난다")
+    void loginFailureIsAudited() throws Exception {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger(AuthzAuditLogger.LOGGER_NAME);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        auditLogger.addAppender(appender);
+        try {
+            when(loginUseCase.login(any())).thenThrow(new BusinessException(AuthErrorCode.LOGIN_FAILED));
+
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"companyCode":"8AS2-G8T1","email":"a@b.co.kr","password":"wrong"}
+                                    """))
+                    .andExpect(status().isUnauthorized());
+
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.get(0).getFormattedMessage())
+                    .contains("outcome=AUTH_FAILED")
+                    .contains("path=/api/auth/login")
+                    .contains("code=AU-002")
+                    // 시도한 계정은 남기지 않는다 — 감사 로그가 계정 목록이 되면 안 된다.
+                    .doesNotContain("a@b.co.kr");
+        } finally {
+            auditLogger.detachAppender(appender);
+        }
     }
 
     @Test
