@@ -23,4 +23,8 @@ public interface SpringDataRecordingPartRepository extends JpaRepository<Recordi
 
     // 이 회의의 잔여 청크 조각 삭제(하드 삭제) — 파생 삭제 쿼리(QUERY_002 준수). 트랜잭션 안에서 호출.
     void deleteByMeetingId(Long meetingId);
+
+    // CAP-15가 DB 행 삭제 전에 실제 s3Key를 읽어 S3 객체를 먼저 지우는 데 쓴다 — 전체 컬럼이
+    // 필요해(s3Key) 프로젝션이 아니라 엔티티 전체를 읽는다. 파생 쿼리(QUERY_002 준수).
+    List<RecordingPartJpaEntity> findByMeetingId(Long meetingId);
 }

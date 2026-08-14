@@ -12,6 +12,7 @@ import com.module06.backend.metering.domain.repository.CompanyStoragePlanReposit
 import com.module06.backend.metering.domain.repository.MeetingStorageUsageRepository;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -45,8 +46,18 @@ public class StorageMeteringService implements ReportMeetingStorageUsagePort, St
         meetingStorageUsageRepository.reportIfNewer(usage);
     }
 
+    /*
+     * REQUIRES_NEW인 이유(MeetingRecordingSttTranscribeAdapter·MeetingStorageUsageWriter와 동일
+     * 함정) — 유일한 호출자 CaptureUploadService.isOverStorageQuota는 issuePartUploadUrls의
+     * @Transactional 안에서 이 메서드를 부른다. 기본 전파(REQUIRED)로 두면 이 메서드가 그
+     * 트랜잭션에 합류하고, 저장 용량 한도를 설정 안 한(대부분의) 회사에서 던지는
+     * MT_STORAGE_PLAN_NOT_FOUND가 호출자 트랜잭션 전체를 rollback-only로 마킹한다. 호출자가
+     * catch해서 "한도 없음"으로 간주하고 넘어가려 해도(fail-open 의도) 커밋 시점에
+     * UnexpectedRollbackException으로 죽어 그 의도가 깨진다. REQUIRES_NEW로 독립된 트랜잭션에
+     * 격리해야 한도 조회 실패가 녹음 시작 트랜잭션을 오염시키지 않는다.
+     */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public StorageQuotaStatusResult getStatus(Long companyId) {
         if (companyId == null) {
             throw new BusinessException(MeteringErrorCode.MT_FORBIDDEN_SCOPE);

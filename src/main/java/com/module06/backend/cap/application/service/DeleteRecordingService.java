@@ -5,6 +5,7 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
+import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProcessingCompletionRepository;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 // 녹음 삭제(CAP-15): 회사 스코프 확인 → 녹음 존재 확인 → STT/분석 완료 차단 판정 → 오디오 하드 삭제.
 // 지우는 건 오디오(recording 행·recording_part 조각·S3 파일)뿐 — utterance·action·벡터 등 분배된 데이터는 건드리지 않는다.
@@ -90,6 +92,13 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
         // DB를 먼저 지우면 실패 방향이 반대로 뒤집힌다: DB 삭제 실패 → S3 호출 전이라 아무 일도 없고,
         // S3 삭제 실패 → 트랜잭션 전체가 롤백되어(DB도 되돌아감) 파일도 그대로 남아 재시도할 수 있다.
         long freedBytes = recording.getSizeBytes();
+
+        // recording_part는 정상 조립 경로에서는 이미 비어 있다(RecordingAssemblyS3FfmpegAdapter가
+        // 조립 성공 시 parts를 다 지운다) — 여기 남아 있다면 "등록은 됐는데 parts 정리는 실패한"
+        // 경우다(그 어댑터 클래스 주석 "실패하면 parts를 남긴다"). DB 행을 지우기 전에 S3 객체부터
+        // 지운다 — 순서를 반대로 하면 s3Key를 잃어버려 다시는 찾을 수 없는 고아 객체가 된다
+        // (RecordingAssemblyS3FfmpegAdapter.deletePartObjectsBestEffort와 동일 이유·동일 순서).
+        deletePartObjectsBestEffort(recordingPartRepository.findAllByMeetingId(meetingId));
         recordingPartRepository.deleteByMeetingId(meetingId);
         recordingRepository.deleteByMeetingId(meetingId);
         captureUploadStateRepository.deleteByMeetingId(meetingId);
@@ -97,6 +106,20 @@ public class DeleteRecordingService implements DeleteRecordingUseCase {
         reportStorageUsageBestEffort(companyId, meetingId);
 
         return new Result(LocalDateTime.now(), freedBytes);
+    }
+
+    // 청크 S3 객체를 하나씩 지운다 — 한둘이 실패해도 나머지는 계속 지우고, DB 행 삭제 자체를 막지
+    // 않는다(RecordingAssemblyS3FfmpegAdapter.deletePartObjectsBestEffort와 동일 정책). 이 삭제는
+    // 어차피 되돌릴 수 없는 하드 삭제 흐름 안이라, 일부 S3 삭제 실패로 전체를 막으면 이미 지운
+    // recording을 되돌릴 수도 없으면서 나머지 청크만 영영 안 지워진다.
+    private void deletePartObjectsBestEffort(List<RecordingPart> parts) {
+        for (RecordingPart part : parts) {
+            try {
+                capObjectStoragePort.deleteRecording(part.getS3Key());
+            } catch (RuntimeException e) {
+                log.warn("잔여 청크 S3 객체 삭제 실패 — s3Key={}", part.getS3Key(), e);
+            }
+        }
     }
 
     // metering에 0바이트로 report한다 — 실패해도 삭제 자체를 되돌리지 않는다

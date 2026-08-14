@@ -2,6 +2,8 @@ package com.module06.backend.cap.infrastructure.storage;
 
 import java.time.Duration;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +14,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -34,6 +37,8 @@ import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 @Component
 @Profile("prod")
 public class CapS3ObjectStorageAdapter implements CapObjectStoragePort {
+
+    private static final Logger log = LoggerFactory.getLogger(CapS3ObjectStorageAdapter.class);
 
     private static final Duration UPLOAD_URL_TTL = Duration.ofSeconds(900);      // 15분 — CAP-04 문서값
     private static final Duration PLAYBACK_URL_TTL = Duration.ofSeconds(10_800); // 3시간 — 재생 URL 확정값
@@ -87,8 +92,23 @@ public class CapS3ObjectStorageAdapter implements CapObjectStoragePort {
                 .build());
     }
 
-    // HEAD로 실제 존재·크기를 확인한다. 없으면 S3가 NoSuchKeyException을 던진다(HeadObject는
-    // body가 없어서 404를 다른 예외들과 달리 이 타입으로 명확히 구분해준다).
+    // HEAD로 실제 존재·크기를 확인한다.
+    //
+    // 없는 키에 대한 응답이 IAM 정책에 따라 갈린다 — s3:ListBucket 권한이 있으면 S3가
+    // NoSuchKeyException(404)을 명확히 돌려주지만, 최소권한 정책(리스트 권한 없음)에서는 존재
+    // 여부를 숨기려고 **403 AccessDenied**로 돌려준다(S3Exception, NoSuchKeyException이 아니다).
+    // NoSuchKeyException만 잡으면 후자 환경에서 원본 S3Exception이 그대로 새어나가 500이 되고,
+    // "업로드 안 했다"는 정상 시나리오(CAP_PART_NOT_UPLOADED/CAP_RECORDING_NOT_UPLOADED, 둘 다
+    // 400)가 서버 오류로 둔갑한다.
+    //
+    // 403을 "없음"으로 간주해도 안전한 이유 — 이 어댑터의 다른 메서드(GET presign 등)가 이미 같은
+    // 버킷·같은 IAM 역할로 정상 동작한다는 전제이므로, 진짜 광범위한 권한 미스매치라면 403이 이
+    // 메서드에만 국한되지 않고 로그에 대량으로 반복될 것이다 — 그래서 WARN으로 남겨 운영에서
+    // "그냥 없는 파일"과 "권한 자체가 잘못됨"을 로그 빈도로 구분할 수 있게 한다.
+    //
+    // 네트워크 타임아웃(SdkClientException 계열)은 여기서 잡지 않는다 — 그건 S3가 응답한 게
+    // 아니라 우리 쪽에서 확인 자체를 못 한 것이라, "업로드 안 함"으로 단정하면 안 되고 재시도할
+    // 수 있는 500으로 그대로 흘려보내는 게 맞다.
     @Override
     public boolean objectMatches(String s3Key, long expectedSizeBytes) {
         HeadObjectResponse response;
@@ -99,6 +119,13 @@ public class CapS3ObjectStorageAdapter implements CapObjectStoragePort {
                     .build());
         } catch (NoSuchKeyException e) {
             return false;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 403) {
+                log.warn("S3 HEAD 403 — 존재하지 않는 키로 간주한다(최소권한 IAM 환경 예상 동작). "
+                        + "이 로그가 대량으로 반복되면 IAM 권한 자체를 의심할 것. s3Key={}", s3Key);
+                return false;
+            }
+            throw e;
         }
         return response.contentLength() != null && response.contentLength() == expectedSizeBytes;
     }

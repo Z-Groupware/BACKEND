@@ -16,11 +16,13 @@ import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
 import com.module06.backend.cap.application.port.out.SttBlockAudioAssemblyPort;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.domain.model.CaptureUploadState;
+import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.cap.domain.repository.ProjectTeamReferenceRepository;
 import com.module06.backend.cap.domain.repository.RecordingPartRepository;
+import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.global.exception.BusinessException;
 
 /*
@@ -99,6 +101,21 @@ class RecordingAssemblyServiceTest {
         assertThat(assemblyTriggered[0]).isFalse();
     }
 
+    /*
+     * 이미 등록된 녹음본(조립 완료 또는 CAP-10 수동 업로드)이 있으면 gap 검사 전에 CAP-014로
+     * 막고 조립을 트리거하지 않는지 검증한다 — MeetingCompletedAssemblyTrigger(자동 경로)와
+     * 동일한 이중 조립 방지다.
+     */
+    @Test
+    @DisplayName("이미 등록된 녹음본이 있으면 CAP-014로 막고 조립을 트리거하지 않는다")
+    void rejectsWhenAlreadyAssembled() {
+        RecordingAssemblyService service = serviceWithSttBlockCutTrigger(true, true,
+                Optional.of(state(0, 7L)), Map.of(0, List.of(1, 2, 3)), succeedingSttBlockCutTrigger(), true);
+
+        assertErrorCode(() -> service.startRecordingAssembly(cmd(0, 3)), "CAP-014");
+        assertThat(assemblyTriggered[0]).isFalse();
+    }
+
     /* 단일 세그먼트가 연속이면 조립을 트리거하고 ASSEMBLING을 반환하는지 검증한다. */
     @Test
     @DisplayName("연속이면 조립을 트리거하고 ASSEMBLING을 반환한다")
@@ -154,14 +171,16 @@ class RecordingAssemblyServiceTest {
     private RecordingAssemblyService service(boolean exists, boolean attendee,
                                             Optional<CaptureUploadState> state,
                                             Map<Integer, List<Integer>> seqsBySegment) {
-        return serviceWithSttBlockCutTrigger(exists, attendee, state, seqsBySegment, succeedingSttBlockCutTrigger());
+        return serviceWithSttBlockCutTrigger(exists, attendee, state, seqsBySegment, succeedingSttBlockCutTrigger(),
+                false);
     }
 
-    // service(...)와 같지만 SttBlockCutTrigger 대역을 직접 지정한다 — TAIL 마무리 실패 시나리오 전용.
+    // service(...)와 같지만 SttBlockCutTrigger 대역과 이중 조립(이미 등록된 녹음본) 여부를 직접 지정한다.
     private RecordingAssemblyService serviceWithSttBlockCutTrigger(boolean exists, boolean attendee,
                                             Optional<CaptureUploadState> state,
                                             Map<Integer, List<Integer>> seqsBySegment,
-                                            SttBlockCutTrigger sttBlockCutTrigger) {
+                                            SttBlockCutTrigger sttBlockCutTrigger,
+                                            boolean alreadyAssembled) {
         assemblyTriggered[0] = false;
         MeetingReferenceRepository meetingRef = new MeetingReferenceRepository() {
             @Override
@@ -215,6 +234,27 @@ class RecordingAssemblyServiceTest {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
+        RecordingRepository recordingRepo = new RecordingRepository() {
+            @Override
+            public Recording save(Recording recording) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public boolean existsByMeetingId(Long meetingId) {
+                return alreadyAssembled;
+            }
+
+            @Override
+            public Optional<Recording> findByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+        };
         RecordingPartRepository partRepo = new RecordingPartRepository() {
             @Override
             public RecordingPart save(RecordingPart recordingPart) {
@@ -235,6 +275,11 @@ class RecordingAssemblyServiceTest {
                                                                  int toSeq) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
+
+            @Override
+            public List<RecordingPart> findAllByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
         RecordingAssemblyPort assemblyPort = (meetingId, lastSegmentSeq, lastSeq) -> assemblyTriggered[0] = true;
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
@@ -242,7 +287,7 @@ class RecordingAssemblyServiceTest {
         RecordingGapChecker gapChecker = new RecordingGapChecker(partRepo);
         // @Async는 스프링 컨텍스트 없이 직접 호출하면 프록시를 안 타므로 이 테스트 스레드에서 그대로 동기 실행된다.
         RecordingAssemblyDispatcher dispatcher = new RecordingAssemblyDispatcher(assemblyPort);
-        return new RecordingAssemblyService(meetingRef, accessGuard, stateRepo, gapChecker, dispatcher,
+        return new RecordingAssemblyService(meetingRef, accessGuard, recordingRepo, stateRepo, gapChecker, dispatcher,
                 sttBlockCutTrigger);
     }
 
@@ -352,7 +397,7 @@ class RecordingAssemblyServiceTest {
     @DisplayName("TAIL 블록 마무리가 실패하면 CAP-012로 막고 조립을 트리거하지 않는다")
     void rejectsWhenTailFinalizationFails() {
         RecordingAssemblyService service = serviceWithSttBlockCutTrigger(true, true,
-                Optional.of(state(0, 7L)), Map.of(0, List.of(1, 2, 3)), failingSttBlockCutTrigger());
+                Optional.of(state(0, 7L)), Map.of(0, List.of(1, 2, 3)), failingSttBlockCutTrigger(), false);
 
         assertErrorCode(() -> service.startRecordingAssembly(cmd(0, 3)), "CAP-012");
         assertThat(assemblyTriggered[0]).isFalse();

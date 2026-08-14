@@ -345,6 +345,11 @@ class MeetingCompletedAssemblyTriggerTest {
             public void deleteByMeetingId(Long meetingId) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
+
+            @Override
+            public List<RecordingPart> findAllByMeetingId(Long meetingId) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
         };
         return new RecordingGapChecker(partRepository);
     }

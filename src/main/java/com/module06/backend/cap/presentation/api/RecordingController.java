@@ -3,12 +3,15 @@ package com.module06.backend.cap.presentation.api;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
 import com.module06.backend.cap.application.usecase.DeleteRecordingUseCase;
 import com.module06.backend.cap.application.usecase.GetPlaybackUrlUseCase;
+import com.module06.backend.cap.application.usecase.IssueManualRecordingUploadUrlUseCase;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.application.usecase.StartRecordingAssemblyUseCase;
 import com.module06.backend.cap.presentation.api.dto.request.ManualRecordingRequest;
+import com.module06.backend.cap.presentation.api.dto.request.ManualRecordingUploadUrlRequest;
 import com.module06.backend.cap.presentation.api.dto.request.StartRecordingAssemblyRequest;
 import com.module06.backend.cap.presentation.api.dto.response.DeleteRecordingResponse;
 import com.module06.backend.cap.presentation.api.dto.response.ManualRecordingResponse;
+import com.module06.backend.cap.presentation.api.dto.response.ManualRecordingUploadUrlResponse;
 import com.module06.backend.cap.presentation.api.dto.response.PlaybackUrlResponse;
 import com.module06.backend.cap.presentation.api.dto.response.RecordingAssemblyResponse;
 import com.module06.backend.global.response.ApiResponse;
@@ -35,15 +38,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecordingController {
 
     private final StartRecordingAssemblyUseCase startRecordingAssemblyUseCase;
+    private final IssueManualRecordingUploadUrlUseCase issueManualRecordingUploadUrlUseCase;
     private final RegisterManualRecordingUseCase registerManualRecordingUseCase;
     private final GetPlaybackUrlUseCase getPlaybackUrlUseCase;
     private final DeleteRecordingUseCase deleteRecordingUseCase;
 
     public RecordingController(StartRecordingAssemblyUseCase startRecordingAssemblyUseCase,
+                              IssueManualRecordingUploadUrlUseCase issueManualRecordingUploadUrlUseCase,
                               RegisterManualRecordingUseCase registerManualRecordingUseCase,
                               GetPlaybackUrlUseCase getPlaybackUrlUseCase,
                               DeleteRecordingUseCase deleteRecordingUseCase) {
         this.startRecordingAssemblyUseCase = startRecordingAssemblyUseCase;
+        this.issueManualRecordingUploadUrlUseCase = issueManualRecordingUploadUrlUseCase;
         this.registerManualRecordingUseCase = registerManualRecordingUseCase;
         this.getPlaybackUrlUseCase = getPlaybackUrlUseCase;
         this.deleteRecordingUseCase = deleteRecordingUseCase;
@@ -66,6 +72,26 @@ public class RecordingController {
         StartRecordingAssemblyUseCase.Result result =
                 startRecordingAssemblyUseCase.startRecordingAssembly(request.toCommand(meetingId, memberId));
         return ApiResponse.accepted("녹음 조립을 시작합니다.", RecordingAssemblyResponse.from(result));
+    }
+
+    // 수동 업로드용 presigned URL 발급 (CAP-10 사전 단계)
+    @Operation(
+            summary = "수동 녹음파일 업로드 URL 발급",
+            description = "녹음파일 수동 업로드(CAP-10) 전에, 클라이언트가 S3에 직접 파일을 올릴 수 있는 "
+                    + "presigned PUT URL을 발급합니다. 발급된 s3Key를 그대로 업로드에 쓰고, 업로드가 끝나면 "
+                    + "그 s3Key로 CAP-10을 호출해 등록을 완료해야 합니다. 회의 담당자(Host)만 가능합니다."
+    )
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN', 'LEADER', 'MEMBER')")
+    @PostMapping("/manual/upload-url")
+    public ApiResponse<ManualRecordingUploadUrlResponse> manualUploadUrl(
+            @Parameter(description = "회의 ID") @PathVariable Long meetingId,
+            @AuthenticationPrincipal(expression = "memberId") Long memberId,
+            @Valid @RequestBody ManualRecordingUploadUrlRequest request) {
+        // 요청자는 JWT principal에서 꺼낸다(manual 등록과 동일 원칙).
+        IssueManualRecordingUploadUrlUseCase.Result result =
+                issueManualRecordingUploadUrlUseCase.issueManualRecordingUploadUrl(
+                        request.toCommand(meetingId, memberId));
+        return ApiResponse.success("업로드 URL이 발급되었습니다.", ManualRecordingUploadUrlResponse.from(result));
     }
 
     // 녹음파일 수동 업로드 (CAP-10)
