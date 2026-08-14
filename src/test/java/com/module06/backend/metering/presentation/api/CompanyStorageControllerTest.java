@@ -97,7 +97,9 @@ class CompanyStorageControllerTest {
 
         mockMvc.perform(get("/api/companies/me/storage"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("Z-002"));
+                // CompanyStorageSecurityExceptionHandler가 범용 Z-002 대신 도메인 코드 MT-004를 쓴다
+                // (CompanyStoragePlanService.requireOwnerOrAdmin과 통일) — 테스트가 이걸 못 따라갔었다.
+                .andExpect(jsonPath("$.errorCode").value("MT-004"));
 
         verifyNoInteractions(getStorageOverviewUseCase);
     }
@@ -109,7 +111,7 @@ class CompanyStorageControllerTest {
 
         mockMvc.perform(get("/api/companies/me/storage"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("Z-002"));
+                .andExpect(jsonPath("$.errorCode").value("MT-004"));
 
         verifyNoInteractions(getStorageOverviewUseCase);
     }
