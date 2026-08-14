@@ -30,12 +30,6 @@ public interface SpringDataSttBlockRepository extends JpaRepository<SttBlockJpaE
      */
     int countByMeetingIdAndStatusIn(long meetingId, Collection<SttBlockStatus> statuses);
 
-    /* 전체 성공 판정에서 블록이 실제로 존재하는지 확인한다. */
-    boolean existsByMeetingId(long meetingId);
-
-    /* FAILED 를 포함해 DONE 이 아닌 블록이 하나라도 있는지 확인한다. */
-    boolean existsByMeetingIdAndStatusNot(long meetingId, SttBlockStatus status);
-
     /*
      * 미완 블록이 있는 회의를 배치로 찾는다(MEET-04 요약 상태).
      *

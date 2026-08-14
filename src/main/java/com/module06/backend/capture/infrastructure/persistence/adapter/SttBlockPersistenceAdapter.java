@@ -76,13 +76,6 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
         return sttBlockRepository.countByMeetingIdAndStatusIn(meetingId, UNFINISHED_STATUSES);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public boolean areAllDone(long meetingId) {
-        return sttBlockRepository.existsByMeetingId(meetingId)
-                && !sttBlockRepository.existsByMeetingIdAndStatusNot(meetingId, SttBlockStatus.DONE);
-    }
-
     /*
      * 같은 UNFINISHED_STATUSES 를 쓴다 — 단건 관문과 배치 조회가 같은 정의를 봐야 한다.
      *
