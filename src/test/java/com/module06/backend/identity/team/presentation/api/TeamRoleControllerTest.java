@@ -62,7 +62,7 @@ class TeamRoleControllerTest {
     @DisplayName("생성은 토큰의 회사와 경로의 팀 id로 역할을 만든다")
     void createTakesCompanyFromToken() throws Exception {
         authenticateAs(1L);
-        when(createTeamRoleUseCase.create(any())).thenReturn(new RoleNode(101L, "백엔드"));
+        when(createTeamRoleUseCase.create(any())).thenReturn(new RoleNode(101L, "백엔드", 0L));
 
         mockMvc.perform(post("/api/teams/10/roles")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -71,7 +71,9 @@ class TeamRoleControllerTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.roleId").value(101))
-                .andExpect(jsonPath("$.data.name").value("백엔드"));
+                .andExpect(jsonPath("$.data.name").value("백엔드"))
+                /* 방금 만든 역할이라 아무도 달고 있지 않다. */
+                .andExpect(jsonPath("$.data.memberCount").value(0));
 
         ArgumentCaptor<CreateTeamRoleCommand> captor = ArgumentCaptor.forClass(CreateTeamRoleCommand.class);
         verify(createTeamRoleUseCase).create(captor.capture());
@@ -84,7 +86,7 @@ class TeamRoleControllerTest {
     @DisplayName("헤더에 남의 회사 번호를 넣어도 토큰 값이 쓰인다")
     void createIgnoresSpoofedHeader() throws Exception {
         authenticateAs(1L);
-        when(createTeamRoleUseCase.create(any())).thenReturn(new RoleNode(101L, "백엔드"));
+        when(createTeamRoleUseCase.create(any())).thenReturn(new RoleNode(101L, "백엔드", 0L));
 
         mockMvc.perform(post("/api/teams/10/roles")
                         .header("X-Company-Id", "999")
@@ -131,14 +133,16 @@ class TeamRoleControllerTest {
     @DisplayName("이름 수정은 경로의 팀·역할 id와 토큰의 회사로 요청한다")
     void renameTakesIdsFromPathAndCompanyFromToken() throws Exception {
         authenticateAs(1L);
-        when(renameTeamRoleUseCase.rename(any())).thenReturn(new RoleNode(101L, "서버"));
+        when(renameTeamRoleUseCase.rename(any())).thenReturn(new RoleNode(101L, "서버", 3L));
 
         mockMvc.perform(patch("/api/teams/10/roles/101")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "name": "서버" }
                                 """))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                /* 이름만 바뀌고 배정된 사람은 그대로다 — 응답의 인원 수도 실데이터다. */
+                .andExpect(jsonPath("$.data.memberCount").value(3));
 
         ArgumentCaptor<RenameTeamRoleCommand> captor = ArgumentCaptor.forClass(RenameTeamRoleCommand.class);
         verify(renameTeamRoleUseCase).rename(captor.capture());

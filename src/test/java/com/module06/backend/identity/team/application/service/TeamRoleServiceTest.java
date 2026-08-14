@@ -29,6 +29,7 @@ class TeamRoleServiceTest {
         RoleNode node = fixture.service().create(new CreateTeamRoleCommand(1L, team.id(), "백엔드"));
 
         assertThat(node.name()).isEqualTo("백엔드");
+        assertThat(node.memberCount()).isZero();
         assertThat(fixture.roleRepository.findByIdAndCompanyIdAndTeamId(node.roleId(), 1L, team.id()))
                 .isPresent();
     }
@@ -105,17 +106,20 @@ class TeamRoleServiceTest {
     }
 
     @Test
-    @DisplayName("이름을 바꾼다 — 구성원 행은 건드리지 않는다")
+    @DisplayName("이름을 바꾼다 — 구성원 행은 건드리지 않고, 인원 수는 그대로 따라온다")
     void renamesRoleInPlace() {
         Fixture fixture = new Fixture();
         Team team = fixture.team("개발팀");
         RoleNode created = fixture.service().create(new CreateTeamRoleCommand(1L, team.id(), "백엔드"));
+        fixture.memberQueryPort.addActiveMember(2L, team.id(), created.roleId(), "김서준");
 
         RoleNode node = fixture.service()
                 .rename(new RenameTeamRoleCommand(1L, team.id(), created.roleId(), "서버"));
 
         assertThat(node.roleId()).isEqualTo(created.roleId());
         assertThat(node.name()).isEqualTo("서버");
+        /* 고정된 0 을 돌려주면 낙관적 갱신을 하는 화면이 인원 수를 순간적으로 지운 것처럼 보인다. */
+        assertThat(node.memberCount()).isEqualTo(1L);
         assertThat(fixture.roleRepository.findByIdAndCompanyIdAndTeamId(created.roleId(), 1L, team.id()))
                 .get().extracting(Role::name).isEqualTo("서버");
     }
@@ -211,12 +215,34 @@ class TeamRoleServiceTest {
         Fixture fixture = new Fixture();
         Team team = fixture.team("개발팀");
         RoleNode created = fixture.service().create(new CreateTeamRoleCommand(1L, team.id(), "백엔드"));
-        fixture.memberQueryPort.assignRole(created.roleId());
+        fixture.memberQueryPort.addActiveMember(2L, team.id(), created.roleId(), "김서준");
 
         assertThatThrownBy(() -> fixture.service().delete(1L, team.id(), created.roleId()))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ROLE_IN_USE);
         assertThat(fixture.roleRepository.all()).hasSize(1);
+    }
+
+    /*
+     * 화면에 보여 준 숫자와 삭제를 막는 조건이 갈리면 "0명인데 삭제가 막힌다"가 된다. 두 값이
+     * 같은 축(재직자 · roleId)으로 세는지를 여기서 못박는다.
+     */
+    @Test
+    @DisplayName("삭제를 막는 조건과 화면에 나가는 인원 수가 같은 축이다")
+    void blockingConditionMatchesTheDisplayedCount() {
+        Fixture fixture = new Fixture();
+        Team team = fixture.team("개발팀");
+        RoleNode created = fixture.service().create(new CreateTeamRoleCommand(1L, team.id(), "백엔드"));
+        fixture.memberQueryPort.addActiveMember(2L, team.id(), created.roleId(), "김서준");
+        fixture.memberQueryPort.addActiveMember(3L, team.id(), created.roleId(), "박민재");
+
+        RoleNode renamed = fixture.service()
+                .rename(new RenameTeamRoleCommand(1L, team.id(), created.roleId(), "서버"));
+
+        assertThat(renamed.memberCount()).isEqualTo(2L);
+        assertThatThrownBy(() -> fixture.service().delete(1L, team.id(), created.roleId()))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ROLE_IN_USE);
     }
 
     /* ── 테스트 더블 묶음 — 부서 저장소·구성원 조회는 TeamServiceTest 의 것을 그대로 쓴다. ── */

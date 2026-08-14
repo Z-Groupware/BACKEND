@@ -54,12 +54,17 @@ public class TeamRoleService implements CreateTeamRoleUseCase, RenameTeamRoleUse
         }
 
         Long roleId = roleRepository.create(command.companyId(), command.teamId(), name);
-        return new RoleNode(roleId, name);
+        /* 방금 만든 역할이라 아무도 달고 있지 않다 — 세러 가지 않는다. */
+        return new RoleNode(roleId, name, 0L);
     }
 
     /**
      * 이름만 바꾼다. 이미 배정된 사람들에게는 자동으로 반영된다 — {@code member.role_id} 가 이
      * 행을 가리키는 참조라 조회하는 쪽이 바뀐 이름을 그대로 읽는다(구성원 행은 건드리지 않는다).
+     *
+     * <p>응답의 인원 수는 실데이터로 채운다 — 부서 이름 수정(§6-3)이 리더 이름·구성원 수를 다시
+     * 조립해 돌려주는 것과 같은 이유다. 고정된 0 을 돌려주면 낙관적 갱신을 하는 프론트가 이
+     * 역할을 쓰는 사람 수를 순간적으로 지운 것처럼 보이게 된다.
      */
     @Override
     @Transactional
@@ -74,12 +79,15 @@ public class TeamRoleService implements CreateTeamRoleUseCase, RenameTeamRoleUse
         }
 
         roleRepository.rename(role.id(), name);
-        return new RoleNode(role.id(), name);
+        return new RoleNode(role.id(), name, memberQueryPort.countActiveMembersWithRole(role.id()));
     }
 
     /**
      * 부서 삭제(§6-4)와 같은 원칙 — 그 역할인 재직자가 있으면 막는다. 배정을 자동으로 "없음"으로
      * 내리면 그 사람이 뭘 하던 사람인지 회사 안에서 조용히 지워진다.
+     *
+     * <p>막는 조건은 화면에 실리는 {@code memberCount} 와 <b>같은 축</b>으로 센다 — 갈리면
+     * "0명"이라고 보여 준 역할이 삭제에서 409 로 막히는 상태가 생긴다.
      *
      * <p>퇴사자는 세지 않는다. 퇴사자가 든 역할까지 세면 화면에 보이지도 않는 사람 때문에 역할을
      * 영원히 못 지우게 된다. 남는 참조는 끊기지만 읽는 쪽이 없다 — 역할 이름을 읽는 경로
@@ -90,7 +98,7 @@ public class TeamRoleService implements CreateTeamRoleUseCase, RenameTeamRoleUse
     public void delete(Long companyId, Long teamId, Long roleId) {
         Role role = findEditableRole(companyId, teamId, roleId);
 
-        if (memberQueryPort.hasActiveMembersWithRole(role.id())) {
+        if (memberQueryPort.countActiveMembersWithRole(role.id()) > 0) {
             throw new BusinessException(AuthErrorCode.ROLE_IN_USE);
         }
         roleRepository.delete(role.id());

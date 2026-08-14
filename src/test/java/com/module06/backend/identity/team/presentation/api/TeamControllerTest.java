@@ -86,14 +86,17 @@ class TeamControllerTest {
         authenticateAs(1L);
         when(getTeamTreeUseCase.getTree(1L)).thenReturn(List.of(
                 new TeamNode(10L, "개발팀", null, null, 0L,
-                        List.of(new RoleNode(2L, "없음"), new RoleNode(7L, "백엔드")))));
+                        List.of(new RoleNode(2L, "없음", 1L), new RoleNode(7L, "백엔드", 3L)))));
 
         mockMvc.perform(get("/api/teams"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].roles[0].roleId").value(2))
                 .andExpect(jsonPath("$.data[0].roles[0].name").value("없음"))
+                .andExpect(jsonPath("$.data[0].roles[0].memberCount").value(1))
                 .andExpect(jsonPath("$.data[0].roles[1].roleId").value(7))
-                .andExpect(jsonPath("$.data[0].roles[1].name").value("백엔드"));
+                .andExpect(jsonPath("$.data[0].roles[1].name").value("백엔드"))
+                /* 화면의 "N명이 이 역할을 쓰고 있습니다"가 이 값에서 나온다. */
+                .andExpect(jsonPath("$.data[0].roles[1].memberCount").value(3));
     }
 
     @Test
