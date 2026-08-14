@@ -3,9 +3,9 @@ package com.module06.backend.identity.member.application.command;
 import com.module06.backend.identity.member.domain.model.Authority;
 
 /**
- * 계정 발급(§5-1). {@code roleLabel} 은 화면 폼에 없어 항상 {@code null} 로 들어온다 — 값이 오면
- * 회사 안에서 이름으로 찾고, 없으면 {@code MEMBER_ROLE_NOT_ASSIGNABLE} 이 아니라 못 찾음으로 취급해
- * 404 로 답한다(§7-3의 "roleLabel 편집 UI 미확인" 메모와 같은 이유로 아직 검증 규칙이 없다).
+ * 계정 발급(§5-1). {@code roleId} 는 선택이다 — null 이면 "없음"(V2.3.9)으로 발급한다. 값이 오면
+ * 이 회사·{@code teamId} 부서의 역할이어야 하고, 아니면 {@code MEMBER_ROLE_LABEL_NOT_FOUND} 로
+ * 404 를 답한다. 화면은 {@code GET /api/teams} 가 부서마다 실어 주는 역할 목록에서 고른다.
  */
 public record IssueMemberCommand(
         Long companyId,
@@ -14,6 +14,6 @@ public record IssueMemberCommand(
         Long teamId,
         Long jobPositionId,
         Authority role,
-        String roleLabel
+        Long roleId
 ) {
 }

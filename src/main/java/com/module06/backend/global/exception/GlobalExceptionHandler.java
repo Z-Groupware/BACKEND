@@ -9,6 +9,7 @@ import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -88,6 +89,25 @@ public class GlobalExceptionHandler {
                                                                                   HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
+    }
+
+    /**
+     * 메서드 시큐리티({@code @PreAuthorize}) 역할 거부. 던져지는
+     * {@code AuthorizationDeniedException} 은 {@code AccessDeniedException} 의 하위 타입이라
+     * 여기서 함께 잡힌다. 이 예외는 필터가 아니라 컨트롤러 메서드 호출 중에 나므로
+     * ExceptionTranslationFilter 의 accessDeniedHandler({@code SecurityErrorResponder})가 아니라
+     * DispatcherServlet 의 이 advice 로 흘러온다. 전용 핸들러가 없으면 아래 catch-all 이
+     * 500(Z-003)으로 삼켜 "권한 없음"이 서버 오류로 둔갑한다.
+     *
+     * <p>감사 기록은 {@code SecurityErrorResponder.handle} 과 같은 {@code deniedByFilter} 로 남긴다 —
+     * 그 outcome 의 정의가 "필터 체인·{@code @PreAuthorize} 단계 거부"라 계층과 무관하게 일관된다.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex,
+                                                                       HttpServletRequest request) {
+        AuthzAuditLogger.deniedByFilter(request, CommonErrorCode.ACCESS_DENIED.getCode());
+        return ResponseEntity.status(CommonErrorCode.ACCESS_DENIED.getHttpStatus())
+                .body(ErrorResponse.of(CommonErrorCode.ACCESS_DENIED, request.getRequestURI(), currentTraceId()));
     }
 
     /**

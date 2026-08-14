@@ -15,6 +15,7 @@ import org.mockito.quality.Strictness;
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.PendingBlock;
 import com.module06.backend.capture.application.port.out.SttGapRepository;
+import com.module06.backend.capture.application.port.out.SttCompletionEventPublisher;
 import com.module06.backend.capture.application.port.out.SttJobResultPort;
 import com.module06.backend.capture.application.port.out.SttJobResultPort.SttJobOutcome;
 import com.module06.backend.capture.application.port.out.SttJobResultPort.State;
@@ -64,9 +65,13 @@ class SttResultPollingServiceTest {
     @Mock
     private SttGapRepository sttGapRepository;
 
+    @Mock
+    private SttCompletionEventPublisher sttCompletionEventPublisher;
+
     private SttResultPollingService service() {
         return new SttResultPollingService(
-                sttBlockRepository, sttJobResultPort, transcriptRepository, sttGapRepository);
+                sttBlockRepository, sttJobResultPort, transcriptRepository, sttGapRepository,
+                sttCompletionEventPublisher);
     }
 
     @Test
@@ -239,6 +244,36 @@ class SttResultPollingServiceTest {
          * STT-03 에서 그 블록이 DONE 인 것을 보면서 "왜 확정이 안 되지"를 묻게 된다.
          */
         verify(sttGapRepository).clearSttFailureGap(MEETING, BLOCK_SEQ);
+    }
+
+    @Test
+    @DisplayName("마지막 블록까지 전부 DONE이면 자동 분석 완료 신호를 발행한다")
+    void 전체_STT가_성공하면_완료_신호를_발행한다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+        when(sttBlockRepository.markDone(BLOCK_ID)).thenReturn(true);
+        when(sttBlockRepository.areAllDone(MEETING)).thenReturn(true);
+
+        service().pollOnce();
+
+        verify(sttCompletionEventPublisher).publish(
+                new com.module06.backend.capture.application.event.SttTranscriptCompletedEvent(MEETING));
+    }
+
+    @Test
+    @DisplayName("미완 또는 FAILED 블록이 남으면 자동 분석 완료 신호를 발행하지 않는다")
+    void 전체_STT가_성공하지_않으면_완료_신호를_발행하지_않는다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+        when(sttBlockRepository.markDone(BLOCK_ID)).thenReturn(true);
+        when(sttBlockRepository.areAllDone(MEETING)).thenReturn(false);
+
+        service().pollOnce();
+
+        verify(sttCompletionEventPublisher, never()).publish(
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

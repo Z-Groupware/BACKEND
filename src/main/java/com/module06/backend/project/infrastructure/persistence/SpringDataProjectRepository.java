@@ -1,6 +1,7 @@
 package com.module06.backend.project.infrastructure.persistence;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -17,6 +18,8 @@ public interface SpringDataProjectRepository
         extends JpaRepository<ProjectJpaEntity, Long>, JpaSpecificationExecutor<ProjectJpaEntity> {
 
     boolean existsByTag(String tag);
+
+    Optional<ProjectJpaEntity> findByCompanyIdAndTagAndDeletedAtIsNull(Long companyId, String tag);
 
     boolean existsByCompanyIdAndIdAndDeletedAtIsNull(Long companyId, Long id);
 

@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.application.port.out.SttBlockRepository;
 import com.module06.backend.capture.application.port.out.SttBlockRepository.PendingBlock;
+import com.module06.backend.capture.application.event.SttTranscriptCompletedEvent;
+import com.module06.backend.capture.application.port.out.SttCompletionEventPublisher;
 import com.module06.backend.capture.application.port.out.SttGapRepository;
 import com.module06.backend.capture.application.port.out.SttJobResultPort;
 import com.module06.backend.capture.application.port.out.SttJobResultPort.SttJobOutcome;
@@ -64,6 +66,9 @@ public class SttResultPollingService {
      * 사람은 회의가 온전히 처리된 줄 알고 확정한다 — 그 구간의 할 일은 영구히 사라진다.
      */
     private final SttGapRepository sttGapRepository;
+
+    /* 마지막 STT 블록의 성공을 기존 자동 분석 입구에 전달한다. */
+    private final SttCompletionEventPublisher sttCompletionEventPublisher;
 
     /*
      * 한 주기 돈다.
@@ -135,6 +140,7 @@ public class SttResultPollingService {
                  */
                 if (closed) {
                     sttGapRepository.clearSttFailureGap(block.meetingId(), block.blockSeq());
+                    publishCompletionWhenAllBlocksDone(block.meetingId());
                 }
                 yield closed;
             }
@@ -156,6 +162,15 @@ public class SttResultPollingService {
             // 네트워크·권한 문제다. 상태를 바꾸지 않고 다음 주기에 다시 본다.
             case UNAVAILABLE -> false;
         };
+    }
+
+    /* FAILED 를 포함한 모든 상태를 확인해 전부 DONE 일 때만 한 번 발행한다. */
+    private void publishCompletionWhenAllBlocksDone(long meetingId) {
+        if (!sttBlockRepository.areAllDone(meetingId)) {
+            return;
+        }
+        sttCompletionEventPublisher.publish(new SttTranscriptCompletedEvent(meetingId));
+        log.info("회의 STT 전체 완료 — 자동 분석 신호 발행. meetingId={}", meetingId);
     }
 
     /*

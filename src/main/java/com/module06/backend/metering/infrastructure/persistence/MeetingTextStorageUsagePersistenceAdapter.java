@@ -3,10 +3,13 @@ package com.module06.backend.metering.infrastructure.persistence;
 import com.module06.backend.metering.domain.model.MeetingTextStorageUsage;
 import com.module06.backend.metering.domain.model.TextStorageSource;
 import com.module06.backend.metering.domain.repository.MeetingTextStorageUsageRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -15,11 +18,14 @@ public class MeetingTextStorageUsagePersistenceAdapter implements MeetingTextSto
 
     private final SpringDataMeetingTextStorageUsageRepository repository;
     private final MeetingTextStorageUsageWriter writer;
+    private final Clock clock;
 
     public MeetingTextStorageUsagePersistenceAdapter(SpringDataMeetingTextStorageUsageRepository repository,
-                                                      MeetingTextStorageUsageWriter writer) {
+                                                      MeetingTextStorageUsageWriter writer,
+                                                      @Qualifier("meetingClock") Clock clock) {
         this.repository = repository;
         this.writer = writer;
+        this.clock = clock;
     }
 
     /*
@@ -36,6 +42,20 @@ public class MeetingTextStorageUsagePersistenceAdapter implements MeetingTextSto
         } catch (DataIntegrityViolationException e) {
             writer.applyWithLock(meetingId, companyId, projectId, source, usedBytes, revision, updatedAt);
         }
+    }
+
+    @Override
+    public void clearByCompanyIdAndProjectId(Long companyId, Long projectId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<MeetingTextStorageUsageJpaEntity> cleared = repository.findByCompanyId(companyId).stream()
+                .map(MeetingTextStorageUsageJpaEntity::toDomain)
+                .filter(usage -> usage.getProjectId().equals(projectId))
+                .map(usage -> MeetingTextStorageUsage.restore(usage.getMeetingId(), usage.getCompanyId(),
+                        usage.getProjectId(), 0L, usage.getCaptionRevision() + 1,
+                        0L, usage.getTranscriptRevision() + 1, 0L, usage.getSummaryRevision() + 1, now))
+                .map(MeetingTextStorageUsageJpaEntity::from)
+                .toList();
+        repository.saveAll(cleared);
     }
 
     @Override

@@ -36,11 +36,12 @@ public record IssueMemberRequest(
         @NotNull(message = "권한을 선택해 주세요.")
         Authority role,
 
-        @Schema(description = "역할 라벨 — 화면 폼에 없어 항상 null", example = "null")
-        String roleLabel
+        @Schema(description = "역할 id — GET /api/teams 의 해당 부서 roles 에서 고른다. "
+                + "보내지 않으면 \"없음\"으로 발급한다", example = "7")
+        Long roleId
 ) {
 
     public IssueMemberCommand toCommand(Long companyId) {
-        return new IssueMemberCommand(companyId, name, email, teamId, jobPositionId, role, roleLabel);
+        return new IssueMemberCommand(companyId, name, email, teamId, jobPositionId, role, roleId);
     }
 }

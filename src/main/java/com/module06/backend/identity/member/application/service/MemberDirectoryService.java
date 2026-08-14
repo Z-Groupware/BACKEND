@@ -1,11 +1,14 @@
 package com.module06.backend.identity.member.application.service;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -65,6 +68,9 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase,
         GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase, DeleteMemberUseCase,
         GetTeamRosterUseCase {
+
+    /** 조직도의 팀 미배정 묶음 이름. 실제 team 행이 아니라 응답에만 있는 잔여 묶음이다(§7-2). */
+    private static final String UNASSIGNED_TEAM_NAME = "미배정";
 
     private final MemberDirectoryQueryPort queryPort;
     private final MemberDirectoryCommandPort commandPort;
@@ -133,24 +139,50 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         return haystack != null && haystack.toLowerCase(Locale.ROOT).contains(needle);
     }
 
+    /**
+     * 조직도(§7-2). 부서에 속한 사람은 부서별로, 팀 미배정({@code team_id IS NULL})은 맨 뒤의
+     * "미배정" 묶음 하나로 담는다.
+     *
+     * <p>미배정을 버리지 않는다(2026-08-14, FE 제기). 스키마가 팀 무소속을 정상 상태로 두고 있고
+     * (V1 {@code member.team_id} — "OWNER/ADMIN 은 팀 무소속 가능"), 오너 계정은 부서 없이
+     * 생성되므로({@code OwnerAccountAdapter#createOwner}) 버리면 <b>모든 회사에서 오너가 조직도에
+     * 안 보인다</b> — 같은 스냅샷을 쓰는 명부(§7-1)와 인원 수가 어긋나던 원인이다.
+     *
+     * <p>{@code teamId} 는 실제 team 행이 아니므로 {@code null} 로 내려간다. 미배정이 없으면 묶음
+     * 자체를 넣지 않는다 — 빈 부서 카드가 화면에 남는다.
+     */
     @Override
     @Transactional(readOnly = true)
     public List<OrgChartTeam> getOrgChart(Long companyId) {
         List<Team> teams = teamRepository.findByCompanyId(companyId);
-        Map<Long, List<MemberRow>> membersByTeam = queryPort.findActiveByCompany(companyId).stream()
+        List<MemberRow> rows = queryPort.findActiveByCompany(companyId);
+        Map<Long, List<MemberRow>> membersByTeam = rows.stream()
                 .filter(row -> row.teamId() != null)
                 .collect(Collectors.groupingBy(MemberRow::teamId));
 
-        return teams.stream()
+        Stream<OrgChartTeam> assigned = teams.stream()
                 .sorted(Comparator.comparing(Team::id))
-                .map(team -> new OrgChartTeam(team.id(), team.name(), toSubTeams(membersByTeam.getOrDefault(team.id(), List.of()))))
+                .map(team -> new OrgChartTeam(team.id(), team.name(), toSubTeams(membersByTeam.getOrDefault(team.id(), List.of()))));
+
+        List<MemberRow> unassigned = rows.stream()
+                .filter(row -> row.teamId() == null)
                 .toList();
+        Stream<OrgChartTeam> residual = unassigned.isEmpty()
+                ? Stream.empty()
+                : Stream.of(new OrgChartTeam(null, UNASSIGNED_TEAM_NAME, toSubTeams(unassigned)));
+
+        return Stream.concat(assigned, residual).toList();
     }
 
     /** Team → SubTeam → Member (§0, 2026-08-07 확정) — SubTeam 은 roleLabel 로 묶은 응답 전용 그룹이다. */
     private List<OrgChartSubTeam> toSubTeams(List<MemberRow> teamMembers) {
-        Map<String, List<MemberRow>> byRoleLabel = teamMembers.stream()
-                .collect(Collectors.groupingBy(MemberRow::roleLabel));
+        /*
+         * Collectors.groupingBy 를 쓰지 않는다 — 그쪽은 분류 키가 null 이면 NPE 다. roleLabel 은
+         * role_id 가 NOT NULL 이라 실사용에서 비지 않지만(V2.3.10), 한 행만 어긋나도 조직도 전체가
+         * 500 이 된다. 아래 nullsFirst 정렬이 이미 null 키를 가정하고 있다.
+         */
+        Map<String, List<MemberRow>> byRoleLabel = new HashMap<>();
+        teamMembers.forEach(row -> byRoleLabel.computeIfAbsent(row.roleLabel(), key -> new ArrayList<>()).add(row));
 
         return byRoleLabel.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator.nullsFirst(Comparator.naturalOrder())))
@@ -262,28 +294,36 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         }
         positionRepository.findByIdAndCompanyId(command.jobPositionId(), command.companyId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.POSITION_NOT_FOUND));
-        Long roleId = resolveRoleLabel(command.companyId(), command.roleLabel());
+        assertRoleAssignable(command.companyId(), target.teamId(), command.roleId());
 
         applyLeaderSideEffects(command.companyId(), target, command.role());
-        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId(), roleId);
+        commandPort.updateRoleAndPosition(command.targetMemberId(), command.role(), command.jobPositionId(),
+                command.roleId());
         refreshTokenStore.revokeAllByMember(command.targetMemberId());
 
         return getDetail(command.companyId(), command.targetMemberId());
     }
 
     /**
-     * 역할 라벨은 선택 값이라 안 보내면(null) 그대로 둔다. 보냈으면 회사 안에 실제로 있는 이름이어야
-     * 한다 — 없는 이름을 조용히 "없음"으로 접으면 사용자가 고른 역할이 사라진 채 200 이 나간다.
+     * 역할은 선택 값이라 안 보내면(null) 그대로 둔다. 보냈으면 이 회사·대상의 <b>현재 소속 부서</b>에
+     * 있는 역할이어야 한다 — 없는 역할을 조용히 "없음"으로 접으면 사용자가 고른 역할이 사라진 채
+     * 200 이 나간다.
+     *
+     * <p>부서까지 보는 이유: 역할은 부서에 매인 값이라(V2.3.8) 다른 부서의 역할이 붙으면 조직도에서
+     * 그 사원이 자기 부서에 없는 역할로 묶인다. 이름이 아니라 id 로 받게 된 뒤(2026-08-14)
+     * 이 검사가 가능해졌다 — 이름으로 받던 때는 같은 이름이 두 부서에 있으면 어느 행이 붙을지
+     * 자체가 정해지지 않았다.
      *
      * <p>직급 검증과 같은 자리에서, 쓰기 전에 끝낸다. 나중에 확인하면 이미 권한이 바뀐 뒤에 실패해
      * 트랜잭션이 롤백되더라도 팀장 교체 부수효과의 순서 가정이 흐트러진다.
      */
-    private Long resolveRoleLabel(Long companyId, String roleLabel) {
-        if (roleLabel == null) {
-            return null;
+    private void assertRoleAssignable(Long companyId, Long teamId, Long roleId) {
+        if (roleId == null) {
+            return;
         }
-        return queryPort.findRoleIdByLabel(companyId, roleLabel)
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND));
+        if (!queryPort.existsAssignableRole(companyId, teamId, roleId)) {
+            throw new BusinessException(AuthErrorCode.MEMBER_ROLE_LABEL_NOT_FOUND);
+        }
     }
 
     /**
@@ -402,7 +442,8 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
 
     private MemberDetail toDetail(MemberRow row) {
         return new MemberDetail(row.memberId(), row.name(), row.teamId(), row.teamName(),
-                row.positionId(), row.positionName(), row.authority(), row.isAdmin(), row.roleLabel(),
+                row.positionId(), row.positionName(), row.authority(), row.isAdmin(),
+                row.roleId(), row.roleLabel(),
                 row.status(), row.email(), row.joinedOn());
     }
 }

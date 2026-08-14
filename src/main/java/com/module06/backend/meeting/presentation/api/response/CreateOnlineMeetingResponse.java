@@ -14,7 +14,7 @@ public record CreateOnlineMeetingResponse(
         /* 새로 생성된 회의 식별자다. */
         Long meetingId,
 
-        /* 개설 직후의 회의 상태이며 항상 SCHEDULED다. */
+        /* 녹음 제출과 함께 종료 처리된 회의 상태이며 항상 DONE이다. */
         String status,
 
         /* 저장된 회의 제목이다. */

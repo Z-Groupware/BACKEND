@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 
 import com.module06.backend.meeting.application.command.CreateOnlineMeetingCommand;
 
@@ -32,8 +33,24 @@ public record CreateOnlineMeetingRequest(
         @NotBlank @Size(max = 300) String mainTopic,
 
         /* 대주제 아래에 표시할 필수 소주제 목록이며 하나 이상이어야 한다. */
-        @NotNull @Size(min = 1) List<@NotBlank @Size(max = 300) String> subTopics
+        @NotNull @Size(min = 1) List<@NotBlank @Size(max = 300) String> subTopics,
+
+        /* 프론트가 Presigned URL로 S3 직접 업로드를 마친 녹음 파일 참조다. */
+        @NotNull @Valid RecordingRequest recording
 ) {
+
+    /* 실제 파일 바이트가 아닌 S3 객체와 검증용 메타데이터만 받는다. */
+    public record RecordingRequest(
+            @NotBlank String s3Key,
+            @NotBlank String fileName,
+            @NotBlank String contentType,
+            @NotNull @Positive Long sizeBytes
+    ) {
+        private CreateOnlineMeetingCommand.RecordingReference toCommand() {
+            return new CreateOnlineMeetingCommand.RecordingReference(
+                    s3Key, fileName, contentType, sizeBytes);
+        }
+    }
 
     /* 외부에서 전달된 목록을 요청 객체 생성 시점에 불변 복사한다. */
     public CreateOnlineMeetingRequest {
@@ -63,7 +80,8 @@ public record CreateOnlineMeetingRequest(
                 relatedActionId,
                 attendeeMemberIds,
                 mainTopic,
-                subTopics
+                subTopics,
+                recording == null ? null : recording.toCommand()
         );
     }
 }

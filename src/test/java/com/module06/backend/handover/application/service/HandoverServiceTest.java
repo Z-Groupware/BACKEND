@@ -10,6 +10,7 @@ import com.module06.backend.handover.application.port.out.MemberStatusPort;
 import com.module06.backend.handover.application.port.out.OrgQueryPort;
 import com.module06.backend.handover.application.usecase.FinalizeHandoverInsightsUseCase;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.handover.domain.exception.HandoverErrorCode;
 import com.module06.backend.handover.domain.model.Handover;
 import com.module06.backend.handover.domain.model.HandoverItem;
@@ -187,9 +188,11 @@ class HandoverServiceTest {
     void reassignItemSnapshotsReassignTarget() {
         Handover handover = submittedWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
         when(orgQueryPort.findMember(TARGET)).thenReturn(new OrgQueryPort.MemberSnapshot(TARGET, "Lee", "Staff"));
 
-        Handover saved = handoverService.reassignItem(new ReassignItemCommand(HANDOVER_ID, 100L, TARGET, NOW));
+        Handover saved = handoverService.reassignItem(new ReassignItemCommand(HANDOVER_ID, 100L, TARGET, NOW,
+                leaderPrincipal()));
 
         HandoverItem item = saved.getItems().get(0);
         assertThat(item.getReassigneeId()).isEqualTo(TARGET);
@@ -203,9 +206,10 @@ class HandoverServiceTest {
         Handover handover = submittedWithOneItem();
         handover.reassignItem(100L, TARGET, "Lee", "Staff", NOW);
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
         when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Park", "Leader"));
 
-        Handover saved = handoverService.complete(HANDOVER_ID, LEADER, NOW);
+        Handover saved = handoverService.complete(HANDOVER_ID, leaderPrincipal(), NOW);
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REASSIGNED);
         assertThat(saved.getIntermediateApproverId()).isEqualTo(LEADER);
@@ -224,9 +228,10 @@ class HandoverServiceTest {
                 List.of(item(100L), completedItem(101L)));
         handover.reassignItem(100L, TARGET, "Lee", "Staff", NOW);
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
         when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Park", "Leader"));
 
-        Handover saved = handoverService.complete(HANDOVER_ID, LEADER, NOW);
+        Handover saved = handoverService.complete(HANDOVER_ID, leaderPrincipal(), NOW);
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REASSIGNED);
         assertThat(saved.getItems()).extracting(HandoverItem::getCommittedAt).containsExactly(NOW, null);
@@ -239,8 +244,10 @@ class HandoverServiceTest {
     void finalizeVacationMovesWriterToVacation() {
         Handover handover = reassigned(HandoverType.VACATION);
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER));
+        when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Park", "Owner"));
 
-        Handover saved = handoverService.finalize(HANDOVER_ID, LEADER, "Park", NOW);
+        Handover saved = handoverService.finalize(HANDOVER_ID, ownerPrincipal(), NOW);
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         assertThat(saved.getFinalApproverId()).isEqualTo(LEADER);
@@ -254,8 +261,10 @@ class HandoverServiceTest {
     void finalizeOffboardingOffboardsWriter() {
         Handover handover = reassigned(HandoverType.OFFBOARDING);
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER));
+        when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Park", "Owner"));
 
-        Handover saved = handoverService.finalize(HANDOVER_ID, LEADER, "Park", NOW);
+        Handover saved = handoverService.finalize(HANDOVER_ID, ownerPrincipal(), NOW);
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         verify(memberStatusPort).offboard(WRITER);
@@ -268,9 +277,11 @@ class HandoverServiceTest {
     void finalizeLeaderOffboardingDirectlyFromSubmittedOffboardsWriterAndFinalizesInsights() {
         Handover handover = submittedOffboardingWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER));
+        when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Owner", "Owner"));
         when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(WRITER);
 
-        Handover saved = handoverService.finalize(HANDOVER_ID, LEADER, "Owner", NOW);
+        Handover saved = handoverService.finalize(HANDOVER_ID, ownerPrincipal(), NOW);
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.FINALIZED);
         assertThat(saved.getFinalApproverId()).isEqualTo(LEADER);
@@ -286,9 +297,11 @@ class HandoverServiceTest {
     void finalizeRegularMemberOffboardingFromSubmittedStillRequiresReassignedStatus() {
         Handover handover = submittedOffboardingWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(WRITER));
+        when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Owner", "Owner"));
         when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
 
-        assertThatThrownBy(() -> handoverService.finalize(HANDOVER_ID, LEADER, "Owner", NOW))
+        assertThatThrownBy(() -> handoverService.finalize(HANDOVER_ID, ownerPrincipal(), NOW))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(HandoverErrorCode.HO_FINALIZE_NOT_ALLOWED));
@@ -415,8 +428,10 @@ class HandoverServiceTest {
     void rejectStoresReasonAndRestoresWriterActive() {
         Handover handover = submittedWithOneItem();
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
 
-        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "needs more detail"));
+        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "needs more detail",
+                leaderPrincipal()));
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
         assertThat(saved.getRejectReason()).isEqualTo("needs more detail");
@@ -429,10 +444,12 @@ class HandoverServiceTest {
         Handover handover = submittedWithOneItem();
         handover.reassignItem(100L, TARGET, "Lee", "Staff", NOW);
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
         when(orgQueryPort.findMember(LEADER)).thenReturn(new OrgQueryPort.MemberSnapshot(LEADER, "Park", "Leader"));
 
-        handoverService.complete(HANDOVER_ID, LEADER, NOW);
-        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "not enough"));
+        handoverService.complete(HANDOVER_ID, leaderPrincipal(), NOW);
+        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "not enough",
+                leaderPrincipal()));
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
         assertThat(saved.getItems()).singleElement()
@@ -447,13 +464,98 @@ class HandoverServiceTest {
         Handover handover = submittedWithOneItem();
         handover.reassignItem(100L, TARGET, "Lee", "Staff", NOW);
         when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(LEADER);
 
-        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "try again"));
+        Handover saved = handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "try again",
+                leaderPrincipal()));
 
         assertThat(saved.getStatus()).isEqualTo(HandoverStatus.REJECTED);
         assertThat(saved.getItems()).singleElement()
                 .satisfies(item -> assertThat(item.getRollbackStatus()).isNull());
         verify(actionReassignPort, never()).rollbackReassignment(any(), any(), any());
+    }
+
+    @Test
+    void completeRejectsLeaderOutsideHandoverTeam() {
+        Handover handover = submittedWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+
+        AuthPrincipal otherTeamLeader = new AuthPrincipal(LEADER, COMPANY, "LEADER", false, 77L);
+
+        assertThatThrownBy(() -> handoverService.complete(HANDOVER_ID, otherTeamLeader, NOW))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        verify(orgQueryPort, never()).findMember(LEADER);
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void reassignItemRejectsLeaderOutsideHandoverTeam() {
+        Handover handover = submittedWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+
+        AuthPrincipal otherTeamLeader = new AuthPrincipal(LEADER, COMPANY, "LEADER", false, 77L);
+
+        assertThatThrownBy(() -> handoverService.reassignItem(
+                new ReassignItemCommand(HANDOVER_ID, 100L, TARGET, NOW, otherTeamLeader)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        verify(orgQueryPort, never()).findMember(TARGET);
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void completeRejectsLeaderWhoIsNotCurrentTeamLeader() {
+        Handover handover = submittedWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findTeamLeaderId(TEAM)).thenReturn(12345L);
+
+        assertThatThrownBy(() -> handoverService.complete(HANDOVER_ID, leaderPrincipal(), NOW))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        verify(orgQueryPort, never()).findMember(LEADER);
+        verify(actionReassignPort, never()).reassign(any(), any(), any());
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void finalizeRejectsOwnerOutsideWriterCompany() {
+        Handover handover = reassigned(HandoverType.VACATION);
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(12345L));
+
+        assertThatThrownBy(() -> handoverService.finalize(HANDOVER_ID, ownerPrincipal(), NOW))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        verify(orgQueryPort, never()).findMember(LEADER);
+        verify(memberStatusPort, never()).toVacation(any());
+        verify(handoverRepository, never()).save(any(Handover.class));
+    }
+
+    @Test
+    void rejectRejectsOwnerOutsideWriterCompany() {
+        Handover handover = submittedWithOneItem();
+        when(handoverRepository.findById(HANDOVER_ID)).thenReturn(Optional.of(handover));
+        when(orgQueryPort.findMemberIdsByCompany(COMPANY)).thenReturn(List.of(12345L));
+
+        assertThatThrownBy(() -> handoverService.reject(new RejectHandoverCommand(HANDOVER_ID, "nope",
+                ownerPrincipal())))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(HandoverErrorCode.HO_ACCESS_DENIED));
+
+        assertThat(handover.getStatus()).isEqualTo(HandoverStatus.SUBMITTED);
+        verify(memberStatusPort, never()).restoreActive(any());
+        verify(handoverRepository, never()).save(any(Handover.class));
     }
 
     private static ActionReassignPort.HandoverableAction action(Long id, String title, String status) {
@@ -513,5 +615,13 @@ class HandoverServiceTest {
         return HandoverItem.create(actionId, "Action", "DONE", "PRJ", "TEAM",
                 LocalDate.of(2026, 8, 30), null, 500L, "Meeting", "Content",
                 "Parent Action", LocalDate.of(2026, 8, 1), false);
+    }
+
+    private static AuthPrincipal leaderPrincipal() {
+        return new AuthPrincipal(LEADER, COMPANY, "LEADER", false, TEAM);
+    }
+
+    private static AuthPrincipal ownerPrincipal() {
+        return new AuthPrincipal(LEADER, COMPANY, "OWNER", false, null);
     }
 }

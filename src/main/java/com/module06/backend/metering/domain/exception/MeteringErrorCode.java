@@ -16,7 +16,9 @@ public enum MeteringErrorCode implements ErrorCode {
     MT_PLAN_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "MT-005", "Company token plan request is invalid."),
     MT_STORAGE_PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "MT-006", "Company storage plan is not configured."),
     MT_STORAGE_PLAN_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "MT-007", "Company storage plan request is invalid."),
-    MT_STORAGE_RECORD_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "MT-008", "Storage usage report request is invalid.");
+    MT_STORAGE_RECORD_COMMAND_INVALID(HttpStatus.BAD_REQUEST, "MT-008", "Storage usage report request is invalid."),
+    MT_STORAGE_PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "MT-009", "Storage project not found."),
+    MT_STORAGE_PROJECT_NOT_DONE(HttpStatus.CONFLICT, "MT-010", "Storage can be cleared only for a completed (DONE) project.");
 
     private final HttpStatus httpStatus;
     private final String code;

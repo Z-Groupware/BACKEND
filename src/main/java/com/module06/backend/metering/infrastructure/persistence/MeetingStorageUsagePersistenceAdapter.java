@@ -3,9 +3,11 @@ package com.module06.backend.metering.infrastructure.persistence;
 import com.module06.backend.metering.domain.model.MeetingStorageUsage;
 import com.module06.backend.metering.domain.model.ProjectStorageSummary;
 import com.module06.backend.metering.domain.repository.MeetingStorageUsageRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -17,11 +19,14 @@ public class MeetingStorageUsagePersistenceAdapter implements MeetingStorageUsag
 
     private final SpringDataMeetingStorageUsageRepository repository;
     private final MeetingStorageUsageWriter writer;
+    private final Clock clock;
 
     public MeetingStorageUsagePersistenceAdapter(SpringDataMeetingStorageUsageRepository repository,
-                                                 MeetingStorageUsageWriter writer) {
+                                                 MeetingStorageUsageWriter writer,
+                                                 @Qualifier("meetingClock") Clock clock) {
         this.repository = repository;
         this.writer = writer;
+        this.clock = clock;
     }
 
     /*
@@ -38,6 +43,19 @@ public class MeetingStorageUsagePersistenceAdapter implements MeetingStorageUsag
         } catch (DataIntegrityViolationException e) {
             writer.applyWithLock(usage);
         }
+    }
+
+    @Override
+    public void clearByCompanyIdAndProjectId(Long companyId, Long projectId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<MeetingStorageUsageJpaEntity> cleared = repository.findByCompanyId(companyId).stream()
+                .map(MeetingStorageUsageJpaEntity::toDomain)
+                .filter(usage -> usage.getProjectId().equals(projectId))
+                .map(usage -> MeetingStorageUsage.restore(usage.getMeetingId(), usage.getCompanyId(),
+                        usage.getProjectId(), 0L, usage.getRevision() + 1, now))
+                .map(MeetingStorageUsageJpaEntity::from)
+                .toList();
+        repository.saveAll(cleared);
     }
 
     // 회의 수만큼만 행이 있어서(TokenUsageRecord와 달리 이벤트마다 안 늘어남) Java 쪽에서 합산해도
