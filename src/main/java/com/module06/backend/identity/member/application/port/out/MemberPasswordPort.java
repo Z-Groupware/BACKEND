@@ -20,7 +20,7 @@ public interface MemberPasswordPort {
      * <p>반환값으로 "같은 비밀번호인지"를 판정할 수는 없다. BCrypt 해시는 같은 평문이라도 매번
      * 다르므로, 호출자가 {@code PasswordEncoder.matches} 로 하나씩 대조해야 한다.
      */
-    List<String> findUsedPasswordHashes(Long memberId);
+    List<String> findUsedPasswordHashes(Long memberId, Long companyId);
 
     /**
      * 비밀번호를 바꾸고, <b>직전 해시를 이력으로 옮기고</b>, 변경 시각을 찍는다. 셋은 한 트랜잭션이다 —
@@ -31,5 +31,5 @@ public interface MemberPasswordPort {
      *
      * @param newPasswordHash 이미 해싱된 값
      */
-    void changePassword(Long memberId, String newPasswordHash);
+    void changePassword(Long memberId, Long companyId, String newPasswordHash);
 }

@@ -121,7 +121,7 @@ public class AuthController {
     public ApiResponse<Void> changeMyPassword(
             @AuthenticationPrincipal AuthPrincipal me,
             @Valid @RequestBody ChangeMyPasswordRequest request) {
-        changeMyPasswordUseCase.changePassword(request.toCommand(me.memberId()));
+        changeMyPasswordUseCase.changePassword(request.toCommand(me.memberId(), me.companyId()));
         return ApiResponse.successWithoutData("비밀번호를 변경했습니다. 다시 로그인해 주세요.");
     }
 }

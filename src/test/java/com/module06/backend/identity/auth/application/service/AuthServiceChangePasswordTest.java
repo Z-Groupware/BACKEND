@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AuthServiceChangePasswordTest {
 
     private static final Long MEMBER_ID = 3L;
+    private static final Long COMPANY_ID = 1L;
     private static final String CURRENT = "Old1234!";
     private static final String NEW = "NewPass12!";
 
@@ -144,7 +145,7 @@ class AuthServiceChangePasswordTest {
     }
 
     private ChangePasswordCommand command(String current, String newPassword, String confirm) {
-        return new ChangePasswordCommand(MEMBER_ID, current, newPassword, confirm);
+        return new ChangePasswordCommand(MEMBER_ID, COMPANY_ID, current, newPassword, confirm);
     }
 
     private AuthService service() {
@@ -166,7 +167,7 @@ class AuthServiceChangePasswordTest {
             @Override
             public Optional<MemberCredentials> findById(Long memberId) {
                 return Optional.of(new MemberCredentials(
-                        MEMBER_ID, 1L, passwordPort.currentHash(), Authority.MEMBER, false, 2L, false));
+                        MEMBER_ID, COMPANY_ID, passwordPort.currentHash(), Authority.MEMBER, false, 2L, false));
             }
         };
     }

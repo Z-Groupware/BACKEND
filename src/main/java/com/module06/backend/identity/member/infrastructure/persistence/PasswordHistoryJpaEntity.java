@@ -32,6 +32,10 @@ class PasswordHistoryJpaEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 테넌트 스코프용 의도적 반정규화(V2.3.23). 조회 조건에 회사를 항상 넣는다는 원칙을 따른다. */
+    @Column(name = "company_id", nullable = false)
+    private Long companyId;
+
     @Column(name = "member_id", nullable = false)
     private Long memberId;
 
@@ -41,8 +45,9 @@ class PasswordHistoryJpaEntity {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    static PasswordHistoryJpaEntity of(Long memberId, String passwordHash, LocalDateTime at) {
+    static PasswordHistoryJpaEntity of(Long companyId, Long memberId, String passwordHash, LocalDateTime at) {
         PasswordHistoryJpaEntity history = new PasswordHistoryJpaEntity();
+        history.companyId = companyId;
         history.memberId = memberId;
         history.passwordHash = passwordHash;
         history.createdAt = at;

@@ -37,8 +37,8 @@ public record ChangeMyPasswordRequest(
         String newPasswordConfirm
 ) {
 
-    public ChangePasswordCommand toCommand(Long memberId) {
-        return new ChangePasswordCommand(memberId, currentPassword, newPassword, newPasswordConfirm);
+    public ChangePasswordCommand toCommand(Long memberId, Long companyId) {
+        return new ChangePasswordCommand(memberId, companyId, currentPassword, newPassword, newPasswordConfirm);
     }
 
     /**

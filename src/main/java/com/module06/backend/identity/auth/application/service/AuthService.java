@@ -221,11 +221,12 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
         if (passwordEncoder.matches(command.newPassword(), member.passwordHash())) {
             throw new BusinessException(AuthErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
         }
-        if (usedBefore(command.memberId(), command.newPassword())) {
+        if (usedBefore(command, command.newPassword())) {
             throw new BusinessException(AuthErrorCode.PASSWORD_ALREADY_USED);
         }
 
-        memberPasswordPort.changePassword(command.memberId(), passwordEncoder.encode(command.newPassword()));
+        memberPasswordPort.changePassword(command.memberId(), command.companyId(),
+                passwordEncoder.encode(command.newPassword()));
 
         // 비밀번호를 바꾸는 이유의 절반은 "샜을지도 모른다" 다. 모든 기기를 끊는다.
         refreshTokenStore.revokeAllByMember(command.memberId());
@@ -235,8 +236,8 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
      * BCrypt 해시는 같은 평문이라도 매번 다르다 — 문자열 비교로는 판정할 수 없어 하나씩 대조한다.
      * 이력이 쌓일수록 이 반복이 그대로 응답 시간이 된다({@code MemberPasswordPort} javadoc).
      */
-    private boolean usedBefore(Long memberId, String newPassword) {
-        return memberPasswordPort.findUsedPasswordHashes(memberId).stream()
+    private boolean usedBefore(ChangePasswordCommand command, String newPassword) {
+        return memberPasswordPort.findUsedPasswordHashes(command.memberId(), command.companyId()).stream()
                 .anyMatch(usedHash -> passwordEncoder.matches(newPassword, usedHash));
     }
 
