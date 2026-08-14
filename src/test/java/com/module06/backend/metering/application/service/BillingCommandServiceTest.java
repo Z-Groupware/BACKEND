@@ -81,81 +81,20 @@ class BillingCommandServiceTest {
     }
 
     @Test
-    void payFailsWithValueResultWhenPaymentMethodIsMissing() {
-        when(subscriptionRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(unpaidSubscription()));
-        when(paymentMethodRepository.findByCompanyId(COMPANY)).thenReturn(Optional.empty());
-
-        BillingPaymentActionResult result = service.pay(owner());
-
-        assertThat(result.isSuccess()).isFalse();
-        assertThat(result.failureCode()).isEqualTo("NO_PAYMENT_METHOD");
-        verify(subscriptionRepository, never()).save(any());
-        verify(paymentRecordRepository, never()).save(any());
-    }
-
-    @Test
-    void payCreatesUnpaidSubscriptionWhenMissingAndPaymentMethodIsMissing() {
-        when(subscriptionRepository.findByCompanyId(COMPANY)).thenReturn(Optional.empty());
-        when(subscriptionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(paymentMethodRepository.findByCompanyId(COMPANY)).thenReturn(Optional.empty());
-
-        BillingPaymentActionResult result = service.pay(owner());
-
-        assertThat(result.isSuccess()).isFalse();
-        assertThat(result.failureCode()).isEqualTo("NO_PAYMENT_METHOD");
-
-        ArgumentCaptor<BillingSubscription> subscriptionCaptor = ArgumentCaptor.forClass(BillingSubscription.class);
-        verify(subscriptionRepository).save(subscriptionCaptor.capture());
-        BillingSubscription created = subscriptionCaptor.getValue();
-        assertThat(created.getPlanCode()).isEqualTo(BillingDefaults.PLAN_CODE);
-        assertThat(created.getSeats()).isEqualTo(1);
-        assertThat(created.getStatus()).isEqualTo(BillingSubscriptionStatus.UNPAID);
-        assertThat(created.getStartedOn()).isEqualTo(LocalDate.of(2026, 8, 12));
-        verify(paymentRecordRepository, never()).save(any());
-    }
-
-    @Test
-    void payIsIdempotentWhenAlreadyActive() {
-        when(subscriptionRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(activeSubscription()));
-
+    void payReturnsDisplayOnlySuccessForBillingManager() {
+        // [DEMO] 표시 전용 목업: 실 구독 활성화/결제레코드 저장 없이 항상 성공을 반환한다.
         BillingPaymentActionResult result = service.pay(owner());
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.failureCode()).isNull();
-        verify(paymentMethodRepository, never()).findByCompanyId(any());
         verify(subscriptionRepository, never()).save(any());
         verify(paymentRecordRepository, never()).save(any());
     }
 
     @Test
-    void payActivatesSubscriptionAndRecordsEstimatedAmount() {
-        when(subscriptionRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(unpaidSubscription()));
-        when(paymentMethodRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(paymentMethod()));
-        when(tokenPlanRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(CompanyTokenPlan.restore(
-                1L, COMPANY, "STANDARD", 1_500_000L, 150_000, 20, 10, 30,
-                LocalDate.of(2026, 1, 1))));
-        when(storagePlanRepository.findByCompanyId(COMPANY)).thenReturn(Optional.empty());
-        when(billingConfigRepository.findByCompanyId(COMPANY)).thenReturn(Optional.of(CompanyBillingConfig.restore(
-                1L, COMPANY, false, 500)));
-
-        BillingPaymentActionResult result = service.pay(owner());
-
-        assertThat(result.isSuccess()).isTrue();
-
-        ArgumentCaptor<BillingSubscription> subscriptionCaptor = ArgumentCaptor.forClass(BillingSubscription.class);
-        verify(subscriptionRepository).save(subscriptionCaptor.capture());
-        BillingSubscription savedSubscription = subscriptionCaptor.getValue();
-        assertThat(savedSubscription.getStatus()).isEqualTo(BillingSubscriptionStatus.ACTIVE);
-        assertThat(savedSubscription.getCurrentPeriodStart()).isEqualTo(LocalDate.of(2026, 8, 12));
-        assertThat(savedSubscription.getCurrentPeriodEnd()).isEqualTo(LocalDate.of(2026, 9, 12));
-        assertThat(savedSubscription.getNextBillingDate()).isEqualTo(LocalDate.of(2026, 9, 12));
-
-        ArgumentCaptor<BillingPaymentRecord> paymentCaptor = ArgumentCaptor.forClass(BillingPaymentRecord.class);
-        verify(paymentRecordRepository).save(paymentCaptor.capture());
-        BillingPaymentRecord payment = paymentCaptor.getValue();
-        assertThat(payment.getAmount()).isEqualByComparingTo(BigDecimal.valueOf(167_200));
-        assertThat(payment.getOverageAmount()).isEqualByComparingTo(BigDecimal.valueOf(2_000));
-        assertThat(payment.getStatus()).isEqualTo(BillingPaymentStatus.PAID);
+    void payRejectsNonBillingManager() {
+        assertThatThrownBy(() -> service.pay(nonManager()))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test
@@ -212,5 +151,9 @@ class BillingCommandServiceTest {
 
     private static AuthPrincipal owner() {
         return new AuthPrincipal(1L, COMPANY, "OWNER", false, 10L);
+    }
+
+    private static AuthPrincipal nonManager() {
+        return new AuthPrincipal(2L, COMPANY, "MEMBER", false, 11L);
     }
 }

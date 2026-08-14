@@ -1,6 +1,7 @@
 package com.module06.backend.cap.infrastructure.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -11,12 +12,14 @@ import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
@@ -129,6 +132,62 @@ class CapS3ObjectStorageAdapterTest {
         CapS3ObjectStorageAdapter adapter = new CapS3ObjectStorageAdapter(s3Client, presigner, properties());
 
         assertThat(adapter.objectMatches(KEY, 1_000L)).isFalse();
+    }
+
+    /*
+     * 최소권한 IAM(s3:ListBucket 없음) 환경에서는 없는 키의 HeadObject가 NoSuchKeyException이
+     * 아니라 403 AccessDenied(S3Exception)로 온다 — 이것도 "없음"으로 처리해 false를 반환해야
+     * 한다(원본 예외를 그대로 던지면 CAP_PART_NOT_UPLOADED 같은 정상 4xx 대신 500이 난다).
+     */
+    @Test
+    @DisplayName("objectMatches: 403(AccessDenied)도 없는 것으로 보고 false다")
+    void objectMatches_falseWhenAccessDenied() {
+        S3Client s3Client = mock(S3Client.class);
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(S3Exception.builder()
+                        .statusCode(403)
+                        .message("Forbidden")
+                        .build());
+        CapS3ObjectStorageAdapter adapter = new CapS3ObjectStorageAdapter(s3Client, presigner, properties());
+
+        assertThat(adapter.objectMatches(KEY, 1_000L)).isFalse();
+    }
+
+    /*
+     * s3:ListBucket이 있는 환경에서는 없는 키의 HeadObject가 NoSuchKeyException으로 안 잡히고
+     * 일반 S3Exception(statusCode=404)으로 온다(HEAD 응답은 본문이 없어 SDK가 에러 코드를 body에서
+     * 못 읽고 상태 코드만으로 예외를 만든다 — CodeRabbit 지적). 이것도 "없음"으로 처리해야 한다.
+     */
+    @Test
+    @DisplayName("objectMatches: 일반 S3Exception(404)도 없는 것으로 보고 false다")
+    void objectMatches_falseWhenNotFoundAsGenericS3Exception() {
+        S3Client s3Client = mock(S3Client.class);
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(S3Exception.builder()
+                        .statusCode(404)
+                        .message("Not Found")
+                        .build());
+        CapS3ObjectStorageAdapter adapter = new CapS3ObjectStorageAdapter(s3Client, presigner, properties());
+
+        assertThat(adapter.objectMatches(KEY, 1_000L)).isFalse();
+    }
+
+    /*
+     * 403 이외의 S3Exception(예: 500 InternalError)은 "없음"으로 단정하지 않고 그대로 던져야
+     * 한다 — S3 쪽 진짜 장애를 업로드 미완료로 오판하면 안 된다.
+     */
+    @Test
+    @DisplayName("objectMatches: 403이 아닌 S3Exception은 그대로 전파한다")
+    void objectMatches_propagatesNonForbiddenS3Exception() {
+        S3Client s3Client = mock(S3Client.class);
+        AwsServiceException internalError = S3Exception.builder()
+                .statusCode(500)
+                .message("Internal Server Error")
+                .build();
+        when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(internalError);
+        CapS3ObjectStorageAdapter adapter = new CapS3ObjectStorageAdapter(s3Client, presigner, properties());
+
+        assertThatThrownBy(() -> adapter.objectMatches(KEY, 1_000L)).isInstanceOf(S3Exception.class);
     }
 
     private CapS3ObjectStorageAdapter adapter() {

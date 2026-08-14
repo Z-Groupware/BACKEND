@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import com.module06.backend.cap.application.command.RegisterManualRecordingCommand;
 import com.module06.backend.cap.application.guard.CapMeetingAccessGuard;
+import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.application.usecase.RegisterManualRecordingUseCase;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
@@ -22,7 +23,8 @@ import com.module06.backend.metering.application.command.ReportMeetingStorageUsa
 import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsagePort;
 
 /*
- * CAP-10 수동 녹음 업로드 서비스의 회의 존재·Host 검증·s3Key 검증·중복 제출·STT 트리거 규칙을 검증하는 단위 테스트다.
+ * CAP-10 수동 녹음 업로드 서비스의 회의 존재·Host 검증·s3Key 검증·중복 제출·업로드 확인·STT 트리거 규칙을
+ * 검증하는 단위 테스트다.
  */
 @DisplayName("CAP-10 수동 녹음 업로드 서비스")
 class ManualRecordingServiceTest {
@@ -83,6 +85,24 @@ class ManualRecordingServiceTest {
 
         assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 15_000_000L)), "CAP-014");
         assertThat(sttTriggered[0]).isFalse();
+    }
+
+    /*
+     * 클라이언트가 presign만 받고 실제로 S3에 업로드하지 않은 채(또는 다른 크기로) 등록을 시도하면
+     * CAP-023으로 거절하는지 검증한다 — CaptureUploadService.completePartUpload의 objectMatches
+     * 검증과 동일 취지(요청 본문 sizeBytes를 그대로 믿지 않는다).
+     */
+    @Test
+    @DisplayName("실제로 업로드되지 않았으면 CAP-023으로 거절한다")
+    void rejectsWhenNotUploaded() {
+        ManualRecordingService service = service(Optional.of(1L), true, false, false);
+
+        assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 15_000_000L)), "CAP-023");
+        assertThat(savedRecording[0]).isNull();
+        assertThat(sttTriggered[0]).isFalse();
+        // objectMatches가 등록보다 먼저 걸려서 막혀야 한다 — report가 먼저 이동하면 실제로
+        // 업로드도 안 한 가짜 크기가 metering 원장에 기록된다(CodeRabbit 지적).
+        assertThat(reportedUsage[0]).isNull();
     }
 
     /* 정상: 메타를 저장하고 STT를 트리거하며 durationMs=0·status=DONE을 반환하는지 검증한다. */
@@ -156,7 +176,7 @@ class ManualRecordingServiceTest {
 
             @Override
             public Optional<Long> findProjectId(Long meetingId) {
-                return Optional.empty();
+                return Optional.of(1L);
             }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
@@ -188,8 +208,8 @@ class ManualRecordingServiceTest {
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
         ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
-        ManualRecordingService service =
-                new ManualRecordingService(meetingRef, accessGuard, recordingRepo, failingSttPort, storagePort);
+        ManualRecordingService service = new ManualRecordingService(meetingRef, accessGuard, recordingRepo,
+                failingSttPort, storagePort, capObjectStoragePort(true));
 
         RegisterManualRecordingUseCase.Result result =
                 service.registerManualRecording(cmd(VALID_KEY, 15_000_000L));
@@ -237,7 +257,7 @@ class ManualRecordingServiceTest {
 
             @Override
             public Optional<Long> findProjectId(Long meetingId) {
-                return Optional.empty();
+                return Optional.of(1L);
             }
         };
         // 선검사는 통과(false)하지만 저장에서 제약위반 → 어댑터가 CAP-014로 변환하는 상황을 재현.
@@ -266,7 +286,7 @@ class ManualRecordingServiceTest {
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
         ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
         ManualRecordingService service = new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort,
-                storagePort);
+                storagePort, capObjectStoragePort(true));
 
         assertErrorCode(() -> service.registerManualRecording(cmd(VALID_KEY, 100L)), "CAP-014");
         assertThat(sttTriggered[0]).isFalse();
@@ -277,8 +297,15 @@ class ManualRecordingServiceTest {
         return new RegisterManualRecordingCommand(500L, 7L, s3Key, sizeBytes);
     }
 
-    // 회의 companyId(존재 여부)·Host 여부·중복 제출 여부를 지정해 서비스를 조립한다. STT 트리거·저장을 기록한다.
+    // 회의 companyId(존재 여부)·Host 여부·중복 제출 여부를 지정해 서비스를 조립한다(objectMatches=true 기본).
     private ManualRecordingService service(Optional<Long> companyId, boolean host, boolean alreadySubmitted) {
+        return service(companyId, host, alreadySubmitted, true);
+    }
+
+    // 회의 companyId(존재 여부)·Host 여부·중복 제출 여부·S3 업로드 일치 여부를 지정해 서비스를 조립한다.
+    // STT 트리거·저장을 기록한다.
+    private ManualRecordingService service(Optional<Long> companyId, boolean host, boolean alreadySubmitted,
+                                           boolean objectMatches) {
         savedRecording[0] = null;
         sttTriggered[0] = false;
         reportedUsage[0] = null;
@@ -310,7 +337,7 @@ class ManualRecordingServiceTest {
 
             @Override
             public Optional<Long> findProjectId(Long meetingId) {
-                return Optional.empty();
+                return companyId.isPresent() ? Optional.of(1L) : Optional.empty();
             }
         };
         RecordingRepository recordingRepo = new RecordingRepository() {
@@ -338,7 +365,34 @@ class ManualRecordingServiceTest {
         ProjectTeamReferenceRepository projectTeamRef = (projectId, teamId) -> false;
         CapMeetingAccessGuard accessGuard = new CapMeetingAccessGuard(meetingRef, projectTeamRef);
         ReportMeetingStorageUsagePort storagePort = command -> reportedUsage[0] = command;
-        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort, storagePort);
+        return new ManualRecordingService(meetingRef, accessGuard, recordingRepo, sttPort, storagePort,
+                capObjectStoragePort(objectMatches));
+    }
+
+    // registerManualRecording 경로 테스트는 presign(issuePartUploadUrl 등)을 안 쓴다 — 호출되면
+    // 이 테스트 대상 밖이다. objectMatches만 호출되므로 그 결과를 테스트별로 지정한다.
+    private CapObjectStoragePort capObjectStoragePort(boolean objectMatches) {
+        return new CapObjectStoragePort() {
+            @Override
+            public IssuedPartUploadUrl issuePartUploadUrl(String s3Key, String contentType) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public IssuedPlaybackUrl issuePlaybackUrl(String s3Key) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public void deleteRecording(String s3Key) {
+                throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
+            }
+
+            @Override
+            public boolean objectMatches(String s3Key, long expectedSizeBytes) {
+                return objectMatches;
+            }
+        };
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

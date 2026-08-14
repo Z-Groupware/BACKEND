@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
 import com.module06.backend.cap.application.port.out.RecordingAssemblyPort;
+import com.module06.backend.cap.application.service.PendingAssemblyRetryRegistry;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingPart;
 import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
@@ -85,6 +86,15 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     // 충돌·시계 역행으로 최신 report가 오판되어 무시되는 문제가 원천적으로 없다(CodeRabbit 지적).
     private static final long CREATE_REVISION = 1L;
 
+    // 디스크 용량 가드(TODO: 이것도 실측 없이 정한 값 — FFMPEG_TIMEOUT과 같은 처지다). buildOgg가
+    // 청크마다 (1) 원본 다운로드 (2) 48kHz/mono/pcm_s16le WAV 정규화본을 만들어 원본·정규화본이
+    // 동시에 디스크에 쌓인다 — 원본 총합의 3배(원본 1 + WAV 1 + 최종 ogg·여유분 1)를 대략의 상한으로
+    // 잡는다. 여기에 고정 여유분을 더해 최소 실행분(짧은 회의)에서도 다른 프로세스의 임시파일과
+    // 부딪히지 않게 한다. RecordingAssemblyAsyncConfig가 최대 2개까지 동시 실행하므로, 실제로는
+    // 이 추정치의 최대 2배가 동시에 점유될 수 있다는 점도 운영 디스크 사이징 시 감안해야 한다.
+    private static final double DISK_ESTIMATE_MULTIPLIER = 3.0;
+    private static final long DISK_SAFETY_MARGIN_BYTES = 500L * 1024 * 1024;
+
     private final S3Client s3Client;
     private final RecordingPartRepository recordingPartRepository;
     private final RecordingRepository recordingRepository;
@@ -95,6 +105,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     // presign이 다시 호출될 때(재조립·비정상 재시도 등) findByMeetingId가 여전히 값을 돌려줘
     // "새 회의 시작" 판정(CaptureUploadService의 저장 용량 한도 확인)을 건너뛴다.
     private final CaptureUploadStateRepository captureUploadStateRepository;
+    private final PendingAssemblyRetryRegistry pendingAssemblyRetryRegistry;
     private final String bucket;
 
     public RecordingAssemblyS3FfmpegAdapter(S3Client s3Client, RecordingPartRepository recordingPartRepository,
@@ -103,6 +114,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                                             CapObjectStoragePort capObjectStoragePort,
                                             ReportMeetingStorageUsagePort reportMeetingStorageUsagePort,
                                             CaptureUploadStateRepository captureUploadStateRepository,
+                                            PendingAssemblyRetryRegistry pendingAssemblyRetryRegistry,
                                             CapS3Properties properties) {
         this.s3Client = s3Client;
         this.recordingPartRepository = recordingPartRepository;
@@ -111,6 +123,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         this.capObjectStoragePort = capObjectStoragePort;
         this.reportMeetingStorageUsagePort = reportMeetingStorageUsagePort;
         this.captureUploadStateRepository = captureUploadStateRepository;
+        this.pendingAssemblyRetryRegistry = pendingAssemblyRetryRegistry;
         this.bucket = properties.bucket();
     }
 
@@ -125,6 +138,8 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                 log.info("조립할 청크가 없어 조립을 생략한다 — meetingId={}", meetingId);
                 return;
             }
+
+            requireSufficientDiskSpace(meetingId, parts);
 
             Path workDir = createWorkDir(meetingId);
             try {
@@ -151,14 +166,30 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
                 recordingPartRepository.deleteByMeetingId(meetingId);
                 deleteCaptureStateBestEffort(meetingId);
 
+                // 이전에 디스크 부족으로 대기 등록된 적이 있다면 지운다 — 이번엔 성공했으니
+                // 남아있는 시도 횟수가 나중에 사람이 CAP-05로 다시 부를 때 헷갈리면 안 된다.
+                pendingAssemblyRetryRegistry.clear(meetingId);
+
                 log.info("회의 녹음 조립 완료 — meetingId={} durationSec={} sizeBytes={}",
                         meetingId, durationSec, sizeBytes);
             } finally {
                 deleteRecursively(workDir);
             }
+        } catch (InsufficientDiskSpaceException e) {
+            // 다른 실패(ffmpeg 오류 등)와 다르게 다룬다 — 대개 "지금 동시에 도는 다른 조립이
+            // 디스크를 쓰고 있어서" 생기는 일시적 상황이라, RecordingAssemblyRetryScheduler가
+            // 몇 분 뒤 다시 시도하도록 등록만 하고 넘어간다(TODO: 재시도 간격·횟수 상한 모두
+            // FFMPEG_TIMEOUT처럼 실측 없이 정한 값 — RecordingAssemblyRetryScheduler 주석 참고).
+            log.warn("디스크 용량 부족으로 조립 연기, 재시도 대기 등록 — meetingId={}", meetingId, e);
+            pendingAssemblyRetryRegistry.recordFailure(meetingId, lastSegmentSeq, lastSeq);
         } catch (RuntimeException | IOException e) {
             // best-effort — 실패해도 회의 종료/CAP-05 응답을 되돌리지 않는다. 사람이 CAP-05로 재시도한다.
             log.error("회의 녹음 조립 실패 — meetingId={}", meetingId, e);
+            // 디스크 부족이 아닌 이유로 실패했다(CodeRabbit 지적) — 이 시도가 재시도 스케줄러가
+            // 디스패치한 것이었다면(inFlight=true) 여기서 안 풀어주면 다음 주기부터 영원히
+            // "진행 중"으로 오판돼 재시도도 MAX_ATTEMPTS 소진도 못 밟는다. 애초에 대기 목록에
+            // 없던 첫 시도의 실패라면 이 호출은 아무 일도 안 한다(releaseInFlight의 계약).
+            pendingAssemblyRetryRegistry.releaseInFlight(meetingId);
         }
     }
 
@@ -181,10 +212,14 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     }
 
     // metering에 최종 크기로 report한다 — 실패해도 조립 자체(recording 등록·parts 정리)는 계속한다.
+    // projectId 조회도 이 try 안에서 한다 — 밖에서 하면 조회 실패(사실상 안 일어나지만)가 바깥
+    // catch로 튀어 그 뒤의 parts 정리까지 건너뛰게 만든다(바로 위 report 자체와 같은 이유).
     private void reportStorageUsageBestEffort(Long companyId, Long meetingId, long sizeBytes) {
         try {
+            Long projectId = meetingReferenceRepository.findProjectId(meetingId)
+                    .orElseThrow(() -> new IllegalStateException("회의를 찾을 수 없습니다 — meetingId=" + meetingId));
             reportMeetingStorageUsagePort.report(new ReportMeetingStorageUsageCommand(
-                    companyId, meetingId, sizeBytes, CREATE_REVISION));
+                    companyId, projectId, meetingId, sizeBytes, CREATE_REVISION));
         } catch (RuntimeException e) {
             log.warn("저장 용량 미터링 기록 실패 — 조립은 계속 진행. meetingId={}", meetingId, e);
         }
@@ -294,6 +329,28 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         } catch (NumberFormatException e) {
             throw new IllegalStateException("ffprobe duration 파싱 실패(값=" + lastLine + ") — " + file, e);
         }
+    }
+
+    // 임시 디렉터리를 실제로 만들기 전에, 원본 다운로드+정규화 WAV를 담을 여유가 있는지 먼저
+    // 확인한다 — 부족한 채로 buildOgg를 시작하면 회의 몇 시간 분량을 다 받은 뒤에야 ENOSPC로
+    // 실패하고(디스크 I/O·네트워크만 낭비), 그마저도 이 임시 디렉터리만의 문제가 아니라 같은
+    // 파일시스템을 쓰는 다른 프로세스까지 같이 영향받을 수 있다.
+    private void requireSufficientDiskSpace(Long meetingId, List<RecordingPart> parts) throws IOException {
+        long estimatedRequiredBytes = estimateRequiredBytes(parts);
+        long usableBytes = Files.getFileStore(Path.of(System.getProperty("java.io.tmpdir"))).getUsableSpace();
+        if (usableBytes < estimatedRequiredBytes) {
+            throw new InsufficientDiskSpaceException(
+                    "임시 디렉터리 여유 공간 부족 — meetingId=%d 필요(추정)=%d바이트 가용=%d바이트"
+                            .formatted(meetingId, estimatedRequiredBytes, usableBytes));
+        }
+    }
+
+    // 순수 계산만 뽑아둔다 — 실제 파일시스템 호출(Files.getFileStore) 없이 이 추정 공식만
+    // 단위 테스트하기 위해서다(RecordingPart가 개별 청크를 2MB로 제한해 "디스크보다 큰 값"을
+    // 실제 파트로 만들 수 없으므로, 그 경계는 이 메서드 하나로 검증한다).
+    private long estimateRequiredBytes(List<RecordingPart> parts) {
+        long totalSourceBytes = parts.stream().mapToLong(RecordingPart::getSizeBytes).sum();
+        return (long) (totalSourceBytes * DISK_ESTIMATE_MULTIPLIER) + DISK_SAFETY_MARGIN_BYTES;
     }
 
     // 회의·UUID로 격리한 전용 임시 디렉터리 — 동시에 여러 회의가 조립될 수 있어 경로가 겹치면

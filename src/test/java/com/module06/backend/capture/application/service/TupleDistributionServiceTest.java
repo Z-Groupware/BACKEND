@@ -14,6 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import com.module06.backend.action.application.port.ActionDistributionPort;
 import com.module06.backend.action.application.port.ActionDistributionPort.ActionDistributionItem;
+import com.module06.backend.action.domain.model.ActionType;
 import com.module06.backend.action.application.port.ActionDistributionPort.DistributeActionsCommand;
 import com.module06.backend.action.application.port.ActionDistributionPort.DistributedAction;
 import com.module06.backend.capture.application.port.out.AssignmentTupleRepository;
@@ -141,6 +142,32 @@ class TupleDistributionServiceTest {
                 .distribute(COMPANY, MEETING, Map.of());
 
         assertThat(actions.items.get(0).dueDate()).isNull();
+    }
+
+    @Test
+    @DisplayName("담당자 미정 tuple 도 분배한다 — 거르면 검토 화면에서 통째로 사라진다")
+    void 담당자_미정도_분배한다() {
+        /*
+         * 2026-08-07 합의로 C 가 AI 분배 경로의 담당자 미정을 허용했다
+         * (ActionTypeShapePolicy.checkDistribution). 여기서 거르면 그 tuple 은 action 이 없어
+         * RVW-01 조회에 안 걸리고, 담당자가 없다는 사실 자체를 사람이 볼 방법이 사라진다.
+         * 확정을 막는 것은 RVW-05 의 몫이지 분배의 몫이 아니다.
+         */
+        FakeTupleRepository tuples = new FakeTupleRepository(
+                stored(1L, tuple("로드맵 초안 작성", 42L)),
+                stored(2L, tuple("빈 상태 문구 정리", null)));
+        RecordingDistributionPort actions = new RecordingDistributionPort();
+
+        int distributed = service(tuples, actions, meetingId -> Optional.of(PROJECT), false)
+                .distribute(COMPANY, MEETING, Map.of());
+
+        assertThat(distributed).isEqualTo(2);
+        assertThat(actions.items).hasSize(2);
+        assertThat(actions.items).extracting(ActionDistributionItem::assigneeMemberId)
+                .containsExactly(42L, null);
+        // 담당자가 없다고 TEAM 으로 돌리지 않는다 — 다른 종류의 액션을 지어내는 것이다.
+        assertThat(actions.items).extracting(ActionDistributionItem::actionType)
+                .containsOnly(ActionType.PERSONAL);
     }
 
     @Test

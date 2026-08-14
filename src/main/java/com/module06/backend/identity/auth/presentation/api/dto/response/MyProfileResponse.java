@@ -51,6 +51,6 @@ public record MyProfileResponse(
                 profile.authority().name(), profile.isAdmin(), profile.landingPath(),
                 profile.isOnboarded(),
                 profile.workStatus().name(), profile.joinedOn(),
-                profile.plan() == null ? null : profile.plan().name());
+                profile.plan());
     }
 }

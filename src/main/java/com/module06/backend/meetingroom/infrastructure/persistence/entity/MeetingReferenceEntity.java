@@ -48,7 +48,7 @@ public class MeetingReferenceEntity {
     private String title;
 
     /* 예약된 회의실 식별자이며 ROOM-04 미래 예약 범위 조회에 사용한다. */
-    @Column(name = "meeting_room_id", nullable = false)
+    @Column(name = "meeting_room_id")
     private Long meetingRoomId;
 
     /* 회의 생명주기 상태 문자열이며 ROOM-04는 SCHEDULED 행만 조회한다. */
@@ -56,11 +56,11 @@ public class MeetingReferenceEntity {
     private String status;
 
     /* 예약 시작 일시이며 미래 예약 판정과 운영 시작 경계 비교에 사용한다. */
-    @Column(name = "start_at", nullable = false)
+    @Column(name = "start_at")
     private LocalDateTime startAt;
 
     /* 예약 종료 일시이며 운영 종료 경계 비교에 사용한다. */
-    @Column(name = "end_at", nullable = false)
+    @Column(name = "end_at")
     private LocalDateTime endAt;
 
     /*

@@ -64,8 +64,15 @@ public class MemberController {
     private final UpdateMemberRoleUseCase updateMemberRoleUseCase;
     private final UpdateMemberAdminUseCase updateMemberAdminUseCase;
 
+    /**
+     * 팀장(LEADER)도 부른다 — PO 결정(2026-08-14). 화면 {@code /app/people} 이 이 응답 하나로 그려지는데
+     * 403 을 삼키지 못하고 페이지를 통째로 throw 해서, 팀장 로그인은 구성원 메뉴 자체가 크래시였다.
+     *
+     * <p>대가는 명시적이다: 모든 팀장이 회사 전체의 이메일·휴직/오프보딩 상태를 본다. 조회 범위는
+     * 여전히 JWT 의 companyId 로 잠겨 있어 남의 회사는 보이지 않는다. 쓰기(§7-4·§7-7)는 열지 않는다.
+     */
     @GetMapping
-    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','LEADER')")
     public ApiResponse<MemberPageResponse> list(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId,

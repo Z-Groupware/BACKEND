@@ -106,34 +106,35 @@ public class TupleDistributionService {
         Long projectId = meetingProjectProvider.projectIdOf(meetingId).orElseThrow(() ->
                 new IllegalStateException("회의의 프로젝트를 읽지 못해 분배할 수 없습니다. meetingId=" + meetingId));
 
-        List<StoredTuple> distributable = new ArrayList<>();
+        /*
+         * 담당자가 없는 tuple 도 분배한다.
+         *
+         * C 도메인은 **AI 분배 경로에 한해** 담당자 미정 PERSONAL 을 허용한다(2026-08-07 합의 ·
+         * ActionTypeShapePolicy.checkDistribution). 사람이 "+"로 추가하는 경로(checkManual)는
+         * 여전히 담당자가 필수다 — 지어낼 사람이 없는 쪽만 열어 둔 것이다.
+         *
+         * 반대편 안전장치는 확정에 있다. 담당자 없는 PERSONAL 은 RVW-05 에서 CONFIRM 되지 않고
+         * (ApplyReviewDecisionService.requireAssigneeForConfirm) PENDING 으로 남아 건너뛴 사유가
+         * 응답에 실린다. 그래서 **화면에는 보이고 확정만 막히는** 모양이 된다.
+         *
+         * ⚠ 여기서 거르면 그 tuple 은 action 이 없어 조회에 안 걸리고, 검토 화면(RVW-01)에서
+         * 통째로 사라진다. 담당자가 없다는 것 자체가 사람이 봐야 하는 상태인데 볼 방법이
+         * 없어진다 — 게이트를 통과한 것만 만들면 안 되는 이유(위 머리말)와 같은 함정이다.
+         * 실제로 그렇게 동작했고, 회의 하나에서 배정 4건 중 3건이 소리 없이 사라졌다.
+         */
+        List<StoredTuple> distributable = new ArrayList<>(stored);
         List<ActionDistributionItem> items = new ArrayList<>();
-        for (StoredTuple tuple : stored) {
-            /*
-             * 담당자가 없는 tuple 은 분배할 수 없다.
-             *
-             * 분석 경로는 PERSONAL 액션만 생산하고(C 와 협의 · 2026-08-06), PERSONAL 은
-             * 담당자가 필수다(ActionTypeShapePolicy). 담당자 미정을 TEAM 으로 돌리는 것은
-             * 다른 종류의 액션을 지어내는 것이라 하지 않는다.
-             *
-             * ⚠ 그래서 **담당자 미정 tuple 은 검토 화면(RVW-01)에 나타나지 않는다.** 대기실에
-             * 남아 있고 action 이 없으니 조회에 걸리지 않는다. 담당자가 없다는 것 자체가 사람이
-             * 봐야 하는 상태인데 볼 방법이 없으므로, 계약 보강이 필요한 지점이다.
-             */
-            if (tuple.tuple().assigneeCandidateMemberId() == null) {
-                continue;
-            }
-            distributable.add(tuple);
+        for (StoredTuple tuple : distributable) {
             items.add(itemOf(tuple, companyId, meetingId, projectId, gateVerdicts.get(tuple.id())));
         }
 
-        int skipped = stored.size() - distributable.size();
-        if (skipped > 0) {
-            log.warn("담당자 미정 tuple 은 분배하지 않았다 — 검토 화면에도 나타나지 않는다. "
-                    + "meetingId={} 미분배={}/{}", meetingId, skipped, stored.size());
-        }
-        if (items.isEmpty()) {
-            return 0;
+        long assigneeless = distributable.stream()
+                .filter(tuple -> tuple.tuple().assigneeCandidateMemberId() == null)
+                .count();
+        if (assigneeless > 0) {
+            // 경고가 아니라 정보다 — 사람이 검토 화면에서 담당자를 고르라고 만든 상태다.
+            log.info("담당자 미정 tuple 을 담당자 없이 분배했다 — 검토 화면에서 지정해야 확정된다. "
+                    + "meetingId={} 미정={}/{}", meetingId, assigneeless, stored.size());
         }
 
         List<DistributedAction> distributed = actionDistributionPort.distribute(

@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.identity.member.application.dto.MyProfile;
 import com.module06.backend.identity.member.application.port.out.MyProfileQueryPort;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
-import com.module06.backend.identity.member.domain.model.Plan;
 import com.module06.backend.identity.member.domain.model.Authority;
 
 import jakarta.persistence.EntityManager;
@@ -63,7 +62,7 @@ class MyProfileQueryAdapterTest {
         assertThat(profile.isOnboarded()).isTrue();
         assertThat(profile.workStatus()).isEqualTo(MemberStatus.ACTIVE);
         assertThat(profile.joinedOn()).isEqualTo("2022-05-10");
-        assertThat(profile.plan()).isEqualTo(Plan.TEAM);
+        assertThat(profile.plan()).isEqualTo("TEAM");
         assertThat(profile.landingPath()).isEqualTo("/my");
     }
 
@@ -115,6 +114,22 @@ class MyProfileQueryAdapterTest {
                 null, "MEMBER", false, "ACTIVE", "2026-03-03", null);
 
         assertThat(port.findByMemberId(43L).orElseThrow().plan()).isNull();
+    }
+
+    @Test
+    @DisplayName("과금 도메인이 쓴 요금제 코드를 그대로 내린다 — 모르는 값이라고 /me 가 500 이 되지 않는다")
+    void unknownPlanCodeIsPassedThroughInsteadOfBlowingUp() {
+        /*
+         * 회귀: plan 을 enum(FREE·TEAM)으로 매핑하던 시절, 과금이 결제 시 plan='STANDARD' 를 쓰기
+         * 시작하자 결제한 회사의 구독 행을 hydration 하는 순간 IllegalArgumentException 이 나면서
+         * /me 가 통째로 500 이 됐다. 요금제 코드의 주인은 과금 도메인이므로 여기서 목록을 복제하지 않는다.
+         */
+        insertCompany(51L, "H7QW-2M4X", "(주)결제완료", "2026-04-04 09:00:00");
+        insertSubscription(57L, 51L, "STANDARD", "ACTIVE");
+        insertMember(53L, 51L, null, null, null, "c@x.co.kr", "최결제",
+                null, "MEMBER", false, "ACTIVE", "2026-04-04", null);
+
+        assertThat(port.findByMemberId(53L).orElseThrow().plan()).isEqualTo("STANDARD");
     }
 
     @Test

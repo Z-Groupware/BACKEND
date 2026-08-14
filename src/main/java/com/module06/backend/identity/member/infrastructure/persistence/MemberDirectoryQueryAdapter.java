@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
 import com.module06.backend.identity.member.domain.model.PendingHandoverType;
-import com.module06.backend.identity.member.domain.model.Plan;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,8 +24,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
-
-    private static final String ACTIVE_SUBSCRIPTION_STATUS = "ACTIVE";
 
     /* 역할 "없음" — 전 회사 공용 시스템 행이다(V2.3.9). company_id 가 NULL 이라 회사 조회로는 안 잡힌다. */
     private static final long ROLE_NONE_ID = 2L;
@@ -38,7 +35,6 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
     private static final String HANDOVER_TYPE_VACATION = "VACATION";
 
     private final SpringDataMemberRepository memberRepository;
-    private final SpringDataSubscriptionRepository subscriptionRepository;
     private final SpringDataHandoverRefRepository handoverRepository;
     private final SpringDataRoleWriteRepository roleRepository;
 
@@ -61,12 +57,6 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
     @Override
     public boolean existsActiveEmail(Long companyId, String email) {
         return memberRepository.existsByCompanyIdAndEmailAndDeletedAtIsNull(companyId, email);
-    }
-
-    @Override
-    public Optional<Plan> findActivePlan(Long companyId) {
-        return subscriptionRepository.findFirstByCompanyIdAndStatusOrderByIdDesc(companyId, ACTIVE_SUBSCRIPTION_STATUS)
-                .map(SubscriptionRefEntity::getPlan);
     }
 
     /**
