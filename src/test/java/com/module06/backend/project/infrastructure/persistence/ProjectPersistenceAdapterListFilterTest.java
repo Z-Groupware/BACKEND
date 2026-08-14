@@ -101,12 +101,15 @@ class ProjectPersistenceAdapterListFilterTest {
         assertThat(result).isEqualTo(2L);
     }
 
+    // startDate는 null로 둔다 — status는 이제 startDate로부터 파생되므로(이슈 #497),
+    // 고정된 과거 날짜를 넣으면 TODO로 남아야 할 행이 조회 시점에 IN_PROGRESS로 재계산되어
+    // 이 파일의 status 필터/정렬 검증과 어긋난다. 상태 변경이 필요한 행은 changeStatus로 명시한다.
     private void save(String tag, ProjectStatus status, LocalDate dueDate) {
         Project project = Project.create(
                 COMPANY, tag, "프로젝트 " + tag, "설명", "#059669",
-                LocalDate.of(2026, 1, 1), dueDate, OWNER, List.of());
+                null, dueDate, OWNER, List.of());
         if (status != ProjectStatus.TODO) {
-            project.changeStatus(status);
+            project.changeStatus(status, LocalDate.now());
         }
         projectRepository.save(project);
     }

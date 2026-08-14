@@ -335,6 +335,23 @@ class ProjectServiceTest {
         verify(projectRepository, never()).save(any(Project.class));
     }
 
+    // 이슈 #497 — 보드에서 할일→진행중 드래그+저장해도 startDate가 안 바뀌어 보드가 재조회 후에도
+    // 계속 "할일"로 남던 버그(목록엔 반영되지만 보드 표시는 startDate 기준이라 어긋났었다).
+    @Test
+    void bulkUpdateStatusSyncsStartDateWhenMovingToInProgress() {
+        projectService = service();
+        Project project = Project.create(COMPANY, "TAG", "이름", "설명", "#16A34A",
+                LocalDate.now().plusDays(5), LocalDate.of(2099, 12, 31), OWNER, List.of());
+        when(projectRepository.findById(1L)).thenReturn(Optional.of(project));
+
+        projectService.bulkUpdateStatus(new BulkUpdateProjectStatusCommand(OWNER, List.of(
+                new BulkUpdateProjectStatusCommand.Item(1L, ProjectStatus.IN_PROGRESS)
+        )));
+
+        assertThat(project.getStartDate()).isEqualTo(LocalDate.now());
+        assertThat(project.getStatus()).isEqualTo(ProjectStatus.IN_PROGRESS);
+    }
+
     // ---------- getTimeline ----------
 
     @Test
