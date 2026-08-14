@@ -117,13 +117,43 @@ public enum AuthErrorCode implements ErrorCode {
     ONBOARDING_POSITION_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-038", "직급명이 중복되었습니다."),
 
     /*
+     * 같은 부서 안 역할명 중복(§4-1). 부서·직급과 달리 이 검사는 원래 없었다 — role 에 이름
+     * UNIQUE 가 없어 DB 에서 터지지 않았기 때문이다. V2.3.23 이 UK_ROLE_TEAM_NAME 을 세우면서
+     * 막지 않으면 DataIntegrityViolationException 이 되고, 그건 사용자가 화면에서 만들 수 있는
+     * 입력이므로 400 이어야 한다(ONBOARDING_TEAM_NAME_DUPLICATED 와 같은 이유).
+     */
+    ONBOARDING_ROLE_NAME_DUPLICATED(HttpStatus.BAD_REQUEST, "AU-044", "같은 부서 안 역할명이 중복되었습니다."),
+
+    /*
      * 역할 지정(§5-1 발급 · §7-4 변경). 없는 역할과 "있지만 다른 부서·다른 회사의 역할"을 가르지
      * 않고 한 코드로 답한다 — 남의 회사 역할 id 를 찍어 봤을 때 404 와 400 이 갈리면 그 id 가
      * 존재한다는 것 자체가 새어 나간다. 화면의 대응도 어느 쪽이든 같다(부서의 역할 목록을 새로
      * 고쳐 그 안에서 다시 고른다). 온보딩의 SUB_TEAM_NOT_IN_TEAM(AU-033)과 코드를 공유하지 않는
      * 이유는, 그쪽은 아직 저장되지 않은 같은 요청 안의 tempId 짝이 안 맞는 경우라 400 이 맞기 때문이다.
      */
-    MEMBER_ROLE_LABEL_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-039", "역할을 찾을 수 없습니다.");
+    MEMBER_ROLE_LABEL_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-039", "역할을 찾을 수 없습니다."),
+
+    /*
+     * 역할 CRUD(§6-10~6-12). ROLE_NOT_FOUND 는 MEMBER_ROLE_LABEL_NOT_FOUND(AU-039)와 코드를
+     * 나눈다 — 그쪽은 구성원에게 붙일 역할을 못 찾은 경우고, 여기는 편집 대상 역할 자체가 그
+     * 부서에 없는 경우다. 화면의 대응이 다르다(그쪽은 역할 선택을 다시, 여기는 부서 체계 화면을
+     * 새로 고쳐야 한다). 다른 부서·남의 회사 역할도 같은 404 로 답하는 것은 AU-039 와 같은
+     * 이유다 — 코드가 갈리면 그 id 가 존재한다는 것 자체가 새어 나간다.
+     *
+     * ROLE_NAME_DUPLICATED 는 같은 부서 안 이름 중복과 시스템 역할명("리더"·"없음") 사용을 함께
+     * 받는다. 사용자가 보는 사실이 "그 이름은 이미 있다"로 같고 화면의 대응(다른 이름 입력)도
+     * 같다 — 그래서 메시지에 부서를 적지 않는다(시스템 역할은 부서에 속하지 않는다).
+     *
+     * ROLE_SYSTEM_NOT_MODIFIABLE 은 시드 역할(id 1 리더 · 2 없음, V2.3.9)을 겨냥한다. 그 두 행은
+     * company_id·team_id 가 NULL 이라 회사·부서 스코프 조회로는 어차피 안 잡히지만, 그대로 두면
+     * 404("없는 역할")로 답하게 된다 — 실제로는 존재하되 건드릴 수 없는 행이므로 403 으로
+     * 구분한다(MEMBER_CANNOT_MODIFY_OWNER(AU-026)와 같은 성격이다). 이 둘은 회사가 만든 값이
+     * 아니라 id 를 노출해도 새어 나갈 것이 없다.
+     */
+    ROLE_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-040", "역할을 찾을 수 없습니다."),
+    ROLE_NAME_DUPLICATED(HttpStatus.CONFLICT, "AU-041", "이미 있는 역할명입니다."),
+    ROLE_IN_USE(HttpStatus.CONFLICT, "AU-042", "해당 역할인 구성원이 있어 삭제할 수 없습니다."),
+    ROLE_SYSTEM_NOT_MODIFIABLE(HttpStatus.FORBIDDEN, "AU-043", "시스템 역할은 변경할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

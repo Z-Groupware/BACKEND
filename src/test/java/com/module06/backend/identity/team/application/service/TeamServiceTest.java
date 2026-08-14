@@ -2,6 +2,7 @@ package com.module06.backend.identity.team.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -88,6 +89,37 @@ class TeamServiceTest {
 
         assertThat(teams.get(0).roles()).extracting(RoleNode::name).containsExactly("없음", "백엔드");
         assertThat(teams.get(1).roles()).extracting(RoleNode::name).containsExactly("없음");
+    }
+
+    /*
+     * 이 숫자가 그대로 "N명이 이 역할을 쓰고 있습니다"로 나간다(2026-08-14 프론트엔드 요청).
+     * 세는 축이 역할 삭제를 막는 검사와 같아야 "0명인데 삭제가 막힌다"가 생기지 않는다.
+     */
+    @Test
+    @DisplayName("역할마다 그 역할인 재직자 수를 함께 채운다")
+    void fillsMemberCountPerRole() {
+        FakeTeamRepository repository = new FakeTeamRepository();
+        Team dev = repository.create(1L, "개발팀");
+
+        FakeRoleQueryPort roleQueryPort = new FakeRoleQueryPort();
+        roleQueryPort.addRole(2L, null, "없음");
+        roleQueryPort.addRole(7L, dev.id(), "백엔드");
+        roleQueryPort.addRole(8L, dev.id(), "프론트엔드");
+
+        FakeMemberQueryPort memberQueryPort = new FakeMemberQueryPort();
+        memberQueryPort.addActiveMember(2L, dev.id(), 7L, "김서준");
+        memberQueryPort.addActiveMember(3L, dev.id(), 7L, "박민재");
+        memberQueryPort.addActiveMember(4L, dev.id(), "역할없는사람");
+
+        List<TeamNode> teams = service(repository, memberQueryPort,
+                new FakeProjectQueryPort(), roleQueryPort).getTree(1L);
+
+        assertThat(teams.get(0).roles())
+                .extracting(RoleNode::name, RoleNode::memberCount)
+                .containsExactly(
+                        tuple("없음", 1L),
+                        tuple("백엔드", 2L),
+                        tuple("프론트엔드", 0L));
     }
 
     @Test
@@ -357,10 +389,17 @@ class TeamServiceTest {
 
     static final class FakeMemberQueryPort implements TeamMemberQueryPort {
 
+        /* 역할 없음(V2.3.10 — role_id NOT NULL DEFAULT 2). 역할을 지정하지 않은 더블의 기본값. */
+        private static final Long ROLE_NONE_ID = 2L;
+
         private final List<TeamMemberSummary> members = new ArrayList<>();
 
         void addActiveMember(Long memberId, Long teamId, String name) {
-            members.add(new TeamMemberSummary(memberId, teamId, name));
+            addActiveMember(memberId, teamId, ROLE_NONE_ID, name);
+        }
+
+        void addActiveMember(Long memberId, Long teamId, Long roleId, String name) {
+            members.add(new TeamMemberSummary(memberId, teamId, roleId, name));
         }
 
         @Override
@@ -371,6 +410,12 @@ class TeamServiceTest {
         @Override
         public boolean hasActiveMembers(Long teamId) {
             return members.stream().anyMatch(m -> teamId.equals(m.teamId()));
+        }
+
+        /* 실제 어댑터와 같은 축으로 센다 — 재직자만, roleId 기준(부서는 보지 않는다). */
+        @Override
+        public long countActiveMembersWithRole(Long roleId) {
+            return members.stream().filter(m -> roleId.equals(m.roleId())).count();
         }
     }
 
