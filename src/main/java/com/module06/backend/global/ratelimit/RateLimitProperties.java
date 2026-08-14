@@ -28,6 +28,10 @@ import org.springframework.http.HttpMethod;
  *                          유일한 자리다 — 여기는 <b>현재 비밀번호를 반복해 넣어 볼 수 있는</b>
  *                          곳이라, 액세스 토큰 하나를 훔친 사람이 원래 비밀번호를 알아내는 통로가
  *                          된다. 로그인과 같은 값(5회/5분)을 쓰고, 마찬가지로 실패만 센다.
+ * @param passwordResetPerIp 비밀번호 찾기(IP 기준). 공개 경로라 익명 대량 요청의 표면이다.
+ * @param passwordResetPerAccount 비밀번호 찾기(계정 기준). <b>성공도 센다</b> — 이 API 는 성공하는
+ *                          순간 남의 비밀번호가 실제로 바뀌어 그 사람이 로그인하지 못하게 되므로,
+ *                          성공 자체가 공격 수단이다(로그인과 정반대). 그래서 가장 좁게 잡는다.
  */
 @ConfigurationProperties(prefix = "rate-limit")
 public record RateLimitProperties(
@@ -36,7 +40,9 @@ public record RateLimitProperties(
         Rule refreshPerIp,
         Rule companyLookupPerIp,
         Rule registrationPerIp,
-        Rule passwordChangePerMember
+        Rule passwordChangePerMember,
+        Rule passwordResetPerIp,
+        Rule passwordResetPerAccount
 ) {
 
     public record Rule(int limit, Duration window) {
@@ -54,6 +60,10 @@ public record RateLimitProperties(
         return passwordChangePerMember.asPolicy("password-change");
     }
 
+    public RateLimitPolicy passwordResetPolicy() {
+        return passwordResetPerAccount.asPolicy("password-reset-account");
+    }
+
     /**
      * IP 기준 제한을 걸 경로 목록. 필터가 이 순서로 훑어 첫 일치를 쓴다.
      *
@@ -65,7 +75,8 @@ public record RateLimitProperties(
                 new IpRule(HttpMethod.POST, "/api/auth/login", loginPerIp.asPolicy("login-ip")),
                 new IpRule(HttpMethod.POST, "/api/auth/refresh", refreshPerIp.asPolicy("refresh-ip")),
                 new IpRule(HttpMethod.POST, "/api/companies/lookup", companyLookupPerIp.asPolicy("company-lookup-ip")),
-                new IpRule(HttpMethod.POST, "/api/companies/registrations", registrationPerIp.asPolicy("registration-ip")));
+                new IpRule(HttpMethod.POST, "/api/companies/registrations", registrationPerIp.asPolicy("registration-ip")),
+                new IpRule(HttpMethod.POST, "/api/auth/password/reset", passwordResetPerIp.asPolicy("password-reset-ip")));
     }
 
     public record IpRule(HttpMethod method, String path, RateLimitPolicy policy) {
