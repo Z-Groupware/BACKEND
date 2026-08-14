@@ -1,11 +1,14 @@
 package com.module06.backend.identity.member.application.service;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -67,6 +70,9 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         GetMemberDetailUseCase, UpdateMemberRoleUseCase, UpdateMemberAdminUseCase, IssueMemberUseCase,
         GetMemberDashboardSummaryUseCase, GetTeamLeadersStatusUseCase, DeleteMemberUseCase,
         GetTeamRosterUseCase {
+
+    /** 조직도의 팀 미배정 묶음 이름. 실제 team 행이 아니라 응답에만 있는 잔여 묶음이다(§7-2). */
+    private static final String UNASSIGNED_TEAM_NAME = "미배정";
 
     private final MemberDirectoryQueryPort queryPort;
     private final MemberDirectoryCommandPort commandPort;
@@ -136,24 +142,50 @@ public class MemberDirectoryService implements GetMembersUseCase, GetMemberOrgCh
         return haystack != null && haystack.toLowerCase(Locale.ROOT).contains(needle);
     }
 
+    /**
+     * 조직도(§7-2). 부서에 속한 사람은 부서별로, 팀 미배정({@code team_id IS NULL})은 맨 뒤의
+     * "미배정" 묶음 하나로 담는다.
+     *
+     * <p>미배정을 버리지 않는다(2026-08-14, FE 제기). 스키마가 팀 무소속을 정상 상태로 두고 있고
+     * (V1 {@code member.team_id} — "OWNER/ADMIN 은 팀 무소속 가능"), 오너 계정은 부서 없이
+     * 생성되므로({@code OwnerAccountAdapter#createOwner}) 버리면 <b>모든 회사에서 오너가 조직도에
+     * 안 보인다</b> — 같은 스냅샷을 쓰는 명부(§7-1)와 인원 수가 어긋나던 원인이다.
+     *
+     * <p>{@code teamId} 는 실제 team 행이 아니므로 {@code null} 로 내려간다. 미배정이 없으면 묶음
+     * 자체를 넣지 않는다 — 빈 부서 카드가 화면에 남는다.
+     */
     @Override
     @Transactional(readOnly = true)
     public List<OrgChartTeam> getOrgChart(Long companyId) {
         List<Team> teams = teamRepository.findByCompanyId(companyId);
-        Map<Long, List<MemberRow>> membersByTeam = queryPort.findActiveByCompany(companyId).stream()
+        List<MemberRow> rows = queryPort.findActiveByCompany(companyId);
+        Map<Long, List<MemberRow>> membersByTeam = rows.stream()
                 .filter(row -> row.teamId() != null)
                 .collect(Collectors.groupingBy(MemberRow::teamId));
 
-        return teams.stream()
+        Stream<OrgChartTeam> assigned = teams.stream()
                 .sorted(Comparator.comparing(Team::id))
-                .map(team -> new OrgChartTeam(team.id(), team.name(), toSubTeams(membersByTeam.getOrDefault(team.id(), List.of()))))
+                .map(team -> new OrgChartTeam(team.id(), team.name(), toSubTeams(membersByTeam.getOrDefault(team.id(), List.of()))));
+
+        List<MemberRow> unassigned = rows.stream()
+                .filter(row -> row.teamId() == null)
                 .toList();
+        Stream<OrgChartTeam> residual = unassigned.isEmpty()
+                ? Stream.empty()
+                : Stream.of(new OrgChartTeam(null, UNASSIGNED_TEAM_NAME, toSubTeams(unassigned)));
+
+        return Stream.concat(assigned, residual).toList();
     }
 
     /** Team → SubTeam → Member (§0, 2026-08-07 확정) — SubTeam 은 roleLabel 로 묶은 응답 전용 그룹이다. */
     private List<OrgChartSubTeam> toSubTeams(List<MemberRow> teamMembers) {
-        Map<String, List<MemberRow>> byRoleLabel = teamMembers.stream()
-                .collect(Collectors.groupingBy(MemberRow::roleLabel));
+        /*
+         * Collectors.groupingBy 를 쓰지 않는다 — 그쪽은 분류 키가 null 이면 NPE 다. roleLabel 은
+         * role_id 가 NOT NULL 이라 실사용에서 비지 않지만(V2.3.10), 한 행만 어긋나도 조직도 전체가
+         * 500 이 된다. 아래 nullsFirst 정렬이 이미 null 키를 가정하고 있다.
+         */
+        Map<String, List<MemberRow>> byRoleLabel = new HashMap<>();
+        teamMembers.forEach(row -> byRoleLabel.computeIfAbsent(row.roleLabel(), key -> new ArrayList<>()).add(row));
 
         return byRoleLabel.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator.nullsFirst(Comparator.naturalOrder())))
