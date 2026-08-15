@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
+import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.repository.RecordingRepository;
 import com.module06.backend.meeting.application.port.out.OnlineMeetingRecordingPort;
@@ -32,15 +33,17 @@ class OnlineMeetingRecordingAdapterTest {
     }
 
     @Test
-    @DisplayName("recording 저장 후 커밋된 경우에만 용량 집계를 시작한다")
+    @DisplayName("recording 저장 후 커밋된 경우에만 용량 집계와 STT 트리거를 시작한다")
     void startsDownstreamOnlyAfterCommit() {
         RecordingRepositoryStub repository = new RecordingRepositoryStub();
         StorageStub storage = new StorageStub();
         long[] reportedMeetingId = new long[1];
+        SttStub sttStub = new SttStub();
         OnlineMeetingRecordingAdapter adapter = new OnlineMeetingRecordingAdapter(
                 repository,
                 storage,
-                command -> reportedMeetingId[0] = command.meetingId()
+                command -> reportedMeetingId[0] = command.meetingId(),
+                sttStub
         );
 
         adapter.prepare(preparation());
@@ -48,6 +51,7 @@ class OnlineMeetingRecordingAdapterTest {
 
         assertThat(repository.saved).isNotNull();
         assertThat(reportedMeetingId[0]).isZero();
+        assertThat(sttStub.triggeredMeetingId).isNull();
         TransactionSynchronizationManager.getSynchronizations()
                 .forEach(TransactionSynchronization::afterCommit);
         TransactionSynchronizationManager.getSynchronizations()
@@ -55,6 +59,7 @@ class OnlineMeetingRecordingAdapterTest {
                         synchronization.afterCompletion(TransactionSynchronization.STATUS_COMMITTED));
 
         assertThat(reportedMeetingId[0]).isEqualTo(91L);
+        assertThat(sttStub.triggeredMeetingId).isEqualTo(91L);
         assertThat(storage.deletedKey).isNull();
     }
 
@@ -63,7 +68,7 @@ class OnlineMeetingRecordingAdapterTest {
     void deletesPendingObjectAfterRollback() {
         StorageStub storage = new StorageStub();
         OnlineMeetingRecordingAdapter adapter = new OnlineMeetingRecordingAdapter(
-                new RecordingRepositoryStub(), storage, command -> { });
+                new RecordingRepositoryStub(), storage, command -> { }, new SttStub());
 
         adapter.prepare(preparation());
         adapter.register(registration());
@@ -120,6 +125,15 @@ class OnlineMeetingRecordingAdapterTest {
 
         @Override
         public void deleteByMeetingId(Long meetingId) {
+        }
+    }
+
+    private static final class SttStub implements MeetingRecordingSttPort {
+        private Long triggeredMeetingId;
+
+        @Override
+        public void triggerWholeFileStt(Long meetingId, String s3Key) {
+            triggeredMeetingId = meetingId;
         }
     }
 

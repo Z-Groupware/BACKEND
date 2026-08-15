@@ -1,12 +1,11 @@
 package com.module06.backend.cap.infrastructure.audio;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -37,10 +36,10 @@ import com.module06.backend.cap.infrastructure.storage.CapS3Properties;
  * 여기는 처음으로 서버가 오디오 바이트·디스크·CPU를 직접 다룬다 — presign 방식이 아니라 ffmpeg가
  * 로컬 파일을 처리해야 하기 때문이다. 운영 디스크·CPU 사용량에 실제 영향을 준다.
  *
- * <h2>왜 청크마다 개별 정규화 후 2차 concat인가(방식 D)</h2>
- * 원본 청크를 그대로 concat demuxer에 넣으면(코덱이 섞여 있을 수 있어) 불안정하다. 그래서
- * 1) 청크마다 독립적으로 16kHz/mono/16bit wav로 변환(코덱이 뭐든 각자 안전하게 디코드)
- * 2) 이제 전부 같은 포맷이 됐으니 2차 ffmpeg 호출로 concat + 정밀 트림(-ss/-t, 검증된 ffmpeg 옵션에
+ * <h2>왜 세그먼트 단위 바이너리 concat 후 2차 concat인가(방식 D)</h2>
+ * WebM 청크를 각각 ffmpeg에 넣으면 청크 경계의 컨테이너 메타데이터 때문에 앞부분이 유실될 수 있다. 그래서
+ * 1) 같은 세그먼트의 청크를 seq 순서대로 바이너리 그대로 이어붙인 뒤 한 번만 16kHz/mono/16bit wav로 디코드
+ * 2) 이제 세그먼트별 wav가 같은 포맷이 됐으니 2차 ffmpeg 호출로 concat + 정밀 트림(-ss/-t, 검증된 ffmpeg 옵션에
  *    맡기고 자바가 오디오 바이트 산술을 직접 하지 않는다)
  *
  * <h2>보안·안정성</h2>
@@ -123,15 +122,15 @@ public class SttBlockAudioAssemblyS3FfmpegAdapter implements SttBlockAudioAssemb
                 recordingPartRepository.findInSegmentBetweenSeqs(meetingId, segmentSeq, firstSeq, lastSeq);
         requireNoGaps(chunks, meetingId, segmentSeq, firstSeq, lastSeq);
 
-        // 1) 청크마다 개별적으로 16kHz/mono/16bit wav로 정규화(코덱이 웹/사파리 뭐든 각자 안전하게 디코드).
-        List<Path> normalizedWavs = new ArrayList<>();
-        for (RecordingPart chunk : chunks) {
-            Path source = downloadChunk(workDir, chunk);
-            Path normalized = workDir.resolve("norm-" + chunk.getSeq() + ".wav");
-            runFfmpeg(workDir, List.of("ffmpeg", "-y", "-i", source.toString(),
-                    "-ar", String.valueOf(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", normalized.toString()));
-            normalizedWavs.add(normalized);
-        }
+        // 1) 같은 세그먼트의 WebM 청크를 seq 순서대로 바이너리 concat한 뒤 한 번만 wav로 디코드한다.
+        List<RecordingPart> orderedChunks = chunks.stream()
+                .sorted(Comparator.comparingInt(RecordingPart::getSeq))
+                .toList();
+        Path segmentWebm = concatenateChunks(workDir, orderedChunks, "segment-%d.webm".formatted(segmentSeq));
+        Path normalized = workDir.resolve("norm-segment-" + segmentSeq + ".wav");
+        runFfmpeg(workDir, List.of("ffmpeg", "-y", "-i", segmentWebm.toString(),
+                "-ar", String.valueOf(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", normalized.toString()));
+        List<Path> normalizedWavs = List.of(normalized);
 
         // 2) 이제 전부 같은 포맷이니 concat demuxer로 안전하게 이어붙이고, 정확한 ms 경계로 트림한다.
         //    (자바는 seq 목록의 시작점을 기준으로 트림 시작 오프셋만 계산한다 — 오디오 바이트 자체는
@@ -190,20 +189,19 @@ public class SttBlockAudioAssemblyS3FfmpegAdapter implements SttBlockAudioAssemb
         }
     }
 
-    private Path downloadChunk(Path workDir, RecordingPart chunk) {
-        Path target = workDir.resolve("chunk-" + chunk.getSeq() + extensionOf(chunk.getS3Key()));
-        try (var responseStream = s3Client.getObject(GetObjectRequest.builder()
-                .bucket(bucket).key(chunk.getS3Key()).build())) {
-            Files.copy(responseStream, target, StandardCopyOption.REPLACE_EXISTING);
+    private Path concatenateChunks(Path workDir, List<RecordingPart> chunks, String fileName) {
+        Path target = workDir.resolve(fileName);
+        try (OutputStream outputStream = Files.newOutputStream(target)) {
+            for (RecordingPart chunk : chunks) {
+                try (var responseStream = s3Client.getObject(GetObjectRequest.builder()
+                        .bucket(bucket).key(chunk.getS3Key()).build())) {
+                    responseStream.transferTo(outputStream);
+                }
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
         return target;
-    }
-
-    private String extensionOf(String s3Key) {
-        int dot = s3Key.lastIndexOf('.');
-        return dot >= 0 ? s3Key.substring(dot) : "";
     }
 
     private void writeConcatFileList(Path fileList, List<Path> wavs) {
