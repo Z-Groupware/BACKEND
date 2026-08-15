@@ -9,6 +9,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import lombok.RequiredArgsConstructor;
 
 import com.module06.backend.cap.application.port.out.CapObjectStoragePort;
+import com.module06.backend.cap.application.port.out.MeetingRecordingSttPort;
 import com.module06.backend.cap.domain.exception.CapErrorCode;
 import com.module06.backend.cap.domain.model.Recording;
 import com.module06.backend.cap.domain.model.RecordingFilePolicy;
@@ -30,6 +31,7 @@ public class OnlineMeetingRecordingAdapter implements OnlineMeetingRecordingPort
     private final RecordingRepository recordingRepository;
     private final CapObjectStoragePort capObjectStoragePort;
     private final ReportMeetingStorageUsagePort reportMeetingStorageUsagePort;
+    private final MeetingRecordingSttPort meetingRecordingSttPort;
 
     @Override
     public void prepare(Preparation preparation) {
@@ -103,6 +105,21 @@ public class OnlineMeetingRecordingAdapter implements OnlineMeetingRecordingPort
                 reportStorageBestEffort(registration);
             }
         });
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                triggerWholeFileSttBestEffort(registration.meetingId(), s3Key);
+            }
+        });
+    }
+
+    private void triggerWholeFileSttBestEffort(Long meetingId, String s3Key) {
+        try {
+            meetingRecordingSttPort.triggerWholeFileStt(meetingId, s3Key);
+        } catch (RuntimeException exception) {
+            log.error("단일 블록 STT 트리거 실패 — 녹음 등록은 완료됨, STT만 누락. meetingId={}", meetingId, exception);
+        }
     }
 
     private void reportStorageBestEffort(Registration registration) {

@@ -1,14 +1,16 @@
 package com.module06.backend.cap.infrastructure.assembly;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -74,8 +76,8 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     // 48kHz opus로 녹음)에 가까운 품질을 유지한다.
     private static final int SAMPLE_RATE = 48_000;
     // 전체 회의(몇 시간 분량)를 한 번에 처리하므로 STT 블록(30초)보다 훨씬 길게 잡는다.
-    // TODO: 10분도 실측 없이 정한 값이다. 청크마다 ffmpeg를 순차 실행하므로(정규화 1회 + 최종 인코딩
-    // 1회) 회의 길이·청크 수에 비례해 늘어난다 — 회의 길이별 실제 처리 시간을 재보고 이 값과
+    // TODO: 10분도 실측 없이 정한 값이다. 세그먼트마다 ffmpeg를 순차 실행하므로(정규화 1회 + 최종 인코딩
+    // 1회) 회의 길이·세그먼트 수에 비례해 늘어난다 — 회의 길이별 실제 처리 시간을 재보고 이 값과
     // RecordingAssemblyAsyncConfig의 풀 크기를 같이 다시 정해야 한다.
     private static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration FFPROBE_TIMEOUT = Duration.ofSeconds(30);
@@ -87,7 +89,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private static final long CREATE_REVISION = 1L;
 
     // 디스크 용량 가드(TODO: 이것도 실측 없이 정한 값 — FFMPEG_TIMEOUT과 같은 처지다). buildOgg가
-    // 청크마다 (1) 원본 다운로드 (2) 48kHz/mono/pcm_s16le WAV 정규화본을 만들어 원본·정규화본이
+    // 세그먼트마다 (1) 원본 concat webm (2) 48kHz/mono/pcm_s16le WAV 정규화본을 만들어 원본·정규화본이
     // 동시에 디스크에 쌓인다 — 원본 총합의 3배(원본 1 + WAV 1 + 최종 ogg·여유분 1)를 대략의 상한으로
     // 잡는다. 여기에 고정 여유분을 더해 최소 실행분(짧은 회의)에서도 다른 프로세스의 임시파일과
     // 부딪히지 않게 한다. RecordingAssemblyAsyncConfig가 최대 2개까지 동시 실행하므로, 실제로는
@@ -254,12 +256,16 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     }
 
     private Path buildOgg(Path workDir, List<RecordingPart> parts) {
-        // 1) 청크마다 개별적으로 정규화(코덱이 뭐든 각자 안전하게 디코드) —
+        // 1) 세그먼트별로 청크를 seq 순서대로 바이너리 concat한 뒤 한 번만 정규화한다 —
         // SttBlockAudioAssemblyS3FfmpegAdapter와 동일한 이유(방식 D).
         List<Path> normalizedWavs = new ArrayList<>();
-        for (RecordingPart part : parts) {
-            Path source = downloadChunk(workDir, part);
-            Path normalized = workDir.resolve("norm-%d-%d.wav".formatted(part.getSegmentSeq(), part.getSeq()));
+        for (Map.Entry<Integer, List<RecordingPart>> entry : groupBySegmentSeq(parts).entrySet()) {
+            int segmentSeq = entry.getKey();
+            List<RecordingPart> segmentParts = entry.getValue().stream()
+                    .sorted(Comparator.comparingInt(RecordingPart::getSeq))
+                    .toList();
+            Path source = concatenateChunks(workDir, segmentParts, "segment-%d.webm".formatted(segmentSeq));
+            Path normalized = workDir.resolve("norm-segment-%d.wav".formatted(segmentSeq));
             runFfmpeg(workDir, List.of("ffmpeg", "-y", "-i", source.toString(),
                     "-ar", String.valueOf(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", normalized.toString()));
             normalizedWavs.add(normalized);
@@ -363,25 +369,27 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         }
     }
 
-    private Path downloadChunk(Path workDir, RecordingPart part) {
-        Path target = workDir.resolve("chunk-%d-%d%s".formatted(part.getSegmentSeq(), part.getSeq(),
-                extensionOf(part.getS3Key())));
-        try (var responseStream = s3Client.getObject(GetObjectRequest.builder()
-                .bucket(bucket).key(part.getS3Key()).build())) {
-            Files.copy(responseStream, target, StandardCopyOption.REPLACE_EXISTING);
+    private Map<Integer, List<RecordingPart>> groupBySegmentSeq(List<RecordingPart> parts) {
+        Map<Integer, List<RecordingPart>> partsBySegment = new TreeMap<>();
+        for (RecordingPart part : parts) {
+            partsBySegment.computeIfAbsent(part.getSegmentSeq(), ignored -> new ArrayList<>()).add(part);
+        }
+        return partsBySegment;
+    }
+
+    private Path concatenateChunks(Path workDir, List<RecordingPart> parts, String fileName) {
+        Path target = workDir.resolve(fileName);
+        try (OutputStream outputStream = Files.newOutputStream(target)) {
+            for (RecordingPart part : parts) {
+                try (var responseStream = s3Client.getObject(GetObjectRequest.builder()
+                        .bucket(bucket).key(part.getS3Key()).build())) {
+                    responseStream.transferTo(outputStream);
+                }
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
         return target;
-    }
-
-    // 파일명 부분(마지막 '/' 뒤)에서만 확장자를 찾는다(CodeRabbit 지적) — 키 전체에서 찾으면 상위
-    // 경로 세그먼트에 점이 있을 때(예: v1.0/) 그 점을 확장자로 오인해 존재하지 않는 하위 디렉터리
-    // 경로가 만들어지고 다운로드가 실패한다.
-    private String extensionOf(String s3Key) {
-        int lastSlash = s3Key.lastIndexOf('/');
-        int dot = s3Key.lastIndexOf('.');
-        return dot > lastSlash ? s3Key.substring(dot) : "";
     }
 
     private void writeConcatFileList(Path fileList, List<Path> wavs) {
