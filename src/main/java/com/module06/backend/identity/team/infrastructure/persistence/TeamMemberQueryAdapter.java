@@ -17,12 +17,17 @@ public class TeamMemberQueryAdapter implements TeamMemberQueryPort {
     @Override
     public List<TeamMemberSummary> findActiveMembersByCompany(Long companyId) {
         return repository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
-                .map(e -> new TeamMemberSummary(e.getId(), e.getTeamId(), e.getName()))
+                .map(e -> new TeamMemberSummary(e.getId(), e.getTeamId(), e.getRoleId(), e.getName()))
                 .toList();
     }
 
     @Override
     public boolean hasActiveMembers(Long teamId) {
         return repository.existsByTeamIdAndDeletedAtIsNull(teamId);
+    }
+
+    @Override
+    public long countActiveMembersWithRole(Long roleId) {
+        return repository.countByRoleIdAndDeletedAtIsNull(roleId);
     }
 }

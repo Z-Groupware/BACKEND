@@ -110,14 +110,24 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
         Map<Long, String> nameByMemberId = members.stream()
                 .collect(Collectors.toMap(TeamMemberSummary::memberId, TeamMemberSummary::name));
 
+        /*
+         * 역할별 인원 수는 이미 읽은 구성원 스냅샷에서 센다 — 역할마다 count 쿼리를 날리면 부서
+         * 목록 한 번에 역할 수만큼 왕복이 붙는다. 세는 축(재직자 · roleId)은 역할 삭제를 막는
+         * 검사와 같다(TeamMemberQueryPort#countActiveMembersWithRole) — 갈리면 화면이 "0명"을
+         * 보여주는데 삭제가 409 로 막히는 상태가 생긴다.
+         */
+        Map<Long, Long> memberCountByRole = members.stream()
+                .filter(m -> m.roleId() != null)
+                .collect(Collectors.groupingBy(TeamMemberSummary::roleId, Collectors.counting()));
+
         List<RoleSummary> roles = roleQueryPort.findAssignableByCompany(companyId);
         Map<Long, List<RoleNode>> rolesByTeam = roles.stream()
                 .filter(r -> r.teamId() != null)
                 .collect(Collectors.groupingBy(RoleSummary::teamId,
-                        Collectors.mapping(r -> new RoleNode(r.roleId(), r.name()), Collectors.toList())));
+                        Collectors.mapping(r -> toNode(r, memberCountByRole), Collectors.toList())));
         List<RoleNode> sharedRoles = roles.stream()
                 .filter(r -> r.teamId() == null)
-                .map(r -> new RoleNode(r.roleId(), r.name()))
+                .map(r -> toNode(r, memberCountByRole))
                 .toList();
         return new Context(memberCountByTeam, nameByMemberId, rolesByTeam, sharedRoles);
     }
@@ -140,6 +150,10 @@ public class TeamService implements GetTeamTreeUseCase, CreateTeamUseCase, Renam
                         context.rolesByTeam().getOrDefault(team.id(), List.of()).stream())
                 .sorted(Comparator.comparing(RoleNode::roleId))
                 .toList();
+    }
+
+    private RoleNode toNode(RoleSummary role, Map<Long, Long> memberCountByRole) {
+        return new RoleNode(role.roleId(), role.name(), memberCountByRole.getOrDefault(role.roleId(), 0L));
     }
 
     private record Context(

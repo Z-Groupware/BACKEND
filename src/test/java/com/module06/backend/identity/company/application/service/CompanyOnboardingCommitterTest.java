@@ -29,6 +29,7 @@ import com.module06.backend.identity.member.application.port.out.MemberDirectory
 import com.module06.backend.identity.member.application.port.out.MemberDirectoryQueryPort;
 import com.module06.backend.identity.member.domain.model.Authority;
 import com.module06.backend.identity.member.domain.model.MemberStatus;
+import com.module06.backend.identity.member.domain.model.Role;
 import com.module06.backend.identity.member.domain.repository.RoleRepository;
 import com.module06.backend.identity.position.domain.model.Position;
 import com.module06.backend.identity.position.domain.repository.PositionRepository;
@@ -113,6 +114,41 @@ class CompanyOnboardingCommitterTest {
                         List.of(invite("홍길동", "dev1@company.com", "t2", "s1", "p1", false)))))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SUB_TEAM_NOT_IN_TEAM);
+    }
+
+    /*
+     * UK_ROLE_TEAM_NAME(V2.3.23) 이 세워지기 전에는 DB 가 막지 않아 검사도 없었다. 이제는
+     * 여기서 걸러내지 않으면 제약 위반이 그대로 500(Z-003)이 된다 — 사용자가 화면에서 만들 수
+     * 있는 입력이므로 400 이어야 한다.
+     */
+    @Test
+    @DisplayName("같은 부서 안에 같은 이름의 역할을 두 개 넣으면 거절한다")
+    void rejectsDuplicateRoleNameInSameTeam() {
+        assertThatThrownBy(() -> committer(new FakeCompany(null), new FakeTeam(), new FakeRole(),
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀",
+                                List.of(subTeam("s1", "백엔드"), subTeam("s2", "백엔드")))),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.ONBOARDING_ROLE_NAME_DUPLICATED);
+    }
+
+    @Test
+    @DisplayName("부서가 다르면 같은 이름의 역할을 허용한다 — 부서마다 백엔드가 있는 게 정상이다")
+    void allowsSameRoleNameInDifferentTeams() {
+        FakeRole role = new FakeRole();
+
+        CompanyOnboardingCommitter.CommitResult result = committer(new FakeCompany(null), new FakeTeam(), role,
+                new FakePosition(), new FakeMemberQuery(), new FakeMemberCommand())
+                .commit(onboardCommand(
+                        List.of(teamNode("t1", "개발팀", List.of(subTeam("s1", "백엔드"))),
+                                teamNode("t2", "플랫폼팀", List.of(subTeam("s2", "백엔드")))),
+                        List.of(position("p1", "사원", Authority.MEMBER)),
+                        List.of()));
+
+        assertThat(result.subTeamCount()).isEqualTo(2);
     }
 
     @Test
@@ -464,6 +500,7 @@ class CompanyOnboardingCommitterTest {
         }
     }
 
+    /* 온보딩이 쓰는 것은 create 뿐이다 — 나머지는 역할 CRUD(§6-10~6-12) 전용이라 여기선 비워 둔다. */
     private static final class FakeRole implements RoleRepository {
 
         private long nextId = 200L;
@@ -471,6 +508,29 @@ class CompanyOnboardingCommitterTest {
         @Override
         public Long create(Long companyId, Long teamId, String name) {
             return nextId++;
+        }
+
+        @Override
+        public Optional<Role> findByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<Role> lockByIdAndCompanyIdAndTeamId(Long roleId, Long companyId, Long teamId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean existsByTeamIdAndName(Long teamId, String name) {
+            return false;
+        }
+
+        @Override
+        public void rename(Long roleId, String name) {
+        }
+
+        @Override
+        public void delete(Long roleId) {
         }
     }
 

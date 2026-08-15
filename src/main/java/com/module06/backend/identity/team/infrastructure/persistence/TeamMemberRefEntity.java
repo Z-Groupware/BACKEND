@@ -32,6 +32,10 @@ public class TeamMemberRefEntity {
     @Column(name = "team_id")
     private Long teamId;
 
+    /* 역할(구 sub_team). NOT NULL DEFAULT 2(V2.3.10) — 2 는 "없음"이다. */
+    @Column(name = "role_id")
+    private Long roleId;
+
     @Column(name = "name")
     private String name;
 

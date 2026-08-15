@@ -62,6 +62,11 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
      * "없음"만 시드 id 로 바로 통과시킨다 — 그 행은 어느 회사 소유도 아니라(company_id IS NULL)
      * 회사 조건이 붙은 조회로는 절대 안 잡히는데, 역할을 비우는 유일한 값이라 막으면 사용자가
      * 역할을 되돌릴 방법이 없어진다. 나머지는 회사와 부서가 모두 맞아야 한다.
+     *
+     * <p>확인한 행에 공유 잠금을 잡는다. 이 검사와 {@code member.role_id} 갱신 사이에 역할
+     * 삭제(§6-12)가 끼어들면 구성원이 사라진 역할을 가리키게 되는데, {@code role} 은 {@code member}
+     * 에서 FK 로 묶여 있지 않아 데이터베이스가 막아 주지 않는다. 시드 "없음"은 지울 수 없는 행이라
+     * 잠글 것이 없다.
      */
     @Override
     public boolean existsAssignableRole(Long companyId, Long teamId, Long roleId) {
@@ -71,7 +76,7 @@ public class MemberDirectoryQueryAdapter implements MemberDirectoryQueryPort {
         if (ROLE_NONE_ID == roleId) {
             return true;
         }
-        return roleRepository.existsByIdAndCompanyIdAndTeamId(roleId, companyId, teamId);
+        return roleRepository.findSharedByIdAndCompanyIdAndTeamId(roleId, companyId, teamId).isPresent();
     }
 
     /**
