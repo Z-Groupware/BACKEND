@@ -13,9 +13,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.module06.backend.global.response.ApiResponse;
 import com.module06.backend.global.security.AuthPrincipal;
+import com.module06.backend.identity.auth.application.usecase.ChangeMyPasswordUseCase;
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
+import com.module06.backend.identity.auth.presentation.api.dto.request.ChangeMyPasswordRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.LoginRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.ReissueTokenRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.UpdateMyProfileRequest;
@@ -38,6 +40,7 @@ public class AuthController {
     private final LoginUseCase loginUseCase;
     private final ReissueTokenUseCase reissueTokenUseCase;
     private final LogoutUseCase logoutUseCase;
+    private final ChangeMyPasswordUseCase changeMyPasswordUseCase;
     private final GetMyProfileUseCase getMyProfileUseCase;
     private final UpdateMyProfileUseCase updateMyProfileUseCase;
 
@@ -100,5 +103,25 @@ public class AuthController {
         MyProfileResponse response = MyProfileResponse.from(
                 updateMyProfileUseCase.update(request.toCommand(me.memberId(), me.companyId())));
         return ApiResponse.success("프로필을 수정했습니다", response);
+    }
+
+    /*
+     * 비밀번호를 바꾸는 유일한 경로다. 관리자 재발급도, 최초 로그인 강제 변경도 없다.
+     *
+     * 대상을 바디로 받지 않고 토큰에서 꺼낸다 — updateMe()·logout() 과 같은 이유로, 남의
+     * 비밀번호를 바꾸는 IDOR 를 막는다.
+     *
+     * 성공하면 이 사람의 갱신표가 전부 사라진다. 프론트는 200 을 받으면 토큰을 버리고 로그인
+     * 화면으로 보내야 한다 — 그대로 두면 죽은 토큰으로 401 만 반복해서 맞는다.
+     */
+    @Operation(summary = "마이페이지 비밀번호 변경",
+            description = "현재 비밀번호로 본인 확인 후 교체합니다. 성공하면 모든 기기의 로그인이 해제됩니다.")
+    @PatchMapping("/me/password")
+    @PreAuthorize("isAuthenticated()")
+    public ApiResponse<Void> changeMyPassword(
+            @AuthenticationPrincipal AuthPrincipal me,
+            @Valid @RequestBody ChangeMyPasswordRequest request) {
+        changeMyPasswordUseCase.changePassword(request.toCommand(me.memberId(), me.companyId()));
+        return ApiResponse.successWithoutData("비밀번호를 변경했습니다. 다시 로그인해 주세요.");
     }
 }

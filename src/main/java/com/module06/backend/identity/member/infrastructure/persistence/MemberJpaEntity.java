@@ -69,6 +69,14 @@ public class MemberJpaEntity {
     @Column(name = "password_hash")
     private String passwordHash;
 
+    /**
+     * 마지막 비밀번호 변경 시각(V2.3.24). null 이면 발급받은 비밀번호를 아직 그대로 쓰는 중이다 —
+     * /me 의 {@code passwordChanged} 가 이 값으로 갈리고, 프론트가 안내 배너를 띄우는 근거가 된다.
+     * 변경을 강제하지는 않는다.
+     */
+    @Column(name = "password_changed_at")
+    private LocalDateTime passwordChangedAt;
+
     @Column(name = "name")
     private String name;
 
@@ -182,6 +190,20 @@ public class MemberJpaEntity {
         if (phone != null) {
             this.phone = phone;
         }
+    }
+
+    /**
+     * 마이페이지 셀프 비밀번호 변경. 이미 해시된 값만 받는다 — 평문은 이 클래스에 닿지 않는다.
+     *
+     * <p>{@code passwordChangedAt} 을 같이 찍는다. 둘을 나눠 두면 "비밀번호는 바뀌었는데 안 바꾼
+     * 것으로 보이는" 상태가 생겨, 안내 배너가 이미 바꾼 사람에게 계속 뜬다.
+     *
+     * <p>직전 해시를 이력으로 옮기는 것은 여기서 하지 않는다 — 다른 테이블에 행을 넣는 일이라
+     * 이 엔티티의 몫이 아니다({@code MemberPasswordAdapter} 가 이 메서드를 부르기 전에 한다).
+     */
+    public void changePassword(String passwordHash, LocalDateTime at) {
+        this.passwordHash = passwordHash;
+        this.passwordChangedAt = at;
     }
 
     /*

@@ -22,6 +22,8 @@ import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.identity.auth.application.command.LoginCommand;
 import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.auth.application.dto.LoginResult;
+import com.module06.backend.identity.auth.application.command.ChangePasswordCommand;
+import com.module06.backend.identity.auth.application.usecase.ChangeMyPasswordUseCase;
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
@@ -70,6 +72,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private UpdateMyProfileUseCase updateMyProfileUseCase;
+
+    @MockitoBean
+    private ChangeMyPasswordUseCase changeMyPasswordUseCase;
 
     @AfterEach
     void clearAuthentication() {
@@ -274,7 +279,7 @@ class AuthControllerTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-1234-5678",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.LEADER, true, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "TEAM"));
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "TEAM", true));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
@@ -284,6 +289,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.roleName").value("프론트엔드"))
                 .andExpect(jsonPath("$.data.workStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.plan").value("TEAM"))
+                .andExpect(jsonPath("$.data.passwordChanged").value(true))
                 .andExpect(jsonPath("$.data.landingPath").value("/team"))
                 .andExpect(jsonPath("$.data.phone").value("010-1234-5678"));
     }
@@ -303,7 +309,7 @@ class AuthControllerTest {
                 "최결제", "paid@zgroup.co.kr", "010-2222-3333",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.MEMBER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2026, 4, 4), "STANDARD"));
+                MemberStatus.ACTIVE, LocalDate.of(2026, 4, 4), "STANDARD", true));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
@@ -319,7 +325,7 @@ class AuthControllerTest {
                 "대표", "owner@new.kr", null,
                 null, null, null, null, null,
                 Authority.OWNER, false, false,
-                MemberStatus.ACTIVE, null, null));
+                MemberStatus.ACTIVE, null, null, false));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
@@ -327,6 +333,9 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.roleName").doesNotExist())
                 .andExpect(jsonPath("$.data.plan").doesNotExist())
                 .andExpect(jsonPath("$.data.isOnboarded").value(false))
+                // 발급받은 비밀번호를 아직 그대로 쓰는 사람이다. 화면은 이 false 를 보고 안내를
+                // 한 번 띄운다 — mustChangePassword 가 아니므로 200 을 막지 않는다.
+                .andExpect(jsonPath("$.data.passwordChanged").value(false))
                 .andExpect(jsonPath("$.data.landingPath").value("/owner"));
     }
 
@@ -339,7 +348,7 @@ class AuthControllerTest {
                 "이하윤", "hayun@zgroup.co.kr", "010-9999-0000",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.MEMBER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE"));
+                MemberStatus.ACTIVE, LocalDate.of(2022, 5, 10), "FREE", true));
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/auth/me")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -355,6 +364,60 @@ class AuthControllerTest {
         assertThat(captor.getValue().memberId()).isEqualTo(3L);
         assertThat(captor.getValue().companyId()).isEqualTo(1L);
         assertThat(captor.getValue().phone()).isEqualTo("010-9999-0000");
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경은 바디가 아니라 토큰의 memberId 로 대상을 정한다")
+    void changePasswordUsesPrincipalNotBody() throws Exception {
+        authenticateAs(3L);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/auth/me/password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"Old1234!","newPassword":"NewPass12!",\
+                                "newPasswordConfirm":"NewPass12!","memberId":99}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        ArgumentCaptor<ChangePasswordCommand> captor = ArgumentCaptor.forClass(ChangePasswordCommand.class);
+        verify(changeMyPasswordUseCase).changePassword(captor.capture());
+        // 바디에 memberId=99 를 실어 보내도 토큰의 3L 이 이긴다.
+        assertThat(captor.getValue().memberId()).isEqualTo(3L);
+        assertThat(captor.getValue().companyId()).isEqualTo(1L);
+        assertThat(captor.getValue().newPassword()).isEqualTo("NewPass12!");
+    }
+
+    @Test
+    @DisplayName("정책에 맞지 않는 새 비밀번호는 서비스까지 가지 않는다 — 400 에 입력값이 실리지 않는다")
+    void rejectsPasswordFailingPolicyWithoutLeakingValue() throws Exception {
+        authenticateAs(3L);
+
+        String response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/auth/me/password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"Old1234!","newPassword":"onlyletters",\
+                                "newPasswordConfirm":"onlyletters"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        // 어느 칸이 틀렸는지는 알려주되, 입력한 값 자체는 응답 어디에도 없어야 한다.
+        assertThat(response).contains("newPassword");
+        assertThat(response).doesNotContain("onlyletters");
+        verify(changeMyPasswordUseCase, org.mockito.Mockito.never()).changePassword(any());
+    }
+
+    @Test
+    @DisplayName("요청 DTO 의 toString 은 비밀번호를 가린다 — 로그로 새는 유일한 경로다")
+    void requestToStringMasksPasswords() {
+        String printed = new com.module06.backend.identity.auth.presentation.api.dto.request.ChangeMyPasswordRequest(
+                "Old1234!", "NewPass12!", "NewPass12!").toString();
+
+        assertThat(printed).doesNotContain("Old1234!");
+        assertThat(printed).doesNotContain("NewPass12!");
     }
 
     /** 필터를 끈 슬라이스 테스트라 컨텍스트를 직접 심는다 — JwtAuthenticationFilterTest 와 같은 방식. */

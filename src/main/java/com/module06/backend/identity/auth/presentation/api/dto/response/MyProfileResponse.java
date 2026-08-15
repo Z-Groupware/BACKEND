@@ -15,7 +15,10 @@ import com.module06.backend.identity.member.application.dto.MyProfile;
  * (권한별 고정값, {@link com.module06.backend.identity.member.domain.model.Authority#landingPath()}).
  *
  * <p>{@code avatarColor} 를 주지 않는다 — 이름으로 색을 뽑는 것은 순수 계산이라 프론트 몫이다.
- * {@code mustChangePassword} 도 없다 — 비밀번호 변경 기능 자체가 없다.
+ *
+ * <p>{@code passwordChanged} 는 {@code mustChangePassword} 가 <b>아니다</b>. false 여도 서비스는
+ * 그대로 쓸 수 있고, 화면은 "발급받은 비밀번호를 쓰는 중"이라는 안내를 한 번 띄우기만 한다.
+ * 강제 변경 정책은 지금도 없다.
  *
  * <p>{@code teamId}·{@code roleName}·{@code positionId} 등은 null 로 나갈 수 있다.
  * 온보딩 전 오너가 그 경우다. {@code plan} 도 null 일 수 있다 — 결제가 필요한 상태를 뜻한다.
@@ -39,7 +42,8 @@ public record MyProfileResponse(
         boolean isOnboarded,
         String workStatus,
         LocalDate joinedOn,
-        String plan
+        String plan,
+        boolean passwordChanged
 ) {
 
     public static MyProfileResponse from(MyProfile profile) {
@@ -51,6 +55,7 @@ public record MyProfileResponse(
                 profile.authority().name(), profile.isAdmin(), profile.landingPath(),
                 profile.isOnboarded(),
                 profile.workStatus().name(), profile.joinedOn(),
-                profile.plan());
+                profile.plan(),
+                profile.passwordChanged());
     }
 }
