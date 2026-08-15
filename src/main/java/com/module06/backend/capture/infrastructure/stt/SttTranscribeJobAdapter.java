@@ -111,7 +111,7 @@ public class SttTranscribeJobAdapter implements SttJobPort {
             throw new BusinessException(CaptureErrorCode.STT_PROVIDER_UNSUPPORTED);
         }
 
-        String outputKey = outputKeyOf(job.audioS3Key());
+        String outputKey = outputKeyOf(job.providerJobName());
         Settings settings = settingsFor(job.meetingId());
 
         StartTranscriptionJobRequest.Builder request = StartTranscriptionJobRequest.builder()
@@ -198,30 +198,42 @@ public class SttTranscribeJobAdapter implements SttJobPort {
     }
 
     /*
-     * 결과 키를 오디오 키에서 만든다 — 접두사를 바꾸고 확장자를 json 으로 바꾼다.
+     * 결과 키를 **잡 이름**으로 만든다.
      *
-     *   stt-temp/org-1/meeting-500/blocks/3.wav  →  stt-out/org-1/meeting-500/blocks/3.json
+     *   meeting-500-block-3-r0  →  stt-out/meeting-500-block-3-r0.json
      *
-     * <h2>왜 오디오 키에서 파생시키나</h2>
-     * SttJob 에 companyId 가 없다. 포트에 넣을 수도 있지만, 결과 위치는 **오디오가 어디 있는지에
-     * 딸린 값**이라 그 경로를 그대로 따라가는 편이 낫다 — 조직 구분이 오디오 키에 이미 들어 있고,
-     * 두 곳에서 각각 조립하면 언젠가 한쪽만 바뀐다.
+     * <h2>⚠ 오디오 키에서 파생시키면 안 된다 (2026-08-15 운영 정지)</h2>
+     * 예전에는 오디오 키의 접두사를 바꾸고 확장자를 json 으로 바꿨다. 자동 녹음 경로에서는 키가
+     * {@code stt-temp/org-1/meeting-500/blocks/3.wav} 처럼 **서버가 만든 이름**이라 문제가 없었다.
      *
-     * 접두사가 다르면(예상과 다른 오디오 경로) 그대로 뒤에 붙인다. 조용히 다른 규칙으로 만드는
-     * 것보다 예측 가능한 자리에 쌓이는 편이 찾기 쉽다.
+     * 그런데 수동·온라인 회의 업로드는 **사용자 파일명이 키에 그대로 들어간다.** 그리고
+     * Transcribe 의 outputKey 는 아래 문자만 허용한다 —
+     *
+     *     [a-zA-Z0-9-_.!*'()/&$@=;:+,? \x00-\x1F\x7F]{1,1024}
+     *
+     * **한글이 없다.** `음성 260814_124512.m4a` 를 올리면 제출이 400 으로 거절되고, 그 실패는
+     * cap 의 best-effort 트리거가 삼켜 recording 만 남는다(stt_triggered=1 인데 stt_block 0건).
+     * 화면에는 "제출 완료"로 보이고 요약은 영원히 안 나온다. 2026-08-15 에 회의 다섯 건이
+     * 그렇게 멈췄다.
+     *
+     * 공백·괄호는 저 목록에 있어서 통과한다 — 그래서 `videoplayback (1).m4a` 는 제출까지는 됐다.
+     * 대신 그건 결과를 읽을 때 퍼센트 디코딩에서 터졌다(SttTranscribeResultAdapter 주석).
+     * **같은 파일명 하나가 두 곳을 다르게 부순다.**
+     *
+     * <h2>왜 잡 이름인가</h2>
+     * 이미 계정 안에서 유일하고(retryCount 포함) 우리가 만든 값이라 문자 집합이 보장된다.
+     * 사용자 입력이 한 글자도 섞이지 않는 유일한 후보다.
+     *
+     * 조직·회의 구분이 경로에서 사라지지만 잡 이름이 {@code meeting-{id}-block-{seq}-r{retry}} 라
+     * 그 정보를 그대로 들고 있다. 그리고 결과를 **읽을 때는 이 값을 쓰지 않는다** — Transcribe 가
+     * 알려준 transcriptFileUri 를 그대로 따라가므로, 여기를 바꿔도 읽기 경로는 영향이 없다.
+     *
+     * ⚠ 근본 차단은 여전히 **업로드 시점에 파일명을 정규화**하는 것이다(#535). 여기서 막는 것은
+     * 제출 실패 하나뿐이고, 사용자 파일명이 키에 들어가는 한 다른 자리에서 또 나온다.
      */
-    private String outputKeyOf(String audioS3Key) {
-        String withoutPrefix = audioS3Key.startsWith(AUDIO_PREFIX)
-                ? audioS3Key.substring(AUDIO_PREFIX.length())
-                : audioS3Key;
-        String withoutExtension = withoutPrefix.endsWith(".wav")
-                ? withoutPrefix.substring(0, withoutPrefix.length() - ".wav".length())
-                : withoutPrefix;
-        return outputPrefix + withoutExtension + ".json";
+    private String outputKeyOf(String providerJobName) {
+        return outputPrefix + providerJobName + ".json";
     }
-
-    /* 블록 오디오가 쌓이는 접두사(cap 의 조립 어댑터가 정한 경로다). */
-    private static final String AUDIO_PREFIX = "stt-temp/";
 
     /*
      * 확장자로 포맷을 정한다. 모르면 null — 호출자가 필드를 빼 제공자 판정에 맡긴다.

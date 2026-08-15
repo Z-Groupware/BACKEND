@@ -1,5 +1,6 @@
 package com.module06.backend.capture.infrastructure.stt;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -223,6 +224,25 @@ public class SttTranscribeResultAdapter implements SttJobResultPort {
      * s3:// 형식도 함께 받아둔다(SDK·리전에 따라 다르게 오는 것을 본 사례가 있다).
      *
      * 쿼리스트링은 잘라낸다 — presigned 형태로 올 경우 서명이 키에 섞인다.
+     *
+     * <h2>⚠ http(s) 경로는 반드시 퍼센트 디코딩한다</h2>
+     * URL 의 경로는 인코딩된 표현이고 S3 오브젝트 키는 **원문**이다. 파일명에 공백·괄호·한글이
+     * 있으면 둘이 갈린다 —
+     *
+     *     URI    …/videoplayback%20%281%29.m4a.json
+     *     실제 키 …/videoplayback (1).m4a.json
+     *
+     * 디코딩하지 않으면 없는 키를 조회하게 되고, 롤에 s3:ListBucket 이 없으면 S3 가 404 를
+     * **403 AccessDenied(메시지는 ListBucket)** 로 가려 돌려준다. 그러면 권한 문제로 보이지만
+     * 실제로는 키가 어긋난 것이다 — 2026-08-15 운영에서 정확히 그렇게 읽혔다.
+     *
+     * 파일명이 깨끗하면 인코딩 전후가 같아 통과하므로 **오래 숨어 있다가 사용자가 올린 파일에서
+     * 터진다.** 같은 종류가 이미 두 번 있었다(#514 첨부파일 · #516 수동 녹음 presign).
+     *
+     * URLDecoder 를 쓰지 않는다 — 그건 {@code +} 를 공백으로 바꾸는 폼 인코딩 규칙이라
+     * 키에 {@code +} 가 들어 있으면 망가진다. URI#getPath 는 퍼센트 이스케이프만 푼다.
+     *
+     * s3:// 는 디코딩하지 않는다. 그 표현의 경로는 이미 원문 키다.
      */
     record S3Location(String bucket, String key) {
 
@@ -232,17 +252,21 @@ public class SttTranscribeResultAdapter implements SttJobResultPort {
             if (withoutQuery.startsWith("s3://")) {
                 return split(withoutQuery.substring("s3://".length()));
             }
-            int schemeEnd = withoutQuery.indexOf("://");
-            if (schemeEnd < 0) {
+            if (withoutQuery.indexOf("://") < 0) {
                 throw new IllegalArgumentException("스킴이 없는 URI: " + uri);
             }
-            String afterScheme = withoutQuery.substring(schemeEnd + 3);
-            int hostEnd = afterScheme.indexOf('/');
-            if (hostEnd < 0) {
+
+            String path;
+            try {
+                path = URI.create(withoutQuery).getPath();
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("해석할 수 없는 URI: " + uri, e);
+            }
+            if (path == null || path.isBlank() || path.equals("/")) {
                 throw new IllegalArgumentException("경로가 없는 URI: " + uri);
             }
-            // path-style: <host>/<bucket>/<key>
-            return split(afterScheme.substring(hostEnd + 1));
+            // path-style: /<bucket>/<key> — 앞의 '/' 를 떼면 split 이 가른다.
+            return split(path.substring(1));
         }
 
         private static S3Location split(String bucketAndKey) {
