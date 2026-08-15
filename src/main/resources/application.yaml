@@ -120,9 +120,19 @@ server:
   # 컨테이너는 리버스 프록시 뒤에 있다. 이 설정이 없으면 getRemoteAddr() 이 프록시 주소만 줘서
   # 위 IP 기준 제한이 전부 한 카운터로 합쳐지고, 감사 로그의 출처도 전부 같은 값이 된다.
   #
-  # ⚠️ 전제 — 프록시가 X-Forwarded-For 를 신뢰할 수 있게 세팅해야 한다. 클라이언트가 보낸
-  #    헤더를 프록시가 그대로 흘려보내면 공격자가 IP 를 위조해 제한을 우회한다.
-  #    (nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; ALB 는 기본 동작)
+  # ⚠️ 전제 — 가장자리에서 클라이언트가 보낸 X-Forwarded-For 를 **걷어내야** 한다. 덧붙이는
+  #    것으로는 부족하다. framework 전략은 X-Forwarded-For 의 **맨 앞** 값을 클라이언트로 보는데,
+  #    ALB 도 nginx 의 $proxy_add_x_forwarded_for 도 실제 IP 를 뒤에 덧붙일 뿐이라, 공격자가
+  #    "X-Forwarded-For: 1.2.3.4" 를 실어 보내면 그 위조값이 맨 앞에 남아 IP 기준 제한이 통째로
+  #    뚫린다. 계정 기준 제한(login-per-account)은 영향을 받지 않는다.
+  #
+  #    가장자리에서 지우는 설정 (둘 중 하나는 반드시)
+  #      nginx: proxy_set_header X-Forwarded-For $remote_addr;
+  #      ALB  : routing.http.xff_header_processing.mode = remove (그 뒤 ALB 가 자기 값을 넣는다)
+  #
+  #    애플리케이션 직접 접근도 막아야 한다 — 프록시를 우회해 오면 헤더를 검사할 주체가 없다.
+  #    신뢰 프록시 목록으로 앱에서 한 번 더 거르려면 native 전략 + server.tomcat.remoteip.* 로
+  #    간다(이 PR 범위 밖이다 — 프록시 대역을 알아야 해서 배포 설정과 함께 정해야 한다).
   forward-headers-strategy: framework
 
 jwt:

@@ -289,6 +289,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.roleName").value("프론트엔드"))
                 .andExpect(jsonPath("$.data.workStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.plan").value("TEAM"))
+                .andExpect(jsonPath("$.data.passwordChanged").value(true))
                 .andExpect(jsonPath("$.data.landingPath").value("/team"))
                 .andExpect(jsonPath("$.data.phone").value("010-1234-5678"));
     }
@@ -308,7 +309,7 @@ class AuthControllerTest {
                 "최결제", "paid@zgroup.co.kr", "010-2222-3333",
                 1L, "개발팀", "프론트엔드", 4L, "선임",
                 Authority.MEMBER, false, true,
-                MemberStatus.ACTIVE, LocalDate.of(2026, 4, 4), "STANDARD"));
+                MemberStatus.ACTIVE, LocalDate.of(2026, 4, 4), "STANDARD", true));
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isOk())
@@ -332,6 +333,9 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.roleName").doesNotExist())
                 .andExpect(jsonPath("$.data.plan").doesNotExist())
                 .andExpect(jsonPath("$.data.isOnboarded").value(false))
+                // 발급받은 비밀번호를 아직 그대로 쓰는 사람이다. 화면은 이 false 를 보고 안내를
+                // 한 번 띄운다 — mustChangePassword 가 아니므로 200 을 막지 않는다.
+                .andExpect(jsonPath("$.data.passwordChanged").value(false))
                 .andExpect(jsonPath("$.data.landingPath").value("/owner"));
     }
 
