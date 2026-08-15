@@ -1,6 +1,7 @@
 package com.module06.backend.cap.infrastructure.assembly;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -54,6 +55,11 @@ import com.module06.backend.metering.application.port.in.ReportMeetingStorageUsa
  * 쓰므로 트림이 필요 없고, 최종 산출물이 사람이 재생·탐색하는 파일이라 STT용보다 높은 48kHz를
  * 유지한다.
  *
+ * <h2>MediaRecorder 로테이션 경계를 보존한다</h2>
+ * 브라우저는 약 10분(40청크)마다 MediaRecorder를 rotate하며 새 WebM/EBML 스트림을 시작한다.
+ * segmentSeq는 그 로테이션마다 바뀌지 않을 수 있으므로, 같은 segmentSeq 안에서도 EBML 헤더를
+ * 감지해 MediaRecorder 인스턴스별로만 바이너리 concat한 뒤 각각 ffmpeg로 디코드한다.
+ *
  * <h2>whole-file STT를 트리거하지 않는다</h2>
  * ManualRecordingService(CAP-10)와 달리 sttTriggered=false로 등록한다 — 이 경로로 조립되는
  * 녹음은 회의 진행 중 SttBlockCutTrigger가 이미 10분 블록 단위로 실시간 STT를 걸어놨다.
@@ -82,6 +88,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     private static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration FFPROBE_TIMEOUT = Duration.ofSeconds(30);
     private static final String FILE_NAME = "recording.ogg";
+    private static final byte[] EBML_MAGIC = {0x1A, 0x45, (byte) 0xDF, (byte) 0xA3};
     // metering report의 revision(생성=1) — ManualRecordingService.CREATE_REVISION과 동일한
     // 상수 규약. recording.meeting_id가 UNIQUE(V4.2.1)라 이 회의의 recording 생성은 조립·수동등록
     // 중 하나로 평생 단 한 번만 일어난다 — 벽시계(clock.millis()) 대신 이 상수를 쓰면 같은 밀리초
@@ -256,19 +263,21 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
     }
 
     private Path buildOgg(Path workDir, List<RecordingPart> parts) {
-        // 1) 세그먼트별로 청크를 seq 순서대로 바이너리 concat한 뒤 한 번만 정규화한다 —
-        // SttBlockAudioAssemblyS3FfmpegAdapter와 동일한 이유(방식 D).
+        // 1) 세그먼트별, 그리고 같은 세그먼트 안의 MediaRecorder 인스턴스별(EBML 헤더 감지)로만
+        // 바이너리 concat한 뒤 각각 정규화한다. FE는 약 10분/40청크마다 MediaRecorder를 rotate하며
+        // 새 EBML 헤더를 만들지만 segmentSeq는 유지할 수 있어, segmentSeq만 기준으로 합치면 ffmpeg
+        // Matroska demuxer가 첫 WebM 스트림만 디코드하고 10분 이후 오디오가 사라진다.
         List<Path> normalizedWavs = new ArrayList<>();
         for (Map.Entry<Integer, List<RecordingPart>> entry : groupBySegmentSeq(parts).entrySet()) {
             int segmentSeq = entry.getKey();
-            List<RecordingPart> segmentParts = entry.getValue().stream()
-                    .sorted(Comparator.comparingInt(RecordingPart::getSeq))
-                    .toList();
-            Path source = concatenateChunks(workDir, segmentParts, "segment-%d.webm".formatted(segmentSeq));
-            Path normalized = workDir.resolve("norm-segment-%d.wav".formatted(segmentSeq));
-            runFfmpeg(workDir, List.of("ffmpeg", "-y", "-i", source.toString(),
-                    "-ar", String.valueOf(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", normalized.toString()));
-            normalizedWavs.add(normalized);
+            List<Path> webmStreams = downloadAndGroupByEbmlHeader(workDir, entry.getValue(), segmentSeq);
+            for (int streamIndex = 0; streamIndex < webmStreams.size(); streamIndex++) {
+                Path source = webmStreams.get(streamIndex);
+                Path normalized = workDir.resolve("norm-segment-%d-stream-%d.wav".formatted(segmentSeq, streamIndex));
+                runFfmpeg(workDir, List.of("ffmpeg", "-y", "-i", source.toString(),
+                        "-ar", String.valueOf(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", normalized.toString()));
+                normalizedWavs.add(normalized);
+            }
         }
 
         // 2) 전부 같은 포맷이니 concat demuxer로 이어붙이면서 곧바로 ogg(vorbis)로 인코딩한다 —
@@ -377,19 +386,62 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         return partsBySegment;
     }
 
-    private Path concatenateChunks(Path workDir, List<RecordingPart> parts, String fileName) {
-        Path target = workDir.resolve(fileName);
-        try (OutputStream outputStream = Files.newOutputStream(target)) {
-            for (RecordingPart part : parts) {
+    private List<Path> downloadAndGroupByEbmlHeader(Path workDir, List<RecordingPart> segmentParts, int segmentSeq) {
+        List<Path> webmStreams = new ArrayList<>();
+        OutputStream currentOutput = null;
+        try {
+            int streamIndex = -1;
+            for (RecordingPart part : segmentParts.stream()
+                    .sorted(Comparator.comparingInt(RecordingPart::getSeq))
+                    .toList()) {
+                Path chunk = workDir.resolve("segment-%d-seq-%d.chunk".formatted(segmentSeq, part.getSeq()));
                 try (var responseStream = s3Client.getObject(GetObjectRequest.builder()
                         .bucket(bucket).key(part.getS3Key()).build())) {
-                    responseStream.transferTo(outputStream);
+                    Files.copy(responseStream, chunk);
+                }
+
+                boolean startsNewWebmStream = hasEbmlHeader(chunk);
+                if (startsNewWebmStream || currentOutput == null) {
+                    if (currentOutput != null) {
+                        currentOutput.close();
+                    }
+                    streamIndex++;
+                    Path target = workDir.resolve("segment-%d-stream-%d.webm".formatted(segmentSeq, streamIndex));
+                    webmStreams.add(target);
+                    currentOutput = Files.newOutputStream(target);
+                }
+
+                try (InputStream inputStream = Files.newInputStream(chunk)) {
+                    inputStream.transferTo(currentOutput);
                 }
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        } finally {
+            if (currentOutput != null) {
+                try {
+                    currentOutput.close();
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
         }
-        return target;
+        return webmStreams;
+    }
+
+    private boolean hasEbmlHeader(Path file) throws IOException {
+        try (InputStream inputStream = Files.newInputStream(file)) {
+            byte[] header = inputStream.readNBytes(EBML_MAGIC.length);
+            if (header.length < EBML_MAGIC.length) {
+                return false;
+            }
+            for (int i = 0; i < EBML_MAGIC.length; i++) {
+                if (header[i] != EBML_MAGIC[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     private void writeConcatFileList(Path fileList, List<Path> wavs) {
@@ -423,7 +475,7 @@ public class RecordingAssemblyS3FfmpegAdapter implements RecordingAssemblyPort {
         }
     }
 
-    private void runFfmpeg(Path workDir, List<String> command) {
+    protected void runFfmpeg(Path workDir, List<String> command) {
         Path logFile = workDir.resolve("ffmpeg-" + UUID.randomUUID() + ".log");
         try {
             Process process = new ProcessBuilder(command)
