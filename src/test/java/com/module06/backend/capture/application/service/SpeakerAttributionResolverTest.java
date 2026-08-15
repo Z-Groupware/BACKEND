@@ -4,15 +4,26 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import com.module06.backend.capture.application.service.SpeakerAttributionResolver.Attribution;
 import com.module06.backend.capture.domain.model.CaptionChunk;
 import com.module06.backend.capture.domain.model.SpeakerSource;
 import com.module06.backend.capture.domain.model.Utterance;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+
+import static org.assertj.core.api.Assertions.as;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 
 /**
  * L1 화자 귀속 판정 — rms·명단으로 하는 코드 판정이다(모델 아님).
@@ -182,6 +193,97 @@ class SpeakerAttributionResolverTest {
                 Set.of(ALICE, BOB));
 
         assertThat(result).isEmpty();
+    }
+
+    /*
+     * 판정을 한 건도 못 하는 이유가 **로그로 갈려 나오는지** 본다.
+     *
+     * 이 계층은 "0건 판정"이 정상 동작이기도 하고 구조적 불가이기도 하다. 로그가 그 둘을
+     * 구분하지 못하면 항상 실패하는 상태가 정상으로 보이고, 아무도 찾지 못한다 — VAD 가
+     * 전 구간 무음을 VAD_SILENCE(성공)로 집계하던 것과 같은 실패다.
+     * 그래서 여기서 검증하는 계약은 "찍힌 한 줄" 자체다(AuthzAuditLoggerTest 와 같은 판단).
+     */
+    @Nested
+    @DisplayName("판정 불가 진단")
+    class CannotAttributeDiagnostics {
+
+        private Logger logger;
+        private ListAppender<ILoggingEvent> appender;
+
+        @BeforeEach
+        void attachAppender() {
+            logger = (Logger) LoggerFactory.getLogger(SpeakerAttributionResolver.class);
+            appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+        }
+
+        @AfterEach
+        void cleanUp() {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        @Test
+        @DisplayName("일부만 자막을 보내면 '자막이 더 쌓여도 달라지지 않는다'까지 남긴다")
+        void 일부만_자막이면_구조적_불가임을_남긴다() {
+            // host(ALICE)만 자막을 보낸 3명 회의 — host-only 정책에서 다인원 회의의 영구 상태다.
+            List<Attribution> attributions = resolver.resolve(
+                    List.of(utterance(1L, 0, 3_000)),
+                    List.of(caption(ALICE, 0, 3_000, "0.8")),
+                    Set.of(ALICE, BOB, CAROL));
+
+            assertThat(attributions).isEmpty();
+            assertThat(warnings()).singleElement(as(STRING))
+                    .contains("참석자 3명 중 1명만 자막")
+                    .contains("달라지지 않는다");
+        }
+
+        @Test
+        @DisplayName("자막 0건은 '자막이 없다'로 따로 남긴다 — 원인도 손댈 곳도 다르다")
+        void 자막이_없으면_그렇게_남긴다() {
+            List<Attribution> attributions = resolver.resolve(
+                    List.of(utterance(1L, 0, 3_000)), List.of(), Set.of(ALICE, BOB));
+
+            assertThat(attributions).isEmpty();
+            assertThat(warnings()).singleElement(as(STRING)).contains("자막이 0건");
+        }
+
+        @Test
+        @DisplayName("참석자 명단이 비면 그것도 따로 남긴다")
+        void 명단이_비면_그렇게_남긴다() {
+            List<Attribution> attributions = resolver.resolve(
+                    List.of(utterance(1L, 0, 3_000)),
+                    List.of(caption(ALICE, 0, 3_000, "0.8")),
+                    Set.of());
+
+            assertThat(attributions).isEmpty();
+            /*
+             * 경고가 둘이다 — scopedToAttendees 가 "명단 밖 자막을 제외했다"를 먼저 찍는다.
+             * 명단이 비면 모든 자막이 명단 밖이라 그게 맞다. 여기서 세는 것은 판정 불가 사유다.
+             */
+            assertThat(warnings()).anySatisfy(message ->
+                    assertThat(message).contains("참석자 명단이 비어"));
+        }
+
+        @Test
+        @DisplayName("정상 판정에는 경고를 남기지 않는다 — 늘 울리는 경고는 아무도 안 본다")
+        void 정상_판정에는_경고가_없다() {
+            List<Attribution> attributions = resolver.resolve(
+                    List.of(utterance(1L, 0, 3_000)),
+                    List.of(caption(ALICE, 0, 3_000, "0.8")),
+                    Set.of(ALICE));
+
+            assertThat(attributions).hasSize(1);
+            assertThat(warnings()).isEmpty();
+        }
+
+        private List<String> warnings() {
+            return appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .toList();
+        }
     }
 
     private static Utterance utterance(long id, int startMs, int endMs) {
