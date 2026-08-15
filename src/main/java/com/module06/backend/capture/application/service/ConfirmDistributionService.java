@@ -56,6 +56,11 @@ import com.module06.backend.global.exception.BusinessException;
  * C 도메인은 AI 분배 경로에서 담당자 미정을 허용한다(2026-08-07 합의) — 회의에서 담당자가
  * 정해지지 않은 할 일이 검토 화면에서 통째로 사라지지 않게 하기 위해서다. 대신 **보드로 나가는
  * 것을 막는 안전장치가 이쪽 몫**이다. 담당자 없는 액션이 나가면 아무도 자기 일로 보지 않는다.
+ *
+ * <h2>2026-08-15 — 코드가 이어 준 담당자도 여기서 막는다</h2>
+ * 근접 매칭(V5.22)이 담당자를 채우기 시작하면서 위 안전장치에 구멍이 생겼다. 담당자가 비어
+ * 막히던 항목이 "담당자 있는 PENDING"이 되어 암묵 확정으로 그대로 나갔다. 추측으로 채운 값이
+ * 사람 눈을 건너뛰는 경로라 nearMatchedAssignee 로 다시 막는다(자세한 근거는 그 메서드 주석).
  */
 @Slf4j
 @Service
@@ -188,7 +193,7 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
         int confirmed = 0;
         for (ReviewAction action : pending) {
             boolean reviewable = action.assigneeMemberId() != null || action.actionType() == ActionType.TEAM;
-            if (!reviewable) {
+            if (!reviewable || nearMatchedAssignee(action)) {
                 continue;
             }
             /*
@@ -203,6 +208,42 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
             confirmed++;
         }
         return confirmed;
+    }
+
+    /*
+     * 담당자를 **코드가 이어 준** 액션인가(V5.22 · NearNameAssigneeResolver).
+     *
+     * <h2>왜 암묵 확정에서 빼는가</h2>
+     * 근접 매칭이 붙기 전, 이름이 잘못 들린 배정은 담당자가 비어 있었고 그래서 이 경로를
+     * 지나지 못했다(위 reviewable 검사) — 사람이 검토 화면에서 담당자를 지정해야 나갔다.
+     * 근접 매칭이 그 자리를 채우면서 **같은 항목이 "담당자 있는 PENDING"이 되어 확정 버튼
+     * 한 번에 그대로 나가게 됐다.** 사람이 개별로 보는 단계가 사라진 것이다.
+     *
+     * L7 자동확정 게이트에서 빼는 것으로는 막히지 않는다. 그건 검토 화면의 묶음을 가르는
+     * 값이고(AutoConfirmGate), 보드로 나갈지는 이 서비스가 정한다. 막을 자리가 여기다.
+     *
+     * <h2>왜 조여야 하는가</h2>
+     * 코드가 이은 담당자는 **글자 하나 차이로 추측한 값**이다. 오답이 0 건으로 측정됐지만
+     * 표본이 회의 1 건·배정 4 건이라 그 숫자로 사람 눈을 건너뛸 근거가 되지 않는다. 그리고
+     * 이 서비스가 지키는 성질이 "보드로 나간 액션은 회수할 수 없다"이므로, 확실하지 않은
+     * 담당자는 내보내지 않는 쪽으로 기울어야 한다(클래스 주석).
+     *
+     * <h2>사라지지 않는다 — PENDING 으로 남는다</h2>
+     * 빼기만 하므로 그 항목은 PENDING 그대로 남아 skipReasonOf 에서 STILL_PENDING 으로
+     * 스킵되고, 미검토가 남았으므로 관문이 409 로 막는다(강행하면 그 항목만 빠진다).
+     * 즉 host 가 그 담당자를 수용·수정·반려 중 하나로 **명시적으로 판정해야** 나간다 —
+     * 근접 매칭 이전과 같은 상태이고, 다른 것은 화면에 이름 후보가 함께 보인다는 점뿐이다.
+     *
+     * ⚠ 새 스킵 사유를 만들지 않는다. 실제로 미검토가 맞으므로 STILL_PENDING 이 정확하고,
+     * 왜 미검토로 남았는지는 RVW-01 응답의 assigneeNearMatched 가 말한다 — 화면은 그 값으로
+     * "이름이 비슷해 연결됨"을 함께 보여주면 된다. 사유 코드를 늘리면 FE·BE 용어 매핑표에
+     * 항목이 하나 더 붙는데, 그 표가 지금 비어 있다(2026-08-11 감사 F-05).
+     *
+     * NULL 은 빼지 않는다 — 근접 매칭 이전에 저장된 배정이거나 tuple 이 없는 수동 액션이다.
+     * 그것까지 막으면 과거 회의의 확정이 통째로 멈춘다.
+     */
+    private boolean nearMatchedAssignee(ReviewAction action) {
+        return Boolean.TRUE.equals(action.assigneeNearMatched());
     }
 
     /*
