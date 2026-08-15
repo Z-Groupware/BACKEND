@@ -25,10 +25,27 @@ class OnlineRecordingUploadUrlServiceTest {
         assertThat(result.s3Key())
                 .startsWith("recordings/org-10/member-3/online-pending/")
                 .endsWith("/meeting.mp3");
+        assertThat(result.fileName()).isEqualTo("meeting.mp3");
         assertThat(result.presignedUrl()).isEqualTo("https://s3.example/upload");
         assertThat(result.expiresInSeconds()).isEqualTo(900);
         assertThat(storage.s3Key).isEqualTo(result.s3Key());
         assertThat(storage.contentType).isEqualTo("audio/mpeg");
+    }
+
+    @Test
+    @DisplayName("Non-ASCII online recording file names are normalized for S3 and follow-up registration")
+    void sanitizesNonAsciiFileName() {
+        RecordingStorage storage = new RecordingStorage();
+        OnlineRecordingUploadUrlService service = new OnlineRecordingUploadUrlService(storage);
+
+        IssueOnlineRecordingUploadUrlUseCase.Result result = service.issueOnlineRecordingUploadUrl(
+                new IssueOnlineRecordingUploadUrlCommand(
+                        10L, 3L, "\uD68C\uC758\uB179\uC74C 260814_124512.m4a", "audio/mp4", 1_024L));
+
+        assertThat(result.fileName()).isEqualTo("_____260814_124512.m4a");
+        assertThat(result.s3Key()).endsWith("/" + result.fileName());
+        assertThat(result.s3Key().chars().allMatch(ch -> ch <= 0x7F)).isTrue();
+        assertThat(storage.s3Key).isEqualTo(result.s3Key());
     }
 
     private static final class RecordingStorage implements CapObjectStoragePort {

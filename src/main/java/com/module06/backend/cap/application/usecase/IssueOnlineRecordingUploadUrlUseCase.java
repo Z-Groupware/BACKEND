@@ -7,6 +7,6 @@ public interface IssueOnlineRecordingUploadUrlUseCase {
 
     Result issueOnlineRecordingUploadUrl(IssueOnlineRecordingUploadUrlCommand command);
 
-    record Result(String s3Key, String presignedUrl, int expiresInSeconds) {
+    record Result(String s3Key, String fileName, String presignedUrl, int expiresInSeconds) {
     }
 }

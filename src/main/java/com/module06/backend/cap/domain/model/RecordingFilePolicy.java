@@ -50,4 +50,22 @@ public final class RecordingFilePolicy {
         }
         return fileName;
     }
+
+    public static String sanitizeForStorageName(String fileName) {
+        StringBuilder sanitized = new StringBuilder(fileName.length());
+        for (int i = 0; i < fileName.length(); i++) {
+            char ch = fileName.charAt(i);
+            sanitized.append(isStorageSafe(ch) ? ch : '_');
+        }
+        return sanitized.toString();
+    }
+
+    private static boolean isStorageSafe(char ch) {
+        return (ch >= 'a' && ch <= 'z')
+                || (ch >= 'A' && ch <= 'Z')
+                || (ch >= '0' && ch <= '9')
+                || ch == '.'
+                || ch == '-'
+                || ch == '_';
+    }
 }

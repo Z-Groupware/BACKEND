@@ -27,12 +27,14 @@ public class OnlineRecordingUploadUrlService implements IssueOnlineRecordingUplo
         }
         String fileName = RecordingFilePolicy.validate(
                 command.fileName(), command.contentType(), command.sizeBytes());
+        String storageFileName = RecordingFilePolicy.sanitizeForStorageName(fileName);
+        RecordingFilePolicy.validate(storageFileName, command.contentType(), command.sizeBytes());
 
         /* 회사·업로더·난수 경로를 묶어 다른 사용자의 임시 녹음 키를 재사용하지 못하게 한다. */
         String s3Key = "recordings/org-%d/member-%d/online-pending/%s/%s".formatted(
-                command.companyId(), command.memberId(), UUID.randomUUID(), fileName);
+                command.companyId(), command.memberId(), UUID.randomUUID(), storageFileName);
         CapObjectStoragePort.IssuedPartUploadUrl issued =
                 capObjectStoragePort.issuePartUploadUrl(s3Key, command.contentType());
-        return new Result(s3Key, issued.presignedUrl(), issued.expiresInSeconds());
+        return new Result(s3Key, storageFileName, issued.presignedUrl(), issued.expiresInSeconds());
     }
 }

@@ -197,6 +197,10 @@ public class MeetingCompletedAnalysisTrigger {
      * 토큰이고, 그건 로그로 보인다.
      */
     private boolean tooShortForAutoRun(long meetingId) {
+        if (onlineMeeting(meetingId)) {
+            return false;
+        }
+
         Optional<Duration> length;
         try {
             length = meetingLengthProvider.actualLengthOf(meetingId);
@@ -220,6 +224,19 @@ public class MeetingCompletedAnalysisTrigger {
             log.info("회의 종료 자동 분석 생략 — {}초짜리 회의다(하한 {}분). meetingId={}",
                     length.get().toSeconds(), MIN_LENGTH_FOR_AUTO_RUN.toMinutes(), meetingId);
             return true;
+        }
+        return false;
+    }
+
+    private boolean onlineMeeting(long meetingId) {
+        try {
+            Optional<Boolean> online = meetingLengthProvider.isOnline(meetingId);
+            if (online != null && online.orElse(false)) {
+                log.info("Online meeting skips auto-analysis length lower bound. meetingId={}", meetingId);
+                return true;
+            }
+        } catch (RuntimeException e) {
+            log.warn("Online meeting lookup failed. Continue with length lower bound. meetingId={}", meetingId, e);
         }
         return false;
     }
