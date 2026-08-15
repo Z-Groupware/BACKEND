@@ -20,4 +20,8 @@ public interface MeetingLengthProvider {
      *         짧다고 읽으면 멀쩡한 회의의 분석이 조용히 건너뛰어진다.
      */
     Optional<Duration> actualLengthOf(long meetingId);
+
+    default Optional<Boolean> isOnline(long meetingId) {
+        return Optional.empty();
+    }
 }

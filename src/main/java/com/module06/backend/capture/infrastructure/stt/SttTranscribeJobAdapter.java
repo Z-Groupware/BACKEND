@@ -217,11 +217,27 @@ public class SttTranscribeJobAdapter implements SttJobPort {
         String withoutExtension = withoutPrefix.endsWith(".wav")
                 ? withoutPrefix.substring(0, withoutPrefix.length() - ".wav".length())
                 : withoutPrefix;
-        return outputPrefix + withoutExtension + ".json";
+        return transcribeOutputKeySafe(outputPrefix + withoutExtension + ".json");
     }
 
     /* 블록 오디오가 쌓이는 접두사(cap 의 조립 어댑터가 정한 경로다). */
     private static final String AUDIO_PREFIX = "stt-temp/";
+
+    private static String transcribeOutputKeySafe(String value) {
+        StringBuilder sanitized = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            sanitized.append(isTranscribeOutputKeySafe(ch) ? ch : '_');
+        }
+        return sanitized.toString();
+    }
+
+    private static boolean isTranscribeOutputKeySafe(char ch) {
+        return (ch >= 'a' && ch <= 'z')
+                || (ch >= 'A' && ch <= 'Z')
+                || (ch >= '0' && ch <= '9')
+                || "-_.!*'()/&$@=;:+,? ".indexOf(ch) >= 0;
+    }
 
     /*
      * 확장자로 포맷을 정한다. 모르면 null — 호출자가 필드를 빼 제공자 판정에 맡긴다.

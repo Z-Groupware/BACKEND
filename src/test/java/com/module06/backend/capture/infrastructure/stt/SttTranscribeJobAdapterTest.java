@@ -133,6 +133,20 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
+    @DisplayName("Transcribe OutputKey replaces non-ASCII file name characters")
+    void outputKeyReplacesNonAsciiFileNameCharacters() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+
+        adapter().submit(new SttJob(500L, 0, "aws-transcribe", "meeting-500-block-0-r0",
+                "recordings/org-1/meeting-500/\uD68C\uC758\uB179\uC74C.m4a", 0, 0));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        String outputKey = requestCaptor.getValue().outputKey();
+        assertThat(outputKey).isEqualTo("stt-out/recordings/org-1/meeting-500/____.m4a.json");
+        assertThat(outputKey.chars().allMatch(ch -> ch <= 0x7F)).isTrue();
+    }
+
+    @Test
     @DisplayName("⚠ 화자 분리를 켜지 않는다 — 음량 기반 귀속으로 대체한 설계 결정이다")
     void 화자_분리를_켜지_않는다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.of(readyVocabulary()));
