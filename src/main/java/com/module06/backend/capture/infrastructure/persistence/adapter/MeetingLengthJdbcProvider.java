@@ -28,8 +28,14 @@ import com.module06.backend.capture.application.service.MeetingLengthProvider;
 @RequiredArgsConstructor
 public class MeetingLengthJdbcProvider implements MeetingLengthProvider {
 
-    private static final String SQL = """
+    private static final String LENGTH_SQL = """
             SELECT m.started_at AS started_at, m.ended_at AS ended_at
+              FROM meeting m
+             WHERE m.id = ?
+            """;
+
+    private static final String ONLINE_SQL = """
+            SELECT m.is_online AS is_online
               FROM meeting m
              WHERE m.id = ?
             """;
@@ -39,7 +45,7 @@ public class MeetingLengthJdbcProvider implements MeetingLengthProvider {
     @Override
     @Transactional(readOnly = true)
     public Optional<Duration> actualLengthOf(long meetingId) {
-        return jdbcTemplate.query(SQL,
+        return jdbcTemplate.query(LENGTH_SQL,
                 rs -> {
                     if (!rs.next()) {
                         return Optional.<Duration>empty();
@@ -55,6 +61,19 @@ public class MeetingLengthJdbcProvider implements MeetingLengthProvider {
                         return Optional.<Duration>empty();
                     }
                     return Optional.of(Duration.between(startedAt, endedAt));
+                },
+                meetingId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Boolean> isOnline(long meetingId) {
+        return jdbcTemplate.query(ONLINE_SQL,
+                rs -> {
+                    if (!rs.next()) {
+                        return Optional.<Boolean>empty();
+                    }
+                    return Optional.of(rs.getBoolean("is_online"));
                 },
                 meetingId);
     }

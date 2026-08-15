@@ -117,6 +117,52 @@ class MeetingCompletedAnalysisTriggerTest {
     }
 
     @Test
+    @DisplayName("Online meetings bypass the 3 minute auto-analysis lower bound")
+    void onlineMeetingBypassesLengthLowerBound() {
+        RecordingRunAnalysis analysis = new RecordingRunAnalysis();
+        MeetingLengthProvider onlineZeroLength = new MeetingLengthProvider() {
+            @Override
+            public Optional<Duration> actualLengthOf(long meetingId) {
+                return Optional.of(Duration.ZERO);
+            }
+
+            @Override
+            public Optional<Boolean> isOnline(long meetingId) {
+                return Optional.of(true);
+            }
+        };
+
+        new MeetingCompletedAnalysisTrigger(analysis, onlineZeroLength, DEFAULT_COMPANY_PROVIDER,
+                DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
+                .onMeetingCompleted(event());
+
+        assertThat(analysis.calls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Offline meetings keep the 3 minute auto-analysis lower bound")
+    void offlineMeetingKeepsLengthLowerBound() {
+        RecordingRunAnalysis analysis = new RecordingRunAnalysis();
+        MeetingLengthProvider offlineShort = new MeetingLengthProvider() {
+            @Override
+            public Optional<Duration> actualLengthOf(long meetingId) {
+                return Optional.of(Duration.ofSeconds(150));
+            }
+
+            @Override
+            public Optional<Boolean> isOnline(long meetingId) {
+                return Optional.of(false);
+            }
+        };
+
+        new MeetingCompletedAnalysisTrigger(analysis, offlineShort, DEFAULT_COMPANY_PROVIDER,
+                DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
+                .onMeetingCompleted(event());
+
+        assertThat(analysis.calls).isEmpty();
+    }
+
+    @Test
     @DisplayName("하한을 넘으면 부른다 — 경계에서 3분은 통과다")
     void 하한과_같은_길이는_분석한다() {
         RecordingRunAnalysis analysis = new RecordingRunAnalysis();
