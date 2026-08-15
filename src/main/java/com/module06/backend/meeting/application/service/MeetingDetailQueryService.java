@@ -91,13 +91,19 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        /* 회의실은 비활성화된 과거 회의실도 포함하는 회사 범위 조회 계약으로 해석한다. */
-        MeetingRoomSnapshot meetingRoom = meetingRoomQueryPort
-                .findMeetingRooms(meeting.companyId(), List.of(meeting.meetingRoomId()))
-                .stream()
-                .filter(snapshot -> snapshot.meetingRoomId().equals(meeting.meetingRoomId()))
-                .findFirst()
-                .orElseThrow(() -> new BusinessException(MeetingRoomErrorCode.MEETING_ROOM_NOT_FOUND));
+        /*
+         * 회의실은 비활성화된 과거 회의실도 포함하는 회사 범위 조회 계약으로 해석한다.
+         * 비대면 회의는 회의실이 없어 meetingRoomId가 null이다 — 이때 조회를 건너뛴다.
+         * List.of(null)이 NPE를 던져 회의 상세 전체가 500나던 것을 막는다.
+         */
+        MeetingRoomSnapshot meetingRoom = meeting.meetingRoomId() == null
+                ? null
+                : meetingRoomQueryPort
+                        .findMeetingRooms(meeting.companyId(), List.of(meeting.meetingRoomId()))
+                        .stream()
+                        .filter(snapshot -> snapshot.meetingRoomId().equals(meeting.meetingRoomId()))
+                        .findFirst()
+                        .orElseThrow(() -> new BusinessException(MeetingRoomErrorCode.MEETING_ROOM_NOT_FOUND));
 
         /* 개설자를 첫 번째로 둔 전체 참석자 표시 정보를 B Port 한 번으로 일괄 조회한다. */
         List<Long> orderedMemberIds = hostFirst(
@@ -138,11 +144,13 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                         project.name(),
                         project.color()
                 ),
-                new MeetingDetailResult.MeetingRoom(
-                        meetingRoom.meetingRoomId(),
-                        meetingRoom.name(),
-                        meetingRoom.location()
-                ),
+                meetingRoom == null
+                        ? null
+                        : new MeetingDetailResult.MeetingRoom(
+                                meetingRoom.meetingRoomId(),
+                                meetingRoom.name(),
+                                meetingRoom.location()
+                        ),
                 new MeetingDetailResult.Host(host.memberId(), host.name()),
                 orderedMemberIds.stream()
                         .map(members::get)

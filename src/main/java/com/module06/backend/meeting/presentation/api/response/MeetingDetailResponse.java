@@ -68,7 +68,7 @@ public record MeetingDetailResponse(
                         result.project().name(),
                         result.project().color()
                 ),
-                new MeetingRoomResponse(
+                result.meetingRoom() == null ? null : new MeetingRoomResponse(
                         result.meetingRoom().meetingRoomId(),
                         result.meetingRoom().name(),
                         result.meetingRoom().location()
