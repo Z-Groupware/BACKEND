@@ -85,6 +85,17 @@ public final class AuthzAuditLogger {
     }
 
     /**
+     * 횟수 제한 거부(429).
+     *
+     * <p>어느 정책에 걸렸는지를 {@code code} 뒤에 붙여 남긴다 — 같은 429 라도 "로그인을 IP 로
+     * 두들겼다"와 "한 계정을 노렸다"는 조사 방향이 다르다. 줄 형식은 그대로 두고 코드 칸만
+     * {@code AU-007/login-account} 처럼 늘린다(키를 새로 추가하면 기존 파싱이 깨진다).
+     */
+    public static void rateLimited(HttpServletRequest request, String errorCode, String policyName) {
+        write(AuthzOutcome.RATE_LIMITED, request, errorCode + "/" + policyName, null);
+    }
+
+    /**
      * 갱신표 재사용 탐지(401) — 탈취 정황.
      *
      * <p>{@code memberId} 를 직접 받는다. 재발급 엔드포인트는 공개라 이 시점에 인증 주체가 없고

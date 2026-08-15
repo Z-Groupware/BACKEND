@@ -10,11 +10,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.global.audit.AuthzAuditLogger;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.ratelimit.RateLimitPolicy;
+import com.module06.backend.global.ratelimit.RateLimitProperties;
+import com.module06.backend.global.ratelimit.RateLimitSubject;
+import com.module06.backend.global.ratelimit.RateLimiter;
 import com.module06.backend.global.security.AuthPrincipal;
 import com.module06.backend.global.security.JwtTokenProvider;
+import com.module06.backend.identity.auth.application.command.ChangePasswordCommand;
 import com.module06.backend.identity.auth.application.command.LoginCommand;
 import com.module06.backend.identity.auth.application.dto.LoginResult;
 import com.module06.backend.identity.auth.application.port.out.RefreshTokenStore;
+import com.module06.backend.identity.auth.application.usecase.ChangeMyPasswordUseCase;
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
@@ -22,6 +28,7 @@ import com.module06.backend.identity.auth.domain.exception.AuthErrorCode;
 import com.module06.backend.identity.company.domain.repository.CompanyRepository;
 import com.module06.backend.identity.member.application.dto.MemberCredentials;
 import com.module06.backend.identity.member.application.port.out.MemberAuthQueryPort;
+import com.module06.backend.identity.member.application.port.out.MemberPasswordPort;
 
 /**
  * 로그인 · 토큰 재발급 · 로그아웃.
@@ -34,17 +41,23 @@ import com.module06.backend.identity.member.application.port.out.MemberAuthQuery
  * 한 번(수십 ms)만큼 응답이 빨라져서, 시간을 반복 측정하는 것만으로 같은 정보가 새어 나간다.
  * 그래서 구성원을 못 찾아도 더미 해시에 대해 검증을 <b>반드시 한 번</b> 수행한다.
  *
- * <p>세 흐름이 한 클래스에 있는 이유는 갱신표({@link RefreshTokenStore})를 공유하기 때문이다.
- * 로그인이 표를 올리고, 재발급이 교체하고, 로그아웃이 지운다 — 나누면 그 규칙이 세 곳에 흩어진다.
+ * <p>네 흐름이 한 클래스에 있는 이유는 갱신표({@link RefreshTokenStore})를 공유하기 때문이다.
+ * 로그인이 표를 올리고, 재발급이 교체하고, 로그아웃과 비밀번호 변경이 지운다 — 나누면 그 규칙이
+ * 여러 곳에 흩어진다.
  */
 @Service
-public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUseCase {
+public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUseCase, ChangeMyPasswordUseCase {
 
     private final CompanyRepository companyRepository;
     private final MemberAuthQueryPort memberAuthQueryPort;
     private final RefreshTokenStore refreshTokenStore;
     private final JwtTokenProvider tokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final RateLimiter rateLimiter;
+    private final RateLimitProperties rateLimitProperties;
+
+    /** 비밀번호 변경에서만 쓴다. 로그인·재발급은 읽기 창구({@link MemberAuthQueryPort})로 충분하다. */
+    private final MemberPasswordPort memberPasswordPort;
 
     /**
      * 구성원을 못 찾았을 때 검증 대상으로 쓰는 해시. 리터럴을 박지 않고 주입된 인코더로 만든다 —
@@ -58,18 +71,39 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
                        MemberAuthQueryPort memberAuthQueryPort,
                        RefreshTokenStore refreshTokenStore,
                        JwtTokenProvider tokenProvider,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder,
+                       RateLimiter rateLimiter,
+                       RateLimitProperties rateLimitProperties,
+                       MemberPasswordPort memberPasswordPort) {
         this.companyRepository = companyRepository;
         this.memberAuthQueryPort = memberAuthQueryPort;
+        this.memberPasswordPort = memberPasswordPort;
         this.refreshTokenStore = refreshTokenStore;
         this.tokenProvider = tokenProvider;
         this.passwordEncoder = passwordEncoder;
+        this.rateLimiter = rateLimiter;
+        this.rateLimitProperties = rateLimitProperties;
         this.absentMemberHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
+    /*
+     * 계정 기준 제한은 여기서 본다 — 필터는 요청 본문을 읽을 수 없어 어느 계정을 노렸는지 모른다.
+     * IP 기준 제한(RateLimitFilter)만으로는 부족하다: 공격자는 IP 를 바꿔 가며 한 계정을 팰 수 있고,
+     * 반대로 사무실 하나에서 직원 수십 명이 같은 IP 로 로그인한다. 두 축이 각자 다른 것을 막는다.
+     *
+     * 세는 것은 실패뿐이다. 모든 시도를 세면 잘 쓰는 사용자가 자기 로그인으로 잠긴다.
+     */
     @Override
     @Transactional(readOnly = true)
     public LoginResult login(LoginCommand command) {
+        String accountKey = RateLimitSubject.ofAccount(command.companyCode(), command.email());
+        RateLimitPolicy accountPolicy = rateLimitProperties.loginAccountPolicy();
+
+        // 시작에서는 보기만 한다. 여기서 계상하면 성공한 로그인도 카운터를 밀어 올린다.
+        if (!rateLimiter.peek(accountPolicy, accountKey).allowed()) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_REQUESTS);
+        }
+
         MemberCredentials member = companyRepository.findByCode(normalize(command.companyCode()))
                 .flatMap(company -> memberAuthQueryPort.findForLogin(company.id(), command.email()))
                 .orElse(null);
@@ -80,6 +114,10 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
                 member == null ? absentMemberHash : member.passwordHash());
 
         if (member == null || !passwordMatches) {
+            // 실패한 뒤에 올린다. 회사 없음·이메일 없음·비번 틀림이 모두 여기로 모이므로,
+            // 존재하지 않는 계정을 훑는 시도도 같은 카운터에 쌓인다 — 계정 존재 여부로
+            // 제한을 우회할 수 없다.
+            rateLimiter.record(accountPolicy, accountKey);
             throw loginFailed();
         }
 
@@ -141,6 +179,66 @@ public class AuthService implements LoginUseCase, ReissueTokenUseCase, LogoutUse
     @Override
     public void logout(Long memberId) {
         refreshTokenStore.revokeAllByMember(memberId);
+    }
+
+    /*
+     * 이 메서드에 @Transactional 을 붙이지 않는 것은 의도다. 붙이면 마지막 줄의 갱신표 폐기가
+     * 커밋 전에 실행되어, 저장이 롤백돼도 세션만 끊긴 상태가 남는다. 트랜잭션 경계는
+     * MemberPasswordPort 구현이 자기 안에서 가지므로, 그 호출이 끝나면 이미 커밋된 뒤다.
+     *
+     * 순서 자체가 규칙이다 — 폐기를 먼저 하면 비밀번호가 안 바뀐 채 세션만 끊기고, 저장 뒤에
+     * 폐기하면 최악의 경우 "바꿨는데 옛 세션이 잠깐 남는" 상태가 된다. 후자가 사용자에게
+     * 덜 나쁘고, 폐기 실패는 로그로 드러난다.
+     *
+     * 로그인과 달리 못 찾은 구성원용 더미 해시를 태우지 않는다. 여기는 이미 본인이 인증된
+     * 자리라 계정 존재 여부가 새어 나갈 수 없고, 타이밍을 맞출 대상 자체가 없다.
+     */
+    @Override
+    public void changePassword(ChangePasswordCommand command) {
+        String subject = RateLimitSubject.ofMember(command.memberId());
+        RateLimitPolicy policy = rateLimitProperties.passwordChangePolicy();
+
+        // 로그인과 같은 규칙 — 시작에서는 보기만 하고, 현재 비밀번호가 틀렸을 때만 계상한다.
+        if (!rateLimiter.peek(policy, subject).allowed()) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_REQUESTS);
+        }
+
+        // 확인칸부터 본다. 여기서 걸리면 아무것도 조회할 필요가 없고, 오타 하나로 제한 카운터가
+        // 올라가지도 않는다.
+        if (!command.newPassword().equals(command.newPasswordConfirm())) {
+            throw new BusinessException(AuthErrorCode.PASSWORD_CONFIRM_MISMATCH);
+        }
+
+        MemberCredentials member = memberAuthQueryPort.findById(command.memberId())
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.MEMBER_NOT_FOUND));
+
+        if (!passwordEncoder.matches(command.currentPassword(), member.passwordHash())) {
+            rateLimiter.record(policy, subject);
+            throw new BusinessException(AuthErrorCode.CURRENT_PASSWORD_MISMATCH);
+        }
+
+        // 지금 쓰는 값과 예전에 쓰던 값을 나눠 답한다 — 사용자가 다음에 무엇을 넣을지가 달라진다.
+        if (passwordEncoder.matches(command.newPassword(), member.passwordHash())) {
+            throw new BusinessException(AuthErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
+        }
+        if (usedBefore(command, command.newPassword())) {
+            throw new BusinessException(AuthErrorCode.PASSWORD_ALREADY_USED);
+        }
+
+        memberPasswordPort.changePassword(command.memberId(), command.companyId(),
+                passwordEncoder.encode(command.newPassword()));
+
+        // 비밀번호를 바꾸는 이유의 절반은 "샜을지도 모른다" 다. 모든 기기를 끊는다.
+        refreshTokenStore.revokeAllByMember(command.memberId());
+    }
+
+    /**
+     * BCrypt 해시는 같은 평문이라도 매번 다르다 — 문자열 비교로는 판정할 수 없어 하나씩 대조한다.
+     * 이력이 쌓일수록 이 반복이 그대로 응답 시간이 된다({@code MemberPasswordPort} javadoc).
+     */
+    private boolean usedBefore(ChangePasswordCommand command, String newPassword) {
+        return memberPasswordPort.findUsedPasswordHashes(command.memberId(), command.companyId()).stream()
+                .anyMatch(usedHash -> passwordEncoder.matches(newPassword, usedHash));
     }
 
     private LoginResult issueTokens(MemberCredentials member, boolean keepSignedIn) {

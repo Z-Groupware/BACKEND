@@ -41,7 +41,7 @@
     ],
     "removed": [
       { "field": "annual_leave_granted", "reason": "연차 이번 범위 아님" },
-      { "field": "mustChangePassword", "reason": "비밀번호 변경 기능 없음" }
+      { "field": "mustChangePassword", "reason": "강제 변경 정책 없음. 셀프 변경은 PATCH /api/auth/me/password 로 가능하고, 안 바꿔도 제약 없다. 안 바꾼 상태는 /me 의 passwordChanged=false 로 알 수 있다" }
     ]
   },
 
@@ -118,7 +118,8 @@
         { "name": "role_id",       "type": "BIGINT",       "nullable": false, "default": 2, "note": "역할. 2 = 없음. NULL 을 쓰지 않는다" },
         { "name": "position_id",   "type": "BIGINT",       "nullable": true,  "note": "직급. 온보딩 전 오너는 NULL" },
         { "name": "email",         "type": "VARCHAR(255)", "nullable": false, "note": "로그인 아이디. 기업 내 유일" },
-        { "name": "password_hash", "type": "VARCHAR(255)", "nullable": false, "note": "발급 시 1회 설정, 변경 기능 없음. 응답에 절대 담지 않는다" },
+        { "name": "password_hash", "type": "VARCHAR(255)", "nullable": false, "note": "BCrypt 해시. 발급 시 설정되고 마이페이지에서 셀프 변경 가능. 응답에 절대 담지 않는다" },
+        { "name": "password_changed_at", "type": "DATETIME", "nullable": true, "note": "마지막 비밀번호 변경 시각. NULL 이면 발급받은 비밀번호를 그대로 쓰는 중 (/me 의 passwordChanged 근거)" },
         { "name": "name",          "type": "VARCHAR(50)",  "nullable": false },
         { "name": "phone",         "type": "VARCHAR(30)",  "nullable": true },
         { "name": "authority",     "type": "ENUM('OWNER','LEADER','MEMBER')",              "nullable": false, "default": "MEMBER", "note": "화면의 '권한'. 인가 축" },

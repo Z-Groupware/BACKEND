@@ -31,4 +31,15 @@ public record LoginRequest(
     public LoginCommand toCommand() {
         return new LoginCommand(companyCode, email, password, Boolean.TRUE.equals(keepSignedIn));
     }
+
+    /**
+     * 레코드가 자동 생성하는 {@code toString} 은 {@code password} 를 평문 그대로 찍는다. 역직렬화
+     * 실패나 검증 예외 로그에 이 객체가 실리면 비밀번호가 그대로 남으므로 덮어쓴다
+     * ({@code ChangeMyPasswordRequest} 와 같은 이유).
+     */
+    @Override
+    public String toString() {
+        return "LoginRequest[companyCode=" + companyCode + ", email=" + email
+                + ", password=****, keepSignedIn=" + keepSignedIn + "]";
+    }
 }
