@@ -120,30 +120,54 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
-    @DisplayName("결과 키는 오디오 키에서 파생된다 — 접두사를 바꾸고 확장자를 json 으로")
-    void 결과_키를_오디오_키에서_만든다() {
+    @DisplayName("결과 키는 잡 이름으로 만든다 — 사용자 파일명이 한 글자도 섞이지 않는다")
+    void 결과_키를_잡_이름으로_만든다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
 
         adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
 
         verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
-        // stt-temp/... .wav → stt-out/... .json (조직 구분이 오디오 키에 이미 들어 있다)
         assertThat(requestCaptor.getValue().outputKey())
-                .isEqualTo("stt-out/org-1/meeting-500/blocks/3.json");
+                .isEqualTo("stt-out/meeting-500-block-3-r0.json");
     }
 
     @Test
-    @DisplayName("Transcribe OutputKey replaces non-ASCII file name characters")
-    void outputKeyReplacesNonAsciiFileNameCharacters() {
+    @DisplayName("한글 파일명을 올려도 결과 키에 섞이지 않는다 — 2026-08-15 운영 정지의 원인")
+    void 한글_파일명이_결과_키를_오염시키지_않는다() {
+        /*
+         * Transcribe 의 outputKey 는 [a-zA-Z0-9-_.!*'()/&$@=;:+,? \x00-\x1F\x7F] 만 허용한다.
+         * 한글이 없다 — 예전처럼 오디오 키에서 파생시키면 제출이 400 으로 거절되고, 그 실패를
+         * cap 의 best-effort 트리거가 삼켜 "제출 완료"로 보인 채 요약이 영원히 안 나온다.
+         */
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
 
         adapter().submit(new SttJob(500L, 0, "aws-transcribe", "meeting-500-block-0-r0",
-                "recordings/org-1/meeting-500/\uD68C\uC758\uB179\uC74C.m4a", 0, 0));
+                "recordings/org-11/member-9/online-pending/1a253c0e/음성 260814_124512.m4a",
+                0, 60_000));
 
         verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
-        String outputKey = requestCaptor.getValue().outputKey();
-        assertThat(outputKey).isEqualTo("stt-out/recordings/org-1/meeting-500/____.m4a.json");
-        assertThat(outputKey.chars().allMatch(ch -> ch <= 0x7F)).isTrue();
+        StartTranscriptionJobRequest request = requestCaptor.getValue();
+
+        assertThat(request.outputKey())
+                .isEqualTo("stt-out/meeting-500-block-0-r0.json")
+                .containsOnlyOnce("stt-out/")
+                .matches("[a-zA-Z0-9\\-_.!*'()/&$@=;:+,? ]{1,1024}");
+
+        // 오디오 URI 쪽은 원문 그대로다 — 그건 Transcribe 가 S3 키로 받는 값이라 제약이 다르다.
+        assertThat(request.media().mediaFileUri()).endsWith("음성 260814_124512.m4a");
+    }
+
+    @Test
+    @DisplayName("재시도하면 결과 키도 달라진다 — 잡 이름에 retryCount 가 들어 있다")
+    void 재시도마다_결과_키가_다르다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r2"));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        // 이전 회차 결과를 덮어쓰지 않는다 — 무엇을 읽었는지 되짚을 수 있어야 한다.
+        assertThat(requestCaptor.getValue().outputKey())
+                .isEqualTo("stt-out/meeting-500-block-3-r2.json");
     }
 
     @Test

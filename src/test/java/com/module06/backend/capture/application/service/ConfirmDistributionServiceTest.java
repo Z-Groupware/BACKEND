@@ -115,6 +115,83 @@ class ConfirmDistributionServiceTest {
     }
 
     @Test
+    @DisplayName("2026-08-15 — 코드가 이어 준 담당자는 암묵 확정되지 않는다, 사람이 명시적으로 판정해야 나간다")
+    void 근접_매칭_담당자는_암묵_확정되지_않는다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        RecordingApplyReviewDecisionUseCase applyUseCase = new RecordingApplyReviewDecisionUseCase();
+        /*
+         * 1번은 모델이 정한 담당자, 2번은 근접 매칭이 이어 준 담당자다. 둘 다 담당자가 있는
+         * PENDING 이라 예전에는 구분 없이 함께 나갔다 — 그게 #522 로 생긴 구멍이다.
+         */
+        StubQueryPort query = new StubQueryPort(List.of(
+                action(1L, "PENDING", HOST),
+                action(2L, "PENDING", HOST, true)));
+        applyUseCase.attach(query);
+        ConfirmDistributionService service = new ConfirmDistributionService(
+                query, dispatch, gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
+                meetingId -> Optional.of(HOST), applyUseCase, fixedClock());
+
+        // 2번이 미검토로 남으므로 관문이 막는다 — 근접 매칭 이전과 같은 상태다.
+        assertThatThrownBy(() -> service.confirm(command(HOST, false)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CaptureErrorCode.REVIEW_CONFIRM_BLOCKED);
+
+        // 암묵 확정은 1번에만 걸렸다. 2번은 손대지 않았다.
+        assertThat(applyUseCase.confirmedActionIds).containsExactly(1L);
+        assertThat(dispatch.dispatched).isEmpty();
+    }
+
+    @Test
+    @DisplayName("강행해도 근접 매칭 담당자는 나가지 않는다 — 추측으로 채운 값이 보드로 못 간다")
+    void 강행해도_근접_매칭_담당자는_나가지_않는다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(
+                action(1L, "HUMAN_CONFIRMED", HOST),
+                action(2L, "PENDING", HOST, true));
+
+        DistributionConfirmed confirmed = service(actions, dispatch, 0).confirm(command(HOST, true));
+
+        // 보드로 나간 액션은 회수할 수 없다. 강행은 관문을 여는 것이지 판정을 바꾸는 게 아니다.
+        assertThat(dispatch.dispatched).containsExactly(1L);
+        assertThat(confirmed.skipped())
+                .extracting(SkippedAction::actionId, SkippedAction::reason)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(2L, "STILL_PENDING"));
+    }
+
+    @Test
+    @DisplayName("근접 매칭 여부가 NULL 이면 막지 않는다 — 이 코드 이전에 저장된 배정이다")
+    void 근접_매칭_미수행은_막지_않는다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        RecordingApplyReviewDecisionUseCase applyUseCase = new RecordingApplyReviewDecisionUseCase();
+        StubQueryPort query = new StubQueryPort(List.of(action(1L, "PENDING", HOST, null)));
+        applyUseCase.attach(query);
+        ConfirmDistributionService service = new ConfirmDistributionService(
+                query, dispatch, gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
+                meetingId -> Optional.of(HOST), applyUseCase, fixedClock());
+
+        DistributionConfirmed confirmed = service.confirm(command(HOST, false));
+
+        // NULL 까지 막으면 과거 회의의 확정이 통째로 멈춘다 — 조이는 것이 아니라 막아버리는 것이다.
+        assertThat(applyUseCase.confirmedActionIds).containsExactly(1L);
+        assertThat(dispatch.dispatched).containsExactly(1L);
+        assertThat(confirmed.skipped()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("사람이 이미 판정한 근접 매칭 건은 그대로 나간다 — 막는 것은 암묵 확정뿐이다")
+    void 사람이_판정한_근접_매칭_건은_나간다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(
+                action(1L, "HUMAN_CONFIRMED", HOST, true));
+
+        DistributionConfirmed confirmed = service(actions, dispatch, 0).confirm(command(HOST, false));
+
+        // host 가 수용을 눌렀으면 코드가 이었다는 사실은 더 이상 관문이 아니다.
+        assertThat(dispatch.dispatched).containsExactly(1L);
+        assertThat(confirmed.skipped()).isEmpty();
+    }
+
+    @Test
     @DisplayName("확인되지 않은 STT 구간이 있으면 막는다 — 아무도 못 들은 구간의 할 일이 사라진다")
     void 미확인_구멍이_있으면_막는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
@@ -303,11 +380,15 @@ class ConfirmDistributionServiceTest {
     }
 
     private ActionReviewQueryPort.ReviewAction action(long actionId, String reviewStatus, Long assignee) {
+        return action(actionId, reviewStatus, assignee, false);
+    }
+
+    private ActionReviewQueryPort.ReviewAction action(long actionId, String reviewStatus, Long assignee,
+                                                      Boolean nearMatched) {
         return new ActionReviewQueryPort.ReviewAction(
                 actionId, ActionType.PERSONAL, assignee, assignee != null ? "김서준" : null, null,
                 "로드맵 초안 작성", null, LocalDate.of(2026, 8, 8), false,
-                // 근접 매칭 여부는 이 테스트의 판정(확정 게이트)에 쓰이지 않는다 — false 로 둔다.
-                false, "로드맵", false, reviewStatus, null, null, null, null);
+                nearMatched, "로드맵", false, reviewStatus, null, null, null, null);
     }
 
     /* TEAM 액션은 담당자 개념이 없다 — assigneeMemberId가 항상 null인 게 정상이다. */
