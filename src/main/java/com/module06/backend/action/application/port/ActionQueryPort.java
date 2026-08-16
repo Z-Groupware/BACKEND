@@ -17,7 +17,8 @@ public interface ActionQueryPort {
 
     // 프로젝트 목록 진행률(actionCount/completedActionCount) 표시용 배치 조회(2026-08-09).
     // 목록 화면에서 프로젝트마다 따로 부르면 N+1이라, projectId 목록을 한 번에 받아 집계까지 끝낸다.
-    List<ProjectActionCount> countActionsByProjectIds(List<Long> projectIds);
+    // PERSONAL 액션만 센다(팀 액션 제외). companyId는 다른 회사 행이 섞이지 않게 조회 자체에서 막는다.
+    List<ProjectActionCount> countActionsByProjectIds(Long companyId, List<Long> projectIds);
 
     record TeamActionSummary(Long actionId, String title, Long teamId, String teamName, ActionStatus status, LocalDate dueDate) {
     }

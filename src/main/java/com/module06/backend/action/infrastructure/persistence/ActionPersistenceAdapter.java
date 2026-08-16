@@ -331,14 +331,21 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // PERSONAL 액션만 센다(WORKFLOW §1, 2026-08-16 확정) — 팀 액션은 하위 개인 액션 완료로 파생되는
+    // 거울이라(reconcileTeamActionStatus) 함께 세면 같은 완료가 분자·분모에 두 번 잡힌다.
+    //
+    // 그래서 하위 개인 액션이 아직 없는 팀 액션만 있는 프로젝트는 집계 결과가 아예 없고,
+    // 호출부에서 0/0 → 진척율 0%로 떨어진다. 100%가 아니라 0%인 것이 의도한 값이다.
     @Override
-    public List<ActionQueryPort.ProjectActionCount> countActionsByProjectIds(List<Long> projectIds) {
+    public List<ActionQueryPort.ProjectActionCount> countActionsByProjectIds(Long companyId, List<Long> projectIds) {
         if (projectIds.isEmpty()) {
             return List.of();
         }
 
         Map<Long, List<SpringDataActionRepository.ProjectActionProjection>> byProjectId =
-                springDataActionRepository.findAllByProjectIdIn(projectIds).stream()
+                springDataActionRepository
+                        .findAllByActionTypeAndCompanyIdAndProjectIdIn(ActionType.PERSONAL, companyId, projectIds)
+                        .stream()
                         .collect(Collectors.groupingBy(SpringDataActionRepository.ProjectActionProjection::getProjectId));
 
         return byProjectId.entrySet().stream()

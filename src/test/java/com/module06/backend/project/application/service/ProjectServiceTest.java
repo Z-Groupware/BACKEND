@@ -163,7 +163,7 @@ class ProjectServiceTest {
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY, null, null, null, "desc", 0, 20)).thenReturn(List.of(project));
         when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(1L);
-        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
+        when(actionQueryPort.countActionsByProjectIds(any(), any())).thenReturn(List.of());
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of(
                 new TeamReferenceRepository.TeamName(1L, "개발팀"),
@@ -174,6 +174,8 @@ class ProjectServiceTest {
         assertThat(result.items()).containsExactly(
                 new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0, List.of("개발팀", "마케팅팀")));
         assertThat(result.totalElements()).isEqualTo(1L);
+        // 회사 스코프가 집계 조회까지 전달되는지 못박는다 — 안 넘기면 다른 회사 액션이 분모에 섞인다.
+        verify(actionQueryPort).countActionsByProjectIds(COMPANY, List.of(1L));
     }
 
     // CodeRabbit 지적(PR #452) — 기존 list 테스트가 전부 keyword=null만 써서, 비어있지 않은
@@ -199,7 +201,7 @@ class ProjectServiceTest {
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY, null, null, null, "desc", 0, 20)).thenReturn(List.of(projectA, projectB));
         when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(2L);
-        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
+        when(actionQueryPort.countActionsByProjectIds(any(), any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of());
