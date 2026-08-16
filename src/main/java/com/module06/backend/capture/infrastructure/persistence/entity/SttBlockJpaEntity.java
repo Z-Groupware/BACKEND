@@ -91,6 +91,16 @@ public class SttBlockJpaEntity {
     private LocalDateTime finishedAt;
 
     /*
+     * 제출 시각. **읽기 전용으로 매핑한다** — DB 기본값(CURRENT_TIMESTAMP)이 채우는 값이고,
+     * 우리가 실으면 재처리로 같은 행을 되돌릴 때 시각이 밀려 "이 블록이 얼마나 오래 안 끝났나"의
+     * 기준이 사라진다.
+     *
+     * 폴링이 제공자를 못 읽는 상태가 영구화됐는지 판단하는 데 쓴다(SttResultPollingService).
+     */
+    @Column(name = "created_at", insertable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    /*
      * 새 블록을 QUEUED로 만든다(10분/40청크 자동 트리거 전용). retry()의 markQueuedForRetry와
      * 달리 이전 실패 흔적을 지울 필요가 없다 — 처음 만드는 행이라 지울 과거 자체가 없다.
      */

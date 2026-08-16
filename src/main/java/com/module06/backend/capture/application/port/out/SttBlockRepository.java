@@ -192,7 +192,16 @@ public interface SttBlockRepository {
             String provider,
             String providerJobName,
             int startOffsetMs,
-            int endOffsetMs
+            int endOffsetMs,
+            /*
+             * 이 블록이 만들어진 시각 = 제출 시각이다. **얼마나 오래 안 끝났는지**를 재는 기준이고,
+             * 폴링이 제공자를 못 읽는 상태(UNAVAILABLE)가 영구화됐는지 판단하는 데 쓴다.
+             *
+             * startedAt 을 쓰지 않는 이유 — 그 값은 **제공자가 RUNNING 으로 잡았을 때만** 찍힌다
+             * (SttBlockJpaEntity#markRunning). 제출 직후 바로 COMPLETED 가 된 잡은 RUNNING 을
+             * 거치지 않아 NULL 로 남고, 그러면 정작 오래 갇힌 블록에서 기준이 비어 있다.
+             */
+            LocalDateTime createdAt
     ) {
     }
 
