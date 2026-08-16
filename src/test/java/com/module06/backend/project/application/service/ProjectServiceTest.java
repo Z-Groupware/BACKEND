@@ -364,7 +364,12 @@ class ProjectServiceTest {
         when(actionQueryPort.findTeamActionsByProjectId(PROJECT_ID)).thenReturn(List.of(
                 new TeamActionSummary(10L, "지연된 팀 액션", 1L, "개발팀", ActionStatus.IN_PROGRESS, LocalDate.of(2020, 1, 1)),
                 new TeamActionSummary(11L, "완료된 팀 액션", 1L, "개발팀", ActionStatus.DONE, LocalDate.of(2020, 1, 1)),
-                new TeamActionSummary(12L, "예정된 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2099, 1, 1))
+                new TeamActionSummary(12L, "예정된 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2099, 1, 1)),
+                // 이 행이 이번 변경의 회귀 본체다 — 마감이 지난 '할일'. 전에는 status != DONE으로
+                // 판정해 true였고, 같은 액션이 액션 목록에선 false로 내려가 배지가 화면마다 갈렸다.
+                new TeamActionSummary(13L, "시작 안 한 마감초과 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2020, 1, 1)),
+                // dueDate가 null인 행도 타임라인으로 온다(record는 nullable) — 지연 아님.
+                new TeamActionSummary(14L, "마감일 없는 팀 액션", 1L, "개발팀", ActionStatus.IN_PROGRESS, null)
         ));
 
         List<TimelineItem> timeline = projectService.getTimeline(COMPANY, PROJECT_ID);
@@ -373,7 +378,9 @@ class ProjectServiceTest {
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple(10L, true),
                         org.assertj.core.groups.Tuple.tuple(11L, false),
-                        org.assertj.core.groups.Tuple.tuple(12L, false)
+                        org.assertj.core.groups.Tuple.tuple(12L, false),
+                        org.assertj.core.groups.Tuple.tuple(13L, false),
+                        org.assertj.core.groups.Tuple.tuple(14L, false)
                 );
     }
 

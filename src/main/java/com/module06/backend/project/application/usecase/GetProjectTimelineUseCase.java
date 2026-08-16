@@ -9,7 +9,7 @@ import com.module06.backend.action.domain.model.ActionStatus;
     FR-PJ-05 — 프로젝트 타임라인 탭 조회 기능 계약. 전 구성원 공개다.
     한 행 = 팀 액션 카드다(부서 요약이 아니다). 한 팀이 같은 프로젝트에 팀 액션을
     여러 개 가질 수 있으므로 행마다 actionId가 실려야 하고, 클릭 시 팀 액션 상세로 내려간다.
-    '지연' 배지는 마감일 기준 파생값이라 여기서 계산한다(DONE이 아니면서 마감일이 지난 경우).
+    '지연' 배지는 마감일 기준 파생값이다 — 판정은 Action.isDelayed(진행중 && 마감일 < 오늘)를 그대로 쓴다.
 
     연결된 클래스
     - ProjectService : 구현체

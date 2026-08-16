@@ -120,10 +120,8 @@ public record ActionSummaryResponse(
             Action action, String assigneeName, String projectTag, String projectName, String teamName,
             String sourceMeetingTitle, String parentActionTitle, Integer childDoneCount, Integer childTotalCount
     ) {
-        // 지연은 "진행중" 한정 배지다(2026-08-07 재설계) — 할일은 아직 안 늦은 것, 완료는 지연이 아니다.
-        LocalDate today = LocalDate.now();
-        boolean delayed = action.getStatus() == ActionStatus.IN_PROGRESS
-                && action.getDueDate() != null && action.getDueDate().isBefore(today);
+        // 지연 판정식은 Action.isDelayed 한 곳에만 있다 — 여기에 다시 적으면 또 갈린다.
+        boolean delayed = action.isDelayed(LocalDate.now());
 
         return new ActionSummaryResponse(
                 action.getId(),

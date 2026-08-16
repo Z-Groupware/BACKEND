@@ -3,6 +3,7 @@ package com.module06.backend.action.application.port;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.module06.backend.action.domain.model.Action;
 import com.module06.backend.action.domain.model.ActionStatus;
 
 /* comment.
@@ -21,6 +22,12 @@ public interface ActionQueryPort {
     List<ProjectActionCount> countActionsByProjectIds(Long companyId, List<Long> projectIds);
 
     record TeamActionSummary(Long actionId, String title, Long teamId, String teamName, ActionStatus status, LocalDate dueDate) {
+
+        /* 지연 판정식은 action 도메인 것이다. project가 자기 식을 따로 쓰면 같은 액션이 화면마다
+           다른 배지를 단다 — 그래서 계산을 여기서 대신 해 준다(호출부는 식을 몰라도 된다). */
+        public boolean isDelayed(LocalDate today) {
+            return Action.isDelayed(status, dueDate, today);
+        }
     }
 
     record ProjectActionCount(Long projectId, int totalCount, int completedCount) {

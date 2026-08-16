@@ -122,6 +122,10 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
     // teamId=null, 팀 목록은 assigneeMemberId=null로 호출) — totalElements가 필터링 전 기준이면
     // 화면이 거짓말을 하게 된다. overdue는 저장값이 아니라 status=IN_PROGRESS AND dueDate<오늘로
     // 매번 계산하는 파생 조건이다(status처럼 컬럼이 따로 없음, 2026-08-07 재설계와 동일 정의).
+    //
+    // Action.isDelayed와 같은 규칙이다 — 한쪽만 고치면 목록 필터와 배지가 어긋난다. Specification은
+    // SQL로 나가야 해서 그 메서드를 부를 수 없어 판정식이 두 벌인 것은 구조상 불가피하다.
+    // 그래서 서로를 주석으로 가리키고, 두 벌이 같은 답을 내는지는 테스트로 못박는다.
     private Specification<ActionJpaEntity> buildActionSpecification(
             ActionType actionType, Long assigneeMemberId, Long teamId, ActionStatus status, Boolean overdue) {
         return (root, query, cb) -> {
