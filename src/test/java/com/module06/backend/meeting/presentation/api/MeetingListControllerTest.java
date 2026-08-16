@@ -79,6 +79,7 @@ class MeetingListControllerTest {
         assertThat(meeting.teamId()).isEqualTo(100L);
         assertThat(meeting.originLabel()).isEqualTo("TEAM");
         assertThat(meeting.summaryStatus()).isEqualTo("STALLED");
+        assertThat(meeting.isOnline()).isFalse();
         assertThat(meeting.agendaPreview().mainTopic()).isEqualTo("Main agenda");
         assertThat(meeting.isHost()).isTrue();
         assertThat(meeting.entryAvailable()).isFalse();
@@ -162,6 +163,7 @@ class MeetingListControllerTest {
                         100L,
                         "TEAM",
                         MeetingSummaryStatus.STALLED,
+                        false,
                         LocalDateTime.of(2026, 8, 4, 14, 0),
                         LocalDateTime.of(2026, 8, 4, 15, 0),
                         4,

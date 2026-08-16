@@ -94,6 +94,10 @@ public class MeetingJpaEntity {
     @Column(name = "canceled_at")
     private LocalDateTime canceledAt;
 
+    /* 액션 분배가 최초로 확정된 시각이며 미확정 회의에서는 null이다. */
+    @Column(name = "actions_confirmed_at")
+    private LocalDateTime actionsConfirmedAt;
+
     /* 선택한 관련 팀 액션 식별자다. */
     @Column(name = "related_action_id")
     private Long relatedActionId;

@@ -77,7 +77,11 @@ public class MeetingQueryPersistenceAdapter
         PageRequest pageRequest = PageRequest.of(
                 criteria.page(),
                 criteria.size(),
-                Sort.by(Sort.Order.desc("startAt"), Sort.Order.desc("id"))
+                Sort.by(
+                        Sort.Order.desc("startAt"),
+                        Sort.Order.desc("actionsConfirmedAt"),
+                        Sort.Order.desc("id")
+                )
         );
 
         /* 데이터베이스에서 조건·정렬·페이지를 적용해 현재 페이지의 회의 엔티티만 조회한다. */
@@ -117,17 +121,21 @@ public class MeetingQueryPersistenceAdapter
     private Specification<MeetingJpaEntity> buildMeetingListSpecification(MeetingListCriteria criteria) {
         /* count 쿼리와 content 쿼리에 동일한 조건이 적용되도록 순수 조건 생성 람다를 반환한다. */
         return (meeting, criteriaQuery, criteriaBuilder) -> {
-            /* 모든 목록 조회에 회사와 기간 조건을 필수로 적용해 테넌트와 기본 범위를 고정한다. */
+            /* 모든 목록 조회에 회사 조건을 필수로 적용해 테넌트 범위를 고정한다. */
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(criteriaBuilder.equal(meeting.get("companyId"), criteria.companyId()));
-            predicates.add(criteriaBuilder.greaterThanOrEqualTo(
-                    meeting.get("startAt"),
-                    criteria.fromInclusive()
-            ));
-            predicates.add(criteriaBuilder.lessThanOrEqualTo(
-                    meeting.get("startAt"),
-                    criteria.toInclusive()
-            ));
+
+            /* 대면 회의는 기존 기간을 적용하고 비대면 회의는 액션 분배가 확정된 경우에만 노출한다. */
+            Predicate physicalMeetingInRange = criteriaBuilder.and(
+                    criteriaBuilder.isFalse(meeting.get("isOnline")),
+                    criteriaBuilder.greaterThanOrEqualTo(meeting.get("startAt"), criteria.fromInclusive()),
+                    criteriaBuilder.lessThanOrEqualTo(meeting.get("startAt"), criteria.toInclusive())
+            );
+            Predicate confirmedOnlineMeeting = criteriaBuilder.and(
+                    criteriaBuilder.isTrue(meeting.get("isOnline")),
+                    criteriaBuilder.isNotNull(meeting.get("actionsConfirmedAt"))
+            );
+            predicates.add(criteriaBuilder.or(physicalMeetingInRange, confirmedOnlineMeeting));
 
             /* 프로젝트가 지정된 경우 해당 식별자와 일치하는 회의만 포함한다. */
             if (criteria.projectId() != null) {
@@ -207,6 +215,7 @@ public class MeetingQueryPersistenceAdapter
                 meeting.getStatus(),
                 meeting.getStartAt(),
                 meeting.getEndAt(),
+                meeting.isOnline(),
                 meeting.getHostMemberId(),
                 attendeeMemberIds
         );

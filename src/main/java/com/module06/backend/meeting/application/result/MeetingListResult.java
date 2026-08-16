@@ -30,6 +30,7 @@ public record MeetingListResult(
             Long teamId,
             String originLabel,
             MeetingSummaryStatus summaryStatus,
+            boolean isOnline,
             LocalDateTime startAt,
             LocalDateTime endAt,
             int attendeeCount,

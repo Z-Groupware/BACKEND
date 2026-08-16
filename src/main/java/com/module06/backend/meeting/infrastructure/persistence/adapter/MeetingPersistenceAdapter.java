@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.meeting.domain.model.Meeting;
 import com.module06.backend.meeting.domain.repository.MeetingCancellationRepository;
+import com.module06.backend.meeting.domain.repository.MeetingActionConfirmationRepository;
 import com.module06.backend.meeting.domain.repository.MeetingCompletionRepository;
 import com.module06.backend.meeting.domain.repository.MeetingRepository;
 import com.module06.backend.meeting.domain.repository.MeetingUpdateRepository;
@@ -36,6 +37,7 @@ import com.module06.backend.meeting.infrastructure.persistence.repository.Spring
 @RequiredArgsConstructor
 public class MeetingPersistenceAdapter implements
         MeetingRepository,
+        MeetingActionConfirmationRepository,
         MeetingCompletionRepository,
         MeetingUpdateRepository,
         MeetingCancellationRepository {
@@ -51,6 +53,23 @@ public class MeetingPersistenceAdapter implements
 
     /* 복합 PK 엔티티를 merge가 아닌 INSERT로 강제하기 위한 JPA 영속성 컨텍스트다. */
     private final EntityManager entityManager;
+
+    /* 최초 액션 분배 확정 시각만 회사 범위 meeting 행에 원자적으로 기록한다. */
+    @Override
+    public void confirmActionsIfAbsent(Long companyId, Long meetingId, java.time.LocalDateTime confirmedAt) {
+        /* 조건부 UPDATE로 동시·반복 확정 요청도 최초 시각을 덮어쓰지 못하게 한다. */
+        entityManager.createQuery("""
+                        update MeetingJpaEntity meeting
+                           set meeting.actionsConfirmedAt = :confirmedAt
+                         where meeting.id = :meetingId
+                           and meeting.companyId = :companyId
+                           and meeting.actionsConfirmedAt is null
+                        """)
+                .setParameter("confirmedAt", confirmedAt)
+                .setParameter("meetingId", meetingId)
+                .setParameter("companyId", companyId)
+                .executeUpdate();
+    }
 
     /*
      * 회의 기본 행을 만든 뒤 슬롯과 참석자를 강제 INSERT하고 즉시 flush한다.
