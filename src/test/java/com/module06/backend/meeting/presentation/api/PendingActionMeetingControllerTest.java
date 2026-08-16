@@ -73,6 +73,33 @@ class PendingActionMeetingControllerTest {
         assertThat(response.getData().meetings()).isNotNull().isEmpty();
     }
 
+    /* 예정 일시가 없는 완료 비대면 회의도 목록 응답 변환에 실패하지 않는지 검증한다. */
+    @Test
+    @DisplayName("비대면 회의의 시작 시각이 없으면 null로 반환한다")
+    void returnsNullStartAtForOnlineMeeting() {
+        /* 시작 시각이 없는 비대면 회의 결과를 반환하는 유스케이스 대역을 만든다. */
+        GetPendingActionMeetingsUseCase useCase = query -> new PendingActionMeetingListResult(List.of(
+                new PendingActionMeetingListResult.MeetingItem(
+                        14L,
+                        "비대면 녹음 회의",
+                        MeetingStatus.DONE,
+                        null,
+                        2L,
+                        new PendingActionMeetingListResult.Project(12L, "Z-GROUPWARE", "잇다 그룹웨어")
+                )
+        ));
+        PendingActionMeetingController controller = new PendingActionMeetingController(useCase);
+
+        /* 인증 principal 값으로 비대면 확정 대기 회의 목록을 조회한다. */
+        ApiResponse<PendingActionMeetingListResponse> response =
+                controller.getPendingActionMeetings(10L, 3L);
+
+        /* 응답 변환은 500으로 실패하지 않고 비대면 회의의 선택 시각을 null로 유지해야 한다. */
+        assertThat(response.getHttpStatus()).isEqualTo(200);
+        assertThat(response.getData().meetings()).hasSize(1);
+        assertThat(response.getData().meetings().get(0).startAt()).isNull();
+    }
+
     /* Controller 응답 변환에 사용할 확정 대기 회의 결과 한 건을 만든다. */
     private PendingActionMeetingListResult result() {
         /* 명세 예시와 동일한 회의·프로젝트 값으로 애플리케이션 결과를 구성한다. */
