@@ -56,7 +56,7 @@ class CaptureUploadStatePersistenceAdapterReserveBlockSeqTest {
     @DisplayName("빈 구간에 첫 예약을 하면 성공하고 reservedUpToOffsetMs가 전진한다")
     void firstReservationSucceedsAndAdvancesReservedOffset() {
         Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(
-                MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS);
+                MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS, false);
 
         assertThat(reserved).contains(0);
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(MEETING_ID).orElseThrow();
@@ -74,13 +74,13 @@ class CaptureUploadStatePersistenceAdapterReserveBlockSeqTest {
     @DisplayName("같은 구간을 다시 예약하려 하면 blocksFormed가 맞아도 거절된다(선점 구간 재사용 방지)")
     void secondReservationForSameWindowIsRejectedEvenWithFreshBlocksFormed() {
         Optional<Integer> first = captureUploadStateRepository.tryReserveNextBlockSeq(
-                MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS);
+                MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS, true);
         assertThat(first).contains(0);
 
         // 지연된 트리거가 이제서야 실행되며 blocksFormed를 최신값(1)으로 다시 읽어 CAS를 시도한다 —
         // 하지만 targetOffsetMs(같은 600,000ms)는 이미 reservedUpToOffsetMs와 같아 거절돼야 한다.
         Optional<Integer> stale = captureUploadStateRepository.tryReserveNextBlockSeq(
-                MEETING_ID, 1, SEGMENT_0, BLOCK_DURATION_MS);
+                MEETING_ID, 1, SEGMENT_0, BLOCK_DURATION_MS, false);
 
         assertThat(stale).isEmpty();
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(MEETING_ID).orElseThrow();
@@ -93,10 +93,10 @@ class CaptureUploadStatePersistenceAdapterReserveBlockSeqTest {
     @Test
     @DisplayName("다음 구간(target이 더 큼)에 대한 예약은 정상적으로 이어진다")
     void nextGenuineWindowReservationSucceeds() {
-        captureUploadStateRepository.tryReserveNextBlockSeq(MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS);
+        captureUploadStateRepository.tryReserveNextBlockSeq(MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS, true);
 
         Optional<Integer> second = captureUploadStateRepository.tryReserveNextBlockSeq(
-                MEETING_ID, 1, SEGMENT_0, BLOCK_DURATION_MS * 2);
+                MEETING_ID, 1, SEGMENT_0, BLOCK_DURATION_MS * 2, false);
 
         assertThat(second).contains(1);
         CaptureUploadState state = captureUploadStateRepository.findByMeetingId(MEETING_ID).orElseThrow();
@@ -109,7 +109,7 @@ class CaptureUploadStatePersistenceAdapterReserveBlockSeqTest {
     @DisplayName("blocksFormed가 기대와 다르면 여전히 거절된다")
     void rejectsWhenBlocksFormedMismatches() {
         Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(
-                MEETING_ID, 5, SEGMENT_0, BLOCK_DURATION_MS);
+                MEETING_ID, 5, SEGMENT_0, BLOCK_DURATION_MS, false);
 
         assertThat(reserved).isEmpty();
     }
@@ -124,7 +124,7 @@ class CaptureUploadStatePersistenceAdapterReserveBlockSeqTest {
     @DisplayName("세그먼트가 이미 바뀐 뒤 예약하면 blocksFormed만 전진하고 reservedUpToOffsetMs는 건드리지 않는다")
     void reservationForStaleSegmentSkipsOffsetUpdate() {
         // 세그먼트 0에서 정상 예약 하나 확정.
-        captureUploadStateRepository.tryReserveNextBlockSeq(MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS);
+        captureUploadStateRepository.tryReserveNextBlockSeq(MEETING_ID, 0, SEGMENT_0, BLOCK_DURATION_MS, true);
 
         // 이어받기로 세그먼트가 1로 바뀐다 — lastSeq·lastBlockEndOffsetMs·reservedUpToOffsetMs가
         // 전부 0으로 리셋된다(assignOrVerifyRecorder).
@@ -135,7 +135,7 @@ class CaptureUploadStatePersistenceAdapterReserveBlockSeqTest {
         // TAIL 마무리가 옛 세그먼트(0) 값으로 뒤늦게 도착한다 — blocksFormed(1)는 여전히 최신값이지만
         // expectedSegmentSeq(0)는 지금 세그먼트(1)와 다르다.
         Optional<Integer> tailReserved = captureUploadStateRepository.tryReserveNextBlockSeq(
-                MEETING_ID, 1, SEGMENT_0, 375_000L);
+                MEETING_ID, 1, SEGMENT_0, 375_000L, true);
 
         assertThat(tailReserved).contains(1);
         CaptureUploadState after = captureUploadStateRepository.findByMeetingId(MEETING_ID).orElseThrow();

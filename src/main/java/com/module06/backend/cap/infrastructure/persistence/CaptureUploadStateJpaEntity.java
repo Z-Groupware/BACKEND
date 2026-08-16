@@ -37,6 +37,9 @@ public class CaptureUploadStateJpaEntity {
     @Column(name = "reserved_up_to_offset_ms", nullable = false)
     private Integer reservedUpToOffsetMs;
 
+    @Column(name = "finalized_blocks_count", nullable = false)
+    private Integer finalizedBlocksCount;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -58,12 +61,13 @@ public class CaptureUploadStateJpaEntity {
         entity.blocksFormed = state.getBlocksFormed();
         entity.lastBlockEndOffsetMs = Math.toIntExact(state.getLastBlockEndOffsetMs());
         entity.reservedUpToOffsetMs = Math.toIntExact(state.getReservedUpToOffsetMs());
+        entity.finalizedBlocksCount = state.getFinalizedBlocksCount();
         return entity;
     }
 
     // JPA 엔티티 → 도메인 모델 (DB에서 읽어온 직후)
     CaptureUploadState toDomain() {
         return CaptureUploadState.restore(meetingId, segmentSeq, recorderPersonId, lastSeq, blocksFormed,
-                lastBlockEndOffsetMs, reservedUpToOffsetMs, createdAt, updatedAt);
+                lastBlockEndOffsetMs, reservedUpToOffsetMs, finalizedBlocksCount, createdAt, updatedAt);
     }
 }

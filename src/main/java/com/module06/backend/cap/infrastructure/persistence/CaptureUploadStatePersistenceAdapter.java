@@ -56,10 +56,16 @@ public class CaptureUploadStatePersistenceAdapter implements CaptureUploadStateR
     // 0으로 리셋해둔 뒤) 옛 세그먼트 값으로 이 메서드를 부른다 — 세그먼트가 다르면 오프셋을
     // 건드리지 않고 blocksFormed만 전진시켜야, 이미 리셋된 새 세그먼트의 reservedUpToOffsetMs를
     // 옛 세그먼트 값으로 오염시키지 않는다.
+    //
+    // ⚠️ hasNoPendingReservation() 가드(CodeRabbit 지적, 2차) — targetOffsetMs 검증만으로는
+    // "앞 블록이 아직 안 끝났는데 다음 블록을 먼저 예약"하는 것까지는 못 막는다. 두 블록 다
+    // lastBlockEndOffsetMs(아직 안 바뀐 옛 값)를 오디오 시작점으로 써서 서로 겹친다. blocksFormed와
+    // finalizedBlocksCount가 같을 때(=진행 중인 예약이 없을 때)만 새 예약을 허용해 세그먼트당
+    // 진행 중인 예약을 1개로 제한한다.
     @Override
     @Transactional
     public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq,
-                                                     long targetOffsetMs) {
+                                                     long targetOffsetMs, boolean completesSynchronously) {
         Optional<CaptureUploadStateJpaEntity> locked = springDataCaptureUploadStateRepository
                 .findWithLockByMeetingIdAndBlocksFormed(meetingId, expectedBlocksFormed);
         if (locked.isEmpty()) {
@@ -67,6 +73,10 @@ public class CaptureUploadStatePersistenceAdapter implements CaptureUploadStateR
             return Optional.empty();
         }
         CaptureUploadState state = locked.get().toDomain();
+        if (!state.hasNoPendingReservation()) {
+            // 앞서 예약된 블록이 아직 안 끝났다 — 지금 예약하면 그 블록과 오디오가 겹친다.
+            return Optional.empty();
+        }
         boolean sameSegment = state.getSegmentSeq() == expectedSegmentSeq;
         if (sameSegment && targetOffsetMs <= state.getReservedUpToOffsetMs()) {
             // blocksFormed는 caller가 기대한 값과 같았지만, 이 구간은 이미 선점돼 있다 —
@@ -76,6 +86,9 @@ public class CaptureUploadStatePersistenceAdapter implements CaptureUploadStateR
         int reservedSeq = sameSegment
                 ? state.reserveNextBlockSeqAndAdvanceOffset(targetOffsetMs)
                 : state.reserveNextBlockSeq();
+        if (completesSynchronously) {
+            state.markBlockFinalized();
+        }
         springDataCaptureUploadStateRepository.save(CaptureUploadStateJpaEntity.fromDomain(state));
         return Optional.of(reservedSeq);
     }

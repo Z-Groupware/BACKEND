@@ -44,8 +44,21 @@ public interface CaptureUploadStateRepository {
      * 적용하면 오염된다(finalizeBlockOffsetIfSegmentMatches와 같은 이유 — TAIL 마무리가 세그먼트
      * 전환 직후 옛 세그먼트 값으로 이 메서드를 부르는 경로가 실제로 있다).
      *
+     * <h2>진행 중인 예약이 있으면 거절한다(CodeRabbit 지적, 2차)</h2>
+     * targetOffsetMs 검증만으로는 "같은 구간 재예약"만 막힌다 — 앞 블록이 아직 안 끝난 채(무거운
+     * 파이프라인이 도는 중) 청크가 계속 쌓여 다음 블록이 먼저 예약되면, 두 블록 다 여전히 옛
+     * lastBlockEndOffsetMs를 오디오 시작점으로 써서 서로 겹치는 오디오를 만든다. 그래서
+     * CaptureUploadState.hasNoPendingReservation()(blocksFormed == finalizedBlocksCount)이
+     * true일 때만 새 예약을 허용한다 — 세그먼트당 진행 중인 예약을 1개로 제한한다.
+     *
+     * @param completesSynchronously 이 예약이 즉시(동기로) 끝나는가 — TAIL(finalizeTailBlock)처럼
+     *                               조립·제출까지 한 번에 끝나 별도 완료 통보가 없는 경우 true다.
+     *                               true면 예약 성공과 동시에 CaptureUploadState.markBlockFinalized()로
+     *                               "끝남"까지 같이 표시한다. false(일반 트리거)면 표시하지 않고,
+     *                               나중에 SttBlockFormedWriter.finalizeBlockOffset이 대신 표시한다 —
+     *                               그때까지는 hasNoPendingReservation()이 false라 다음 예약이 막힌다.
      * @return 예약에 성공했으면 확정된 블록 순번(=예약 전 blocksFormed 값). 실패하면 empty.
      */
     Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq,
-                                             long targetOffsetMs);
+                                             long targetOffsetMs, boolean completesSynchronously);
 }

@@ -322,7 +322,7 @@ class DeleteRecordingServiceTest {
             }
 
             @Override
-            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs) {
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs, boolean completesSynchronously) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };

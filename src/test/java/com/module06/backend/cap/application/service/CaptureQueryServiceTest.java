@@ -27,7 +27,7 @@ class CaptureQueryServiceTest {
     void mapsActiveCaptureFields() {
         /* 세그먼트 2, 마지막 청크 41, 녹음자 7번인 진행 중 캡처를 반환하는 서비스를 준비한다. */
         CaptureUploadState state = CaptureUploadState.restore(
-                500L, 2, 7L, 41, 3, 0L, 0L, LocalDateTime.now().minusSeconds(10), LocalDateTime.now());
+                500L, 2, 7L, 41, 3, 0L, 0L, 0, LocalDateTime.now().minusSeconds(10), LocalDateTime.now());
         CaptureQueryService service = new CaptureQueryService(found(state), heartbeat(true), session(900L));
 
         /* 참석자 7번 기준으로 진행 중 캡처를 조회한다. */
@@ -79,7 +79,7 @@ class CaptureQueryServiceTest {
     void computesElapsedFromCreatedAt() {
         /* 10초 전에 시작된 캡처를 준비한다. */
         CaptureUploadState state = CaptureUploadState.restore(
-                500L, 0, 7L, 0, 0, 0L, 0L, LocalDateTime.now().minusSeconds(10), LocalDateTime.now());
+                500L, 0, 7L, 0, 0, 0L, 0L, 0, LocalDateTime.now().minusSeconds(10), LocalDateTime.now());
         CaptureQueryService service = new CaptureQueryService(found(state), heartbeat(true), noSession());
 
         /* 경과는 최소 10초 이상이며 비정상적으로 크지 않아야 한다. */
@@ -93,7 +93,7 @@ class CaptureQueryServiceTest {
     @Test
     @DisplayName("createdAt이 없으면 elapsedMs는 0이다")
     void elapsedZeroWhenCreatedAtMissing() {
-        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, 0L, 0L, null, null);
+        CaptureUploadState state = CaptureUploadState.restore(500L, 0, 7L, 0, 0, 0L, 0L, 0, null, null);
         CaptureQueryService service = new CaptureQueryService(found(state), heartbeat(true), noSession());
 
         assertThat(service.getActiveCapture(7L)).isPresent().get()
@@ -131,7 +131,7 @@ class CaptureQueryServiceTest {
 
     /* 필드 매핑과 무관한 테스트에서 재사용할 기본 진행 중 캡처를 만든다. */
     private CaptureUploadState sampleState() {
-        return CaptureUploadState.restore(500L, 0, 7L, 10, 0, 0L, 0L,
+        return CaptureUploadState.restore(500L, 0, 7L, 10, 0, 0L, 0L, 0,
                 LocalDateTime.now().minusSeconds(5), LocalDateTime.now());
     }
 

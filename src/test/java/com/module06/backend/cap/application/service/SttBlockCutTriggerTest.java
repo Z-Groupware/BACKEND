@@ -494,17 +494,25 @@ class SttBlockCutTriggerTest {
 
         @Override
         public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed,
-                                                          int expectedSegmentSeq, long targetOffsetMs) {
+                                                          int expectedSegmentSeq, long targetOffsetMs,
+                                                          boolean completesSynchronously) {
             if (forceReservationConflict || state.getBlocksFormed() != expectedBlocksFormed) {
+                return Optional.empty();
+            }
+            if (!state.hasNoPendingReservation()) {
                 return Optional.empty();
             }
             boolean sameSegment = state.getSegmentSeq() == expectedSegmentSeq;
             if (sameSegment && targetOffsetMs <= state.getReservedUpToOffsetMs()) {
                 return Optional.empty();
             }
-            return Optional.of(sameSegment
+            int reservedSeq = sameSegment
                     ? state.reserveNextBlockSeqAndAdvanceOffset(targetOffsetMs)
-                    : state.reserveNextBlockSeq());
+                    : state.reserveNextBlockSeq();
+            if (completesSynchronously) {
+                state.markBlockFinalized();
+            }
+            return Optional.of(reservedSeq);
         }
     }
 
