@@ -70,6 +70,9 @@ public class ProjectAttachment {
         return new ProjectAttachment(id, projectId, fileName, fileUrl, fileSize, uploadedBy, createdAt, updatedAt);
     }
 
+    // 2026-08-16 — 호출처 없음. 첨부 삭제 권한을 Owner 하나로 통일하면서 유일한 사용처였던
+    // ProjectAttachmentService.delete의 업로더 검사가 없어졌다. 술어 자체는 도메인이 답할 수
+    // 있는 질문이라 남겨 두되, 되살릴 일이 없으면 다음 정리 때 지운다.
     public boolean isUploadedBy(Long memberId) {
         return this.uploadedBy != null && this.uploadedBy.equals(memberId);
     }

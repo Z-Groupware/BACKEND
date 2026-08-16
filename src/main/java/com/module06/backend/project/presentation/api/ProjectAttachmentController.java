@@ -69,6 +69,9 @@ public class ProjectAttachmentController {
     private final ConfirmAttachmentUseCase confirmAttachmentUseCase;
     private final DeleteAttachmentUseCase deleteAttachmentUseCase;
 
+    // 업로드는 삭제(아래 delete, Owner 전용)와 달리 ADMIN에게도 열어 둔다 — 올린 것은 지워서
+    // 되돌릴 수 있지만 지운 것은 되돌릴 수 없고, 화면 규칙(WORKFLOW §1 "수정·첨부파일 교체는
+    // Owner만")이 지목한 것은 삭제다. 두 값이 갈리는 이유가 여기다(2026-08-16).
     @Operation(summary = "업로드 URL 발급", description = "presigned URL 발급 3단계 중 1단계. BE는 바이너리를 받지 않는다.")
     @PostMapping("/upload-url")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
@@ -123,9 +126,11 @@ public class ProjectAttachmentController {
         return ApiResponse.success("다운로드 URL이 발급되었습니다.", issuedDownloadUrl);
     }
 
-    @Operation(summary = "첨부파일 삭제", description = "업로더 본인만 가능.")
+    @Operation(summary = "첨부파일 삭제",
+            description = "Owner만 가능. 업로더가 누구인지는 보지 않는다"
+                    + "(WORKFLOW §1 — 기획 탭의 수정·첨부파일 교체는 Owner만).")
     @DeleteMapping("/{attachmentId}")
-    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
+    @PreAuthorize("hasRole('OWNER')")
     public ApiResponse<Void> delete(
             @Parameter(hidden = true)
             @AuthenticationPrincipal(expression = "companyId") Long companyId,
