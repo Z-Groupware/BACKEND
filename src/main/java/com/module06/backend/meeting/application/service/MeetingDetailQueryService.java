@@ -46,6 +46,9 @@ import com.module06.backend.project.exception.ProjectErrorCode;
 @RequiredArgsConstructor
 public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
 
+    /* 삭제 등으로 구성원 원본을 더 이상 찾을 수 없는 과거 참석자의 안전한 표시 이름이다. */
+    private static final String UNKNOWN_MEMBER_NAME = "알 수 없는 사용자";
+
     /* 회사 범위의 상세 회의 원본과 참석자 식별자를 읽는 저장소다. */
     private final MeetingDetailRepository meetingDetailRepository;
 
@@ -110,7 +113,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                 meeting.hostMemberId(),
                 meeting.attendeeMemberIds()
         );
-        Map<Long, MemberSnapshot> members = findAndValidateMembers(
+        Map<Long, MemberSnapshot> members = findMembersWithFallback(
                 meeting.companyId(),
                 orderedMemberIds
         );
@@ -151,7 +154,7 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                                 meetingRoom.name(),
                                 meetingRoom.location()
                         ),
-                new MeetingDetailResult.Host(host.memberId(), host.name()),
+                new MeetingDetailResult.Host(host.memberId(), host.name(), host.isResigned()),
                 orderedMemberIds.stream()
                         .map(members::get)
                         .map(member -> new MeetingDetailResult.Attendee(
@@ -159,7 +162,8 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
                                 member.name(),
                                 member.teamId(),
                                 member.teamName(),
-                                member.positionName()
+                                member.positionName(),
+                                member.isResigned()
                         ))
                         .toList(),
                 meeting.createdAt()
@@ -289,17 +293,20 @@ public class MeetingDetailQueryService implements GetMeetingDetailUseCase {
         return List.copyOf(orderedMemberIds);
     }
 
-    /* 삭제된 과거 참석자를 포함한 전체 구성원 표시 정보를 한 번에 조회하고 누락 여부를 검증한다. */
-    private Map<Long, MemberSnapshot> findAndValidateMembers(Long companyId, List<Long> memberIds) {
+    /* 삭제된 과거 참석자를 포함한 전체 구성원 표시 정보를 한 번에 조회하고 누락 행을 안전하게 보완한다. */
+    private Map<Long, MemberSnapshot> findMembersWithFallback(Long companyId, List<Long> memberIds) {
         /* Port 결과 순서에 의존하지 않도록 구성원 식별자를 키로 표시 정보를 색인한다. */
         Map<Long, MemberSnapshot> members = new LinkedHashMap<>();
         for (MemberSnapshot member : memberQueryPort.findMembersIncludingDeleted(companyId, memberIds)) {
             members.put(member.memberId(), member);
         }
 
-        /* 다른 회사·존재하지 않는 구성원처럼 조회되지 않은 식별자가 있으면 상세 응답을 거절한다. */
-        if (members.size() != memberIds.size() || !members.keySet().containsAll(memberIds)) {
-            throw new BusinessException(MeetingErrorCode.INVALID_ATTENDEES);
+        /* 탈퇴·정리 등으로 원본 행이 사라진 과거 참석자는 식별자와 대체 이름만 보존한다. */
+        for (Long memberId : memberIds) {
+            members.putIfAbsent(
+                    memberId,
+                    new MemberSnapshot(memberId, UNKNOWN_MEMBER_NAME, null, null, null, false)
+            );
         }
 
         /* 조회 이후 표시 정보 맵이 바뀌지 않도록 방어적 불변 복사본을 반환한다. */

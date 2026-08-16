@@ -69,6 +69,10 @@ class MeetingDetailQueryServiceTest {
         assertThat(result.attendees())
                 .extracting(MeetingDetailResult.Attendee::teamId)
                 .containsExactly(100L, 200L, 300L);
+        assertThat(result.host().isResigned()).isFalse();
+        assertThat(result.attendees())
+                .extracting(MeetingDetailResult.Attendee::isResigned)
+                .containsExactly(false, false, true);
 
         /* 미확정 액션이 없고 A 처리가 끝났으면 요약·발화 기록 모두 완료 상태여야 한다. */
         assertThat(result.pendingActionCount()).isZero();
@@ -78,6 +82,45 @@ class MeetingDetailQueryServiceTest {
         assertThat(result.originLabel()).isEqualTo("TEAM");
         assertThat(result.agenda().mainTopic()).isEqualTo("Main agenda");
         assertThat(result.agenda().subTopics()).containsExactly("First sub agenda", "Second sub agenda");
+    }
+
+    /* 구성원 원본이 사라진 과거 참석자가 상세 조회 전체를 깨뜨리지 않는지 검증한다. */
+    @Test
+    @DisplayName("누락된 과거 참석자는 대체 이름으로 표시하고 상세 조회를 유지한다")
+    void replacesMissingHistoricalAttendeeWithFallback() {
+        /* 11번 참석자를 반환하지 않는 B Port로 서비스를 준비한다. */
+        MemberQueryPort incompleteMemberPort = new MemberQueryPort() {
+            @Override
+            public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
+                throw new AssertionError("MEET-04는 활성 구성원 전용 조회를 호출하지 않습니다.");
+            }
+
+            @Override
+            public List<MemberSnapshot> findMembersIncludingDeleted(Long companyId, List<Long> memberIds) {
+                return List.of(
+                        new MemberSnapshot(3L, "지우", 100L, "기획", "팀장", false),
+                        new MemberSnapshot(7L, "이든", 200L, "개발", "시니어", false)
+                );
+            }
+        };
+        MeetingDetailQueryService service = service(
+                Optional.of(meeting()),
+                noPendingActionPort(),
+                completedSummaryPort(),
+                incompleteMemberPort
+        );
+
+        /* 누락 행이 있어도 회의 상세 한 건을 정상 조회한다. */
+        MeetingDetailResult result = service.getMeetingDetail(
+                new GetMeetingDetailQuery(10L, 7L, 200L, "MEMBER", false, 91L)
+        );
+
+        /* 누락 참석자의 식별자는 보존하고 개인 정보 대신 안전한 대체값을 제공한다. */
+        MeetingDetailResult.Attendee missingAttendee = result.attendees().get(2);
+        assertThat(missingAttendee.memberId()).isEqualTo(11L);
+        assertThat(missingAttendee.name()).isEqualTo("알 수 없는 사용자");
+        assertThat(missingAttendee.teamId()).isNull();
+        assertThat(missingAttendee.isResigned()).isFalse();
     }
 
     /* 종료된 회의에서 C·A Port가 돌려준 값이 그대로 반영되는지 검증한다. */
@@ -236,6 +279,17 @@ class MeetingDetailQueryServiceTest {
             ActionQueryPort actionQueryPort,
             SummaryStatusQueryPort summaryStatusQueryPort
     ) {
+        /* 일반 테스트는 퇴사자를 포함한 정상 B Port 대역을 사용한다. */
+        return service(meeting, actionQueryPort, summaryStatusQueryPort, historicalMemberPort());
+    }
+
+    /* 지정한 구성원 조회 대역까지 주입해 누락·퇴사 명단 시나리오를 검증한다. */
+    private MeetingDetailQueryService service(
+            Optional<MeetingDetailSnapshot> meeting,
+            ActionQueryPort actionQueryPort,
+            SummaryStatusQueryPort summaryStatusQueryPort,
+            MemberQueryPort memberPort
+    ) {
         /* 회사 범위 회의 상세를 그대로 반환하는 저장소 대역을 만든다. */
         MeetingDetailRepository meetingRepository = (companyId, meetingId) -> meeting;
 
@@ -282,8 +336,21 @@ class MeetingDetailQueryServiceTest {
             }
         };
 
-        /* 과거 회의 상세가 삭제 구성원을 포함하는 B Port 계약만 사용하는지 검증하는 대역을 만든다. */
-        MemberQueryPort memberPort = new MemberQueryPort() {
+        /* 여섯 경계 대역을 주입한 실제 상세 조회 서비스를 반환한다. */
+        return new MeetingDetailQueryService(
+                meetingRepository,
+                projectPort,
+                meetingRoomPort,
+                memberPort,
+                actionQueryPort,
+                summaryStatusQueryPort,
+                meetingQueryRepository()
+        );
+    }
+
+    /* 과거 회의 상세가 삭제 구성원을 포함하는 B Port 계약만 사용하는지 검증하는 대역을 만든다. */
+    private MemberQueryPort historicalMemberPort() {
+        return new MemberQueryPort() {
             /* MEET-04가 활성 구성원 전용 계약으로 회귀하면 즉시 실패시킨다. */
             @Override
             public List<MemberSnapshot> findActiveMembers(Long companyId, List<Long> memberIds) {
@@ -298,21 +365,10 @@ class MeetingDetailQueryServiceTest {
                 return List.of(
                         new MemberSnapshot(3L, "지우", 100L, "기획", "팀장"),
                         new MemberSnapshot(7L, "이든", 200L, "개발", "시니어"),
-                        new MemberSnapshot(11L, "하린", 300L, "디자인", "디자이너")
+                        new MemberSnapshot(11L, "하린", 300L, "디자인", "디자이너", true)
                 );
             }
         };
-
-        /* 여섯 경계 대역을 주입한 실제 상세 조회 서비스를 반환한다. */
-        return new MeetingDetailQueryService(
-                meetingRepository,
-                projectPort,
-                meetingRoomPort,
-                memberPort,
-                actionQueryPort,
-                summaryStatusQueryPort,
-                meetingQueryRepository()
-        );
     }
 
     private MeetingQueryRepository meetingQueryRepository() {

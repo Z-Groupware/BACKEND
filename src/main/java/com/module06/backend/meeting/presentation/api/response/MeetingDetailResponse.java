@@ -73,14 +73,19 @@ public record MeetingDetailResponse(
                         result.meetingRoom().name(),
                         result.meetingRoom().location()
                 ),
-                new HostResponse(result.host().memberId(), result.host().name()),
+                new HostResponse(
+                        result.host().memberId(),
+                        result.host().name(),
+                        result.host().isResigned()
+                ),
                 result.attendees().stream()
                         .map(attendee -> new AttendeeResponse(
                                 attendee.memberId(),
                                 attendee.name(),
                                 attendee.teamId(),
                                 attendee.teamName(),
-                                attendee.jobPosition()
+                                attendee.jobPosition(),
+                                attendee.isResigned()
                         ))
                         .toList(),
                 formatDateTime(result.createdAt())
@@ -102,7 +107,7 @@ public record MeetingDetailResponse(
     }
 
     /* 상세 상단에 표시할 회의 개설자의 식별자와 이름이다. */
-    public record HostResponse(Long memberId, String name) {
+    public record HostResponse(Long memberId, String name, boolean isResigned) {
     }
 
     /* 회의 참석자 명단에 표시할 이름·팀·직급 정보다. */
@@ -111,7 +116,8 @@ public record MeetingDetailResponse(
             String name,
             Long teamId,
             String teamName,
-            String jobPosition
+            String jobPosition,
+            boolean isResigned
     ) {
     }
 
