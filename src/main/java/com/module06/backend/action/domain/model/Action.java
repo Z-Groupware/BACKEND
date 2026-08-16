@@ -370,4 +370,25 @@ public class Action {
         }
         return startDate == null ? ActionStatus.TODO : ActionStatus.IN_PROGRESS;
     }
+
+    /*
+     * 지연 배지 판정. 저장값이 아니라 매번 계산하는 파생값이다(CLAUDE.md §도메인 상수 —
+     * 파생값을 상태 필드에 넣지 않는다). 규칙: 진행중이면서 마감일이 오늘보다 앞이면 지연이다.
+     * 할일은 아직 안 늦은 것이고, 완료는 지연이 아니다(WORKFLOW.md:37 "진행중 칸 안의 배지").
+     *
+     * 이 판정식은 여기 한 곳에만 둔다. 전에는 같은 식이 세 곳에 흩어져 있었고 그중
+     * ProjectService.getTimeline만 status != DONE으로 달라, 마감 지난 TODO 팀 액션이
+     * 액션 목록에선 지연 아님·타임라인에선 지연으로 동시에 내려갔다.
+     *
+     * static 형태를 함께 두는 이유 — 프로젝트 타임라인은 Action 엔티티가 아니라
+     * ActionQueryPort.TeamActionSummary(status·dueDate만 든 record)를 다룬다. 도메인 엔티티를
+     * 넘기지 않고 같은 식을 쓰게 하려면 값 셋을 받는 입구가 필요하다.
+     */
+    public static boolean isDelayed(ActionStatus status, LocalDate dueDate, LocalDate today) {
+        return status == ActionStatus.IN_PROGRESS && dueDate != null && dueDate.isBefore(today);
+    }
+
+    public boolean isDelayed(LocalDate today) {
+        return isDelayed(this.status, this.dueDate, today);
+    }
 }
