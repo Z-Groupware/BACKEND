@@ -14,6 +14,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 import com.module06.backend.global.audit.AuthzAuditLogger;
@@ -129,6 +130,20 @@ public class GlobalExceptionHandler {
      * <p>traceId 를 메시지에 직접 박는다. logback 설정 파일이 없어 Spring 기본 패턴을 쓰는데,
      * 그 패턴에는 MDC 가 들어 있지 않아 {@code %X{traceId}} 로는 찍히지 않는다.
      */
+    /**
+     * SSE 등 비동기 응답에서 <b>클라이언트가 먼저 연결을 끊은 뒤</b> 서버가 닫힌 소켓에 쓰려다 나는
+     * 정상적인 예외다(원인은 대개 {@code IOException: Broken pipe}). 서버 결함이 아니므로 아래
+     * catch-all 로 흘려보내면 500·ERROR·스택트레이스로 찍혀 <b>진짜 장애 로그를 덮는 소음</b>이 된다
+     * (예: {@code /api/notifications/stream} 구독 종료마다 ERROR 한 뭉치).
+     *
+     * <p>소켓이 이미 닫혀 응답 본문을 쓸 수도 없다 — 그래서 별도 응답을 만들지 않고(void) DEBUG 로만
+     * 남긴다. 끊김 사실 자체를 추적하고 싶을 때만 로그 레벨을 낮춰 보면 된다.
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException ex, HttpServletRequest request) {
+        log.debug("클라이언트 연결 종료로 비동기 응답 중단 — {} {}", request.getMethod(), request.getRequestURI());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
         log.error("처리되지 않은 예외 — traceId={} {} {}",
