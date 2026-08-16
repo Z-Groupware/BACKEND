@@ -68,7 +68,7 @@
 --
 --   company.code       = 'TGXJ-BZY3'
 --   project.tag        = 'AIGRP'
---   meeting_room.name  = '백엔드 강의실 박애관 623호'
+--   meeting_room.name  = '백엔드 강의실'   (location 은 '박애관 623호' — 별도 컬럼이라 JOIN 에 넣지 않는다)
 --   member.email       = 'frozenahri302@gmail.com'      (회의 담당자 · OWNER · 참석자1)
 --                        'mnppi223@gmail.com'           (참석자2)
 --                        'frozenahri302@g.eulji.ac.kr'  (참석자3)
@@ -120,7 +120,7 @@ SELECT c.id,
        '2026-08-14 11:28:00'
   FROM `company` c
   JOIN `project` p       ON p.company_id = c.id AND p.tag = 'AIGRP' AND p.deleted_at IS NULL
-  JOIN `meeting_room` r  ON r.company_id = c.id AND r.name = '백엔드 강의실 박애관 623호' AND r.deleted_at IS NULL
+  JOIN `meeting_room` r  ON r.company_id = c.id AND r.name = '백엔드 강의실' AND r.deleted_at IS NULL
   JOIN `member` h        ON h.company_id = c.id AND h.email = 'frozenahri302@gmail.com' AND h.deleted_at IS NULL
  WHERE c.code = 'TGXJ-BZY3'
    AND NOT EXISTS (SELECT 1
