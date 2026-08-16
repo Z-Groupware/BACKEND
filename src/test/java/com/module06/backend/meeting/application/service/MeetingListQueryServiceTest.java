@@ -167,7 +167,7 @@ class MeetingListQueryServiceTest {
                 new MeetingListRepository.MeetingPage(
                         List.of(new MeetingListRepository.MeetingListSnapshot(
                                 50L, 12L, null, 2L, "진행 중 회의", MeetingStatus.IN_PROGRESS,
-                                startAt, startAt.plusMinutes(35), 99L, List.of(99L, 3L)
+                                startAt, startAt.plusMinutes(35), false, 99L, List.of(99L, 3L)
                         )),
                         1L,
                         1
@@ -199,6 +199,49 @@ class MeetingListQueryServiceTest {
         assertThat(item.durationMinutes()).isEqualTo(35);
     }
 
+    /* 비대면 회의의 nullable 예약 정보를 MEET-02 결과로 안전하게 변환하는지 검증한다. */
+    @Test
+    @DisplayName("비대면 회의는 예약 시간과 회의실 없이 목록 결과를 조립한다")
+    void assemblesOnlineMeetingWithoutScheduleAndRoom() {
+        /* 확정 후 저장소가 반환한 비대면 회의 한 건을 준비한다. */
+        RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
+                new MeetingListRepository.MeetingPage(
+                        List.of(new MeetingListRepository.MeetingListSnapshot(
+                                70L, 12L, null, null, "비대면 회의", MeetingStatus.DONE,
+                                null, null, true, 3L, List.of(3L)
+                        )),
+                        1L,
+                        1
+                )
+        );
+        RecordingMemberQueryPort memberQueryPort = new RecordingMemberQueryPort(List.of(
+                new MemberQueryPort.MemberSnapshot(3L, "지우", 1L, "기획")
+        ));
+        MeetingListQueryService service = new MeetingListQueryService(
+                repository,
+                meetingRoomPort(),
+                projectPort(),
+                new RecordingActionQueryPort(List.of()),
+                summaryStatusPort(),
+                meetingQueryRepository(),
+                memberQueryPort,
+                FIXED_CLOCK
+        );
+
+        /* 회사 전체 MEET-02 목록을 조회해 비대면 카드 결과를 조립한다. */
+        MeetingListResult.MeetingItem result = service.getMeetings(new GetMeetingListQuery(
+                10L, 3L, true, null, null, null, null, null, null, 0, 20
+        )).meetings().get(0);
+
+        /* 예약 정보가 없어도 실패하지 않고 비대면 신호와 안전한 표시 기본값을 반환해야 한다. */
+        assertThat(result.isOnline()).isTrue();
+        assertThat(result.startAt()).isNull();
+        assertThat(result.endAt()).isNull();
+        assertThat(result.meetingRoom()).isNull();
+        assertThat(result.durationMinutes()).isZero();
+        assertThat(result.entryAvailable()).isFalse();
+    }
+
     /* 취소되거나 일찍 끝난 회의는 예약 시간 창 안에 있어도 entryAvailable이 false여야 한다. */
     @Test
     @DisplayName("CANCELED·DONE 회의는 예약 시간 창 안에 있어도 entryAvailable=false를 계산한다")
@@ -210,11 +253,11 @@ class MeetingListQueryServiceTest {
                         List.of(
                                 new MeetingListRepository.MeetingListSnapshot(
                                         60L, 12L, null, 2L, "취소된 회의", MeetingStatus.CANCELED,
-                                        startAt, startAt.plusMinutes(35), 3L, List.of(3L)
+                                        startAt, startAt.plusMinutes(35), false, 3L, List.of(3L)
                                 ),
                                 new MeetingListRepository.MeetingListSnapshot(
                                         61L, 12L, null, 2L, "일찍 끝난 회의", MeetingStatus.DONE,
-                                        startAt, startAt.plusMinutes(35), 3L, List.of(3L)
+                                        startAt, startAt.plusMinutes(35), false, 3L, List.of(3L)
                                 )
                         ),
                         2L,
@@ -568,6 +611,7 @@ class MeetingListQueryServiceTest {
                 MeetingStatus.DONE,
                 startAt,
                 startAt.plusHours(1),
+                false,
                 hostMemberId,
                 attendeeMemberIds
         );
