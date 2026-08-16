@@ -91,7 +91,12 @@ public class SttBlockCutTrigger {
                 return;
             }
 
-            long targetOffsetMs = state.getLastBlockEndOffsetMs() + BLOCK_DURATION_MS;
+            // 예약 목표 지점은 reservedUpToOffsetMs(선점 기준)에서 이어간다 — lastBlockEndOffsetMs
+            // (실제 절단 지점)는 무거운 파이프라인이 끝나야만 갱신되므로, 그걸 기준으로 삼으면
+            // 그 사이 뒤이은 트리거가 같은 구간을 또 문턱 통과로 오판한다(레이스, 아래 hasReachedThreshold 참고).
+            long targetOffsetMs = state.getReservedUpToOffsetMs() + BLOCK_DURATION_MS;
+            // 오디오 조립 시작 지점은 반드시 lastBlockEndOffsetMs(실제 절단 지점)를 써야 한다 —
+            // reservedUpToOffsetMs는 예약 북키핑용일 뿐 오디오 경계와는 무관하다.
             long lastBlockEndOffsetMs = state.getLastBlockEndOffsetMs();
             int segmentSeq = state.getSegmentSeq();
             // 지금까지 실제로 올라온 오디오의 끝 지점 — target 지점에 막 도달한 순간이라, 뒤쪽
@@ -100,8 +105,8 @@ public class SttBlockCutTrigger {
             long availableUpToMs = (long) state.getLastSeq() * CHUNK_DURATION_MS;
 
             // 무거운 작업 전에 이 블록 자리를 먼저 찜한다 — 경합에서 지면 조용히 넘어간다.
-            Optional<Integer> reserved =
-                    captureUploadStateRepository.tryReserveNextBlockSeq(meetingId, state.getBlocksFormed());
+            Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(
+                    meetingId, state.getBlocksFormed(), segmentSeq, targetOffsetMs);
             if (reserved.isEmpty()) {
                 log.info("10분 블록 예약 경합에서 짐 — 다른 트리거가 먼저 처리 중. meetingId={}", meetingId);
                 return;
@@ -160,11 +165,18 @@ public class SttBlockCutTrigger {
 
     // ⚠️ state.getBlocksFormed()를 여기 쓰면 안 된다 — 세그먼트를 넘어 계속 누적되는 "회의 전체
     // 블록 순번"이라서다. 반면 lastSeq는 세그먼트가 바뀌면 0부터 다시 센다(assignOrVerifyRecorder).
-    // 그래서 lastBlockEndOffsetMs(세그먼트마다 정확히 0으로 리셋됨)를 청크 개수로 역산해 "이
-    // 세그먼트에서 이미 블록으로 소비된 청크 수"를 구한다.
+    // 그래서 reservedUpToOffsetMs(세그먼트마다 정확히 0으로 리셋됨)를 청크 개수로 역산해 "이
+    // 세그먼트에서 이미 블록으로 예약(선점)된 청크 수"를 구한다.
+    //
+    // lastBlockEndOffsetMs가 아니라 reservedUpToOffsetMs를 쓴다 — lastBlockEndOffsetMs는 무거운
+    // 파이프라인(ffmpeg·AI-01)이 다 끝나야만 갱신되는 "실제 절단 지점"이라, 첫 트리거가 아직
+    // 처리 중인 몇 초 사이엔 이 값이 그대로다. 그 창에서 뒤이은(지연된) 트리거가 이 메서드를
+    // lastBlockEndOffsetMs 기준으로 판정하면 "아직 문턱 안 넘음"으로 오판해 또 예약 시도를
+    // 하게 되고(k6 정합성 테스트로 실제 재현, block_seq 중복 생성 + STT 이중 제출), reservedUpToOffsetMs는
+    // blocksFormed CAS와 같은 트랜잭션 안에서 예약 즉시 전진하므로 이 판정에 쓰기에 안전하다.
     private boolean hasReachedThreshold(CaptureUploadState state) {
-        long chunksAlreadyConsumedInSegment = state.getLastBlockEndOffsetMs() / CHUNK_DURATION_MS;
-        long chunksSinceLastBlock = state.getLastSeq() - chunksAlreadyConsumedInSegment;
+        long chunksAlreadyReservedInSegment = state.getReservedUpToOffsetMs() / CHUNK_DURATION_MS;
+        long chunksSinceLastBlock = state.getLastSeq() - chunksAlreadyReservedInSegment;
         return chunksSinceLastBlock >= CHUNKS_PER_BLOCK;
     }
 
@@ -254,7 +266,13 @@ public class SttBlockCutTrigger {
                 return TailFinalizeOutcome.FAILED;
             }
 
-            Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(meetingId, blocksFormed);
+            // TAIL은 endOffsetMs까지만 선점한다(꽉 찬 BLOCK_DURATION_MS가 아니라 남은 자투리만큼).
+            // segmentSeq는 예약 당시(호출자가 넘겨준) 옛 세그먼트 값이다 — 이 시점엔 이미
+            // assignOrVerifyRecorder가 세그먼트를 전환해뒀을 수 있어(finalizeTailBlockOnSegmentChange
+            // 경로), 지금 실제 세그먼트와 다르면 어댑터가 오프셋을 안 건드리고 blocksFormed만
+            // 전진시킨다(위 tryReserveNextBlockSeq 계약 참고).
+            Optional<Integer> reserved = captureUploadStateRepository.tryReserveNextBlockSeq(
+                    meetingId, blocksFormed, segmentSeq, endOffsetMs);
             if (reserved.isEmpty()) {
                 log.warn("TAIL 블록 예약 경합에서 짐 — meetingId={} segmentSeq={} 트리거={}",
                         meetingId, segmentSeq, triggerReason);

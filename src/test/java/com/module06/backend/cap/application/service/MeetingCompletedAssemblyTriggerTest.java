@@ -200,7 +200,7 @@ class MeetingCompletedAssemblyTriggerTest {
             }
 
             @Override
-            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs) {
                 return Optional.of(0);
             }
         };
@@ -272,7 +272,7 @@ class MeetingCompletedAssemblyTriggerTest {
             }
 
             @Override
-            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs) {
                 return Optional.empty();
             }
         };
@@ -344,7 +344,7 @@ class MeetingCompletedAssemblyTriggerTest {
             }
 
             @Override
-            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
@@ -382,7 +382,7 @@ class MeetingCompletedAssemblyTriggerTest {
     }
 
     private Optional<CaptureUploadState> state(int segmentSeq, int lastSeq) {
-        return Optional.of(CaptureUploadState.restore(MEETING, segmentSeq, 7L, lastSeq, 0, 0L, null, null));
+        return Optional.of(CaptureUploadState.restore(MEETING, segmentSeq, 7L, lastSeq, 0, 0L, 0L, null, null));
     }
 
     private MeetingCompletionRequestedEvent event() {

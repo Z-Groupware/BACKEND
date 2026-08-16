@@ -104,7 +104,7 @@ class CompletePartUploadWriterTest {
             }
 
             @Override
-            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
@@ -153,7 +153,7 @@ class CompletePartUploadWriterTest {
             }
 
             @Override
-            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+            public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed, int expectedSegmentSeq, long targetOffsetMs) {
                 throw new UnsupportedOperationException("이 테스트는 대상 밖입니다.");
             }
         };
