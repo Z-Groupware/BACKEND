@@ -211,17 +211,18 @@ class ProjectAttachmentServiceTest {
     }
 
     @Test
-    void 업로더가_아니면_삭제하지_못한다() {
+    void 남이_올린_첨부도_삭제된다() {
+        // 이 작업의 회귀 본체 — 권한 판정은 컨트롤러의 hasRole('OWNER') 한 곳이 하고, 서비스는
+        // 업로더가 누구인지 보지 않는다. 여기서 PJ-005가 다시 나면 "Owner인데 남이 올린 파일은
+        // 못 지운다"는, 어느 문서에도 없는 규칙이 되살아난 것이다(WORKFLOW §1 위반).
         when(projectRepository.existsActiveByCompanyIdAndId(COMPANY, PROJECT_ID)).thenReturn(true);
         when(projectAttachmentRepository.findById(ATTACHMENT_ID))
                 .thenReturn(Optional.of(attachmentOf(PROJECT_ID, UPLOADER)));
 
-        assertThatThrownBy(() -> service.delete(
-                new DeleteAttachmentCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID, STRANGER)))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ProjectErrorCode.NOT_ATTACHMENT_UPLOADER);
+        service.delete(new DeleteAttachmentCommand(COMPANY, PROJECT_ID, ATTACHMENT_ID, STRANGER));
 
-        verify(projectAttachmentRepository, never()).deleteById(any());
+        verify(projectAttachmentStoragePort).deleteObject(KEY);
+        verify(projectAttachmentRepository).deleteById(ATTACHMENT_ID);
     }
 
     @Test

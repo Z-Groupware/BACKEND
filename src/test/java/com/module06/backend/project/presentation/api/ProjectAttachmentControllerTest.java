@@ -165,14 +165,18 @@ class ProjectAttachmentControllerTest {
     }
 
     @Test
-    @DisplayName("업로더가 아니면 삭제 시 예외가 전파된다")
-    void deletePropagatesNotUploaderException() throws Exception {
+    @DisplayName("없는 프로젝트의 첨부를 지우면 예외가 전파된다")
+    void deletePropagatesBusinessException() throws Exception {
+        // 원래 이 자리는 PJ-005(업로더 아님) 전파를 봤다. 2026-08-16에 삭제 권한을 Owner
+        // 하나로 통일하면서 서비스가 그 예외를 더 이상 던지지 않아, 실제로 날 수 있는
+        // 예외(PJ-001)로 바꿨다. 확인하려는 것은 같다 — 서비스 예외가 컨트롤러를 통과해
+        // 상태코드로 나오는가. 권한 자체는 ProjectAttachmentSecurityTest가 본다.
         authenticateAs(1L, 3L);
-        doThrow(new BusinessException(ProjectErrorCode.NOT_ATTACHMENT_UPLOADER))
+        doThrow(new BusinessException(ProjectErrorCode.PROJECT_NOT_FOUND))
                 .when(deleteAttachmentUseCase).delete(any());
 
         mockMvc.perform(delete("/api/projects/100/attachments/10"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test

@@ -26,6 +26,9 @@ public enum ProjectErrorCode implements ErrorCode {
     NOT_PROJECT_OWNER(HttpStatus.FORBIDDEN, "PJ-002", "프로젝트 소유자만 수행할 수 있습니다."),
     PROJECT_TAG_DUPLICATE(HttpStatus.CONFLICT, "PJ-003", "이미 사용 중인 프로젝트 태그입니다."),
     ATTACHMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PJ-004", "존재하지 않는 첨부파일입니다."),
+    /* 2026-08-16 — 사용처 없음. 첨부 삭제 권한을 Owner 하나로 통일하면서 업로더 검사를 없앴다
+       (ProjectAttachmentService.delete). 에러코드는 공개 계약이라 지우지 않는다 — 지우면 값이
+       다른 뜻으로 재사용된다. */
     NOT_ATTACHMENT_UPLOADER(HttpStatus.FORBIDDEN, "PJ-005", "첨부파일 업로더 본인만 삭제할 수 있습니다."),
     INVALID_TEAM_ASSIGNMENT(HttpStatus.FORBIDDEN, "PJ-006", "소속되지 않은 부서는 지정할 수 없습니다."),
 
