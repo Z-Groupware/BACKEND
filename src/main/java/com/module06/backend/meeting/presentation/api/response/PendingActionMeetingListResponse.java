@@ -52,10 +52,10 @@ public record PendingActionMeetingListResponse(List<MeetingResponse> meetings) {
         );
     }
 
-    /* 필수 로컬 일시를 명세의 초 단위 문자열로 변환한다. */
+    /* 대면 회의의 로컬 일시는 초 단위 문자열로 바꾸고 일시가 없는 비대면 회의는 null을 유지한다. */
     private static String formatDateTime(LocalDateTime dateTime) {
-        /* 정상 결과의 필수 시각을 고정 포맷터로 직렬화한다. */
-        return dateTime.format(DATE_TIME_FORMATTER);
+        /* 비대면 회의의 선택 시각을 포맷하지 않아 응답 변환 중 NullPointerException이 발생하지 않게 한다. */
+        return dateTime == null ? null : dateTime.format(DATE_TIME_FORMATTER);
     }
 
     /* 마이페이지의 확정 대기 회의 카드 한 건을 나타내는 응답이다. */
