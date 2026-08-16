@@ -92,7 +92,7 @@ public class ProjectService implements
         List<Long> projectIds = projects.stream().map(Project::getId).toList();
 
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
-                actionQueryPort.countActionsByProjectIds(projectIds).stream()
+                actionQueryPort.countActionsByProjectIds(companyId, projectIds).stream()
                         .collect(Collectors.toMap(ActionQueryPort.ProjectActionCount::projectId, count -> count));
         Map<Long, Long> meetingCountByProjectId = meetingQueryPort.countMeetingsByProjectIds(companyId, projectIds);
 

@@ -89,7 +89,11 @@ public interface SpringDataActionRepository
     // 프로젝트 목록 진행률 집계용 배치 조회 — UndispatchedProjection과 같은 이유로 프로젝션이다
     // (projectId·status 두 컬럼만 필요한데 엔티티 전체를 읽으면 description·gate_signals까지
     // 딸려온다). COUNT GROUP BY는 Semgrep QUERY_002가 신규 @Query를 막아 못 쓰고, 자바에서 집계한다.
-    List<ProjectActionProjection> findAllByProjectIdIn(List<Long> projectIds);
+    // PERSONAL만 센다 — 팀 액션은 하위 개인 액션의 거울이라 같이 세면 같은 완료가 두 번 잡힌다
+    // (WORKFLOW §1, 2026-08-16 확정). companyId는 바로 아래 형제 메서드와 같은 이유로 넣는다 —
+    // 다른 회사 행이 섞이지 않게 조회 자체에서 막는다.
+    List<ProjectActionProjection> findAllByActionTypeAndCompanyIdAndProjectIdIn(
+            ActionType actionType, Long companyId, List<Long> projectIds);
 
     // 2026-08-11, 이슈 #355 — 팀 액션 목록 하위 개인 액션 진척 배치 집계. ProjectActionProjection과
     // 같은 이유로 프로젝션이다(parentActionId·status 두 컬럼만 필요). companyId는 CodeRabbit(#357)
