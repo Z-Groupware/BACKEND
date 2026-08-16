@@ -1,6 +1,7 @@
 package com.module06.backend.global.exception;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -53,6 +54,10 @@ public class GlobalExceptionHandler {
         List<ErrorResponse.FieldErrorDetail> details = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> new ErrorResponse.FieldErrorDetail(error.getField(), error.getDefaultMessage()))
                 .toList();
+        // 요청 본문(@RequestBody) 검증 실패. 지금까지 이 400 은 응답으로만 나가고 로그에 한 줄도
+        // 남지 않아(액세스 로그도 없다) "어느 요청의 어느 필드가 왜 튕겼나"를 사후에 되짚을 수
+        // 없었다. 재현 없이 짚도록 URI·필드·사유를 남긴다.
+        logBadRequest("요청 본문 검증 실패", request, "필드오류=[" + formatFieldErrors(details) + "]");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId(), details));
     }
@@ -65,6 +70,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ErrorResponse> handleHandlerMethodValidationException(
             HandlerMethodValidationException ex, HttpServletRequest request) {
+        logBadRequest("파라미터 검증 실패", request, ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -73,6 +79,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolationException(
             ConstraintViolationException ex, HttpServletRequest request) {
+        logBadRequest("제약 위반", request, ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -80,6 +87,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex,
                                                                           HttpServletRequest request) {
+        logBadRequest("잘못된 인자", request, ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -87,6 +95,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException ex,
                                                                                   HttpServletRequest request) {
+        // 본문 자체가 JSON 으로 파싱되지 않은 경우(형 불일치·깨진 payload 등). 원인 메시지는
+        // 가장 구체적인 cause 로 남긴다 — 최상위 메시지는 래퍼라 실제 이유가 묻힌다.
+        logBadRequest("본문 파싱 실패", request, ex.getMostSpecificCause().getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -128,5 +139,22 @@ public class GlobalExceptionHandler {
 
     private String currentTraceId() {
         return MDC.get(TRACE_ID_MDC_KEY);
+    }
+
+    /**
+     * 클라이언트 오류(400)를 한 줄로 남긴다. 서버 오류(500)와 달리 스택트레이스는 남기지 않되,
+     * catch-all(500)과 같은 형식(traceId·메서드·URI)을 유지해 응답의 traceId 로 로그를 대조할 수
+     * 있게 한다. 레벨은 warn 이다 — 서버 결함이 아니라 잘못 들어온 요청이므로 error 로 올리면
+     * 진짜 장애 신호에 잡음을 섞는다.
+     */
+    private void logBadRequest(String kind, HttpServletRequest request, String detail) {
+        log.warn("{}(400) — traceId={} {} {} {}",
+                kind, currentTraceId(), request.getMethod(), request.getRequestURI(), detail);
+    }
+
+    private static String formatFieldErrors(List<ErrorResponse.FieldErrorDetail> details) {
+        return details.stream()
+                .map(d -> d.field() + "='" + d.reason() + "'")
+                .collect(Collectors.joining(", "));
     }
 }
