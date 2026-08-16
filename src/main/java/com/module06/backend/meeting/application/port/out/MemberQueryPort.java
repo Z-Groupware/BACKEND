@@ -26,13 +26,20 @@ public interface MemberQueryPort {
             String name,
             Long teamId,
             String teamName,
-            String positionName
+            String positionName,
+            boolean isResigned
     ) {
+
+        /* 기존 호출부가 퇴사 여부 계약 확장 전에도 호환되도록 재직 상태를 기본값으로 둔다. */
+        public MemberSnapshot(Long memberId, String name, Long teamId, String teamName, String positionName) {
+            /* 실제 퇴사 여부는 B Adapter가 여섯 번째 값으로 명시한다. */
+            this(memberId, name, teamId, teamName, positionName, false);
+        }
 
         /* 기존 B Adapter와 MEET-01 호출부가 직급 계약 확장 전에도 호환되도록 한다. */
         public MemberSnapshot(Long memberId, String name, Long teamId, String teamName) {
-            /* B가 positionName을 제공하기 전까지 직급만 null로 두고 기존 표시 정보는 보존한다. */
-            this(memberId, name, teamId, teamName, null);
+            /* B가 positionName을 제공하기 전까지 직급만 null로 두고 재직 상태로 표시한다. */
+            this(memberId, name, teamId, teamName, null, false);
         }
     }
 }

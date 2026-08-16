@@ -117,6 +117,14 @@ class MemberQueryAdapterTest {
         List<MemberSnapshot> found = port.findMembersIncludingDeleted(551L, List.of(552L, 553L));
 
         assertThat(found).extracting(MemberSnapshot::memberId).containsExactlyInAnyOrder(552L, 553L);
+        assertThat(found)
+                .filteredOn(MemberSnapshot::isResigned)
+                .extracting(MemberSnapshot::memberId)
+                .containsExactly(553L);
+        assertThat(found)
+                .filteredOn(member -> !member.isResigned())
+                .extracting(MemberSnapshot::memberId)
+                .containsExactly(552L);
     }
 
     @Test
