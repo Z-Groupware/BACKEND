@@ -72,12 +72,13 @@ class CaptureUploadStateTest {
     void reserveNextBlockSeqReturnsPreviousValueAndAdvancesCount() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
 
-        int firstReserved = state.reserveNextBlockSeq();
-        int secondReserved = state.reserveNextBlockSeq();
+        int firstReserved = state.reserveNextBlockSeqAndAdvanceOffset(600_000L);
+        int secondReserved = state.reserveNextBlockSeqAndAdvanceOffset(1_200_000L);
 
         assertThat(firstReserved).isZero();
         assertThat(secondReserved).isEqualTo(1);
         assertThat(state.getBlocksFormed()).isEqualTo(2);
+        assertThat(state.getReservedUpToOffsetMs()).isEqualTo(1_200_000L);
     }
 
     /* 예약된 블록이 완성되면 끝 지점만 갱신되고(blocksFormed는 안 건드림) 검증한다. */
@@ -85,7 +86,7 @@ class CaptureUploadStateTest {
     @DisplayName("finalizeBlockOffsetIfSegmentMatches는 세그먼트가 같으면 끝 지점만 갱신한다")
     void finalizeBlockOffsetUpdatesOffsetOnly() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
-        state.reserveNextBlockSeq();
+        state.reserveNextBlockSeqAndAdvanceOffset(600_000L);
 
         boolean applied = state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L);
 
@@ -139,15 +140,18 @@ class CaptureUploadStateTest {
     }
 
     /*
-     * 세그먼트 전환(이어받기 성립)이 lastSeq·lastBlockEndOffsetMs를 0으로 리셋하는지 검증한다
-     * (CodeRabbit 지적 — 예전엔 이 리셋이 없어서 RecordingAssemblyService.hasSeqGap의 "매
-     * 세그먼트는 seq=1부터" 가정과 실제 상태가 어긋나 있었다).
+     * 세그먼트 전환(이어받기 성립)이 lastSeq·lastBlockEndOffsetMs·reservedUpToOffsetMs를 0으로
+     * 리셋하는지 검증한다(CodeRabbit 지적 — 예전엔 이 리셋이 없어서 RecordingAssemblyService.
+     * hasSeqGap의 "매 세그먼트는 seq=1부터" 가정과 실제 상태가 어긋나 있었다).
+     * reservedUpToOffsetMs도 lastBlockEndOffsetMs와 같은 이유로 세그먼트 안에서만 의미가 있어
+     * 같이 리셋돼야 한다 — 안 하면 새 세그먼트의 예약 문턱 판정이 이전 세그먼트 값을 물려받는다.
      */
     @Test
-    @DisplayName("이어받기로 세그먼트가 바뀌면 lastSeq와 블록 끝 지점이 0으로 리셋된다")
+    @DisplayName("이어받기로 세그먼트가 바뀌면 lastSeq·블록 끝 지점·예약 오프셋이 0으로 리셋된다")
     void takeoverResetsSeqAndBlockOffsetForNewSegment() {
         CaptureUploadState state = CaptureUploadState.startWithRecorder(500L, 7L);
         state.recordUpload(7L, 25);
+        state.reserveNextBlockSeqAndAdvanceOffset(150_000L);
         state.finalizeBlockOffsetIfSegmentMatches(0, 150_000L);
 
         state.assignOrVerifyRecorder(9L, true);
@@ -155,6 +159,7 @@ class CaptureUploadStateTest {
         assertThat(state.getSegmentSeq()).isEqualTo(1);
         assertThat(state.getLastSeq()).isZero();
         assertThat(state.getLastBlockEndOffsetMs()).isZero();
+        assertThat(state.getReservedUpToOffsetMs()).isZero();
     }
 
     // 실행 결과가 예상 서비스 오류 코드인지 검증한다.

@@ -243,9 +243,9 @@ class SttBlockCutTriggerTest {
         // 이전 세그먼트에서 블록 2개를 이미 만든 뒤(blocksFormed=2) 이어받기가 일어난 상황을
         // 재현한다 — assignOrVerifyRecorder가 lastSeq·lastBlockEndOffsetMs를 0으로 리셋한다.
         CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
-        state.reserveNextBlockSeq();
+        state.reserveNextBlockSeqAndAdvanceOffset(600_000L);
         state.finalizeBlockOffsetIfSegmentMatches(0, 600_000L);
-        state.reserveNextBlockSeq();
+        state.reserveNextBlockSeqAndAdvanceOffset(1_200_000L);
         state.finalizeBlockOffsetIfSegmentMatches(0, 1_200_000L);
         state.assignOrVerifyRecorder(9L, true);
         assertThat(state.getBlocksFormed()).isEqualTo(2);
@@ -463,9 +463,11 @@ class SttBlockCutTriggerTest {
         };
     }
 
-    // 실제 CAS 동작을 흉내낸다 — expectedBlocksFormed가 현재 state.blocksFormed와 같을 때만
-    // 예약(도메인의 reserveNextBlockSeq)이 성립한다. forceReservationConflict=true면 항상 실패한다
-    // (다른 트리거가 먼저 예약해간 경합 상황 재현용).
+    // 실제 CAS 동작을 흉내낸다 — expectedBlocksFormed가 현재 state.blocksFormed와 같아야 예약이
+    // 성립한다. 지금 세그먼트가 expectedSegmentSeq와 같으면 targetOffsetMs가 현재
+    // reservedUpToOffsetMs보다 클 때만 오프셋까지 갱신하고, 다르면(TAIL이 옛 세그먼트 값으로 부른
+    // 경우) 오프셋 검증·갱신 없이 blocksFormed만 전진시킨다(실제 어댑터와 동일 계약).
+    // forceReservationConflict=true면 항상 실패한다(다른 트리거가 먼저 예약해간 경합 상황 재현용).
     private static final class FakeStateRepo implements CaptureUploadStateRepository {
         private CaptureUploadState state;
         private boolean forceReservationConflict = false;
@@ -491,11 +493,26 @@ class SttBlockCutTriggerTest {
         }
 
         @Override
-        public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed) {
+        public Optional<Integer> tryReserveNextBlockSeq(Long meetingId, int expectedBlocksFormed,
+                                                          int expectedSegmentSeq, long targetOffsetMs,
+                                                          boolean completesSynchronously) {
             if (forceReservationConflict || state.getBlocksFormed() != expectedBlocksFormed) {
                 return Optional.empty();
             }
-            return Optional.of(state.reserveNextBlockSeq());
+            if (!state.hasNoPendingReservation()) {
+                return Optional.empty();
+            }
+            boolean sameSegment = state.getSegmentSeq() == expectedSegmentSeq;
+            if (sameSegment && targetOffsetMs <= state.getReservedUpToOffsetMs()) {
+                return Optional.empty();
+            }
+            int reservedSeq = sameSegment
+                    ? state.reserveNextBlockSeqAndAdvanceOffset(targetOffsetMs)
+                    : state.reserveNextBlockSeq();
+            if (completesSynchronously) {
+                state.markBlockFinalized();
+            }
+            return Optional.of(reservedSeq);
         }
     }
 
