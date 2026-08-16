@@ -25,6 +25,7 @@ import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCa
 import com.module06.backend.capture.domain.model.ReviewDecision;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.meeting.application.port.in.MeetingActionConfirmationPort;
 
 /*
  * RVW-05 · 액션 분배 확정.
@@ -81,6 +82,7 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
     private final MeetingAccessGuard meetingAccessGuard;
     private final MeetingHostProvider meetingHostProvider;
     private final ApplyReviewDecisionUseCase applyReviewDecisionUseCase;
+    private final MeetingActionConfirmationPort meetingActionConfirmationPort;
 
     /*
      * ⚠ 프로젝트 전체에 Clock 빈이 하나뿐이라(MeetingTimeConfiguration#meetingClock, KST)
@@ -124,6 +126,9 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
         DispatchOutcome outcome = dispatchTargets.isEmpty()
                 ? DispatchOutcome.none()
                 : actionDispatchPort.markDispatched(command.companyId(), dispatchTargets, dispatchedAt);
+
+        /* 같은 트랜잭션과 동일한 시각으로 D 회의의 최초 분배 확정을 기록한다. */
+        meetingActionConfirmationPort.confirmActions(command.companyId(), command.meetingId(), dispatchedAt);
 
         /*
          * 이미 나가 있던 액션도 사람에게 말한다.

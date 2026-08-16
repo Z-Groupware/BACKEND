@@ -26,6 +26,7 @@ import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCa
 import com.module06.backend.capture.domain.model.ReviewDecision;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.meeting.application.port.in.MeetingActionConfirmationPort;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +78,34 @@ class ConfirmDistributionServiceTest {
     }
 
     @Test
+    @DisplayName("액션과 회의에 동일한 최초 분배 확정 시각을 전달한다")
+    void 회의에도_동일한_확정_시각을_전달한다() {
+        /* 회의 도메인에 전달된 회사·회의·확정 시각을 기록하는 Port 대역을 준비한다. */
+        RecordingMeetingActionConfirmationPort confirmationPort =
+                new RecordingMeetingActionConfirmationPort();
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        ConfirmDistributionService service = new ConfirmDistributionService(
+                new StubQueryPort(List.of(action(1L, "HUMAN_CONFIRMED", HOST))),
+                dispatch,
+                gaps(0),
+                new MeetingAccessGuard((companyId, meetingId) -> true),
+                meetingId -> Optional.of(HOST),
+                new RecordingApplyReviewDecisionUseCase(),
+                confirmationPort,
+                fixedClock()
+        );
+
+        /* 분배 확정을 실행해 액션과 회의에 한 번 읽은 시각을 함께 반영한다. */
+        service.confirm(command(HOST, false));
+
+        /* D에는 요청 테넌트·회의와 액션에 사용한 정확히 같은 NOW가 전달돼야 한다. */
+        assertThat(confirmationPort.companyId).isEqualTo(COMPANY);
+        assertThat(confirmationPort.meetingId).isEqualTo(MEETING);
+        assertThat(confirmationPort.confirmedAt).isEqualTo(NOW);
+        assertThat(dispatch.dispatchedAt).isEqualTo(NOW);
+    }
+
+    @Test
     @DisplayName("미검토가 남아 있으면 409 로 막는다 — 분배는 되돌릴 수 없다")
     void 미검토가_남으면_막는다() {
         RecordingDispatchPort dispatch = new RecordingDispatchPort();
@@ -105,7 +134,8 @@ class ConfirmDistributionServiceTest {
         applyUseCase.attach(query);
         ConfirmDistributionService service = new ConfirmDistributionService(
                 query, dispatch, gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
-                meetingId -> Optional.of(HOST), applyUseCase, fixedClock());
+                meetingId -> Optional.of(HOST), applyUseCase,
+                (companyId, meetingId, confirmedAt) -> { }, fixedClock());
 
         DistributionConfirmed confirmed = service.confirm(command(HOST, false));
 
@@ -129,7 +159,8 @@ class ConfirmDistributionServiceTest {
         applyUseCase.attach(query);
         ConfirmDistributionService service = new ConfirmDistributionService(
                 query, dispatch, gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
-                meetingId -> Optional.of(HOST), applyUseCase, fixedClock());
+                meetingId -> Optional.of(HOST), applyUseCase,
+                (companyId, meetingId, confirmedAt) -> { }, fixedClock());
 
         // 2번이 미검토로 남으므로 관문이 막는다 — 근접 매칭 이전과 같은 상태다.
         assertThatThrownBy(() -> service.confirm(command(HOST, false)))
@@ -167,7 +198,8 @@ class ConfirmDistributionServiceTest {
         applyUseCase.attach(query);
         ConfirmDistributionService service = new ConfirmDistributionService(
                 query, dispatch, gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
-                meetingId -> Optional.of(HOST), applyUseCase, fixedClock());
+                meetingId -> Optional.of(HOST), applyUseCase,
+                (companyId, meetingId, confirmedAt) -> { }, fixedClock());
 
         DistributionConfirmed confirmed = service.confirm(command(HOST, false));
 
@@ -261,7 +293,8 @@ class ConfirmDistributionServiceTest {
         ConfirmDistributionService service = new ConfirmDistributionService(
                 new StubQueryPort(List.of(action(1L, "HUMAN_CONFIRMED", HOST))), dispatch,
                 gaps(0), new MeetingAccessGuard((companyId, meetingId) -> true),
-                meetingId -> Optional.empty(), new RecordingApplyReviewDecisionUseCase(), fixedClock());
+                meetingId -> Optional.empty(), new RecordingApplyReviewDecisionUseCase(),
+                (companyId, meetingId, confirmedAt) -> { }, fixedClock());
 
         assertThatThrownBy(() -> service.confirm(command(HOST, false)))
                 .isInstanceOf(BusinessException.class)
@@ -329,7 +362,26 @@ class ConfirmDistributionServiceTest {
                 new MeetingAccessGuard((companyId, meetingId) -> true),
                 meetingId -> Optional.of(HOST),
                 new RecordingApplyReviewDecisionUseCase(),
+                (companyId, meetingId, confirmedAt) -> { },
                 fixedClock());
+    }
+
+    /* RVW-05가 D 회의에 전달한 최초 확정 정보를 기록하는 Port 대역이다. */
+    private static final class RecordingMeetingActionConfirmationPort implements MeetingActionConfirmationPort {
+
+        /* 실제 전달된 테넌트·회의·시각을 테스트 검증을 위해 보관한다. */
+        private Long companyId;
+        private Long meetingId;
+        private LocalDateTime confirmedAt;
+
+        /* 확정 호출의 실제 인자를 손실 없이 기록한다. */
+        @Override
+        public void confirmActions(Long companyId, Long meetingId, LocalDateTime confirmedAt) {
+            /* 한 번의 RVW-05 호출이 전달한 값을 그대로 보관한다. */
+            this.companyId = companyId;
+            this.meetingId = meetingId;
+            this.confirmedAt = confirmedAt;
+        }
     }
 
     /*
@@ -474,6 +526,7 @@ class ConfirmDistributionServiceTest {
 
         private final List<Long> dispatched = new ArrayList<>();
         private int calls;
+        private LocalDateTime dispatchedAt;
         /* 이미 나가 있던 것으로 취급할 액션. 재확정 상황을 만드는 손잡이다. */
         private List<Long> alreadyDispatched = List.of();
 
@@ -481,6 +534,7 @@ class ConfirmDistributionServiceTest {
         public DispatchOutcome markDispatched(long companyId, List<Long> actionIds,
                                               LocalDateTime dispatchedAt) {
             calls++;
+            this.dispatchedAt = dispatchedAt;
             List<Long> newly = actionIds.stream()
                     .filter(id -> !alreadyDispatched.contains(id))
                     .toList();

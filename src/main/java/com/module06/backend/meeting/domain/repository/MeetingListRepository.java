@@ -43,6 +43,7 @@ public interface MeetingListRepository {
             MeetingStatus status,
             LocalDateTime startAt,
             LocalDateTime endAt,
+            boolean isOnline,
             Long hostMemberId,
             List<Long> attendeeMemberIds
     ) {

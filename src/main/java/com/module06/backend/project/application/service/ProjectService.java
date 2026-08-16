@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.module06.backend.action.application.port.ActionQueryPort;
-import com.module06.backend.action.domain.model.ActionStatus;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.project.application.command.BulkUpdateProjectStatusCommand;
 import com.module06.backend.project.application.command.CreateProjectCommand;
@@ -92,7 +91,7 @@ public class ProjectService implements
         List<Long> projectIds = projects.stream().map(Project::getId).toList();
 
         Map<Long, ActionQueryPort.ProjectActionCount> countsByProjectId =
-                actionQueryPort.countActionsByProjectIds(projectIds).stream()
+                actionQueryPort.countActionsByProjectIds(companyId, projectIds).stream()
                         .collect(Collectors.toMap(ActionQueryPort.ProjectActionCount::projectId, count -> count));
         Map<Long, Long> meetingCountByProjectId = meetingQueryPort.countMeetingsByProjectIds(companyId, projectIds);
 
@@ -177,8 +176,7 @@ public class ProjectService implements
                         summary.teamName(),
                         summary.status(),
                         summary.dueDate(),
-                        summary.status() != ActionStatus.DONE
-                                && summary.dueDate() != null && summary.dueDate().isBefore(today)
+                        summary.isDelayed(today)
                 ))
                 .toList();
     }

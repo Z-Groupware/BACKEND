@@ -120,9 +120,14 @@ public class ProjectAttachmentService implements
         requireProjectInCompany(command.companyId(), command.projectId());
         ProjectAttachment attachment = requireAttachmentInProject(command.projectId(), command.attachmentId());
 
-        if (!attachment.isUploadedBy(command.requesterId())) {
-            throw new BusinessException(ProjectErrorCode.NOT_ATTACHMENT_UPLOADER);
-        }
+        /*
+            업로더 검사를 두지 않는다(2026-08-16 정리). 화면 규칙이 정본이다 — WORKFLOW §1은
+            "수정·첨부파일 교체는 Owner만"이고, 그 판정은 컨트롤러의 hasRole('OWNER')가 한다.
+            여기에 업로더 조건을 함께 두면 두 규칙의 AND가 되어 "Owner인데 남이 올린 파일은
+            못 지운다"는, 어느 문서에도 없는 세 번째 규칙이 만들어진다.
+
+            command.requesterId()는 계속 흘러온다 — 권한 판정에는 안 쓰지만 감사 로그의 근거다.
+        */
 
         /*
             2026-08-10, CodeRabbit(#313) 지적 — S3 삭제 후 DB 삭제 순서로 바꿨다. 원래 순서(DB

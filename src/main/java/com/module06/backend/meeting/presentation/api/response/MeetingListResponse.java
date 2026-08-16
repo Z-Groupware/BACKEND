@@ -55,6 +55,7 @@ public record MeetingListResponse(
                 meeting.teamId(),
                 meeting.originLabel(),
                 meeting.summaryStatus() == null ? null : meeting.summaryStatus().name(),
+                meeting.isOnline(),
                 formatDateTime(meeting.startAt()),
                 formatDateTime(meeting.endAt()),
                 meeting.attendeeCount(),
@@ -69,10 +70,12 @@ public record MeetingListResponse(
                         meeting.agendaPreview().mainTopic(),
                         meeting.agendaPreview().firstSubTopic()
                 ),
-                new MeetingRoomResponse(
-                        meeting.meetingRoom().meetingRoomId(),
-                        meeting.meetingRoom().name()
-                ),
+                meeting.meetingRoom() == null
+                        ? null
+                        : new MeetingRoomResponse(
+                                meeting.meetingRoom().meetingRoomId(),
+                                meeting.meetingRoom().name()
+                        ),
                 new ProjectResponse(
                         meeting.project().projectId(),
                         meeting.project().tag(),
@@ -83,8 +86,8 @@ public record MeetingListResponse(
 
     /* 필수 회의 일시를 초 단위 고정 문자열로 변환한다. */
     private static String formatDateTime(LocalDateTime dateTime) {
-        /* 명세가 시간대 오프셋 없는 KST 로컬 문자열을 요구하므로 공통 포맷터를 사용한다. */
-        return dateTime.format(DATE_TIME_FORMATTER);
+        /* 비대면 회의는 예약 일시가 없으므로 null을 유지하고 대면 회의만 고정 형식으로 변환한다. */
+        return dateTime == null ? null : dateTime.format(DATE_TIME_FORMATTER);
     }
 
     /* 회의 목록 한 행의 외부 응답 계약이다. */
@@ -95,6 +98,7 @@ public record MeetingListResponse(
             Long teamId,
             String originLabel,
             String summaryStatus,
+            boolean isOnline,
             String startAt,
             String endAt,
             int attendeeCount,

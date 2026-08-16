@@ -21,6 +21,7 @@ import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingDetailRepository;
+import com.module06.backend.meeting.domain.repository.MeetingActionConfirmationRepository;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
 import com.module06.backend.meeting.infrastructure.persistence.entity.MeetingAttendeeJpaEntity;
@@ -50,6 +51,10 @@ class MeetingQueryPersistenceAdapterTest {
     /* MEET-04 회사 범위 상세 조회에 사용하는 전용 저장소 계약이다. */
     @Autowired
     private MeetingDetailRepository meetingDetailRepository;
+
+    /* 비대면 회의의 최초 액션 분배 확정 시각을 기록하는 저장소 계약이다. */
+    @Autowired
+    private MeetingActionConfirmationRepository meetingActionConfirmationRepository;
 
     /* 테스트 회의 행을 저장하고 초기화하는 기술 저장소다. */
     @Autowired
@@ -449,6 +454,47 @@ class MeetingQueryPersistenceAdapterTest {
         assertThat(companyWidePage.totalPages()).isEqualTo(2);
     }
 
+    /* 확정 여부가 비대면 회의의 MEET-02 노출 기준으로 실제 적용되는지 검증한다. */
+    @Test
+    @DisplayName("액션 분배가 확정된 비대면 회의만 목록에 노출한다")
+    void exposesOnlyConfirmedOnlineMeetings() {
+        /* 예약 시간이 없는 동일 회사 비대면 회의 두 건을 저장한다. */
+        MeetingJpaEntity confirmed = springDataMeetingRepository.saveAndFlush(onlineMeeting(
+                10L, 12L, "확정된 비대면 회의", 3L
+        ));
+        MeetingJpaEntity pending = springDataMeetingRepository.saveAndFlush(onlineMeeting(
+                10L, 12L, "미확정 비대면 회의", 3L
+        ));
+
+        /* 첫 회의에만 최초 액션 분배 확정 시각을 기록하고 영속성 컨텍스트를 비운다. */
+        meetingActionConfirmationRepository.confirmActionsIfAbsent(
+                10L, confirmed.getId(), LocalDateTime.of(2026, 8, 16, 20, 0)
+        );
+        entityManager.clear();
+
+        /* 일반 기간과 무관하게 회사 전체 회의 목록을 조회한다. */
+        MeetingListRepository.MeetingPage page = meetingListRepository.findMeetings(
+                new MeetingListRepository.MeetingListCriteria(
+                        10L, 3L, true, null, null,
+                        LocalDateTime.of(2026, 8, 1, 0, 0),
+                        LocalDateTime.of(2026, 8, 31, 23, 59, 59),
+                        null, null, 0, 20
+                )
+        );
+
+        /* 확정 회의만 반환되고 비대면·nullable 예약 정보가 읽기 모델에 유지돼야 한다. */
+        assertThat(page.meetings())
+                .extracting(MeetingListRepository.MeetingListSnapshot::meetingId)
+                .containsExactly(confirmed.getId());
+        assertThat(page.meetings().get(0).isOnline()).isTrue();
+        assertThat(page.meetings().get(0).startAt()).isNull();
+        assertThat(page.meetings().get(0).endAt()).isNull();
+        assertThat(page.meetings().get(0).meetingRoomId()).isNull();
+        assertThat(page.meetings())
+                .extracting(MeetingListRepository.MeetingListSnapshot::meetingId)
+                .doesNotContain(pending.getId());
+    }
+
     /* scope=HOSTED·ATTENDING이 companyWideRead와 무관하게 요청자 본인 기준으로 좁히는지 검증한다. */
     @Test
     @DisplayName("scope=HOSTED·ATTENDING은 회사 전체 열람 권한과 무관하게 본인 기준으로 좁힌다")
@@ -503,6 +549,26 @@ class MeetingQueryPersistenceAdapterTest {
     ) {
         /* 개설자를 지정하지 않는 기존 호출부와의 호환을 위해 기본 개설자 3번을 사용한다. */
         return meeting(companyId, projectId, title, startAt, 3L);
+    }
+
+    /* 예약 시간·회의실 없이 저장할 MEET-18 비대면 회의 엔티티를 만든다. */
+    private MeetingJpaEntity onlineMeeting(
+            Long companyId,
+            Long projectId,
+            String title,
+            Long hostMemberId
+    ) {
+        /* 실제 MEET-18 생성 팩토리를 사용해 nullable 예약 필드와 isOnline=true를 재현한다. */
+        return MeetingJpaEntity.from(Meeting.createOnline(
+                companyId,
+                projectId,
+                100L,
+                hostMemberId,
+                title,
+                false,
+                null,
+                List.of(hostMemberId)
+        ));
     }
 
     /* 테스트 회의 조건과 지정 개설자로 필수 컬럼을 모두 가진 영속성 엔티티를 만든다. */

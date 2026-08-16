@@ -163,7 +163,7 @@ class ProjectServiceTest {
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(1L, 2L), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY, null, null, null, "desc", 0, 20)).thenReturn(List.of(project));
         when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(1L);
-        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of());
+        when(actionQueryPort.countActionsByProjectIds(any(), any())).thenReturn(List.of());
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of());
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of(
                 new TeamReferenceRepository.TeamName(1L, "개발팀"),
@@ -174,6 +174,8 @@ class ProjectServiceTest {
         assertThat(result.items()).containsExactly(
                 new GetProjectListUseCase.ProjectListItem(project, 0, 0, 0, List.of("개발팀", "마케팅팀")));
         assertThat(result.totalElements()).isEqualTo(1L);
+        // 회사 스코프가 집계 조회까지 전달되는지 못박는다 — 안 넘기면 다른 회사 액션이 분모에 섞인다.
+        verify(actionQueryPort).countActionsByProjectIds(COMPANY, List.of(1L));
     }
 
     // CodeRabbit 지적(PR #452) — 기존 list 테스트가 전부 keyword=null만 써서, 비어있지 않은
@@ -199,7 +201,7 @@ class ProjectServiceTest {
                 ProjectStatus.TODO, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31), OWNER, List.of(), null, null, null);
         when(projectRepository.findAllByCompanyId(COMPANY, null, null, null, "desc", 0, 20)).thenReturn(List.of(projectA, projectB));
         when(projectRepository.countByCompanyId(COMPANY, null, null)).thenReturn(2L);
-        when(actionQueryPort.countActionsByProjectIds(any())).thenReturn(List.of(
+        when(actionQueryPort.countActionsByProjectIds(any(), any())).thenReturn(List.of(
                 new ProjectActionCount(1L, 5, 2)));
         when(meetingQueryPort.countMeetingsByProjectIds(eq(COMPANY), any())).thenReturn(Map.of(1L, 3L));
         when(teamReferenceRepository.findTeamNames(any(), eq(COMPANY))).thenReturn(List.of());
@@ -362,7 +364,12 @@ class ProjectServiceTest {
         when(actionQueryPort.findTeamActionsByProjectId(PROJECT_ID)).thenReturn(List.of(
                 new TeamActionSummary(10L, "지연된 팀 액션", 1L, "개발팀", ActionStatus.IN_PROGRESS, LocalDate.of(2020, 1, 1)),
                 new TeamActionSummary(11L, "완료된 팀 액션", 1L, "개발팀", ActionStatus.DONE, LocalDate.of(2020, 1, 1)),
-                new TeamActionSummary(12L, "예정된 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2099, 1, 1))
+                new TeamActionSummary(12L, "예정된 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2099, 1, 1)),
+                // 이 행이 이번 변경의 회귀 본체다 — 마감이 지난 '할일'. 전에는 status != DONE으로
+                // 판정해 true였고, 같은 액션이 액션 목록에선 false로 내려가 배지가 화면마다 갈렸다.
+                new TeamActionSummary(13L, "시작 안 한 마감초과 팀 액션", 1L, "개발팀", ActionStatus.TODO, LocalDate.of(2020, 1, 1)),
+                // dueDate가 null인 행도 타임라인으로 온다(record는 nullable) — 지연 아님.
+                new TeamActionSummary(14L, "마감일 없는 팀 액션", 1L, "개발팀", ActionStatus.IN_PROGRESS, null)
         ));
 
         List<TimelineItem> timeline = projectService.getTimeline(COMPANY, PROJECT_ID);
@@ -371,7 +378,9 @@ class ProjectServiceTest {
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple(10L, true),
                         org.assertj.core.groups.Tuple.tuple(11L, false),
-                        org.assertj.core.groups.Tuple.tuple(12L, false)
+                        org.assertj.core.groups.Tuple.tuple(12L, false),
+                        org.assertj.core.groups.Tuple.tuple(13L, false),
+                        org.assertj.core.groups.Tuple.tuple(14L, false)
                 );
     }
 

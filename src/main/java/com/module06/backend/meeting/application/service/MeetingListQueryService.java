@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
@@ -130,6 +131,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         /* 현재 페이지의 중복 없는 회의실 표시 정보를 한 번의 Port 호출로 조회해 색인한다. */
         List<Long> meetingRoomIds = page.meetings().stream()
                 .map(MeetingListSnapshot::meetingRoomId)
+                .filter(Objects::nonNull)
                 .distinct()
                 .toList();
         Map<Long, MeetingRoomSnapshot> meetingRooms = indexMeetingRooms(
@@ -177,7 +179,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         List<MeetingListResult.MeetingItem> meetings = page.meetings().stream()
                 .map(meeting -> toResultItem(
                         meeting,
-                        meetingRooms.get(meeting.meetingRoomId()),
+                        findMeetingRoom(meetingRooms, meeting.meetingRoomId()),
                         projects.get(meeting.projectId()),
                         actionCounts.getOrDefault(meeting.meetingId(), 0L),
                         resolveSummaryStatus(meeting, stalledSummaryMeetingIds),
@@ -198,6 +200,14 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                         page.totalPages()
                 )
         );
+    }
+
+    /* 비대면 회의는 회의실 식별자가 없으므로 null 키 조회를 피하고 회의실 없음으로 조립한다. */
+    private MeetingRoomSnapshot findMeetingRoom(
+            Map<Long, MeetingRoomSnapshot> meetingRooms,
+            Long meetingRoomId
+    ) {
+        return meetingRoomId == null ? null : meetingRooms.get(meetingRoomId);
     }
 
     /* 인증 식별자·페이지·기간을 검증하고 생략된 값이 채워진 내부 Query를 반환한다. */
@@ -423,18 +433,30 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meeting.teamId(),
                 originLabel(meeting.teamId()),
                 summaryStatus,
+                meeting.isOnline(),
                 meeting.startAt(),
                 meeting.endAt(),
                 meeting.attendeeMemberIds().size(),
                 actionCount,
                 meeting.hostMemberId().equals(requesterMemberId),
                 isEntryAvailable(meeting, now),
-                (int) Duration.between(meeting.startAt(), meeting.endAt()).toMinutes(),
+                durationMinutes(meeting),
                 attendees,
                 agendaPreview,
-                new MeetingListResult.MeetingRoom(meetingRoom.meetingRoomId(), meetingRoom.name()),
+                meetingRoom == null
+                        ? null
+                        : new MeetingListResult.MeetingRoom(meetingRoom.meetingRoomId(), meetingRoom.name()),
                 new MeetingListResult.Project(project.projectId(), project.tag(), project.name())
         );
+    }
+
+    /* 예약 시간이 없는 비대면 회의는 기간을 계산하지 않고 0분으로 응답한다. */
+    private int durationMinutes(MeetingListSnapshot meeting) {
+        /* 대면 회의만 startAt·endAt 차이를 계산해 기존 카드 계약을 유지한다. */
+        if (meeting.startAt() == null || meeting.endAt() == null) {
+            return 0;
+        }
+        return (int) Duration.between(meeting.startAt(), meeting.endAt()).toMinutes();
     }
 
     private String originLabel(Long teamId) {
@@ -447,6 +469,10 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
      * 회의가 원래 예약 시간 창 안에 있으면 시간 창만으로는 잘못 true가 나온다 — 상태로 먼저 막는다.
      */
     private boolean isEntryAvailable(MeetingListSnapshot meeting, LocalDateTime now) {
+        /* 비대면 완료 회의는 입장 대신 상세 조회 대상이므로 예약 시간 정책을 적용하지 않는다. */
+        if (meeting.startAt() == null || meeting.endAt() == null) {
+            return false;
+        }
         if (meeting.status() != MeetingStatus.SCHEDULED && meeting.status() != MeetingStatus.IN_PROGRESS) {
             return false;
         }

@@ -122,6 +122,10 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
     // teamId=null, 팀 목록은 assigneeMemberId=null로 호출) — totalElements가 필터링 전 기준이면
     // 화면이 거짓말을 하게 된다. overdue는 저장값이 아니라 status=IN_PROGRESS AND dueDate<오늘로
     // 매번 계산하는 파생 조건이다(status처럼 컬럼이 따로 없음, 2026-08-07 재설계와 동일 정의).
+    //
+    // Action.isDelayed와 같은 규칙이다 — 한쪽만 고치면 목록 필터와 배지가 어긋난다. Specification은
+    // SQL로 나가야 해서 그 메서드를 부를 수 없어 판정식이 두 벌인 것은 구조상 불가피하다.
+    // 그래서 서로를 주석으로 가리키고, 두 벌이 같은 답을 내는지는 테스트로 못박는다.
     private Specification<ActionJpaEntity> buildActionSpecification(
             ActionType actionType, Long assigneeMemberId, Long teamId, ActionStatus status, Boolean overdue) {
         return (root, query, cb) -> {
@@ -331,14 +335,21 @@ public class ActionPersistenceAdapter implements ActionRepository, ActionQueryPo
                 .toList();
     }
 
+    // PERSONAL 액션만 센다(WORKFLOW §1, 2026-08-16 확정) — 팀 액션은 하위 개인 액션 완료로 파생되는
+    // 거울이라(reconcileTeamActionStatus) 함께 세면 같은 완료가 분자·분모에 두 번 잡힌다.
+    //
+    // 그래서 하위 개인 액션이 아직 없는 팀 액션만 있는 프로젝트는 집계 결과가 아예 없고,
+    // 호출부에서 0/0 → 진척율 0%로 떨어진다. 100%가 아니라 0%인 것이 의도한 값이다.
     @Override
-    public List<ActionQueryPort.ProjectActionCount> countActionsByProjectIds(List<Long> projectIds) {
+    public List<ActionQueryPort.ProjectActionCount> countActionsByProjectIds(Long companyId, List<Long> projectIds) {
         if (projectIds.isEmpty()) {
             return List.of();
         }
 
         Map<Long, List<SpringDataActionRepository.ProjectActionProjection>> byProjectId =
-                springDataActionRepository.findAllByProjectIdIn(projectIds).stream()
+                springDataActionRepository
+                        .findAllByActionTypeAndCompanyIdAndProjectIdIn(ActionType.PERSONAL, companyId, projectIds)
+                        .stream()
                         .collect(Collectors.groupingBy(SpringDataActionRepository.ProjectActionProjection::getProjectId));
 
         return byProjectId.entrySet().stream()

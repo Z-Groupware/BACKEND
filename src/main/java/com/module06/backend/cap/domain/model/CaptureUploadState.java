@@ -25,12 +25,26 @@ public class CaptureUploadState {
     private int blocksFormed;
     // 마지막으로 형성된 STT 블록의 끝 지점(ms) — 다음 블록이 빈틈·겹침 없이 여기서부터 시작한다.
     private long lastBlockEndOffsetMs;
+    // 블록 예약(자리 선점) 기준 진행 오프셋(ms) — lastBlockEndOffsetMs와 다른 값이다.
+    // lastBlockEndOffsetMs는 무거운 파이프라인(ffmpeg·AI-01)이 다 끝나야만 정해지는 "실제 절단
+    // 지점"이라, 그 사이(몇 초)엔 갱신되지 않는다. 그 창 안에 뒤이은 트리거가 같은 구간을 "아직
+    // 문턱 안 넘음"으로 오판해 또 예약해버리는 레이스가 실제로 있었다(k6 정합성 테스트로 재현,
+    // block_seq 중복 생성 + STT 이중 제출). reservedUpToOffsetMs는 예약(blocksFormed CAS)과 같은
+    // 트랜잭션 안에서 즉시 전진해서, 그 창을 없앤다.
+    private long reservedUpToOffsetMs;
+    // 실제로 끝난(오디오 조립+STT 제출까지 완료된) 블록 수 — 회의 전체를 관통한다(blocksFormed와
+    // 같은 스코프, 세그먼트 무관). blocksFormed(예약된 수)와 이 값이 같아야 "지금 진행 중인
+    // (아직 안 끝난) 예약이 없다"는 뜻이다. CodeRabbit 지적(#2차) — reservedUpToOffsetMs만으로는
+    // "같은 구간 재예약"만 막지, "앞 블록이 안 끝났는데 다음 블록을 먼저 예약해서 둘 다 같은
+    // lastBlockEndOffsetMs(옛 값)를 오디오 시작점으로 써 서로 겹치는 것"은 못 막는다 — 그래서
+    // 세그먼트당 진행 중인 예약을 1개로 제한하는 문이 이 필드다.
+    private int finalizedBlocksCount;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     private CaptureUploadState(Long meetingId, int segmentSeq, Long recorderPersonId, int lastSeq,
-                               int blocksFormed, long lastBlockEndOffsetMs, LocalDateTime createdAt,
-                               LocalDateTime updatedAt) {
+                               int blocksFormed, long lastBlockEndOffsetMs, long reservedUpToOffsetMs,
+                               int finalizedBlocksCount, LocalDateTime createdAt, LocalDateTime updatedAt) {
         if (meetingId == null) {
             throw new BusinessException(CapErrorCode.CAP_REQUIRED_ID);
         }
@@ -40,21 +54,24 @@ public class CaptureUploadState {
         this.lastSeq = lastSeq;
         this.blocksFormed = blocksFormed;
         this.lastBlockEndOffsetMs = lastBlockEndOffsetMs;
+        this.reservedUpToOffsetMs = reservedUpToOffsetMs;
+        this.finalizedBlocksCount = finalizedBlocksCount;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
     // 신규 생성 — 이 회의에 처음 presign을 호출한 사람을 녹음자로 삼아 세그먼트 0부터 시작
     public static CaptureUploadState startWithRecorder(Long meetingId, Long recorderPersonId) {
-        return new CaptureUploadState(meetingId, 0, recorderPersonId, 0, 0, 0L, null, null);
+        return new CaptureUploadState(meetingId, 0, recorderPersonId, 0, 0, 0L, 0L, 0, null, null);
     }
 
     // DB에서 읽어온 값으로 복원 (JPA 엔티티 → 도메인 모델)
     public static CaptureUploadState restore(Long meetingId, int segmentSeq, Long recorderPersonId, int lastSeq,
-                                             int blocksFormed, long lastBlockEndOffsetMs,
-                                             LocalDateTime createdAt, LocalDateTime updatedAt) {
+                                             int blocksFormed, long lastBlockEndOffsetMs, long reservedUpToOffsetMs,
+                                             int finalizedBlocksCount, LocalDateTime createdAt,
+                                             LocalDateTime updatedAt) {
         return new CaptureUploadState(meetingId, segmentSeq, recorderPersonId, lastSeq, blocksFormed,
-                lastBlockEndOffsetMs, createdAt, updatedAt);
+                lastBlockEndOffsetMs, reservedUpToOffsetMs, finalizedBlocksCount, createdAt, updatedAt);
     }
 
     /**
@@ -84,6 +101,9 @@ public class CaptureUploadState {
         segmentSeq++;
         lastSeq = 0;
         lastBlockEndOffsetMs = 0L;
+        // reservedUpToOffsetMs도 세그먼트 안에서만 의미가 있다 — lastBlockEndOffsetMs와 같은 이유로
+        // 같이 리셋한다(안 하면 새 세그먼트의 예약 판정이 이전 세그먼트 값을 물려받아 오염된다).
+        reservedUpToOffsetMs = 0L;
     }
 
     /*
@@ -126,12 +146,59 @@ public class CaptureUploadState {
      * 저장하도록 조율한다). 그래서 파이프라인이 실패해도 blocksFormed는 이미 전진해 있다 —
      * block_seq에 빈 번호 하나가 남을 뿐(해롭지 않다), 다음 시도가 다시 경합하는 것보다 안전하다.
      *
+     * blocksFormed만 올리는 버전(세그먼트 무관 — 회의 전체를 관통하는 번호라서 안전)과, 거기에
+     * reservedUpToOffsetMs까지 같이 전진시키는 버전 둘로 나뉜다. reservedUpToOffsetMs는
+     * lastBlockEndOffsetMs와 마찬가지로 **그 세그먼트 안에서만** 의미가 있다 — 호출자
+     * (tryReserveNextBlockSeq)가 예약 당시의 세그먼트가 지금 세그먼트와 같을 때만 오프셋 버전을
+     * 불러야 한다. 다르면(그 사이 이어받기가 일어났으면) 오프셋 없는 버전을 써야, 이미 새
+     * 세그먼트용으로 0 리셋된 reservedUpToOffsetMs를 옛 세그먼트의 값으로 오염시키지 않는다.
+     *
      * @return 이번에 확정된 블록 순번(증가 전 값)
      */
     public int reserveNextBlockSeq() {
         int reservedSeq = blocksFormed;
         blocksFormed++;
         return reservedSeq;
+    }
+
+    /*
+     * targetOffsetMs를 reservedUpToOffsetMs에도 같이 반영한다 — blocksFormed CAS와 같은 트랜잭션
+     * 안에서 이 구간을 즉시 "선점됨"으로 표시해야, 무거운 파이프라인이 도는 동안 뒤이은 트리거가
+     * 같은 구간을 다시 문턱 통과로 오판하지 않는다(k6 정합성 테스트로 재현된 레이스, block_seq
+     * 중복 생성 + STT 이중 제출 원인). 호출자(tryReserveNextBlockSeq)가 이미 지금 세그먼트가
+     * 예약 당시 세그먼트와 같고 targetOffsetMs > reservedUpToOffsetMs임을 확인한 뒤에만 부르므로,
+     * 여기서는 다시 검증하지 않는다.
+     */
+    public int reserveNextBlockSeqAndAdvanceOffset(long targetOffsetMs) {
+        int reservedSeq = reserveNextBlockSeq();
+        reservedUpToOffsetMs = targetOffsetMs;
+        return reservedSeq;
+    }
+
+    /*
+     * 지금 진행 중인(예약은 됐지만 아직 안 끝난) 블록이 없는가 — 세그먼트당 진행 중인 예약을
+     * 1개로 제한하는 문. blocksFormed(예약된 수)와 finalizedBlocksCount(끝난 수)가 같으면
+     * "밀린 예약 없음"이다.
+     *
+     * <h2>왜 필요한가(CodeRabbit 지적)</h2>
+     * reservedUpToOffsetMs만으로는 "같은 구간 재예약"만 막는다. 앞 블록이 아직 안 끝난 채로(청크가
+     * 계속 쌓여) 다음 블록이 먼저 예약되면, 두 블록 다 여전히 옛 lastBlockEndOffsetMs(무거운
+     * 파이프라인이 안 끝나 갱신 전)를 오디오 시작점으로 써서 서로 겹치는 오디오를 만든다.
+     * tryReserveNextBlockSeq가 이 메서드로 "앞 블록이 이미 끝났는지"까지 확인해야 그 겹침을 막는다.
+     */
+    public boolean hasNoPendingReservation() {
+        return blocksFormed == finalizedBlocksCount;
+    }
+
+    /*
+     * 블록 하나가 "끝남"(오디오 조립+STT 제출까지 완료 — 또는 TAIL처럼 애초에 동기로 한 번에
+     * 끝나는 경우)을 표시한다. 일반 블록은 finalizeBlockOffsetIfSegmentMatches가 부르고, TAIL은
+     * lastBlockEndOffsetMs를 안 건드리는 대신(세그먼트 종단이라 다음 블록이 그 세그먼트에 없다)
+     * 예약 성공 즉시 이 메서드로 직접 "끝남"을 표시한다(tryReserveNextBlockSeq의 completesImmediately
+     * 분기).
+     */
+    public void markBlockFinalized() {
+        finalizedBlocksCount++;
     }
 
     /*
@@ -153,6 +220,10 @@ public class CaptureUploadState {
      * @return 실제로 적용됐으면 true, 세그먼트가 이미 바뀌어 건너뛰었으면 false
      */
     public boolean finalizeBlockOffsetIfSegmentMatches(int expectedSegmentSeq, long blockEndOffsetMs) {
+        // 세그먼트가 다르더라도 이 블록 자체는 이미 만들어져 STT 제출까지 끝났다 — "진행 중인
+        // 예약" 상태는 끝난 것이므로 finalizedBlocksCount는 두 분기 모두에서 전진해야 한다
+        // (안 그러면 다음 세그먼트의 첫 예약이 이 옛 세그먼트 블록 때문에 영영 막힌다).
+        finalizedBlocksCount++;
         if (segmentSeq != expectedSegmentSeq) {
             return false;
         }
@@ -169,6 +240,8 @@ public class CaptureUploadState {
     public int getLastSeq() { return lastSeq; }
     public int getBlocksFormed() { return blocksFormed; }
     public long getLastBlockEndOffsetMs() { return lastBlockEndOffsetMs; }
+    public long getReservedUpToOffsetMs() { return reservedUpToOffsetMs; }
+    public int getFinalizedBlocksCount() { return finalizedBlocksCount; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

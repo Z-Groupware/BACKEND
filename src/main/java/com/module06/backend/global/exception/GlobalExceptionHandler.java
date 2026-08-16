@@ -1,6 +1,7 @@
 package com.module06.backend.global.exception;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -13,6 +14,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 import com.module06.backend.global.audit.AuthzAuditLogger;
@@ -53,6 +55,10 @@ public class GlobalExceptionHandler {
         List<ErrorResponse.FieldErrorDetail> details = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> new ErrorResponse.FieldErrorDetail(error.getField(), error.getDefaultMessage()))
                 .toList();
+        // 요청 본문(@RequestBody) 검증 실패. 지금까지 이 400 은 응답으로만 나가고 로그에 한 줄도
+        // 남지 않아(액세스 로그도 없다) "어느 요청의 어느 필드가 왜 튕겼나"를 사후에 되짚을 수
+        // 없었다. 재현 없이 짚도록 URI·필드·사유를 남긴다.
+        logBadRequest("요청 본문 검증 실패", request, "필드오류=[" + formatFieldErrors(details) + "]");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId(), details));
     }
@@ -65,6 +71,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ErrorResponse> handleHandlerMethodValidationException(
             HandlerMethodValidationException ex, HttpServletRequest request) {
+        logBadRequest("파라미터 검증 실패", request, ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -73,6 +80,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolationException(
             ConstraintViolationException ex, HttpServletRequest request) {
+        logBadRequest("제약 위반", request, ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -80,6 +88,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex,
                                                                           HttpServletRequest request) {
+        logBadRequest("잘못된 인자", request, ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -87,6 +96,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException ex,
                                                                                   HttpServletRequest request) {
+        // 본문 자체가 JSON 으로 파싱되지 않은 경우(형 불일치·깨진 payload 등). 원인 메시지는
+        // 가장 구체적인 cause 로 남긴다 — 최상위 메시지는 래퍼라 실제 이유가 묻힌다.
+        logBadRequest("본문 파싱 실패", request, ex.getMostSpecificCause().getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, request.getRequestURI(), currentTraceId()));
     }
@@ -118,6 +130,20 @@ public class GlobalExceptionHandler {
      * <p>traceId 를 메시지에 직접 박는다. logback 설정 파일이 없어 Spring 기본 패턴을 쓰는데,
      * 그 패턴에는 MDC 가 들어 있지 않아 {@code %X{traceId}} 로는 찍히지 않는다.
      */
+    /**
+     * SSE 등 비동기 응답에서 <b>클라이언트가 먼저 연결을 끊은 뒤</b> 서버가 닫힌 소켓에 쓰려다 나는
+     * 정상적인 예외다(원인은 대개 {@code IOException: Broken pipe}). 서버 결함이 아니므로 아래
+     * catch-all 로 흘려보내면 500·ERROR·스택트레이스로 찍혀 <b>진짜 장애 로그를 덮는 소음</b>이 된다
+     * (예: {@code /api/notifications/stream} 구독 종료마다 ERROR 한 뭉치).
+     *
+     * <p>소켓이 이미 닫혀 응답 본문을 쓸 수도 없다 — 그래서 별도 응답을 만들지 않고(void) DEBUG 로만
+     * 남긴다. 끊김 사실 자체를 추적하고 싶을 때만 로그 레벨을 낮춰 보면 된다.
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException ex, HttpServletRequest request) {
+        log.debug("클라이언트 연결 종료로 비동기 응답 중단 — {} {}", request.getMethod(), request.getRequestURI());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
         log.error("처리되지 않은 예외 — traceId={} {} {}",
@@ -128,5 +154,22 @@ public class GlobalExceptionHandler {
 
     private String currentTraceId() {
         return MDC.get(TRACE_ID_MDC_KEY);
+    }
+
+    /**
+     * 클라이언트 오류(400)를 한 줄로 남긴다. 서버 오류(500)와 달리 스택트레이스는 남기지 않되,
+     * catch-all(500)과 같은 형식(traceId·메서드·URI)을 유지해 응답의 traceId 로 로그를 대조할 수
+     * 있게 한다. 레벨은 warn 이다 — 서버 결함이 아니라 잘못 들어온 요청이므로 error 로 올리면
+     * 진짜 장애 신호에 잡음을 섞는다.
+     */
+    private void logBadRequest(String kind, HttpServletRequest request, String detail) {
+        log.warn("{}(400) — traceId={} {} {} {}",
+                kind, currentTraceId(), request.getMethod(), request.getRequestURI(), detail);
+    }
+
+    private static String formatFieldErrors(List<ErrorResponse.FieldErrorDetail> details) {
+        return details.stream()
+                .map(d -> d.field() + "='" + d.reason() + "'")
+                .collect(Collectors.joining(", "));
     }
 }

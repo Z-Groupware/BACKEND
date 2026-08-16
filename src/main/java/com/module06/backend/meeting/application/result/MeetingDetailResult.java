@@ -47,7 +47,13 @@ public record MeetingDetailResult(
     }
 
     /* 회의 개설자를 별도로 표시하기 위한 최소 구성원 정보다. */
-    public record Host(Long memberId, String name) {
+    public record Host(Long memberId, String name, boolean isResigned) {
+
+        /* 기존 테스트와 호출부가 퇴사 여부 계약 확장 전에도 호환되도록 한다. */
+        public Host(Long memberId, String name) {
+            /* 명시적인 퇴사 정보가 없으면 재직 상태로 간주한다. */
+            this(memberId, name, false);
+        }
     }
 
     /* 상세 화면의 참석자 명단에 표시할 구성원 정보다. */
@@ -56,8 +62,15 @@ public record MeetingDetailResult(
             String name,
             Long teamId,
             String teamName,
-            String jobPosition
+            String jobPosition,
+            boolean isResigned
     ) {
+
+        /* 기존 테스트와 호출부가 퇴사 여부 계약 확장 전에도 호환되도록 한다. */
+        public Attendee(Long memberId, String name, Long teamId, String teamName, String jobPosition) {
+            /* 명시적인 퇴사 정보가 없으면 재직 상태로 간주한다. */
+            this(memberId, name, teamId, teamName, jobPosition, false);
+        }
     }
 
     public record Agenda(String mainTopic, List<String> subTopics) {

@@ -14,6 +14,7 @@ import com.module06.backend.action.application.port.ActionQueryPort.ProjectActio
 import com.module06.backend.action.application.port.MeetingActionQueryPort.MeetingUndispatchedActions;
 import com.module06.backend.action.domain.model.ActionReviewStatus;
 import com.module06.backend.action.domain.model.ActionStatus;
+import com.module06.backend.action.domain.model.ActionType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -143,26 +144,44 @@ class ActionPersistenceAdapterTest {
 
     @Test
     void countActionsByProjectIdsReturnsEmptyWithoutQueryingWhenProjectIdsIsEmpty() {
-        List<ProjectActionCount> result = adapter.countActionsByProjectIds(List.of());
+        List<ProjectActionCount> result = adapter.countActionsByProjectIds(1L, List.of());
 
         assertThat(result).isEmpty();
-        verify(springDataActionRepository, never()).findAllByProjectIdIn(anyList());
+        verify(springDataActionRepository, never())
+                .findAllByActionTypeAndCompanyIdAndProjectIdIn(any(), any(), anyList());
     }
 
     @Test
     void countActionsByProjectIdsGroupsAndCountsDoneSeparately() {
-        when(springDataActionRepository.findAllByProjectIdIn(List.of(1L, 2L))).thenReturn(List.of(
-                actionProjection(1L, ActionStatus.DONE),
-                actionProjection(1L, ActionStatus.DONE),
-                actionProjection(1L, ActionStatus.TODO),
-                actionProjection(2L, ActionStatus.IN_PROGRESS)
-        ));
+        when(springDataActionRepository
+                .findAllByActionTypeAndCompanyIdAndProjectIdIn(ActionType.PERSONAL, 1L, List.of(1L, 2L)))
+                .thenReturn(List.of(
+                        actionProjection(1L, ActionStatus.DONE),
+                        actionProjection(1L, ActionStatus.DONE),
+                        actionProjection(1L, ActionStatus.TODO),
+                        actionProjection(2L, ActionStatus.IN_PROGRESS)
+                ));
 
-        List<ProjectActionCount> result = adapter.countActionsByProjectIds(List.of(1L, 2L));
+        List<ProjectActionCount> result = adapter.countActionsByProjectIds(1L, List.of(1L, 2L));
 
         assertThat(result).containsExactlyInAnyOrder(
                 new ProjectActionCount(1L, 3, 2),
                 new ProjectActionCount(2L, 1, 0));
+    }
+
+    // 팀 액션은 집계에서 빠진다(WORKFLOW §1). 스텁 데이터로는 그것을 못 보인다 — 리포지터리가
+    // 이미 걸러서 돌려주므로 가짜 리포지터리에 TEAM 행을 넣어도 의미가 없다. 그래서 검증 대상은
+    // 결과가 아니라 "어떤 인자로 부르는가" 하나다.
+    @Test
+    void countActionsByProjectIdsQueriesPersonalActionsOfOwnCompanyOnly() {
+        when(springDataActionRepository
+                .findAllByActionTypeAndCompanyIdAndProjectIdIn(ActionType.PERSONAL, 7L, List.of(1L)))
+                .thenReturn(List.of(actionProjection(1L, ActionStatus.DONE)));
+
+        adapter.countActionsByProjectIds(7L, List.of(1L));
+
+        verify(springDataActionRepository)
+                .findAllByActionTypeAndCompanyIdAndProjectIdIn(ActionType.PERSONAL, 7L, List.of(1L));
     }
 
     private SpringDataActionRepository.UndispatchedProjection projection(Long sourceMeetingId) {
