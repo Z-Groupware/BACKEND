@@ -119,6 +119,43 @@ class SttResultPollingServiceTest {
     }
 
     @Test
+    @DisplayName("⚠ 화자 라벨에 블록 번호를 붙인다 — 안 붙이면 블록 경계에서 화자가 뒤바뀐다")
+    void 화자_라벨을_회의_기준으로_옮긴다() {
+        /*
+         * Transcribe 는 잡 하나 안에서만 라벨을 일관되게 준다. 블록 2 의 spk_0 과 블록 3 의
+         * spk_0 은 같은 사람이 아니다 — 그대로 저장하면 L1 이 회의 전체에서 둘을 한 사람으로
+         * 묶는다. 오프셋과 정확히 같은 종류의 실수다.
+         */
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+
+        List<NewUtterance> captured = captureUtterances();
+
+        service().pollOnce();
+
+        assertThat(captured).hasSize(1);
+        assertThat(captured.get(0).speakerLabel()).isEqualTo(BLOCK_SEQ + ":spk_0");
+    }
+
+    @Test
+    @DisplayName("라벨이 없으면 블록 번호만 남기지 않는다 — 라벨 없는 발화가 한 화자로 묶인다")
+    void 라벨이_없으면_비운채_둔다() {
+        given(queued());
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(List.of(
+                new Word(0, 400, "로드맵", false, null),
+                new Word(400, 900, "정리합시다", false, null))));
+        when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
+
+        List<NewUtterance> captured = captureUtterances();
+
+        service().pollOnce();
+
+        assertThat(captured).hasSize(1);
+        assertThat(captured.get(0).speakerLabel()).isNull();
+    }
+
+    @Test
     @DisplayName("길이를 모르는 블록은 인식 결과로 끝을 채운다 — 수동 업로드(WHOLE_FILE) 경로")
     void 길이를_모르면_복구한다() {
         /*
@@ -435,12 +472,12 @@ class SttResultPollingServiceTest {
                 createdAt);
     }
 
-    /* 블록 기준 오프셋 0~900ms 의 한 문장. */
+    /* 블록 기준 오프셋 0~900ms 의 한 문장. 라벨도 블록 기준이다(spk_0). */
     private static List<Word> words() {
         return List.of(
-                new Word(0, 400, "로드맵", false),
-                new Word(400, 900, "정리합시다", false),
-                new Word(900, 900, ".", true));
+                new Word(0, 400, "로드맵", false, "spk_0"),
+                new Word(400, 900, "정리합시다", false, "spk_0"),
+                new Word(900, 900, ".", true, null));
     }
 
     @SuppressWarnings("unchecked")

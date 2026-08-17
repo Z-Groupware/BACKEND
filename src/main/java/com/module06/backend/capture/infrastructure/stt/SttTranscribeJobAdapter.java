@@ -2,6 +2,7 @@ package com.module06.backend.capture.infrastructure.stt;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -20,6 +21,7 @@ import software.amazon.awssdk.services.transcribe.model.TranscribeException;
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository;
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository.VocabularyView;
 import com.module06.backend.capture.application.port.out.SttJobPort;
+import com.module06.backend.capture.application.service.MeetingAttendeeCountProvider;
 import com.module06.backend.capture.domain.model.VocabularyStatus;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
@@ -33,14 +35,31 @@ import com.module06.backend.global.exception.BusinessException;
  * 스텁이 예고해 둔 그 상태 그대로다. 다만 이제 **제공자 쪽에는 실제로 잡이 생긴다**는 점이
  * 다르다. 폴링이 붙기 전까지는 AWS 콘솔이 유일한 확인 경로다.
  *
- * <h2>화자 분리(diarization)를 켜지 않는다 — 설계 결정이다</h2>
- * Transcribe 의 ShowSpeakerLabels 는 목소리로 화자를 추정한다. 이 제품은 그 문제를 **기기 문제로
- * 바꿔** 풀기로 했다 — 참석자 각자 브라우저가 자기 person_id 와 마이크 음량(rms)을 실어 보내고,
- * L1 이 시간창을 맞춰 음량이 가장 큰 사람을 화자로 정한다(SpeakerAttributionResolver).
+ * <h2>화자 분리(diarization)를 켠다 — 2026-08-17 결정을 뒤집었다</h2>
+ * 예전 주석은 여기서 ShowSpeakerLabels 를 **끄는** 것이 설계 결정이라고 적고 있었다. 근거는
+ * "이 제품은 화자를 기기 문제로 바꿔 푼다 — 참석자 각자 브라우저가 person_id 와 rms 를 실어
+ * 보내고 L1 이 음량이 가장 큰 사람을 고른다"였다.
  *
- * 켜면 두 가지가 나빠진다. 요금이 오르고, **믿지 않기로 한 신호가 응답에 섞인다** — 나중에
- * 누군가 그 값을 "있으니까" 쓰기 시작하면 화자 판정이 두 갈래가 되고, 둘이 다를 때 어느 쪽이
- * 맞는지 판단할 근거가 없다. 쓰지 않을 값은 받지 않는다.
+ * <b>그 근거가 사라졌다.</b> 녹음이 host 한 대로 확정되면서 자막도 host 만 보내게 됐고
+ * (CaptionController host-only), L1 의 「전원 자막」 게이트는 참석자가 2명 이상인 모든 회의에서
+ * 거짓이 된다 — 즉 <b>모든 발화의 화자가 NULL 이었다.</b> 자막을 아무리 쌓아도 바뀌지 않는다.
+ * 게이트를 완화하는 방향은 막혀 있다(host 만 자막을 켠 회의에서 남의 발화가 전부 host 것이
+ * 된다). 바꿀 수 있는 결정은 이것 하나였다.
+ *
+ * <h2>예전 반대 사유 둘 중 하나는 여전히 유효하다 — 그래서 주 경로로 올린다</h2>
+ * "믿지 않기로 한 신호가 섞이면 화자 판정이 두 갈래가 되고, 둘이 다를 때 어느 쪽이 맞는지
+ * 판단할 근거가 없다"는 지적은 옳다. 그래서 <b>보조로 붙이지 않는다.</b> 라벨이 있는 발화는
+ * 라벨 경로만, 없는 발화는 rms 경로만 본다 — 둘은 라벨의 유무로 배타적이라 한 발화를 두고
+ * 다투지 않는다(SpeakerAttributionResolver 주석).
+ *
+ * 나머지 하나("요금이 오른다")는 <b>근거를 확인하지 못했다.</b> 뒤집을 때 요금표를 다시 보지
+ * 않았고, 이 주석은 그 값을 아는 척하지 않는다. 실제로 오른다면 그건 이 결정을 되돌릴 사유가
+ * 아니라 상한(MaxSpeakerLabels)과 대상 블록을 좁힐 사유다 — 지금 대안은 화자를 영영 모르는
+ * 것이고, 그쪽은 담당자 배정이 통째로 성립하지 않는다.
+ *
+ * <h2>라벨은 사람이 아니다. 여기서는 붙이기만 한다</h2>
+ * 돌아오는 값은 {@code spk_0}·{@code spk_1} 이고 누구인지는 말하지 않는다. 사람으로 바꾸는 것은
+ * 별도 판정이고(SpeakerLabelAnchorResolver), 이 어댑터는 그 입력을 만들 뿐이다.
  *
  * <h2>언어를 상수로 둔다</h2>
  * ko-KR 고정이다. 프로퍼티로 빼면 "설정할 수 있다"는 뜻이 되는데, 이 제품의 프롬프트·어휘·
@@ -83,16 +102,45 @@ public class SttTranscribeJobAdapter implements SttJobPort {
             "webm", MediaFormat.WEBM,
             "amr", MediaFormat.AMR);
 
+    /*
+     * 화자 수 상한의 허용 범위. Transcribe 가 이 밖의 값을 거절하므로 우리 값을 여기에 가둔다.
+     *
+     * **가두는 것이지 판단하는 것이 아니다.** 참석자가 40명인 회의에서 30 을 보내면 라벨이
+     * 부족해 여러 사람이 한 라벨로 합쳐지는데, 그건 여기서 고칠 수 있는 문제가 아니다 —
+     * 대신 그런 회의는 앵커가 붙지 않아 판정을 포기한다(합쳐진 라벨에 닻을 내리면 남의 발화가
+     * 확정으로 남의 것이 된다). 상한을 넘겼다는 사실은 아래에서 로그로 남긴다.
+     */
+    private static final int MIN_SPEAKER_LABELS = 2;
+    private static final int MAX_SPEAKER_LABELS = 30;
+
+    /*
+     * 참석자 수를 못 읽었을 때 쓰는 상한.
+     *
+     * <h2>왜 지어내는가 — 여기서는 모르는 것이 기권의 근거가 아니다</h2>
+     * 이 코드베이스의 기본은 "모르면 기권"이다. 그런데 그 규칙은 **틀린 값을 쓰면 남에게 일이
+     * 배정되는** 자리를 위한 것이고, 여기는 그 자리가 아니다. 상한을 안 주면 화자 분리 자체가
+     * 꺼지고 그 회의는 화자가 확정적으로 NULL 이 된다 — 기권이 안전한 쪽이 아니라 유일한
+     * 실패다.
+     *
+     * 넉넉히 잡는 쪽으로 틀린다. 넘치면 한 사람이 여러 라벨로 쪼개져 닻이 안 붙는 라벨이
+     * 남을 뿐이고(그 발화는 화자가 NULL 로 남는다), 모자라면 두 사람이 한 라벨로 합쳐져
+     * **오귀속이 확정으로 저장된다.** 두 방향의 실패 비용이 다르다.
+     */
+    private static final int DEFAULT_MAX_SPEAKER_LABELS = 10;
+
     private final TranscribeClient transcribeClient;
     private final MeetingVocabularyRepository vocabularyRepository;
+    private final MeetingAttendeeCountProvider attendeeCountProvider;
     private final String bucket;
     private final String outputPrefix;
 
     public SttTranscribeJobAdapter(TranscribeClient transcribeClient,
                                    MeetingVocabularyRepository vocabularyRepository,
+                                   MeetingAttendeeCountProvider attendeeCountProvider,
                                    SttTranscribeProperties properties) {
         this.transcribeClient = transcribeClient;
         this.vocabularyRepository = vocabularyRepository;
+        this.attendeeCountProvider = attendeeCountProvider;
         this.bucket = properties.bucket();
         this.outputPrefix = properties.outputPrefix();
     }
@@ -131,11 +179,10 @@ public class SttTranscribeJobAdapter implements SttJobPort {
                     job.audioS3Key());
         }
 
-        // 어휘가 READY 가 아니면 Settings 를 아예 붙이지 않는다 — 빈 Settings 를 보내는 것과
-        // 뜻이 같지만, 붙이지 않는 편이 "이 잡은 어휘 없이 돌았다"를 요청에서 바로 읽게 한다.
-        if (settings != null) {
-            request.settings(settings);
-        }
+        // 화자 분리를 항상 켜므로 Settings 는 언제나 붙는다. 예전에는 어휘가 READY 가 아니면
+        // Settings 자체를 뺐는데(그래야 "어휘 없이 돌았다"가 요청에서 바로 읽혔다), 이제 그
+        // 구분은 vocabularyName 이 비었는지로 읽는다.
+        request.settings(settings);
 
         try {
             transcribeClient.startTranscriptionJob(request.build());
@@ -161,40 +208,90 @@ public class SttTranscribeJobAdapter implements SttJobPort {
             throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
         }
 
-        log.info("STT 제출 — meetingId={} blockSeq={} job={} s3Key={} 구간={}~{}ms 어휘={} 결과키={}",
+        log.info("STT 제출 — meetingId={} blockSeq={} job={} s3Key={} 구간={}~{}ms 어휘={} 화자상한={} 결과키={}",
                 job.meetingId(), job.blockSeq(), job.providerJobName(), job.audioS3Key(),
                 job.startOffsetMs(), job.endOffsetMs(),
-                settings == null ? "없음" : settings.vocabularyName(), outputKey);
+                settings.vocabularyName() == null ? "없음" : settings.vocabularyName(),
+                settings.maxSpeakerLabels(), outputKey);
     }
 
     /*
-     * 어휘는 **READY 일 때만** 붙인다.
+     * 이 잡의 Settings — 화자 분리는 **항상**, 어휘는 READY 일 때만.
      *
+     * <h2>어휘는 READY 일 때만 붙인다</h2>
      * PENDING 인 이름을 보내면 Transcribe 가 BadRequest 로 거절해 제출 자체가 실패한다 —
      * 그런데 명세는 "READY 가 아니어도 녹음은 시작할 수 있다"이고, 그 뜻은 고유명사 인식률만
      * 낮아진다는 것이다. 어휘가 늦게 만들어졌다는 이유로 받아쓰기가 통째로 실패하면 그 계약이
-     * 깨진다.
+     * 깨진다. 조회 실패도 같은 방향으로 간다 — 어휘를 못 읽었다고 제출을 멈추지 않는다.
      *
-     * 조회 실패도 같은 방향으로 간다 — 어휘를 못 읽었다고 제출을 멈추지 않는다.
+     * <h2>화자 분리는 어휘 상태와 무관하다</h2>
+     * 예전에는 어휘가 READY 일 때만 Settings 를 만들었다. 그 구조를 그대로 두고 화자 분리를
+     * 얹으면 **어휘가 없는 회의에서 화자 분리도 함께 꺼진다** — 둘은 아무 관계도 없는데
+     * 한쪽의 실패가 다른 쪽을 조용히 끄는 배선이 된다. 그래서 빌더를 먼저 세우고 어휘를
+     * 조건부로 얹는 순서로 뒤집었다.
      */
     private Settings settingsFor(long meetingId) {
+        Settings.Builder settings = Settings.builder()
+                .showSpeakerLabels(true)
+                .maxSpeakerLabels(maxSpeakerLabelsOf(meetingId));
+
         Optional<VocabularyView> vocabulary;
         try {
             vocabulary = vocabularyRepository.findByMeeting(meetingId);
         } catch (RuntimeException e) {
             log.warn("커스텀 어휘 조회 실패 — 어휘 없이 제출한다. meetingId={}", meetingId, e);
-            return null;
+            return settings.build();
         }
 
-        return vocabulary
+        vocabulary
                 .filter(view -> view.status() == VocabularyStatus.READY)
                 .filter(view -> view.providerVocabularyName() != null
                         && !view.providerVocabularyName().isBlank())
-                .map(view -> Settings.builder()
-                        // ⚠ ShowSpeakerLabels 를 켜지 않는다(클래스 주석 — 설계 결정이다).
-                        .vocabularyName(view.providerVocabularyName())
-                        .build())
-                .orElse(null);
+                .ifPresent(view -> settings.vocabularyName(view.providerVocabularyName()));
+
+        return settings.build();
+    }
+
+    /*
+     * 화자 수 상한. 참석자 명단 그대로를 주고, 못 읽으면 넉넉한 기본값을 준다.
+     *
+     * 상한 밖으로 나가는 두 경우를 **로그로 남긴다.** 참석자가 1명인 회의(온라인 1:1 이
+     * 아니라 명단이 덜 채워진 경우가 대부분이다)와 30명을 넘는 회의는 화자 판정이 구조적으로
+     * 나빠지는데, 그 사실이 여기 말고는 드러날 곳이 없다 — 나중에 "이 회의만 화자가 왜 다
+     * 비었지"를 되짚을 유일한 단서다.
+     */
+    private int maxSpeakerLabelsOf(long meetingId) {
+        OptionalInt attendees;
+        try {
+            attendees = attendeeCountProvider.attendeeCountOf(meetingId);
+        } catch (RuntimeException e) {
+            log.warn("참석자 수 조회 실패 — 화자 상한 기본값 {} 로 제출한다. meetingId={}",
+                    DEFAULT_MAX_SPEAKER_LABELS, meetingId, e);
+            return DEFAULT_MAX_SPEAKER_LABELS;
+        }
+
+        if (attendees.isEmpty()) {
+            log.warn("참석자 명단이 비어 화자 상한을 기본값 {} 로 둔다. meetingId={}",
+                    DEFAULT_MAX_SPEAKER_LABELS, meetingId);
+            return DEFAULT_MAX_SPEAKER_LABELS;
+        }
+
+        int count = attendees.getAsInt();
+        if (count < MIN_SPEAKER_LABELS) {
+            // 명단이 1명이다. 화자 분리를 끄지는 않는다 — 명단이 덜 채워졌을 뿐 실제로는
+            // 여러 사람이 말한 회의일 수 있고, 그때 끄면 라벨이 통째로 사라진다.
+            log.info("참석자가 {}명이라 화자 상한을 최소값 {} 로 올린다. meetingId={}",
+                    count, MIN_SPEAKER_LABELS, meetingId);
+            return MIN_SPEAKER_LABELS;
+        }
+        if (count > MAX_SPEAKER_LABELS) {
+            // 상한을 넘겼다. 여러 사람이 한 라벨로 합쳐질 수 있고, 그런 라벨에는 앵커가
+            // 붙지 않아 그 발화들의 화자가 NULL 로 남는다(오귀속보다 나은 방향이다).
+            log.warn("참석자 {}명이 화자 상한 {}을 넘겨 라벨이 합쳐질 수 있다. meetingId={}",
+                    count, MAX_SPEAKER_LABELS, meetingId);
+            return MAX_SPEAKER_LABELS;
+        }
+        return count;
     }
 
     /*

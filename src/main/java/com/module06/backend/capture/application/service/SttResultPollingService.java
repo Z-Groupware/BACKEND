@@ -327,6 +327,14 @@ public class SttResultPollingService {
      * 두 번째 블록부터 발화가 회의 맨 앞으로 겹쳐 쌓이고, 그 뒤 전부가 무너진다 —
      * 자막 시간 매칭(L1)도 근거 발화 ID 도 이 좌표계를 쓴다.
      *
+     * <h2>화자 라벨에도 같은 일을 한다 — 블록 번호를 붙인다</h2>
+     * ⚠ 라벨도 블록 스코프 값이다. Transcribe 는 **잡 하나 안에서만** 라벨을 일관되게 주므로
+     * 블록 2 의 {@code spk_0} 과 블록 3 의 {@code spk_0} 은 같은 사람이 아니다. 그대로 저장하면
+     * L1 이 회의 전체에서 같은 라벨을 한 사람으로 묶고, **블록 경계에서 화자가 서로 뒤바뀐다.**
+     *
+     * 오프셋과 정확히 같은 종류의 실수라 같은 자리에서 함께 고친다 — 둘 다 "제공자 좌표를
+     * 회의 좌표로 옮기는" 일이고, 한쪽만 옮기면 나머지 한쪽이 조용히 틀린다.
+     *
      * <h2>적재 뒤 markDone 이 false 여도 되돌리지 않는다</h2>
      * 그 사이 사람이 재처리를 눌렀다는 뜻이고, 그러면 새 잡이 완료될 때 같은 블록의 행을 다시
      * 교체한다(replaceBlockTranscript). 지금 넣은 것이 잠깐 남아 있는 것은 해롭지 않다 —
@@ -338,13 +346,14 @@ public class SttResultPollingService {
             meetingWords.add(new Word(
                     word.startMs() + block.startOffsetMs(),
                     word.endMs() + block.startOffsetMs(),
-                    word.text(), word.punctuation()));
+                    word.text(), word.punctuation(),
+                    meetingScopedLabel(block.blockSeq(), word.speakerLabel())));
         }
 
         List<Segment> segments = TranscriptSegmenter.segment(meetingWords);
         List<NewUtterance> utterances = segments.stream()
-                .map(segment -> new NewUtterance(
-                        segment.startOffsetMs(), segment.endOffsetMs(), segment.text()))
+                .map(segment -> new NewUtterance(segment.startOffsetMs(), segment.endOffsetMs(),
+                        segment.text(), segment.speakerLabel()))
                 .toList();
 
         int loaded = transcriptRepository.replaceBlockTranscript(
@@ -360,5 +369,16 @@ public class SttResultPollingService {
             return;
         }
         log.info("정본 적재 — meetingId={} blockSeq={} 발화 {}건", block.meetingId(), block.blockSeq(), loaded);
+    }
+
+    /*
+     * 블록 스코프 라벨({@code spk_0})을 회의 스코프로 만든다({@code 3:spk_0}).
+     *
+     * 라벨이 없으면 없는 채로 둔다 — 블록 번호만 남기면 "라벨은 없는데 화자 구분은 된 것처럼
+     * 보이는" 값이 생기고, L1 이 그 값으로 발화들을 한 사람으로 묶는다. 그 회의의 라벨 없는
+     * 발화 전부가 한 화자가 되는 경로다.
+     */
+    private static String meetingScopedLabel(int blockSeq, String blockLabel) {
+        return blockLabel == null ? null : blockSeq + ":" + blockLabel;
     }
 }

@@ -78,6 +78,17 @@ public class TranscriptChunkJpaEntity {
     private SpeakerSource speakerSource;
 
     /*
+     * STT 화자 분리 라벨(V5.23). **사람이 아니다** — {@code 3:spk_0} 같은 군집 번호다.
+     *
+     * 위의 두 컬럼과 성격이 다르다. 저 둘은 L1 의 **판정 결과**라 재판정 때마다 지워지고
+     * 다시 쓰이지만, 이건 적재가 넣는 **입력**이라 L1 이 건드리지 않는다 — 그래서
+     * {@link #clearSpeaker} 가 이 값은 비우지 않는다. 비우면 재판정이 자기 근거를 지우는
+     * 셈이고, 다음 실행은 라벨이 없어 영영 판정할 수 없게 된다.
+     */
+    @Column(name = "speaker_label")
+    private String speakerLabel;
+
+    /*
      * 이 발화를 만든 stt_block.block_seq(V5.3). **블록 재처리의 교체 범위**다 —
      * 블록 하나를 다시 돌리면 그 블록이 만든 행만 지우고 새로 넣는다.
      *
@@ -96,12 +107,16 @@ public class TranscriptChunkJpaEntity {
      * 유일하면 되고, 블록을 재처리해 뒤늦게 큰 번호가 붙어도 페이징은 깨지지 않는다 — 다른
      * 오프셋끼리는 seq 를 비교하지 않는다.
      *
-     * <h2>화자는 여기서 채우지 않는다</h2>
-     * 적재 시점에는 아무도 모른다. L1(SpeakerAttributionResolver)이 자막과 시간창을 맞춘 뒤
-     * attributeSpeaker 로 넣는다 — NULL 이 "아직 판정 안 함"이고 정상이다.
+     * <h2>화자는 여기서 채우지 않는다 — 라벨은 채운다</h2>
+     * 화자(speaker_member_id)는 적재 시점에 아무도 모른다. L1(SpeakerAttributionResolver)이
+     * 나중에 attributeSpeaker 로 넣는다 — NULL 이 "아직 판정 안 함"이고 정상이다.
+     *
+     * 라벨(speaker_label)은 반대다. **제공자가 준 값이라 적재만이 안다** — L1 이 도는 시점에는
+     * STT 응답이 이미 없다. 그래서 여기서 넣고, 그 뒤로는 아무도 고치지 않는다.
      */
     public static TranscriptChunkJpaEntity fromStt(long meetingId, int seq, String content,
-                                                   int offsetMs, int endOffsetMs, int sttBlockSeq) {
+                                                   int offsetMs, int endOffsetMs, int sttBlockSeq,
+                                                   String speakerLabel) {
         TranscriptChunkJpaEntity entity = new TranscriptChunkJpaEntity();
         entity.meetingId = meetingId;
         entity.seq = seq;
@@ -109,6 +124,7 @@ public class TranscriptChunkJpaEntity {
         entity.offsetMs = offsetMs;
         entity.endOffsetMs = endOffsetMs;
         entity.sttBlockSeq = sttBlockSeq;
+        entity.speakerLabel = speakerLabel;
         return entity;
     }
 
@@ -134,6 +150,9 @@ public class TranscriptChunkJpaEntity {
      * 한다 — NULL 이 판정 포기이고 정상 동작이다(V5.3 주석).
      *
      * 둘을 함께 비운다. 근거만 남기면 "화자는 모르는데 판정 경로는 안다"가 되어 뜻이 없다.
+     *
+     * ⚠ speaker_label 은 비우지 않는다. 그건 판정이 아니라 **판정의 입력**이고, 여기서 지우면
+     * 재판정이 자기 근거를 지우는 셈이 된다 — 그 발화는 다음 실행에서도 영영 판정될 수 없다.
      */
     public void clearSpeaker() {
         this.speakerMemberId = null;

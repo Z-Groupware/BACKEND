@@ -48,7 +48,8 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
                         chunk.getSpeakerMemberId(),
                         chunk.getOffsetMs(),
                         chunk.getEndOffsetMs(),
-                        chunk.getContent()))
+                        chunk.getContent(),
+                        chunk.getSpeakerLabel()))
                 .toList();
     }
 
@@ -179,7 +180,8 @@ public class TranscriptPersistenceAdapter implements TranscriptRepository {
         List<TranscriptChunkJpaEntity> rows = new ArrayList<>(utterances.size());
         for (NewUtterance utterance : utterances) {
             rows.add(TranscriptChunkJpaEntity.fromStt(meetingId, ++seq, utterance.text(),
-                    utterance.startOffsetMs(), utterance.endOffsetMs(), sttBlockSeq));
+                    utterance.startOffsetMs(), utterance.endOffsetMs(), sttBlockSeq,
+                    utterance.speakerLabel()));
         }
         repository.saveAll(rows);
         return rows.size();

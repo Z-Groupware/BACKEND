@@ -178,7 +178,7 @@ class AutoConfirmGateTest {
     /* 발화 100 은 화자가 확정됐고, 102 는 L1 이 판정을 포기했다. */
     private static List<Utterance> utterances() {
         return List.of(
-                new Utterance(100L, ALICE, 0, 3_000, "제가 초안 만들게요"),
-                new Utterance(102L, null, 9_000, 12_000, "제가 정리할게요"));
+                new Utterance(100L, ALICE, 0, 3_000, "제가 초안 만들게요", null),
+                new Utterance(102L, null, 9_000, 12_000, "제가 정리할게요", null));
     }
 }
