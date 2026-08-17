@@ -1,5 +1,8 @@
 package com.module06.backend.capture.application.service;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -68,10 +71,14 @@ class SttResultPollingServiceTest {
     @Mock
     private SttCompletionEventPublisher sttCompletionEventPublisher;
 
+    /* 갇힌 시간을 재는 기준이라 시계를 고정한다 — 테스트가 실행 시각에 따라 흔들리면 안 된다. */
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 15, 16, 0, 0);
+
     private SttResultPollingService service() {
         return new SttResultPollingService(
                 sttBlockRepository, sttJobResultPort, transcriptRepository, sttGapRepository,
-                sttCompletionEventPublisher);
+                sttCompletionEventPublisher,
+                Clock.fixed(NOW.atZone(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault()));
     }
 
     @Test
@@ -120,7 +127,7 @@ class SttResultPollingServiceTest {
          * "오디오 0초"로 세어 비율이 망가진다.
          */
         given(new PendingBlock(BLOCK_ID, MEETING, 0, SttBlockStatus.QUEUED,
-                "aws-transcribe", "meeting-500-block-0-r0", 0, 0));
+                "aws-transcribe", "meeting-500-block-0-r0", 0, 0, NOW.minusMinutes(1)));
         when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.completed(words()));
         when(transcriptRepository.replaceBlockTranscript(anyLong(), anyInt(), anyList())).thenReturn(1);
         when(sttBlockRepository.markDone(BLOCK_ID)).thenReturn(true);
@@ -184,6 +191,47 @@ class SttResultPollingServiceTest {
         verify(sttBlockRepository, never()).markFailed(anyLong(), anyString());
         verify(sttBlockRepository, never()).markDone(anyLong());
         verify(sttBlockRepository, never()).markRunning(anyLong());
+    }
+
+    @Test
+    @DisplayName("2026-08-15 — 못 읽는 상태가 30분을 넘기면 실패로 닫는다, 그대로 두면 영원히 QUEUED 다")
+    void 오래_못_읽으면_실패로_닫는다() {
+        /*
+         * 회의 15 가 이 상태였다. 15초마다 같은 실패를 반복하는데 상태는 QUEUED 그대로라
+         * DB 만 보면 "STT 진행 중"으로 읽히고, 그 위의 분석은 미완 블록 때문에 시작하지 않는다.
+         * 회의가 통째로 멈춘 채 아무도 모른다.
+         */
+        given(queued(NOW.minusMinutes(31)));
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.of(State.UNAVAILABLE));
+        when(sttBlockRepository.markFailed(BLOCK_ID, "RESULT_UNREACHABLE")).thenReturn(true);
+
+        assertThat(service().pollOnce()).isEqualTo(1);
+
+        verify(sttBlockRepository).markFailed(BLOCK_ID, "RESULT_UNREACHABLE");
+        // 구멍을 남겨야 분배 확정이 막히고 "요약이 중단된 회의"에 올라온다.
+        verify(sttGapRepository).replaceSttFailureGap(anyLong(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("아직 30분이 안 됐으면 기다린다 — 흔들린 것을 실패로 접으면 요금이 두 번 난다")
+    void 임계_전에는_기다린다() {
+        given(queued(NOW.minusMinutes(29)));
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.of(State.UNAVAILABLE));
+
+        assertThat(service().pollOnce()).isZero();
+
+        verify(sttBlockRepository, never()).markFailed(anyLong(), anyString());
+    }
+
+    @Test
+    @DisplayName("제출 시각을 모르면 포기하지 않는다 — 추측으로 닫으면 멀쩡한 잡을 실패로 만든다")
+    void 제출_시각이_없으면_기다린다() {
+        given(queued(null));
+        when(sttJobResultPort.fetch(anyString())).thenReturn(SttJobOutcome.of(State.UNAVAILABLE));
+
+        assertThat(service().pollOnce()).isZero();
+
+        verify(sttBlockRepository, never()).markFailed(anyLong(), anyString());
     }
 
     @Test
@@ -305,7 +353,7 @@ class SttResultPollingServiceTest {
     @DisplayName("잡 이름이 없는 블록은 FAILED — 결과를 되짚을 방법이 없다")
     void 잡_이름이_없으면_FAILED다() {
         given(new PendingBlock(BLOCK_ID, MEETING, BLOCK_SEQ, SttBlockStatus.QUEUED,
-                "aws-transcribe", null, BLOCK_START_MS, BLOCK_START_MS + 600_000));
+                "aws-transcribe", null, BLOCK_START_MS, BLOCK_START_MS + 600_000, NOW.minusMinutes(1)));
         when(sttBlockRepository.markFailed(anyLong(), anyString())).thenReturn(true);
 
         assertThat(service().pollOnce()).isEqualTo(1);
@@ -319,7 +367,7 @@ class SttResultPollingServiceTest {
     @DisplayName("아직 제출 전(PENDING)인 블록은 건드리지 않는다 — 실패로 닫으면 제출이 막힌다")
     void 제출_전_블록은_건드리지_않는다() {
         given(new PendingBlock(BLOCK_ID, MEETING, BLOCK_SEQ, SttBlockStatus.PENDING,
-                "aws-transcribe", null, BLOCK_START_MS, BLOCK_START_MS + 600_000));
+                "aws-transcribe", null, BLOCK_START_MS, BLOCK_START_MS + 600_000, NOW.minusMinutes(1)));
 
         assertThat(service().pollOnce()).isZero();
 
@@ -345,9 +393,9 @@ class SttResultPollingServiceTest {
     @DisplayName("블록 하나가 터져도 나머지를 처리한다 — 워커가 죽으면 밀린 잡 전부가 멈춘다")
     void 블록_하나의_실패가_나머지를_막지_않는다() {
         PendingBlock broken = new PendingBlock(1L, MEETING, 1, SttBlockStatus.QUEUED,
-                "aws-transcribe", "job-1", 0, 0 + 600_000);
+                "aws-transcribe", "job-1", 0, 0 + 600_000, NOW.minusMinutes(1));
         PendingBlock healthy = new PendingBlock(2L, MEETING, 2, SttBlockStatus.QUEUED,
-                "aws-transcribe", "job-2", 600_000, 600_000 + 600_000);
+                "aws-transcribe", "job-2", 600_000, 600_000 + 600_000, NOW.minusMinutes(1));
         when(sttBlockRepository.findUnfinished(anyInt())).thenReturn(List.of(broken, healthy));
 
         when(sttJobResultPort.fetch("job-1")).thenThrow(new IllegalStateException("터짐"));
@@ -377,8 +425,14 @@ class SttResultPollingServiceTest {
     }
 
     private static PendingBlock queued() {
+        return queued(NOW.minusMinutes(1));
+    }
+
+    /* 제출 시각을 정해 만든다 — "결과에 닿지 못한 채 얼마나 갇혔나"를 세는 기준이다. */
+    private static PendingBlock queued(LocalDateTime createdAt) {
         return new PendingBlock(BLOCK_ID, MEETING, BLOCK_SEQ, SttBlockStatus.QUEUED,
-                "aws-transcribe", "meeting-500-block-3-r0", BLOCK_START_MS, BLOCK_START_MS + 600_000);
+                "aws-transcribe", "meeting-500-block-3-r0", BLOCK_START_MS, BLOCK_START_MS + 600_000,
+                createdAt);
     }
 
     /* 블록 기준 오프셋 0~900ms 의 한 문장. */
