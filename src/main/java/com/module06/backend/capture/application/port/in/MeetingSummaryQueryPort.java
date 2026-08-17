@@ -153,6 +153,23 @@ public interface MeetingSummaryQueryPort {
          */
         WAITING_TRANSCRIPT,
 
+        /*
+         * 회의가 너무 짧아 자동 분석을 건너뛰었다(명세 ANLZ-01 SKIPPED_TOO_SHORT).
+         *
+         * <h2>NONE 을 쪼갠 값이다 — WAITING_TRANSCRIPT 와 같은 성질이다</h2>
+         * 계층 기록이 **하나도 없을 때만** 이 값이 된다. 판정은 자동 실행 관문이 쓰는 것과
+         * 같은 규칙이다({@link com.module06.backend.capture.application.service.AutoAnalysisLengthGate}).
+         * 관문은 막는데 화면이 「요약 없음」이라고 말하면 사용자는 기다리게 되고, 기다리면
+         * 끝나는 일이 아니므로 영원히 끝나지 않는다(#572).
+         *
+         * ⚠ **「실패」가 아니고 「기다리는 중」도 아니다.** 정상적으로 걸러진 회의이며, 사람이
+         * 원하면 ANLZ-01 로 지금 바로 돌릴 수 있다 — 수동 경로에는 이 하한이 없다. 화면 문구는
+         * 그 두 가지(왜 안 됐는지 · 어떻게 하면 되는지)를 함께 말해야 한다.
+         *
+         * 비대면 회의는 여기 오지 않는다. 길이가 항상 0초라 하한 자체가 면제다(커밋 1ee923ef).
+         */
+        SKIPPED_TOO_SHORT,
+
         /* 계층이 실제로 돌고 있다. 멈춘 RUNNING 은 여기가 아니라 STALLED 다. */
         PROCESSING,
 

@@ -83,7 +83,7 @@ class MeetingCompletedAnalysisTriggerTest {
         RecordingRunAnalysis analysis = new RecordingRunAnalysis();
         MeetingCompanyProvider missing = meetingId -> Optional.empty();
         MeetingCompletedAnalysisTrigger trigger = new MeetingCompletedAnalysisTrigger(
-                analysis, meetingId -> Optional.of(Duration.ofMinutes(42)), missing,
+                analysis, new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofMinutes(42))), missing,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher());
 
         trigger.onSttTranscriptCompleted(new SttTranscriptCompletedEvent(MEETING));
@@ -98,7 +98,7 @@ class MeetingCompletedAnalysisTriggerTest {
         MeetingCompanyProvider inProgress = meetingId ->
                 Optional.of(new MeetingCompanyProvider.AutomaticAnalysisTarget(COMPANY, false));
         MeetingCompletedAnalysisTrigger trigger = new MeetingCompletedAnalysisTrigger(
-                analysis, meetingId -> Optional.of(Duration.ofMinutes(42)), inProgress,
+                analysis, new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofMinutes(42))), inProgress,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher());
 
         trigger.onSttTranscriptCompleted(new SttTranscriptCompletedEvent(MEETING));
@@ -132,7 +132,7 @@ class MeetingCompletedAnalysisTriggerTest {
             }
         };
 
-        new MeetingCompletedAnalysisTrigger(analysis, onlineZeroLength, DEFAULT_COMPANY_PROVIDER,
+        new MeetingCompletedAnalysisTrigger(analysis, new AutoAnalysisLengthGate(onlineZeroLength), DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
                 .onMeetingCompleted(event());
 
@@ -155,7 +155,7 @@ class MeetingCompletedAnalysisTriggerTest {
             }
         };
 
-        new MeetingCompletedAnalysisTrigger(analysis, offlineShort, DEFAULT_COMPANY_PROVIDER,
+        new MeetingCompletedAnalysisTrigger(analysis, new AutoAnalysisLengthGate(offlineShort), DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
                 .onMeetingCompleted(event());
 
@@ -181,7 +181,7 @@ class MeetingCompletedAnalysisTriggerTest {
          * 건너뛰는 쪽으로 기울면 멀쩡한 회의의 분석이 조용히 사라지고, 사용자는 분석이 안 됐다는
          * 사실조차 모른다. 반대 방향의 손해는 토큰이고 그건 로그에 남는다.
          */
-        new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.empty(), DEFAULT_COMPANY_PROVIDER,
+        new MeetingCompletedAnalysisTrigger(analysis, new AutoAnalysisLengthGate(meetingId -> Optional.empty()), DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
                 .onMeetingCompleted(event());
 
@@ -201,7 +201,7 @@ class MeetingCompletedAnalysisTriggerTest {
             throw new IllegalStateException("커넥션 풀이 말랐다");
         };
 
-        new MeetingCompletedAnalysisTrigger(analysis, exploding, DEFAULT_COMPANY_PROVIDER,
+        new MeetingCompletedAnalysisTrigger(analysis, new AutoAnalysisLengthGate(exploding), DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher())
                 .onMeetingCompleted(event());
 
@@ -299,7 +299,7 @@ class MeetingCompletedAnalysisTriggerTest {
         RunAnalysisUseCase done = (companyId, meetingId, force) -> AnalysisOutcome.done(1);
         RecordingAnalysisEventPublisher publisher = new RecordingAnalysisEventPublisher();
 
-        new MeetingCompletedAnalysisTrigger(done, meetingId -> Optional.of(Duration.ofMinutes(42)),
+        new MeetingCompletedAnalysisTrigger(done, new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofMinutes(42))),
                 DEFAULT_COMPANY_PROVIDER,
                 meetingId -> Optional.empty(), DEFAULT_HOST_PROVIDER, publisher)
                 .onMeetingCompleted(event());
@@ -325,7 +325,7 @@ class MeetingCompletedAnalysisTriggerTest {
         };
 
         assertThatCode(() -> new MeetingCompletedAnalysisTrigger(
-                done, meetingId -> Optional.of(Duration.ofMinutes(42)),
+                done, new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofMinutes(42))),
                 DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, exploding)
                 .onMeetingCompleted(event()))
@@ -333,13 +333,14 @@ class MeetingCompletedAnalysisTriggerTest {
     }
 
     private MeetingCompletedAnalysisTrigger trigger(RunAnalysisUseCase analysis, Duration length) {
-        return new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.of(length),
+        return new MeetingCompletedAnalysisTrigger(analysis, new AutoAnalysisLengthGate(meetingId -> Optional.of(length)),
                 DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, new RecordingAnalysisEventPublisher());
     }
 
     private MeetingCompletedAnalysisTrigger trigger(RunAnalysisUseCase analysis, AnalysisEventPublisher publisher) {
-        return new MeetingCompletedAnalysisTrigger(analysis, meetingId -> Optional.of(Duration.ofMinutes(42)),
+        return new MeetingCompletedAnalysisTrigger(analysis,
+                new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofMinutes(42))),
                 DEFAULT_COMPANY_PROVIDER,
                 DEFAULT_TITLE_PROVIDER, DEFAULT_HOST_PROVIDER, publisher);
     }
