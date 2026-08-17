@@ -75,7 +75,9 @@ class AuthServiceReissueTest {
             new RateLimitProperties.Rule(120, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(20, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(5, Duration.ofMinutes(1)),
-            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)));
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(3, Duration.ofHours(24)));
 
     @Test
     @DisplayName("갱신표를 새 토큰 쌍으로 교환한다")

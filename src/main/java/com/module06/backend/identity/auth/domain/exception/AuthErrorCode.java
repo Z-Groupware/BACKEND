@@ -175,7 +175,31 @@ public enum AuthErrorCode implements ErrorCode {
     PASSWORD_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "AU-045", "새 비밀번호가 서로 일치하지 않습니다."),
     CURRENT_PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "AU-046", "현재 비밀번호가 올바르지 않습니다."),
     NEW_PASSWORD_SAME_AS_CURRENT(HttpStatus.BAD_REQUEST, "AU-047", "지금 쓰고 있는 비밀번호와 같습니다."),
-    PASSWORD_ALREADY_USED(HttpStatus.BAD_REQUEST, "AU-048", "이전에 사용한 적이 있는 비밀번호입니다.");
+    PASSWORD_ALREADY_USED(HttpStatus.BAD_REQUEST, "AU-048", "이전에 사용한 적이 있는 비밀번호입니다."),
+
+    /*
+     * 비밀번호 찾기(POST /api/auth/password/reset).
+     *
+     * 번호는 AU-049 부터다. 이 둘도 원래 AU-044·AU-045 였지만 죽은 브랜치에 갇혀 있는 동안
+     * develop 이 그 번호를 ONBOARDING_ROLE_NAME_DUPLICATED(AU-044)·PASSWORD_CONFIRM_MISMATCH(AU-045)
+     * 에 먼저 썼다. 위 네 개가 ROLE_* 에 자리를 비켜 준 것과 같은 이유로 이쪽이 다시 비킨다 —
+     * 배포된 적 없는 코드가 이미 프론트가 붙잡고 있는 코드를 밀어내지 않는다.
+     * 비어 있는 AU-015·018·030·032 는 재사용하지 않는다(AU-032 주석의 규칙).
+     *
+     * PASSWORD_RESET_ACCOUNT_NOT_FOUND 는 LOGIN_FAILED 와 달리 계정 존재를 드러낸다 — 의도한
+     * 선택이다. 기업 코드를 함께 받으므로 유효한 기업 코드를 이미 알아야 여기까지 올 수 있고,
+     * 기업 코드 조회에는 이미 분당 20회 제한이 걸려 있다(CompanyCodeGenerator 의 전제).
+     * 퇴사·삭제된 계정도 이 코드로 답한다 — 403 을 주면 "그 사람 퇴사했다"를 로그인 없이 알려준다.
+     *
+     * PASSWORD_RESET_MAIL_FAILED 가 503 인 이유: 요청은 정상이고 우리 메일 경로가 지금 안 되는
+     * 것이다. 이 응답이 나갔다면 비밀번호는 바뀌지 않았다(발송 성공을 확인한 뒤에만 저장한다).
+     * "기존 비밀번호는 그대로 쓸 수 있다"를 여기 적지 않는 것은 프론트가 그 문장을 자기 쪽에서
+     * 덧붙이기로 했기 때문이다(SPEC BE-D2) — 양쪽이 다 적으면 화면에 두 번 나온다.
+     */
+    PASSWORD_RESET_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "AU-049",
+            "등록되지 않은 계정입니다. 기업 코드와 이메일을 확인해 주세요."),
+    PASSWORD_RESET_MAIL_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AU-050",
+            "메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

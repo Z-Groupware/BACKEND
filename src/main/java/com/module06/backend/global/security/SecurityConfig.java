@@ -103,7 +103,9 @@ public class SecurityConfig {
                                 "/api/companies/lookup",
                                 "/api/companies/registrations",
                                 "/api/auth/login",
-                                "/api/auth/refresh").permitAll()
+                                "/api/auth/refresh",
+                                // password/reset 은 비밀번호를 잃어버려 로그인을 못 하는 사람이 부른다.
+                                "/api/auth/password/reset").permitAll()
 
                         // ── 공개: 운영·문서 ──
                         // health 는 배포·로드밸런서가 토큰 없이 부른다(show-details: never 라 내부 정보는 안 나간다).

@@ -55,6 +55,13 @@ class SecurityLockdownTest {
         assertReachesApplication(post("/api/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"refreshToken\":\"x\"}"));
+        /*
+         * 비밀번호를 잊은 사람은 토큰을 가져올 방법이 없다. permitAll 등록이 빠지면 여기서 깨진다 —
+         * 만들어 놓고 등록을 빼먹으면 화면은 401 만 받는다(이 API 가 처음 막혔던 방식이다).
+         */
+        assertReachesApplication(post("/api/auth/password/reset")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"companyCode\":\"X\",\"email\":\"a@b.co\"}"));
     }
 
     /*

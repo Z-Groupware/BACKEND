@@ -206,6 +206,19 @@ public class MemberJpaEntity {
         this.passwordChangedAt = at;
     }
 
+    /**
+     * 비밀번호 찾기로 서버가 다시 만들어 준 비밀번호. {@link #changePassword} 와 달리
+     * {@code passwordChangedAt} 을 <b>null 로 되돌린다</b>.
+     *
+     * <p>재발급받은 값은 계정 발급 때와 똑같이 "사용자가 고르지 않은 비밀번호"다. 그래서 /me 의
+     * {@code passwordChanged} 가 다시 false 가 되고, 화면이 "직접 정한 비밀번호로 바꾸라"는 안내를
+     * 다시 띄운다. 시각을 남겨 두면 사용자가 정한 적 없는 값을 정한 것으로 표시하게 된다.
+     */
+    public void resetPassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.passwordChangedAt = null;
+    }
+
     /*
      * ── 생애주기 전이 ────────────────────────────────────────────────────────
      *

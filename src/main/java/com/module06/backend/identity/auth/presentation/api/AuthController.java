@@ -17,9 +17,11 @@ import com.module06.backend.identity.auth.application.usecase.ChangeMyPasswordUs
 import com.module06.backend.identity.auth.application.usecase.LoginUseCase;
 import com.module06.backend.identity.auth.application.usecase.LogoutUseCase;
 import com.module06.backend.identity.auth.application.usecase.ReissueTokenUseCase;
+import com.module06.backend.identity.auth.application.usecase.ResetPasswordUseCase;
 import com.module06.backend.identity.auth.presentation.api.dto.request.ChangeMyPasswordRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.LoginRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.ReissueTokenRequest;
+import com.module06.backend.identity.auth.presentation.api.dto.request.ResetPasswordRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.request.UpdateMyProfileRequest;
 import com.module06.backend.identity.auth.presentation.api.dto.response.MyProfileResponse;
 import com.module06.backend.identity.auth.presentation.api.dto.response.ReissuedTokenResponse;
@@ -41,6 +43,7 @@ public class AuthController {
     private final ReissueTokenUseCase reissueTokenUseCase;
     private final LogoutUseCase logoutUseCase;
     private final ChangeMyPasswordUseCase changeMyPasswordUseCase;
+    private final ResetPasswordUseCase resetPasswordUseCase;
     private final GetMyProfileUseCase getMyProfileUseCase;
     private final UpdateMyProfileUseCase updateMyProfileUseCase;
 
@@ -68,6 +71,25 @@ public class AuthController {
         ReissuedTokenResponse response = ReissuedTokenResponse.from(
                 reissueTokenUseCase.reissue(request.refreshToken()));
         return ApiResponse.success("토큰을 재발급했습니다", response);
+    }
+
+    /*
+     * 공개를 명시한다(Gate 1 · AUTHZ_001). refresh 와 같은 이유로 인증을 요구할 수 없다 —
+     * 비밀번호를 잃어버려서 로그인을 못 하는 사람이 부르는 자리다.
+     *
+     * 대신 기업 코드 + 이메일 두 값을 모두 맞혀야 하고(이메일은 기업 내에서만 유일하다),
+     * 성공·실패 모두 계정 기준 횟수 제한에 걸린다(PasswordResetService).
+     *
+     * 응답에 새 비밀번호를 담지 않는다. 담으면 이메일 소유를 확인하지 않고도 화면에서 남의
+     * 비밀번호를 읽을 수 있어, 이 API 가 곧 계정 탈취 도구가 된다.
+     */
+    @Operation(summary = "비밀번호 찾기",
+            description = "새 비밀번호를 만들어 기업 코드와 함께 메일로 보냅니다. 기존 로그인은 모두 해제됩니다.")
+    @PreAuthorize("permitAll()")
+    @PostMapping("/password/reset")
+    public ApiResponse<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        resetPasswordUseCase.resetPassword(request.toCommand());
+        return ApiResponse.successWithoutData("새 비밀번호를 메일로 보냈습니다. 메일을 확인해 주세요.");
     }
 
     /*

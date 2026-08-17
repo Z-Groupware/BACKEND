@@ -49,7 +49,9 @@ class AuthServiceChangePasswordTest {
             new RateLimitProperties.Rule(120, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(20, Duration.ofMinutes(1)),
             new RateLimitProperties.Rule(5, Duration.ofMinutes(1)),
-            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)));
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(5)),
+            new RateLimitProperties.Rule(5, Duration.ofMinutes(1)),
+            new RateLimitProperties.Rule(3, Duration.ofHours(24)));
     private final JwtTokenProvider tokenProvider = new JwtTokenProvider(new JwtProperties(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             Duration.ofMinutes(30), Duration.ofDays(1), Duration.ofDays(14), Duration.ofDays(30)));
