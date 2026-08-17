@@ -32,4 +32,16 @@ public interface MemberPasswordPort {
      * @param newPasswordHash 이미 해싱된 값
      */
     void changePassword(Long memberId, Long companyId, String newPasswordHash);
+
+    /**
+     * 비밀번호 찾기(재발급). {@link #changePassword} 와 같이 직전 해시를 이력으로 옮기지만,
+     * <b>변경 시각은 비운다</b> — 재발급받은 값은 사용자가 고른 비밀번호가 아니라서, /me 의
+     * {@code passwordChanged} 가 다시 false 가 되어야 안내를 한 번 더 띄울 수 있다.
+     *
+     * <p>이력을 똑같이 쌓는 이유: 재발급 뒤에도 "예전에 쓰던 비밀번호로는 못 바꾼다"가 유지되어야
+     * 한다. 여기서 이력을 건너뛰면 재발급 한 번으로 과거 비밀번호가 전부 되살아난다.
+     *
+     * @param newPasswordHash 이미 해싱된 값
+     */
+    void resetPassword(Long memberId, Long companyId, String newPasswordHash);
 }
