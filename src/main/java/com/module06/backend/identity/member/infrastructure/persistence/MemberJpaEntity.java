@@ -216,6 +216,8 @@ public class MemberJpaEntity {
      *                             │       └[offboard]→ deleted_at + RESIGNED
      *                             └──────[restoreActive]→ ACTIVE
      *
+     *   VACATION ─[returnFromVacation]→ ACTIVE   (휴직 종료일 다음날, 배치가 한다)
+     *
      *   (어느 상태에서든) ─[softDelete]→ deleted_at + DELETED
      *
      * 검사를 서비스가 아니라 여기서 하는 이유: 호출 경로가 늘어나도 규칙이 한 곳에만 있게 된다.
@@ -237,6 +239,25 @@ public class MemberJpaEntity {
     /** 반려 — 재직으로 원복. (WAITING → ACTIVE) */
     public void restoreActive() {
         requireStatus(MemberStatus.WAITING);
+        this.status = MemberStatus.ACTIVE;
+    }
+
+    /**
+     * 휴직 종료일 다음날 자동 복직. (VACATION → ACTIVE)
+     *
+     * <p>사람이 누르는 버튼이 없다 — {@code WORKFLOW.md} §7 이 "휴직 종료일이 지나면 자동으로
+     * 재직으로 전환된다(2026-08-16 확정)"로 못박았다. 배치가 부른다.
+     *
+     * <p>{@link #restoreActive} 를 재사용하지 않는 이유: 저쪽은 <b>반려 원복 전용</b>이고
+     * {@code requireStatus(WAITING)} 이 그 경로의 안전장치다. 출발 상태가 달라 같은 메서드로
+     * 묶으면 검사를 느슨하게 풀어야 하고, 그러면 대기 중인 사람이 배치에 휩쓸린다.
+     *
+     * <p>조회 시점 계산으로 대신할 수 없다. 쓰기 경로가 status 컬럼을 직접 보기 때문이다 —
+     * {@link #requestLeave} 의 {@code requireStatus(ACTIVE)} 가 VACATION 을 막으므로, 상태를
+     * 실제로 되돌리지 않으면 복직한 사람이 다음 휴직·퇴사를 <b>신청조차 못 한다.</b>
+     */
+    public void returnFromVacation() {
+        requireStatus(MemberStatus.VACATION);
         this.status = MemberStatus.ACTIVE;
     }
 
