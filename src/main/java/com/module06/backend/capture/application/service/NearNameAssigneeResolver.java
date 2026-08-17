@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.module06.backend.capture.domain.model.AssigneeSource;
 import com.module06.backend.capture.domain.model.AssignmentTuple;
+import com.module06.backend.capture.domain.model.AttendeeNameMatcher;
 import com.module06.backend.capture.domain.model.Utterance;
 
 /*
@@ -51,15 +52,6 @@ import com.module06.backend.capture.domain.model.Utterance;
 @Slf4j
 @Service
 public class NearNameAssigneeResolver {
-
-    /*
-     * 허용 편집거리. **한 글자까지다.**
-     *
-     * 두 글자까지 넓히면 실측에서 6 건을 더 잡을 수 있었지만 그 조건의 오답률은 재지 않았다.
-     * 넓히는 변경은 여기 하나를 고치면 되고, 그때는 실제 회의 정답 데이터로 오답을 먼저 재야
-     * 한다 — 지금 값은 "오답 0 건"이 확인된 유일한 값이다.
-     */
-    static final int MAX_DISTANCE = 1;
 
     /*
      * 근거 발화 기준 앞뒤 몇 발화까지 이름을 찾을지. L5 의 좁은 시야(_evidence_window)와 같은
@@ -119,7 +111,7 @@ public class NearNameAssigneeResolver {
 
         if (linked > 0) {
             log.info("근접 매칭으로 담당자를 이었다 — tuple {}건 중 {}건 (편집거리 {} 이내 · 후보 유일)",
-                    tuples.size(), linked, MAX_DISTANCE);
+                    tuples.size(), linked, AttendeeNameMatcher.MAX_DISTANCE);
         }
         return resolved;
     }
@@ -142,51 +134,26 @@ public class NearNameAssigneeResolver {
             return null;
         }
 
-        Long best = null;
-        int bestDistance = Integer.MAX_VALUE;
-        boolean tied = false;
-        for (Map.Entry<Long, String> entry : nameByMemberId.entrySet()) {
-            if (entry.getKey() == null || entry.getValue() == null || entry.getValue().isBlank()) {
-                continue;
-            }
-            String name = entry.getValue().trim();
-            int distance = minDistance(window, name);
-            if (distance > allowedDistance(name)) {
-                continue;
-            }
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                best = entry.getKey();
-                tied = false;
-            } else if (distance == bestDistance) {
-                tied = true;
-            }
-        }
-
-        if (best == null) {
+        /*
+         * 이름 판정은 도메인이 한다(AttendeeNameMatcher). 여기 있던 편집거리 코드를 그리로
+         * 옮긴 이유 — L1 의 화자 라벨 앵커링이 같은 판정을 쓴다. 규칙이 두 벌이면 "누가
+         * 불렸나"를 두 계층이 다르게 답할 수 있고, 그러면 담당자를 이은 근거와 화자를 정한
+         * 근거가 같은 발화를 두고 갈린다.
+         */
+        AttendeeNameMatcher.Match match = AttendeeNameMatcher.find(window, nameByMemberId);
+        if (match.memberId() == null) {
             return null;
         }
-        if (tied) {
+        if (!match.isUnique()) {
             /*
              * 같은 거리의 참석자가 둘 이상이다. 하나를 고르면 그 배정은 검증할 수 없는
              * 추측이 된다 — 기권하면 사람이 검토 화면에서 지정한다(PR #495).
              */
             log.info("근접 후보가 둘 이상이라 담당자를 잇지 않는다 — 근거 발화={} 거리={}",
-                    tuple.evidenceUtteranceId(), bestDistance);
+                    tuple.evidenceUtteranceId(), match.distance());
             return null;
         }
-        return best;
-    }
-
-    /*
-     * 이름 길이에 따라 허용 거리를 줄인다.
-     *
-     * 두 글자 이름에 한 글자 차이를 허용하면 절반이 달라도 같은 이름으로 보는 것이고, 그
-     * 폭이면 무관한 낱말도 걸린다. 세 글자(한국어 성명의 보통 길이) 이상에서만 한 글자를
-     * 허용하고, 그보다 짧으면 정확히 같을 때만 잇는다.
-     */
-    private int allowedDistance(String name) {
-        return name.length() >= 3 ? MAX_DISTANCE : 0;
+        return match.memberId();
     }
 
     /*
@@ -227,50 +194,6 @@ public class NearNameAssigneeResolver {
             window.append(L1_5_ANNOTATION.matcher(text).replaceAll("")).append(' ');
         }
         return window.toString();
-    }
-
-    /*
-     * {@code haystack} 안에서 {@code name} 과 가장 가까운 조각의 편집거리.
-     *
-     * 형태소 분석이나 조사 목록을 두지 않는다. 이름 길이 ±1 폭의 조각을 전부 훑으면
-     * "김현진님이"의 "김현진"이 그대로 잡히고, 조사·호칭 표를 관리할 필요가 없다 —
-     * 그 표는 빠진 항목이 생기는 순간 조용히 기권으로 바뀌는 종류의 코드다.
-     */
-    private int minDistance(String haystack, String name) {
-        int n = name.length();
-        int best = Integer.MAX_VALUE;
-        for (int length = Math.max(1, n - 1); length <= n + 1; length++) {
-            for (int start = 0; start + length <= haystack.length(); start++) {
-                int distance = levenshtein(haystack.substring(start, start + length), name);
-                if (distance == 0) {
-                    return 0;
-                }
-                best = Math.min(best, distance);
-            }
-        }
-        return best;
-    }
-
-    /* 두 행만 들고 도는 표준 편집거리. 비교 대상이 이름 길이 ±1 이라 길이가 늘 짧다. */
-    private int levenshtein(String left, String right) {
-        int[] previous = new int[right.length() + 1];
-        int[] current = new int[right.length() + 1];
-        for (int j = 0; j <= right.length(); j++) {
-            previous[j] = j;
-        }
-
-        for (int i = 1; i <= left.length(); i++) {
-            current[0] = i;
-            for (int j = 1; j <= right.length(); j++) {
-                int substitution = previous[j - 1]
-                        + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1);
-                current[j] = Math.min(substitution, Math.min(previous[j] + 1, current[j - 1] + 1));
-            }
-            int[] swap = previous;
-            previous = current;
-            current = swap;
-        }
-        return previous[right.length()];
     }
 
     /*

@@ -128,7 +128,19 @@ public interface TranscriptRepository {
      */
     int replaceBlockTranscript(long meetingId, int sttBlockSeq, List<NewUtterance> utterances);
 
-    /* 적재할 발화 하나. 화자는 여기 없다 — 적재 시점에는 아무도 모른다(L1 이 나중에 채운다). */
-    record NewUtterance(int startOffsetMs, int endOffsetMs, String text) {
+    /*
+     * 적재할 발화 하나.
+     *
+     * <b>화자는 여기 없다</b> — 적재 시점에는 아무도 모른다(L1 이 나중에 채운다).
+     *
+     * speakerLabel 은 화자가 아니라 <b>화자 분리 라벨</b>이다(V5.23). 그 둘을 나누는 것이
+     * 이 설계의 핵심이다 — 라벨은 "이 구간과 저 구간이 같은 목소리다"까지만 말하고 누구인지는
+     * 말하지 않는다. 그래서 라벨은 적재가 알고, 사람은 L1 이 정한다.
+     *
+     * 회의 스코프 값이어야 한다({@code 3:spk_0}). 제공자가 주는 블록 스코프 라벨을 그대로
+     * 넣으면 블록 경계에서 화자가 뒤바뀐다(SttResultPollingService#meetingScopedLabel).
+     * 화자 분리를 안 쓰는 경로에서는 null 이다.
+     */
+    record NewUtterance(int startOffsetMs, int endOffsetMs, String text, String speakerLabel) {
     }
 }

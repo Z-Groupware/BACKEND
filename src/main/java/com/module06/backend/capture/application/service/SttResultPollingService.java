@@ -1,5 +1,8 @@
 package com.module06.backend.capture.application.service;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,6 +60,22 @@ public class SttResultPollingService {
     /* 제출은 됐다는데 잡 이름이 비어 있다 — 결과를 되짚을 방법이 없는 행이다. */
     private static final String ERROR_NO_JOB_NAME = "NO_JOB_NAME";
 
+    /*
+     * 제공자를 계속 못 읽어 이 시간을 넘긴 블록은 실패로 닫는다.
+     *
+     * 얼마로 잡나 — 4분짜리 오디오의 Transcribe 잡은 1~2분이면 끝난다. 한 시간짜리 회의의
+     * 블록(10분 오디오)도 여유 있게 이 안에 들어온다. 넘겼다는 것은 **잡이 도는 중이 아니라
+     * 우리가 결과에 닿지 못하는 것**이다.
+     */
+    private static final Duration UNREACHABLE_GIVE_UP_AFTER = Duration.ofMinutes(30);
+
+    /*
+     * 결과에 닿지 못한 채 오래 갇혔다. **일시적 장애가 영구화된 상태**이고, 잡 자체의 실패
+     * (JOB_FAILED)나 잡이 없는 것(JOB_NOT_FOUND)과 원인이 다르므로 코드를 따로 둔다 —
+     * 화면 문구도 다르고, 손댈 곳도 다르다(대개 권한·키·네트워크지 제공자가 아니다).
+     */
+    private static final String ERROR_RESULT_UNREACHABLE = "RESULT_UNREACHABLE";
+
     private final SttBlockRepository sttBlockRepository;
     private final SttJobResultPort sttJobResultPort;
     private final TranscriptRepository transcriptRepository;
@@ -69,6 +88,13 @@ public class SttResultPollingService {
 
     /* 마지막 STT 블록의 성공을 기존 자동 분석 입구에 전달한다. */
     private final SttCompletionEventPublisher sttCompletionEventPublisher;
+
+    /*
+     * ⚠ 프로젝트 전체에 Clock 빈이 하나뿐이라(MeetingTimeConfiguration#meetingClock, KST)
+     * 타입으로 주입된다. 캡처 전용 Clock 빈을 새로 만들면 안 된다
+     * (ConfirmDistributionService 와 같은 주석).
+     */
+    private final Clock clock;
 
     /*
      * 한 주기 돈다.
@@ -159,9 +185,56 @@ public class SttResultPollingService {
                         block.meetingId(), block.blockSeq(), block.providerJobName());
                 yield failWithGap(block, ERROR_JOB_NOT_FOUND);
             }
-            // 네트워크·권한 문제다. 상태를 바꾸지 않고 다음 주기에 다시 본다.
-            case UNAVAILABLE -> false;
+            /*
+             * 네트워크·권한 문제다. 상태를 바꾸지 않고 다음 주기에 다시 본다 — 흔들린 것을
+             * 실패로 접으면 정상적으로 돌던 잡이 FAILED 로 닫히고 같은 구간에 요금이 두 번 난다.
+             *
+             * <h2>다만 영원히 기다리지는 않는다 (2026-08-15)</h2>
+             * 예전에는 이 분기가 그냥 false 였다. 그래서 **일시적 장애가 영구화되면 블록이
+             * QUEUED 에 영원히 갇혔다** — 15초마다 같은 실패를 반복하는데 상태는 그대로라,
+             * DB 만 보면 "STT 진행 중"으로 읽힌다. 회의 15 가 그랬고, 그 위의 분석은 미완료
+             * 블록 때문에 시작하지 않으니 **회의가 통째로 멈춘 채 아무도 모르는** 상태가 됐다.
+             *
+             * 바로 위 UNKNOWN 분기가 같은 판단을 이미 하고 있다 — "그대로 두면 영원히 안
+             * 움직인다. FAILED 가 되어야 STT-04 의 대상이 되고 사람이 다시 제출할 수 있다."
+             * 못 읽는 상태가 30분을 넘겼다면 그것도 같은 처지다.
+             *
+             * 실패로 닫으면 구멍(stt_gap)이 남아 분배 확정이 막히고, "요약이 중단된 회의"에
+             * 올라오며, 사람이 재처리를 누를 수 있다. **셋 다 지금은 일어나지 않는다.**
+             */
+            case UNAVAILABLE -> giveUpIfUnreachableTooLong(block);
         };
+    }
+
+    /*
+     * 결과에 못 닿은 채 너무 오래 갇힌 블록을 실패로 닫는다.
+     *
+     * @return 이 블록을 끝맺었으면 true. 아직 기다릴 만하면 false 로 다음 주기에 다시 본다
+     */
+    private boolean giveUpIfUnreachableTooLong(PendingBlock block) {
+        if (block.createdAt() == null) {
+            /*
+             * 기준이 없으면 포기하지 않는다. created_at 은 NOT NULL 이라 정상 경로에서는 올 수
+             * 없는 값이고, 여기서 추측해 닫으면 멀쩡한 잡을 실패로 만든다.
+             */
+            log.warn("STT 결과에 닿지 못했는데 제출 시각이 없어 판정을 미룬다 — meetingId={} blockSeq={}",
+                    block.meetingId(), block.blockSeq());
+            return false;
+        }
+
+        Duration stuck = Duration.between(block.createdAt(), LocalDateTime.now(clock));
+        if (stuck.compareTo(UNREACHABLE_GIVE_UP_AFTER) < 0) {
+            return false;
+        }
+
+        /*
+         * ERROR 로 남긴다. 그동안 매 주기 찍힌 WARN 은 15초마다 같은 줄이 반복돼 아무도 안 보는
+         * 종류였다 — 포기하는 순간은 한 번뿐이고, 그 한 줄이 조사의 출발점이 되어야 한다.
+         */
+        log.error("STT 결과에 {}분째 닿지 못해 실패로 닫는다 — 잡은 끝났는데 결과를 못 읽는 상태다."
+                        + " 권한·키·네트워크를 본다. meetingId={} blockSeq={} job={}",
+                stuck.toMinutes(), block.meetingId(), block.blockSeq(), block.providerJobName());
+        return failWithGap(block, ERROR_RESULT_UNREACHABLE);
     }
 
     /* FAILED 를 포함한 모든 상태를 확인해 전부 DONE 일 때만 한 번 발행한다. */
@@ -254,6 +327,14 @@ public class SttResultPollingService {
      * 두 번째 블록부터 발화가 회의 맨 앞으로 겹쳐 쌓이고, 그 뒤 전부가 무너진다 —
      * 자막 시간 매칭(L1)도 근거 발화 ID 도 이 좌표계를 쓴다.
      *
+     * <h2>화자 라벨에도 같은 일을 한다 — 블록 번호를 붙인다</h2>
+     * ⚠ 라벨도 블록 스코프 값이다. Transcribe 는 **잡 하나 안에서만** 라벨을 일관되게 주므로
+     * 블록 2 의 {@code spk_0} 과 블록 3 의 {@code spk_0} 은 같은 사람이 아니다. 그대로 저장하면
+     * L1 이 회의 전체에서 같은 라벨을 한 사람으로 묶고, **블록 경계에서 화자가 서로 뒤바뀐다.**
+     *
+     * 오프셋과 정확히 같은 종류의 실수라 같은 자리에서 함께 고친다 — 둘 다 "제공자 좌표를
+     * 회의 좌표로 옮기는" 일이고, 한쪽만 옮기면 나머지 한쪽이 조용히 틀린다.
+     *
      * <h2>적재 뒤 markDone 이 false 여도 되돌리지 않는다</h2>
      * 그 사이 사람이 재처리를 눌렀다는 뜻이고, 그러면 새 잡이 완료될 때 같은 블록의 행을 다시
      * 교체한다(replaceBlockTranscript). 지금 넣은 것이 잠깐 남아 있는 것은 해롭지 않다 —
@@ -265,13 +346,14 @@ public class SttResultPollingService {
             meetingWords.add(new Word(
                     word.startMs() + block.startOffsetMs(),
                     word.endMs() + block.startOffsetMs(),
-                    word.text(), word.punctuation()));
+                    word.text(), word.punctuation(),
+                    meetingScopedLabel(block.blockSeq(), word.speakerLabel())));
         }
 
         List<Segment> segments = TranscriptSegmenter.segment(meetingWords);
         List<NewUtterance> utterances = segments.stream()
-                .map(segment -> new NewUtterance(
-                        segment.startOffsetMs(), segment.endOffsetMs(), segment.text()))
+                .map(segment -> new NewUtterance(segment.startOffsetMs(), segment.endOffsetMs(),
+                        segment.text(), segment.speakerLabel()))
                 .toList();
 
         int loaded = transcriptRepository.replaceBlockTranscript(
@@ -287,5 +369,16 @@ public class SttResultPollingService {
             return;
         }
         log.info("정본 적재 — meetingId={} blockSeq={} 발화 {}건", block.meetingId(), block.blockSeq(), loaded);
+    }
+
+    /*
+     * 블록 스코프 라벨({@code spk_0})을 회의 스코프로 만든다({@code 3:spk_0}).
+     *
+     * 라벨이 없으면 없는 채로 둔다 — 블록 번호만 남기면 "라벨은 없는데 화자 구분은 된 것처럼
+     * 보이는" 값이 생기고, L1 이 그 값으로 발화들을 한 사람으로 묶는다. 그 회의의 라벨 없는
+     * 발화 전부가 한 화자가 되는 경로다.
+     */
+    private static String meetingScopedLabel(int blockSeq, String blockLabel) {
+        return blockLabel == null ? null : blockSeq + ":" + blockLabel;
     }
 }

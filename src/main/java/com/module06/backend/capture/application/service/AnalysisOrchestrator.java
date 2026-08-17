@@ -9,6 +9,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -233,6 +238,12 @@ public class AnalysisOrchestrator {
     private final AnalysisArtifactRepository analysisArtifactRepository;
     private final MeetingDateProvider meetingDateProvider;
     private final SpeakerAttributionResolver speakerAttributionResolver;
+    /*
+     * 주제 단위 계층을 주제별로 동시에 돌리는 풀. **analysisTaskExecutor 와 반드시 다른 풀**
+     * 이어야 한다 — 이 서비스 자신이 그 위에서 돌기 때문이다(inTopicOrder 주석).
+     */
+    private final Executor topicTaskExecutor;
+
     private final NearNameAssigneeResolver nearNameAssigneeResolver;
     private final ConflictDetector conflictDetector;
     private final AutoConfirmGate autoConfirmGate;
@@ -357,16 +368,17 @@ public class AnalysisOrchestrator {
 
         // ── L1 · 화자 귀속 (코드 계층 · LLM 아님) ────────────────────────────────
         /*
-         * 파이프라인의 **첫** 계층이다. 자막(caption_chunk)과 정본을 ±1.5초 창에서 맞춰
-         * rms 최대인 참석자를 화자로 정하고, 그 결과를 정본에 이식한다. 모델이 아니라 산수다.
+         * 파이프라인의 **첫** 계층이다. STT 화자 분리 라벨을 사람에 닻 내려 화자를 정하고,
+         * 그 결과를 정본에 이식한다. 모델이 아니라 산수다(V5.23).
          *
          * 여기가 먼저여야 하는 이유 — 뒤 계층 전부가 화자를 본다. L1.5 는 "그분"을 풀 때,
          * L4 는 1인칭 발화("제가 할게요")의 담당자를 정할 때 speakerMemberId 를 쓴다.
          * 나중에 돌리면 이미 담당자가 정해진 뒤에 화자가 밝혀진다.
          *
-         * caption_chunk 가 비어 있으면 전원 판정 포기로 끝난다 — **정상 동작이다.** 참석자가
-         * 브라우저 자막을 보내지 않은 회의(CAP-11 을 안 태운 경로)가 그렇고, 그때 화자는
-         * NULL 로 남는다. 임의로 채우면 회의에 없던 사람 보드로 할 일이 간다.
+         * **판정을 일부만 하는 것이 정상이다.** 닻이 안 붙은 라벨의 발화는 NULL 로 남는다 —
+         * 라벨이 있다는 것은 "말한 사람이 구분됐다"이지 "누구인지 안다"가 아니고, 임의로
+         * 채우면 회의에 없던 사람 보드로 할 일이 간다. 화자 분리를 안 쓴 회의(스텁 · whisper ·
+         * V5.23 이전 블록)는 예전 rms 경로로 가고, 그쪽은 자막이 없으면 전원 기권으로 끝난다.
          */
         // 재개 시 되살릴 것이 없다 — 판정 결과는 transcript_chunk 에 있고, 바로 아래에서 다시 읽는다.
         LayerOutcome<Integer> attributed = runOrReuse(meetingId, runSeq, LayerName.L1, resumeFrom, () -> 0, sink -> {
@@ -383,8 +395,13 @@ public class AnalysisOrchestrator {
             // 명단 밖 탈출구(personId=null)는 제외한다 — 소거법과 "전원 자막" 판단의 분모가
             // 실제 참석자 수여야 한다. 탈출구를 포함하면 참석자가 2명인 회의가 3명으로 보여
             // 소거법이 성립하지 않는다. L6·L7 도 같은 집합을 쓴다.
+            //
+            // 이름표는 호명-응답 앵커가 쓴다(SpeakerLabelAnchorResolver). L4 의 근접 매칭에
+            // 넘기는 것과 **같은 집합**이어야 한다 — 두 계층이 서로 다른 이름표를 보면 한쪽이
+            // 이은 이름을 다른 쪽이 못 찾고, 그 차이가 어디서 왔는지 되짚을 수 없다.
             List<SpeakerAttributionResolver.Attribution> attributions =
-                    speakerAttributionResolver.resolve(fresh, captions, attendeeMemberIdsOf(participants));
+                    speakerAttributionResolver.resolve(fresh, captions,
+                            attendeeMemberIdsOf(participants), nameByMemberIdOf(participants));
 
             int applied = transcriptRepository.applySpeakerAttributions(meetingId, attributions);
             if (applied != attributions.size()) {
@@ -457,16 +474,44 @@ public class AnalysisOrchestrator {
             analysisArtifactRepository.saveReferences(meetingId, result.references());
             return new Accumulated<>(result, sink.spent());
         });
+        /*
+         * <h2>L1.5 가 실패해도 파이프라인을 세우지 않는다 (2026-08-15)</h2>
+         * 이 계층이 만드는 것은 발화에 붙이는 **주석**이고, 뒤 계층은 주석이 없어도 성립한다.
+         * 그런데 예전에는 여기서 return 해 L2~OVERVIEW 가 통째로 안 돌았다 — 회의 28 이
+         * Gemini 429 로 L1.5 에서 죽으면서 요약도 액션도 0 이 된 경로가 이것이다.
+         *
+         * **가장 값이 안 나오는 계층이 가장 앞에서 전체를 막고 있었다.** 실측(2026-08-14)에서
+         * L1.5 는 참조 13건을 풀고도 담당자 정답을 하나도 바꾸지 못했다(0/8 · 2/7 그대로).
+         * 반면 비용은 지연의 26% · 출력 토큰의 37% 다. 그런 계층이 첫 관문이라 여기서 넘어지면
+         * 회의 하나가 통째로 빈손이 된다.
+         *
+         * 그래서 실패는 **기록하고 지나간다.** analysis_layer 에는 FAILED 가 그대로 남는다 —
+         * SKIPPED 로 덮지 않는다. 호출이 실제로 실패한 것이 사실이고, 그걸 생략으로 적으면
+         * "부르지 않았다"와 "부르다 죽었다"가 같은 모양이 된다.
+         *
+         * ⚠ 잠금·밀림은 그대로 물러난다. 그건 이 계층이 못 한 것이 아니라 **다른 실행이 주인**
+         * 이라는 뜻이고, 계속 돌면 두 실행이 같은 회의를 동시에 쓴다.
+         */
         if (!resolved.succeeded()) {
-            return resolved.toAnalysisOutcome(LayerName.L1_5);
+            if (resolved.alreadyRunning() || resolved.stale()) {
+                return resolved.toAnalysisOutcome(LayerName.L1_5);
+            }
+            log.warn("L1.5 지시어 해소 실패 — 주석 없이 계속한다. 담당자 판정에는 영향이 없고"
+                            + " 지시어가 든 발화의 문맥만 얕아진다. meetingId={} 사유={} {}",
+                    meetingId, resolved.errorCode(), resolved.errorMessage());
         }
 
         /*
          * 해소 결과를 발화에 주석으로 붙인 사본을 만든다. **DB 의 발화는 고치지 않는다** —
          * transcript_chunk 는 원본이고, 사람이 나중에 "정말 그렇게 말했나"를 확인하는 근거다.
          * 원문을 치환하면 그 근거가 사라지고, 잘못된 해소를 되돌릴 수도 없다.
+         *
+         * 실패했으면 원문 그대로 간다 — annotate 는 참조가 비면 입력을 그대로 돌려주므로
+         * 여기서 갈라 두는 것은 value() 가 null 일 수 있다는 사실 하나 때문이다.
          */
-        List<Utterance> utterances = annotate(rawUtterances, resolved.value().references(), participants);
+        List<Utterance> utterances = resolved.succeeded()
+                ? annotate(rawUtterances, resolved.value().references(), participants)
+                : rawUtterances;
 
         Map<Long, Utterance> byId = new LinkedHashMap<>();
         utterances.forEach(utterance -> byId.put(utterance.utteranceId(), utterance));
@@ -521,17 +566,32 @@ public class AnalysisOrchestrator {
         LayerOutcome<Void> summarized = runOrReuse(meetingId, runSeq, LayerName.L3, resumeFrom,
                 // 재개: 요약·항목은 meeting_summary·meeting_decision 에 있고 뒤 계층이 거기서 다시 읽는다.
                 () -> null, sink -> {
-            for (TopicSegment topic : topics) {
+            /*
+             * 주제마다 동시에 부른다. 주제끼리 서로의 결과를 보지 않으므로(L2 가 이미 갈라
+             * 놓았다) 순차로 돌릴 이유가 없고, 임계경로가 "가장 느린 주제 하나"로 줄어든다.
+             *
+             * ⚠ **결과를 모으는 순서는 그대로 주제 순서다.** decisions 의 순서가 곧 저장 순서
+             * 이고 overview 는 주제 순서로 이어 붙인 글이다 — 완료 순서로 모으면 회의록의
+             * 안건 차례가 실행할 때마다 달라진다.
+             */
+            /*
+             * ⚠ 토큰 누적(sink.add)은 **병렬 작업 안에서** 한다. 밖에서 모아 한꺼번에 더하면,
+             * 주제 하나가 터졌을 때 이미 성공한 주제들의 비용이 FAILED 기록에서 통째로 사라진다.
+             * UsageSink 를 원자적으로 만든 이유가 이것이다 — 여러 스레드가 동시에 더한다.
+             */
+            List<SummarizeTopicResult> results = inTopicOrder(topics, topic -> {
                 SummarizeTopicResult result = aiLayerPort.summarizeTopic(
                         tenantId, meetingId, topic.topicSeq(), topic.topic(),
                         utterancesOf(topic, byId), participants);
+                sink.add(result.run());
+                return result;
+            });
 
+            for (int i = 0; i < topics.size(); i++) {
+                TopicSegment topic = topics.get(i);
+                SummarizeTopicResult result = results.get(i);
                 decisions.add(new TopicDecisions(topic.topicSeq(), topic.topic(), result.items()));
                 appendOverview(overview, topic, result.summary());
-                // 주제마다 부르므로 토큰은 누적한다. 마지막 호출 값만 남기면 회의당 비용이
-                // 주제 수만큼 과소 집계되고 QLTY-03 이 틀어진다.
-                // sink 에 넣으므로 중간에 터져도 그때까지의 비용이 FAILED 기록에 남는다.
-                sink.add(result.run());
             }
 
             /*
@@ -550,6 +610,38 @@ public class AnalysisOrchestrator {
             return summarized.toAnalysisOutcome(LayerName.L3);
         }
 
+        /*
+         * <h2>빈손 완주를 "분석 완료"로 기록하지 않는다 (2026-08-15)</h2>
+         * L3 가 항목을 하나도 못 뽑으면 뒤 계층은 전부 할 일이 없다 — L3.5 는 판정할 후보가
+         * 없어 건너뛰고, L4 는 확정 항목이 없어 건너뛰고, tuple 이 없으니 L5~DIST 도 빈손이다.
+         * 그런데 **그 계층들이 전부 DONE 으로 찍힌다.** 회의 26 이 그랬다 — 발화 21건, 전 계층
+         * DONE, 항목 0 · 액션 0. 화면과 DB 모두 "분석 완료"로 보이는데 사용자가 받은 것은 없다.
+         *
+         * 이 저장소에서 세 번째로 만나는 같은 실패다 — VAD 가 전 구간을 무음으로 보면서
+         * VAD_SILENCE(성공)로 집계되던 것, L1 이 구조적으로 전원 기권하면서 정상 동작으로
+         * 보이던 것. **아무것도 안 한 것이 성공과 같은 모양이면 아무도 찾지 못한다.**
+         *
+         * 발화 0건일 때와 같은 판단이고 이유도 같다(위 skipped 주석 — "빈 결과가 분석 완료로
+         * 기록돼 자막·STT 쪽 사고를 가린다"). 다만 그쪽은 입력이 없는 것이고 여기는 입력은
+         * 있는데 산출이 없는 것이라, 메시지로 그 둘을 구분한다.
+         *
+         * 마지막 OVERVIEW 호출도 아낀다 — 요약할 항목이 없는 회의를 요약시키는 호출이다.
+         * 쿼터가 병목일 때 그 한 번이 다른 회의의 몫이 된다.
+         *
+         * ⚠ **DB 에서 센다.** 재개(ANLZ-02)로 L3 를 되살린 경로에서는 위 decisions 가 비어
+         * 있는데, 그걸 보고 판단하면 정상 회의가 매 재개마다 빈손으로 잡힌다.
+         */
+        int itemCount = savedTopicsBySeq(companyId, meetingId).values().stream()
+                .mapToInt(topic -> topic.items().size())
+                .sum();
+        if (itemCount == 0) {
+            log.warn("분석 중단 — L3 가 항목을 뽑지 못했다. 발화 {}건 · 주제 {}개인데 결정·논의·"
+                            + "블로커가 0건이라 배정도 액션도 나올 수 없다. meetingId={}",
+                    utterances.size(), topics.size(), meetingId);
+            return AnalysisOutcome.skipped(
+                    "회의에서 결정·논의 항목을 찾지 못해 분석을 중단했습니다. 요약과 액션이 만들어지지 않습니다.");
+        }
+
         // ── L3.5 · 확정/논의 게이트 (주제마다 한 번) + gate_status 반영 ──────────
         /*
          * L3 **저장 후에** 돈다. 판정을 meeting_decision.gate_status 에 적어야 하고, 저장 전에
@@ -564,6 +656,13 @@ public class AnalysisOrchestrator {
             // 후보로 보낸 항목의 id. 판정을 되짚을 수 있는 유일한 집합이다.
             Set<Long> candidateIds = new HashSet<>();
 
+            /*
+             * 후보를 먼저 다 고르고 나서 부른다 — 병렬 작업 안에서 candidateIds 를 채우면
+             * 여러 스레드가 같은 Set 을 건드린다. 후보 선정은 저장된 값을 읽는 계산일 뿐이라
+             * 밖에서 해도 비용이 없다.
+             */
+            List<TopicSegment> gateTargets = new ArrayList<>();
+            Map<Integer, List<AiLayerPort.GateCandidate>> candidatesBySeq = new LinkedHashMap<>();
             for (TopicSegment topic : topics) {
                 TopicView saved = savedBySeq.get(topic.topicSeq());
                 if (saved == null) {
@@ -576,10 +675,16 @@ public class AnalysisOrchestrator {
                     continue;
                 }
                 candidates.forEach(candidate -> candidateIds.add(candidate.decisionId()));
+                gateTargets.add(topic);
+                candidatesBySeq.put(topic.topicSeq(), candidates);
+            }
 
-                GateResult result = aiLayerPort.gate(tenantId, meetingId, topic.topic(), candidates,
-                        utterancesOf(topic, byId), participants);
-                sink.add(result.run());
+            for (GateResult result : inTopicOrder(gateTargets, topic -> {
+                GateResult verdict = aiLayerPort.gate(tenantId, meetingId, topic.topic(),
+                        candidatesBySeq.get(topic.topicSeq()), utterancesOf(topic, byId), participants);
+                sink.add(verdict.run());
+                return verdict;
+            })) {
                 verdicts.addAll(result.verdicts());
             }
 
@@ -639,7 +744,9 @@ public class AnalysisOrchestrator {
              */
             Map<Long, String> nameByMemberId = nameByMemberIdOf(participants);
 
-            List<TupleRow> rows = new ArrayList<>();
+            // 부를 주제를 먼저 고른다 — 확정 항목 조회는 저장된 값을 읽는 계산이라 밖에서 한다.
+            List<TopicSegment> extractTargets = new ArrayList<>();
+            Map<Integer, List<ItemView>> confirmedBySeq = new LinkedHashMap<>();
             for (TopicSegment topic : topics) {
                 TopicView gatedTopic = gatedBySeq.get(topic.topicSeq());
                 if (gatedTopic == null) {
@@ -651,7 +758,18 @@ public class AnalysisOrchestrator {
                     // 뽑으려 하면 계층이 없는 담당자를 만들어내거나 빈 결과에 토큰만 쓴다.
                     continue;
                 }
+                extractTargets.add(topic);
+                confirmedBySeq.put(topic.topicSeq(), confirmed);
+            }
 
+            /*
+             * 주제 순서 그대로 모은다 — rows 의 순서가 곧 tuple 의 sortOrder 이고, 그게 검토
+             * 화면에 배정이 나열되는 차례다. 완료 순서로 담으면 같은 회의를 다시 분석할 때마다
+             * 목록이 뒤섞인다.
+             */
+            List<TupleRow> rows = new ArrayList<>();
+            for (List<TupleRow> topicRows : inTopicOrder(extractTargets, topic -> {
+                List<ItemView> confirmed = confirmedBySeq.get(topic.topicSeq());
                 List<Utterance> topicUtterances = utterancesOf(topic, byId);
 
                 ExtractTuplesResult result = aiLayerPort.extractTuples(
@@ -667,11 +785,15 @@ public class AnalysisOrchestrator {
                  * L5·L6·L7 이 읽는 값과 저장된 값이 갈리는 순간이 생긴다. 그리고 L4 에 실어
                  * 보낸 것과 **같은 발화 목록**을 넘겨야 한다 — 모델이 못 본 발화에서 이름을
                  * 주우면 근거 발화와 담당자가 어긋난다.
+                 *
+                 * 이 resolver 는 상태가 없는 순수 계산이라 여러 스레드가 동시에 불러도 된다.
                  */
                 List<NearNameAssigneeResolver.Resolved> resolvedTuples =
                         nearNameAssigneeResolver.resolve(result.tuples(), topicUtterances, nameByMemberId);
 
-                rows.addAll(toTupleRows(meetingId, resolvedTuples, result.run(), confirmed, topic));
+                return toTupleRows(meetingId, resolvedTuples, result.run(), confirmed, topic);
+            })) {
+                rows.addAll(topicRows);
             }
 
             /*
@@ -1338,7 +1460,8 @@ public class AnalysisOrchestrator {
                     ? utterance
                     : new Utterance(utterance.utteranceId(), utterance.speakerMemberId(),
                             utterance.startOffsetMs(), utterance.endOffsetMs(),
-                            withAnnotations(utterance, matched, nameByPersonId)));
+                            withAnnotations(utterance, matched, nameByPersonId),
+                            utterance.speakerLabel()));
         }
         return annotated;
     }
@@ -1432,6 +1555,67 @@ public class AnalysisOrchestrator {
      * OVERVIEW 계층이 성공하면 이 값을 짧은 개요로 덮는다. 실패하면 이 값이 그대로 남는다 —
      * 그래서 이 이어 붙이기는 없애면 안 되는 폴백이다(LayerName.OVERVIEW 주석).
      */
+    /*
+     * 주제마다 계층을 **동시에** 부르고, 결과를 **주제 순서 그대로** 돌려준다.
+     *
+     * <h2>왜 병렬로 부르나</h2>
+     * 주제끼리 서로의 결과를 보지 않는다 — L2 가 이미 갈라 놓았고, 각 호출은 그 주제의 발화만
+     * 읽는다. 순차로 돌리면 회의 하나의 지연이 주제 수만큼 곱해지는데, 실측(2026-08-14)에서
+     * 주제 단위 계층 셋(L3·L3.5·L4)이 회의당 64초를 썼다. 병렬이면 임계경로가 **가장 느린
+     * 주제 하나**로 줄어든다.
+     *
+     * <h2>⚠ 순서를 완료 순서로 바꾸지 않는다</h2>
+     * 호출은 끝나는 대로 끝나지만 결과는 준 순서대로 담는다. L3 는 decisions 의 순서가 곧
+     * 저장 순서이고 overview 는 주제 순서로 이어 붙인 글이며, L4 는 rows 의 순서가 tuple 의
+     * sortOrder 다. 완료 순서로 모으면 **같은 회의를 다시 분석할 때마다 안건 차례가 달라진다.**
+     *
+     * <h2>⚠ 예외를 감싸지 않는다</h2>
+     * CompletableFuture 는 실패를 CompletionException 으로 싸서 던진다. 그대로 올리면
+     * runOrReuse 의 오류 분류(AiLayerException 의 코드·재시도 가능 여부)가 전부 "알 수 없는
+     * 오류"로 떨어진다 — 그래서 원인을 벗겨 그대로 다시 던진다.
+     *
+     * <h2>다른 풀을 쓴다</h2>
+     * 오케스트레이터 자신이 analysisTaskExecutor 위에서 돈다. 같은 풀에 넣고 join 하면 풀이 찬
+     * 순간 서로를 기다리며 막힌다(AnalysisAsyncConfig#topicTaskExecutor 주석).
+     */
+    private <T> List<T> inTopicOrder(List<TopicSegment> topics, Function<TopicSegment, T> call) {
+        return inTopicOrder(topics, topicTaskExecutor, call);
+    }
+
+    /*
+     * 정적이라 테스트가 오케스트레이터 전체를 세우지 않고 이 규칙만 검증할 수 있다 —
+     * 이 메서드가 지키는 것(순서 보존 · 예외 원형)이 이 변경에서 가장 깨지기 쉬운 자리다.
+     */
+    static <T> List<T> inTopicOrder(List<TopicSegment> topics, Executor executor,
+                                    Function<TopicSegment, T> call) {
+        if (topics.size() <= 1) {
+            // 주제가 하나면 병렬로 만들 것이 없다 — 스레드를 빌리고 돌려주는 비용만 든다.
+            return topics.stream().map(call).toList();
+        }
+
+        List<CompletableFuture<T>> futures = topics.stream()
+                .map(topic -> CompletableFuture.supplyAsync(() -> call.apply(topic), executor))
+                .toList();
+
+        List<T> results = new ArrayList<>(futures.size());
+        try {
+            for (CompletableFuture<T> future : futures) {
+                results.add(future.join());
+            }
+        } catch (CompletionException e) {
+            /*
+             * 먼저 끝난 실패 하나만 올린다. 나머지 호출은 취소하지 않는다 — 이미 제공자에게
+             * 나간 요청이라 취소해도 요금은 나가고, 그 결과의 토큰은 sink 에 들어가야 한다
+             * (호출자가 병렬 작업 안에서 더한다).
+             */
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw e;
+        }
+        return results;
+    }
+
     private void appendOverview(StringBuilder overview, TopicSegment topic, String summary) {
         if (summary == null || summary.isBlank()) {
             return;
@@ -1453,12 +1637,23 @@ public class AnalysisOrchestrator {
      */
     private static final class UsageSink {
 
-        private LayerRun spent = LayerRun.empty();
+        /*
+         * ⚠ **여러 스레드가 동시에 더한다.** 주제 단위 계층(L3·L3.5·L4)이 주제별로 병렬로 돌고,
+         * 각 스레드가 자기 호출이 끝날 때마다 add 를 부른다.
+         *
+         * 그래서 원자적으로 누적해야 한다. 예전에는 그냥 필드였고(`spent = spent.plus(run)`)
+         * 그건 읽고-더하고-쓰는 세 걸음이라, 두 스레드가 겹치면 **한쪽의 토큰이 조용히 사라진다.**
+         * 터지지 않고 원장 숫자만 적게 잡히는 종류의 실패다 — 미터링·과금이 그 값을 쓴다.
+         */
+        private final AtomicReference<LayerRun> spent = new AtomicReference<>(LayerRun.empty());
 
         /*
          * 모델 호출 하나가 끝날 때마다 부를 것(#177). 계층 경계에서만 심장을 찍으면 L5 처럼
          * tuple 마다 도는 계층이 한 번의 갱신 사이에 몇 분을 보내고, 그 시간을 견디려고 유예를
          * 늘리면 진짜 죽은 잠금이 그만큼 늦게 풀린다.
+         *
+         * 병렬 실행에서는 여러 스레드가 이걸 동시에 부른다. 심장은 "갱신 시각을 지금으로
+         * 옮기는" 멱등한 쓰기라 겹쳐도 결과가 같다 — 잠금 소유권 검사는 그 뒤에 따로 있다.
          */
         private final Runnable heartbeat;
 
@@ -1473,12 +1668,12 @@ public class AnalysisOrchestrator {
              */
             heartbeat.run();
             if (run != null) {
-                spent = spent.plus(run);
+                spent.accumulateAndGet(run, LayerRun::plus);
             }
         }
 
         LayerRun spent() {
-            return spent;
+            return spent.get();
         }
     }
 

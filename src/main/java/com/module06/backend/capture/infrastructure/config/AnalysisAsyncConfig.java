@@ -63,4 +63,47 @@ public class AnalysisAsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /*
+     * 주제 단위 계층(L3·L3.5·L4)을 주제별로 동시에 돌리는 풀이다.
+     *
+     * <h2>⚠ analysisTaskExecutor 를 재사용하면 데드락이다</h2>
+     * 오케스트레이터 자신이 그 풀 위에서 돈다. 거기에 주제 작업을 넣고 join 하면, 풀이 찬
+     * 순간 **모든 스레드가 자기 하위 작업을 기다리며 서로를 막는다.** 그래서 풀을 나눈다 —
+     * 이 풀의 스레드는 아무것도 기다리지 않으므로(계층 호출만 한다) 순환이 생기지 않는다.
+     *
+     * <h2>왜 공유 풀인가 — 회의마다 만들지 않는다</h2>
+     * 동시 실행 상한이 **전체 기준**이어야 한다. 회의마다 풀을 만들면 분석 2건 × 주제 7개가
+     * 그대로 14개 동시 호출이 되고, 제공자 쪽 레이트리밋을 우리가 스스로 때린다.
+     * 이 풀 하나로 묶으면 분석이 몇 개 돌든 동시 호출은 여기 크기를 넘지 않는다.
+     *
+     * <h2>포화되면 부른 쪽이 직접 한다(CallerRuns)</h2>
+     * 분석 풀과 정책이 다르다. 거기서는 거절이 맞다 — 회의 하나를 나중에 다시 돌리면 된다.
+     * 여기서 거절하면 **주제 하나가 통째로 빠진 채 분석이 완료된다.** 그건 요약에서 안건 하나가
+     * 조용히 사라지는 것이고 아무도 못 찾는다. CallerRuns 로 두면 최악이 오케스트레이터
+     * 스레드가 그 주제를 직접 도는 것 — 즉 **병렬화 이전의 동작으로 떨어질 뿐**이다.
+     */
+    private static final int TOPIC_POOL_SIZE = 4;
+
+    @Bean("topicTaskExecutor")
+    public Executor topicTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(TOPIC_POOL_SIZE);
+        executor.setMaxPoolSize(TOPIC_POOL_SIZE);
+        /*
+         * 큐를 두지 않는다. 큐가 있으면 CallerRuns 가 발동하지 않아 주제가 줄을 서고, 그 줄이
+         * 곧 지연이다 — 병렬화의 목적과 반대로 간다. 넘치면 그 자리에서 부른 쪽이 처리한다.
+         */
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("analysis-topic-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        /*
+         * 종료 시 기다린다 — 주제 호출이 끊기면 그 계층이 실패로 닫히고, 회의는 어차피 다시
+         * 돌려야 한다. 분석 풀보다 짧게 잡는다: 이 풀의 작업은 계층 하나의 호출 하나뿐이다.
+         */
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(120);
+        executor.initialize();
+        return executor;
+    }
 }

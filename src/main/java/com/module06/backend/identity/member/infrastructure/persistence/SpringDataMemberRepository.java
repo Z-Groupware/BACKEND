@@ -6,6 +6,8 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import com.module06.backend.identity.member.domain.model.MemberStatus;
+
 interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long> {
 
     /**
@@ -83,4 +85,19 @@ interface SpringDataMemberRepository extends JpaRepository<MemberJpaEntity, Long
 
     /** 계정 발급 이메일 중복 확인(§5-1). 퇴사자의 이메일은 다시 쓸 수 있다. */
     boolean existsByCompanyIdAndEmailAndDeletedAtIsNull(Long companyId, String email);
+
+    /**
+     * 휴직 자동 복귀 배치 전용({@code VacationReturnAdapter}). 상태로 찾는 유일한 메서드다.
+     *
+     * <p>신규 {@code @Query} 는 Gate 1(QUERY_002)이 막으므로 파생 메서드로 푼다
+     * ({@link #findByCompanyId} 와 같은 이유).
+     */
+    /*
+     * TENANT_001 예외: 전사 배치라 요청자가 없어 회사로 좁힐 수 없다. 다른 조회는 호출자의
+     * companyId 로 좁히지만 여기는 부르는 사람이 사람이 아니라 스케줄러다 — 회사를 하나 골라
+     * 넣을 근거가 없고, 회사별로 나눠 돌면 회사 수만큼 쿼리가 늘 뿐 결과가 같다.
+     * 읽는 값도 상태 전이에만 쓰이고 응답으로 나가지 않는다.
+     */
+    // nosemgrep: tenant-derived-query-without-company-scope
+    List<MemberJpaEntity> findByStatusAndDeletedAtIsNull(MemberStatus status);
 }

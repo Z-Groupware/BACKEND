@@ -156,7 +156,7 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
                 .map(entity -> new PendingBlock(
                         entity.getId(), entity.getMeetingId(), entity.getBlockSeq(),
                         entity.getStatus(), entity.getProvider(), entity.getProviderJobName(),
-                        entity.getStartOffsetMs(), entity.getEndOffsetMs()))
+                        entity.getStartOffsetMs(), entity.getEndOffsetMs(), entity.getCreatedAt()))
                 .toList();
     }
 

@@ -128,9 +128,9 @@ class ReferenceCandidateSelectorTest {
     @DisplayName("id·본문이 없는 발화는 건너뛴다 — null id 를 넘기면 Python 이 422 로 거절한다")
     void 불완전한_발화는_건너뛴다() {
         List<Long> targets = ReferenceCandidateSelector.select(List.of(
-                new Utterance(null, null, 0, 500, "그거 맞습니다"),
-                new Utterance(2L, null, 500, 900, null),
-                new Utterance(3L, null, 900, 1200, "   "),
+                new Utterance(null, null, 0, 500, "그거 맞습니다", null),
+                new Utterance(2L, null, 500, 900, null, null),
+                new Utterance(3L, null, 900, 1200, "   ", null),
                 utterance(4L, "그거 맞습니다")));
 
         assertThat(targets).containsExactly(4L);
@@ -179,6 +179,6 @@ class ReferenceCandidateSelectorTest {
     }
 
     private static Utterance utterance(long id, String text) {
-        return new Utterance(id, null, 0, 500, text);
+        return new Utterance(id, null, 0, 500, text, null);
     }
 }

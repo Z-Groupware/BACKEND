@@ -74,6 +74,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class AnalysisOrchestratorTest {
 
+    /*
+     * 주제 병렬 실행기를 **부른 스레드에서 그대로 돌린다.**
+     *
+     * 실물 풀을 쓰면 이 테스트들이 스레드 스케줄에 따라 흔들린다 — 가짜 포트가 호출 순서를
+     * 기록하는데, 그 순서가 실행마다 달라지면 "무엇을 먼저 불렀나"를 검증할 수 없다.
+     * 병렬성 자체는 이 테스트의 검증 대상이 아니고, **순서 보존과 결과 조립**이 대상이다.
+     * 직접 실행기로 두면 그 둘을 결정적으로 볼 수 있다.
+     */
+    private static final java.util.concurrent.Executor DIRECT_EXECUTOR = Runnable::run;
+
     private static final long TENANT = 7L;
     private static final long COMPANY = 7L;
     private static final long MEETING = 500L;
@@ -308,6 +318,59 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("2026-08-15 — L1.5 가 실패해도 파이프라인은 계속 간다, 주석만 없다")
+    void L1_5_실패는_파이프라인을_세우지_않는다() {
+        /*
+         * 회의 28 이 Gemini 429 로 L1.5 에서 죽으면서 요약도 액션도 0 이 된 경로다.
+         * 이 계층이 만드는 것은 발화에 붙이는 주석뿐이고 뒤 계층은 주석 없이도 성립한다 —
+         * 가장 값이 안 나오는 계층(실측: 담당자 정답 변화 0, 지연 26%)이 첫 관문이라
+         * 여기서 넘어지면 회의 하나가 통째로 빈손이 됐다.
+         */
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.resolveFailure = new AiLayerException("RATE_LIMITED", "쿼터 소진", true);
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai, layers).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 뒤 계층이 전부 돌았다 — 이게 요점이다.
+        assertThat(ai.segmentCalls).isEqualTo(1);
+        assertThat(ai.extractRequests).isNotEmpty();
+        assertThat(outcome.status()).isNotEqualTo(AnalysisOutcome.Status.FAILED);
+
+        // 실패는 FAILED 로 그대로 남는다 — SKIPPED 로 덮으면 "부르지 않았다"와 구분이 사라진다.
+        assertThat(layers.failed).containsKey(LayerName.L1_5);
+
+        // 주석 없이 원문 그대로 넘어갔다.
+        assertThat(ai.segmentUtterances.get(0).text()).doesNotContain("[지시어");
+    }
+
+    @Test
+    @DisplayName("2026-08-15 — L3 가 항목을 0건 뽑으면 '완료'가 아니라 중단으로 남긴다")
+    void 항목이_없으면_완주로_기록하지_않는다() {
+        /*
+         * 회의 26 이 그랬다 — 발화 21건, 전 계층 DONE, 항목 0 · 액션 0. 뒤 계층은 할 일이
+         * 없어 건너뛰는데 전부 DONE 으로 찍혀, 화면과 DB 모두 "분석 완료"로 보였다.
+         * 이 저장소에서 세 번째로 만나는 같은 실패다(VAD 무음 100% · L1 전원 기권).
+         */
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai, new FakeLayerRepository()).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
+        // 요약할 항목이 없는 회의를 요약시키지 않는다 — 쿼터가 병목일 때 그 한 번이 남의 몫이다.
+        assertThat(ai.overviewRequests).isEmpty();
+        assertThat(tuples.replaceCalls).isZero();
+    }
+
+    @Test
     @DisplayName("새 계층이 안 돈 회의는 '완료'로 생략되지 않는다")
     void RUN_LAYERS에_새_계층이_들어가면_재실행_대상이다() {
         FakeSummaryRepository summaries = new FakeSummaryRepository();
@@ -489,7 +552,14 @@ class AnalysisOrchestratorTest {
     @Test
     @DisplayName("force 면 받아쓰기가 안 끝났어도 분석을 시작한다")
     void force면_미완_블록을_무시한다() {
-        RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+        /*
+         * 항목이 나오는 픽스처를 쓴다. 예전엔 빈 항목이었는데, 2026-08-15 부터 항목 0건은
+         * 그 자체로 SKIPPED 라 "관문을 지났는가"를 status 로 볼 수 없게 됐다 — 두 SKIPPED 가
+         * 섞이면 이 테스트가 무엇을 지키는지 흐려진다.
+         */
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
 
         AnalysisOutcome outcome = orchestratorOf(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(2),
@@ -891,7 +961,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new SpeakerAttributionResolver(new SpeakerLabelAnchorResolver()), DIRECT_EXECUTOR, new NearNameAssigneeResolver(),
                 new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions, meetingId -> Optional.of(PROJECT),
                         // 이 회의에는 이미 분석 경로로 만든 액션이 있다.
@@ -922,7 +992,7 @@ class AnalysisOrchestratorTest {
         AnalysisOutcome outcome = new AnalysisOrchestrator(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, new FakeRunRepository(), summaries, tuples, new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new SpeakerAttributionResolver(new SpeakerLabelAnchorResolver()), DIRECT_EXECUTOR, new NearNameAssigneeResolver(),
                 new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, actions,
                         // meeting.project_id 는 NOT NULL 이라, 비었다는 것은 회의 행을 못 읽은
@@ -1255,7 +1325,7 @@ class AnalysisOrchestratorTest {
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 layers, layers.runs != null ? layers.runs : new FakeRunRepository(),
                 summaries, tuples, artifacts, meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new SpeakerAttributionResolver(new SpeakerLabelAnchorResolver()), DIRECT_EXECUTOR, new NearNameAssigneeResolver(),
                 new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, new RecordingDistributionPort(),
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
@@ -1316,7 +1386,7 @@ class AnalysisOrchestratorTest {
                 summaries, tuples, new FakeArtifactRepository(), dates,
                 // 판정 로직은 순수 계산이라 가짜로 대체하지 않는다 — 실물을 넣어야
                 // 오케스트레이터가 참석자 명단을 어떻게 넘기는지까지 함께 검증된다.
-                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new SpeakerAttributionResolver(new SpeakerLabelAnchorResolver()), DIRECT_EXECUTOR, new NearNameAssigneeResolver(),
                 new ConflictDetector(), new AutoConfirmGate(),
                 /*
                  * 분배 서비스도 실물이다. **같은 tuple 저장소를 넘기는 것이 요점**이다 —
@@ -1339,7 +1409,7 @@ class AnalysisOrchestratorTest {
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(), new FakeCaptionRepository(),
                 new FakeLayerRepository(), new FakeRunRepository(), summaries, tuples,
                 new FakeArtifactRepository(), meetingId -> Optional.of(MEETING_DATE),
-                new SpeakerAttributionResolver(), new NearNameAssigneeResolver(),
+                new SpeakerAttributionResolver(new SpeakerLabelAnchorResolver()), DIRECT_EXECUTOR, new NearNameAssigneeResolver(),
                 new ConflictDetector(), new AutoConfirmGate(),
                 new TupleDistributionService(tuples, new RecordingDistributionPort(),
                         meetingId -> Optional.of(PROJECT), (companyId, meetingId) -> false,
@@ -1349,8 +1419,8 @@ class AnalysisOrchestratorTest {
 
     private static List<Utterance> utterances() {
         return List.of(
-                new Utterance(1L, 42L, 0, 3_000, "로드맵 정리합시다"),
-                new Utterance(2L, null, 5_000, 8_000, "그거 그분한테 맡기죠"));
+                new Utterance(1L, 42L, 0, 3_000, "로드맵 정리합시다", null),
+                new Utterance(2L, null, 5_000, 8_000, "그거 그분한테 맡기죠", null));
     }
 
     private static com.module06.backend.capture.domain.model.TopicItem item(
@@ -1374,6 +1444,8 @@ class AnalysisOrchestratorTest {
 
         private List<ResolvedReference> references = List.of();
         private List<AssignmentTuple> tuples = List.of();
+        /* L1.5 실패를 주입한다 — 그 실패가 파이프라인을 세우지 않는지 보는 자리다. */
+        private AiLayerException resolveFailure;
         private AiLayerException gateFailure;
 
         private int resolveCalls;
@@ -1420,6 +1492,9 @@ class AnalysisOrchestratorTest {
         public ResolveReferenceResult resolveReference(long tenantId, long meetingId, List<Utterance> utterances,
                                                        List<Long> targetUtteranceIds, List<Participant> participants) {
             resolveCalls++;
+            if (resolveFailure != null) {
+                throw resolveFailure;
+            }
             resolveUtterances = List.copyOf(utterances);
             // 계약: null 이 아니라 빈 리스트여야 한다(pydantic 이 list 자리의 None 을 422 로 거절한다).
             assertThat(targetUtteranceIds).isNotNull();
@@ -1746,7 +1821,8 @@ class AnalysisOrchestratorTest {
                 SpeakerAttributionResolver.Attribution attribution = byUtteranceId.get(utterance.utteranceId());
                 return new Utterance(utterance.utteranceId(),
                         attribution != null ? attribution.speakerMemberId() : null,
-                        utterance.startOffsetMs(), utterance.endOffsetMs(), utterance.text());
+                        utterance.startOffsetMs(), utterance.endOffsetMs(), utterance.text(),
+                        utterance.speakerLabel());
             });
             return attributions.size();
         }

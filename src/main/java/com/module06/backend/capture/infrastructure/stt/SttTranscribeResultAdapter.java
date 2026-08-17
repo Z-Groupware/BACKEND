@@ -166,6 +166,7 @@ public class SttTranscribeResultAdapter implements SttJobResultPort {
      * <pre>
      * { "results": { "items": [
      *     { "start_time": "0.0", "end_time": "0.44", "type": "pronunciation",
+     *       "speaker_label": "spk_0",
      *       "alternatives": [ { "content": "안녕하세요" } ] },
      *     { "type": "punctuation", "alternatives": [ { "content": "." } ] } ] } }
      * </pre>
@@ -177,6 +178,16 @@ public class SttTranscribeResultAdapter implements SttJobResultPort {
      * <h2>시간이 없는 단어는 앞말 끝에 붙인다</h2>
      * 부호 항목에는 start_time·end_time 이 없다. 0 으로 채우면 그 부호가 회의 맨 앞으로
      * 튀어 발화 경계가 무너진다 — 직전 단어의 끝 시각을 쓴다.
+     *
+     * <h2>화자 라벨은 item 에서 바로 읽는다 — results.speaker_labels 를 보지 않는다</h2>
+     * 화자 분리를 켜면 응답에 {@code results.speaker_labels.segments[]} 가 따로 생기고 그 안에
+     * 같은 항목이 한 벌 더 들어 있다. 그쪽을 쓰면 두 목록을 시각으로 다시 맞춰야 하는데, 그
+     * 맞추기가 어긋나면 **라벨이 한 칸씩 밀려** 모든 발화의 화자가 옆 사람이 된다. 조용히
+     * 틀리고 결과는 그럴듯한, 이 파이프라인에서 가장 나쁜 종류의 실패다.
+     *
+     * {@code items[]} 의 항목이 자기 라벨을 직접 들고 있으므로 맞출 일이 없다. 라벨이 없는
+     * 항목은 null 로 둔다 — 앞말의 라벨을 물려주지 않는다. 그건 추측이고, 화자가 바뀌는
+     * 자리에서 정확히 틀린다.
      */
     private List<Word> parseWords(byte[] body) {
         JsonNode items = objectMapper.readTree(new String(body, StandardCharsets.UTF_8))
@@ -187,6 +198,7 @@ public class SttTranscribeResultAdapter implements SttJobResultPort {
 
         List<Word> words = new ArrayList<>();
         int lastEndMs = 0;
+        int labelled = 0;
         for (JsonNode item : items) {
             String content = item.path("alternatives").path(0).path("content").asString(null);
             if (content == null || content.isBlank()) {
@@ -196,10 +208,28 @@ public class SttTranscribeResultAdapter implements SttJobResultPort {
 
             int startMs = toMillis(item.path("start_time"), lastEndMs);
             int endMs = toMillis(item.path("end_time"), startMs);
-            words.add(new Word(startMs, endMs, content, punctuation));
+            String speakerLabel = speakerLabelOf(item);
+            if (speakerLabel != null) {
+                labelled++;
+            }
+            words.add(new Word(startMs, endMs, content, punctuation, speakerLabel));
             lastEndMs = endMs;
         }
+
+        /*
+         * 라벨이 몇 개나 붙었는지 남긴다. **화자 분리가 조용히 꺼지는 것을 여기서만 볼 수 있다** —
+         * 제출에서 Settings 가 빠졌거나 제공자가 라벨을 안 준 경우, 응답은 정상이고 전사도
+         * 멀쩡한데 그 뒤 화자만 전부 NULL 이 된다. 그러면 원인을 L1 에서 찾게 되는데 거기엔
+         * 아무 단서도 없다. VAD 가 전 구간을 무음으로 보면서 성공으로 집계되던 것과 같은 모양이다.
+         */
+        log.info("STT 결과 파싱 — 단어 {}건 중 화자 라벨 {}건", words.size(), labelled);
         return words;
+    }
+
+    /* 화자 라벨. 빈 문자열은 없는 것으로 본다 — 라벨로 쓸 수 없는 값이다. */
+    private static String speakerLabelOf(JsonNode item) {
+        String label = item.path("speaker_label").asString(null);
+        return label == null || label.isBlank() ? null : label;
     }
 
     /* Transcribe 는 초를 **문자열**로 준다("12.34"). 없으면 기본값을 쓴다(부호 항목). */
