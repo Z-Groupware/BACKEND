@@ -51,6 +51,12 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
      */
     private final SttBlockRepository sttBlockRepository;
 
+    /*
+     * 자동 실행 관문이 쓰는 것과 **같은** 하한 판정이다(#572). 여기서 3분을 따로 적으면
+     * 두 값이 갈리고, 그때 관문은 막는데 화면은 기다리라고 말한다.
+     */
+    private final AutoAnalysisLengthGate autoAnalysisLengthGate;
+
     @Override
     @Transactional(readOnly = true)
     public List<StalledMeetingSummary> findStalledSummaries(Long companyId, List<Long> meetingIds) {
@@ -135,19 +141,42 @@ public class MeetingSummaryQueryService implements MeetingSummaryQueryPort {
                 ? Set.of()
                 : sttBlockRepository.findMeetingsWithUnfinishedBlocks(notStarted);
 
+        /*
+         * 받아쓰기를 기다리는 것도 아닌데 계층이 없는 회의에만 길이를 묻는다(#572).
+         *
+         * 받아쓰기 대기가 **먼저**다 — 아직 전사 중인 3분짜리 회의는 「너무 짧음」이 아니라
+         * 「받아쓰기 대기」다. 그 회의의 하한 판정은 전사가 끝나고 자동 실행이 실제로 걸러낸
+         * 뒤에야 뜻이 생긴다. 순서를 뒤집으면 기다리면 되는 회의에 "너무 짧아 안 한다"고
+         * 말하게 된다.
+         */
+        List<Long> lengthCandidates = notStarted.stream()
+                .filter(id -> !waitingTranscript.contains(id))
+                .toList();
+        Set<Long> skippedTooShort = autoAnalysisLengthGate.findTooShortForAutoRun(lengthCandidates);
+
         List<MeetingSummaryStatus> statuses = new ArrayList<>();
         for (Long meetingId : targets) {
             List<LayerState> states = statesByMeeting.get(meetingId);
             if (states == null || states.isEmpty()) {
-                statuses.add(new MeetingSummaryStatus(meetingId,
-                        waitingTranscript.contains(meetingId)
-                                ? SummaryStatus.WAITING_TRANSCRIPT
-                                : SummaryStatus.NONE));
+                statuses.add(new MeetingSummaryStatus(meetingId, notStartedStatusOf(
+                        meetingId, waitingTranscript, skippedTooShort)));
                 continue;
             }
             statuses.add(new MeetingSummaryStatus(meetingId, summaryStatusOf(states)));
         }
         return statuses;
+    }
+
+    /* 계층 기록이 없는 회의를 세 갈래로 가른다 — 기다리는 중 · 걸러진 것 · 아직 아무것도 안 한 것. */
+    private SummaryStatus notStartedStatusOf(Long meetingId, Set<Long> waitingTranscript,
+                                             Set<Long> skippedTooShort) {
+        if (waitingTranscript.contains(meetingId)) {
+            return SummaryStatus.WAITING_TRANSCRIPT;
+        }
+        if (skippedTooShort.contains(meetingId)) {
+            return SummaryStatus.SKIPPED_TOO_SHORT;
+        }
+        return SummaryStatus.NONE;
     }
 
     /*

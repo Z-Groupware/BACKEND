@@ -1,6 +1,5 @@
 package com.module06.backend.capture.application.service;
 
-import java.time.Duration;
 import java.util.Optional;
 
 import org.springframework.scheduling.annotation.Async;
@@ -51,17 +50,14 @@ import com.module06.backend.meeting.application.event.MeetingCompletionRequested
 @RequiredArgsConstructor
 public class MeetingCompletedAnalysisTrigger {
 
-    /*
-     * 자동 실행 하한이다. 이보다 짧은 회의는 부르지 않는다(명세 ANLZ-01 SKIPPED_TOO_SHORT).
-     *
-     * 자동 트리거는 비용 통제를 약하게 만든다 — 테스트로 만든 회의, 들어왔다 바로 나온 회의까지
-     * 전부 모델을 태운다. 3분 미만에서 "누가·무엇을·언제까지"가 나올 일도 드물다.
-     * 걸러진 회의도 사람이 원하면 ANLZ-01 로 돌릴 수 있다.
-     */
-    private static final Duration MIN_LENGTH_FOR_AUTO_RUN = Duration.ofMinutes(3);
-
     private final RunAnalysisUseCase runAnalysisUseCase;
-    private final MeetingLengthProvider meetingLengthProvider;
+
+    /*
+     * 길이 하한 판정이다. **이 클래스가 갖고 있지 않는 이유** — 같은 규칙을 조회
+     * (MeetingSummaryQueryService)도 알아야 한다. 관문에만 두면 건너뛴 회의가 화면에서
+     * 「분석 시작 전」과 구분되지 않아 영원히 「요약중」으로 남는다(#572).
+     */
+    private final AutoAnalysisLengthGate autoAnalysisLengthGate;
 
     /* STT 완료 이벤트에는 회사 식별자가 없으므로 D 소유 회의에서 읽는다. */
     private final MeetingCompanyProvider meetingCompanyProvider;
@@ -102,7 +98,7 @@ public class MeetingCompletedAnalysisTrigger {
     private void runAutomatically(long companyId, long meetingId) {
 
         try {
-            if (tooShortForAutoRun(meetingId)) {
+            if (autoAnalysisLengthGate.tooShortForAutoRun(meetingId)) {
                 return;
             }
 
@@ -189,55 +185,4 @@ public class MeetingCompletedAnalysisTrigger {
         }
     }
 
-    /*
-     * 실측 길이로 자동 실행 여부를 가른다.
-     *
-     * 길이를 **못 읽으면 돌린다.** 모르는 것과 짧은 것은 다르고, 모를 때 건너뛰면 멀쩡한 회의의
-     * 분석이 조용히 사라진다 — 사람은 분석이 안 됐다는 사실조차 모른다. 반대 방향의 손해는
-     * 토큰이고, 그건 로그로 보인다.
-     */
-    private boolean tooShortForAutoRun(long meetingId) {
-        if (onlineMeeting(meetingId)) {
-            return false;
-        }
-
-        Optional<Duration> length;
-        try {
-            length = meetingLengthProvider.actualLengthOf(meetingId);
-        } catch (RuntimeException e) {
-            /*
-             * 조회가 터진 것도 **길이를 모르는 것**이다. 위 규칙과 같은 방향으로 간다 —
-             * 여기서 예외를 그대로 올리면 바깥 catch 가 "분석 실패"로 기록하고 분석은 시작조차
-             * 되지 않는다. DB 가 잠깐 흔들렸다는 이유로 회의의 분석이 통째로 사라지는 것은
-             * 하한 검사가 하려던 일이 아니다.
-             */
-            log.warn("회의 길이 조회가 실패해 하한 검사를 건너뛴다 — meetingId={}", meetingId, e);
-            return false;
-        }
-
-        if (length.isEmpty()) {
-            log.warn("회의 길이를 읽지 못해 하한 검사를 건너뛴다 — meetingId={}", meetingId);
-            return false;
-        }
-
-        if (length.get().compareTo(MIN_LENGTH_FOR_AUTO_RUN) < 0) {
-            log.info("회의 종료 자동 분석 생략 — {}초짜리 회의다(하한 {}분). meetingId={}",
-                    length.get().toSeconds(), MIN_LENGTH_FOR_AUTO_RUN.toMinutes(), meetingId);
-            return true;
-        }
-        return false;
-    }
-
-    private boolean onlineMeeting(long meetingId) {
-        try {
-            Optional<Boolean> online = meetingLengthProvider.isOnline(meetingId);
-            if (online != null && online.orElse(false)) {
-                log.info("Online meeting skips auto-analysis length lower bound. meetingId={}", meetingId);
-                return true;
-            }
-        } catch (RuntimeException e) {
-            log.warn("Online meeting lookup failed. Continue with length lower bound. meetingId={}", meetingId, e);
-        }
-        return false;
-    }
 }

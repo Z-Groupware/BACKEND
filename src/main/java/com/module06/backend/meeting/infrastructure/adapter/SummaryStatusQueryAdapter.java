@@ -61,6 +61,7 @@ public class SummaryStatusQueryAdapter implements SummaryStatusQueryPort {
         return switch (status) {
             case NONE -> MeetingSummaryStatus.NONE;
             case WAITING_TRANSCRIPT -> MeetingSummaryStatus.WAITING_TRANSCRIPT;
+            case SKIPPED_TOO_SHORT -> MeetingSummaryStatus.SKIPPED_TOO_SHORT;
             case PROCESSING -> MeetingSummaryStatus.PROCESSING;
             case DONE -> MeetingSummaryStatus.DONE;
             case STALLED -> MeetingSummaryStatus.STALLED;

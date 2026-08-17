@@ -1,9 +1,11 @@
 package com.module06.backend.capture.application.service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +42,15 @@ import static org.mockito.Mockito.when;
 class MeetingSummaryQueryServiceTest {
 
     private static final long COMPANY = 7L;
+
+    /*
+     * 길이를 **모르는** 회의로 고정한다 — 하한 판정이 여기서 개입하지 않는다는 뜻이다.
+     * 기존 검증들은 「받아쓰기 대기」와 「미시작」을 가르는 규칙만 보고 있고, 하한이 끼어들면
+     * 그 회의들이 SKIPPED_TOO_SHORT 로 바뀌어 무엇을 검증하는 테스트인지 흐려진다.
+     * 하한 자체는 아래 별도 테스트가 본다.
+     */
+    private static final AutoAnalysisLengthGate NO_LENGTH_GATE =
+            new AutoAnalysisLengthGate(meetingId -> Optional.empty());
 
     @Test
     @DisplayName("실패한 계층이 있으면 담는다 — isStalled=false(「실패했습니다」)")
@@ -136,7 +147,7 @@ class MeetingSummaryQueryServiceTest {
         // 200 만 이 회사 것이다.
         MeetingAccessPort access = (companyId, meetingId) -> companyId == COMPANY && meetingId == 200L;
 
-        List<StalledMeetingSummary> result = new MeetingSummaryQueryService(access, layers, blocksWaitingFor())
+        List<StalledMeetingSummary> result = new MeetingSummaryQueryService(access, layers, blocksWaitingFor(), NO_LENGTH_GATE)
                 .findStalledSummaries(COMPANY, List.of(200L, 999L));
 
         assertThat(result).containsExactly(new StalledMeetingSummary(200L, false));
@@ -264,11 +275,42 @@ class MeetingSummaryQueryServiceTest {
         SttBlockRepository blocks = blocksWaitingFor(421L);
 
         List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(
-                (companyId, meetingId) -> true, new FakeLayerStates(), blocks)
+                (companyId, meetingId) -> true, new FakeLayerStates(), blocks, NO_LENGTH_GATE)
                 .findSummaryStatuses(COMPANY, List.of(421L));
 
         // 화면이 「요약 없음」이라고 말하면, 기다리면 되는 사용자가 잘못됐다고 읽는다.
         assertThat(result).containsExactly(new MeetingSummaryStatus(421L, SummaryStatus.WAITING_TRANSCRIPT));
+    }
+
+    @Test
+    @DisplayName("3분 미만이라 자동 분석이 건너뛴 회의는 SKIPPED_TOO_SHORT — NONE 이 아니다")
+    void 하한에_걸린_회의는_건너뜀으로_답한다() {
+        /*
+         * NONE 으로 답하면 화면은 「요약중」을 계속 그리고, 기다려도 끝나지 않는다(#572).
+         * 관문이 막고 있다는 사실 자체가 이 값이다 — 자동 실행에서만 막히고 ANLZ-01 은
+         * 여전히 열려 있으므로, 「실패」가 아니라 「건너뜀」이다.
+         */
+        List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> true, new FakeLayerStates(), blocksWaitingFor(),
+                new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofSeconds(63))))
+                .findSummaryStatuses(COMPANY, List.of(450L));
+
+        assertThat(result).containsExactly(new MeetingSummaryStatus(450L, SummaryStatus.SKIPPED_TOO_SHORT));
+    }
+
+    @Test
+    @DisplayName("받아쓰기 대기가 하한보다 앞선다 — 아직 전사 중인 회의에 「너무 짧다」고 하면 안 된다")
+    void 받아쓰기_대기가_하한보다_우선한다() {
+        /*
+         * 전사가 끝나기 전의 길이로 하한을 말하면, 기다리면 되는 회의에 "안 한다"고 답하게 된다.
+         * 하한 판정은 자동 실행이 실제로 걸러낸 뒤에야 뜻이 생긴다.
+         */
+        List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(
+                (companyId, meetingId) -> true, new FakeLayerStates(), blocksWaitingFor(451L),
+                new AutoAnalysisLengthGate(meetingId -> Optional.of(Duration.ofSeconds(63))))
+                .findSummaryStatuses(COMPANY, List.of(451L));
+
+        assertThat(result).containsExactly(new MeetingSummaryStatus(451L, SummaryStatus.WAITING_TRANSCRIPT));
     }
 
     @Test
@@ -286,7 +328,7 @@ class MeetingSummaryQueryServiceTest {
         SttBlockRepository blocks = blocksWaitingFor(430L);
 
         List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(
-                (companyId, meetingId) -> true, layers, blocks).findSummaryStatuses(COMPANY, List.of(430L));
+                (companyId, meetingId) -> true, layers, blocks, NO_LENGTH_GATE).findSummaryStatuses(COMPANY, List.of(430L));
 
         assertThat(result).containsExactly(new MeetingSummaryStatus(430L, SummaryStatus.DONE));
         verify(blocks, never()).findMeetingsWithUnfinishedBlocks(anyList());
@@ -316,7 +358,7 @@ class MeetingSummaryQueryServiceTest {
 
         MeetingAccessPort access = (companyId, meetingId) -> companyId == COMPANY && meetingId == 450L;
 
-        List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(access, layers, blocksWaitingFor())
+        List<MeetingSummaryStatus> result = new MeetingSummaryQueryService(access, layers, blocksWaitingFor(), NO_LENGTH_GATE)
                 .findSummaryStatuses(COMPANY, List.of(450L, 999L));
 
         assertThat(result).containsExactly(new MeetingSummaryStatus(450L, SummaryStatus.DONE));
@@ -353,7 +395,7 @@ class MeetingSummaryQueryServiceTest {
                 (companyId, meetingId) -> true,
                 new FakeLayerStates(),
                 blocksWithStatuses()
-        );
+        , NO_LENGTH_GATE);
 
         assertThat(service.findTranscriptStatus(COMPANY, 500L))
                 .contains(new MeetingTranscriptStatus(500L, TranscriptStatus.NOT_STARTED));
@@ -366,12 +408,12 @@ class MeetingSummaryQueryServiceTest {
                 (companyId, meetingId) -> true,
                 new FakeLayerStates(),
                 blocksWithStatuses(SttBlockStatus.DONE, SttBlockStatus.RUNNING)
-        );
+        , NO_LENGTH_GATE);
         MeetingSummaryQueryService doneService = new MeetingSummaryQueryService(
                 (companyId, meetingId) -> true,
                 new FakeLayerStates(),
                 blocksWithStatuses(SttBlockStatus.DONE, SttBlockStatus.DONE)
-        );
+        , NO_LENGTH_GATE);
 
         assertThat(processingService.findTranscriptStatus(COMPANY, 501L))
                 .contains(new MeetingTranscriptStatus(501L, TranscriptStatus.PROCESSING));
@@ -386,7 +428,7 @@ class MeetingSummaryQueryServiceTest {
                 (companyId, meetingId) -> true,
                 new FakeLayerStates(),
                 blocksWithStatuses(SttBlockStatus.DONE, SttBlockStatus.FAILED)
-        );
+        , NO_LENGTH_GATE);
 
         assertThat(service.findTranscriptStatus(COMPANY, 503L))
                 .contains(new MeetingTranscriptStatus(503L, TranscriptStatus.FAILED));
@@ -400,7 +442,7 @@ class MeetingSummaryQueryServiceTest {
                 (companyId, meetingId) -> false,
                 new FakeLayerStates(),
                 blocks
-        );
+        , NO_LENGTH_GATE);
 
         assertThat(service.findTranscriptStatus(COMPANY, 999L)).isEmpty();
         verify(blocks, never()).findByMeeting(999L);
@@ -410,7 +452,7 @@ class MeetingSummaryQueryServiceTest {
 
     /* 회사 관문은 통과시키고 계층 상태만 보는 조립. 받아쓰기는 도는 것이 없다고 답한다. */
     private static MeetingSummaryQueryService service(FakeLayerStates layers) {
-        return new MeetingSummaryQueryService((companyId, meetingId) -> true, layers, blocksWaitingFor());
+        return new MeetingSummaryQueryService((companyId, meetingId) -> true, layers, blocksWaitingFor(), NO_LENGTH_GATE);
     }
 
     /*
