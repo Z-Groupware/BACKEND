@@ -457,16 +457,44 @@ public class AnalysisOrchestrator {
             analysisArtifactRepository.saveReferences(meetingId, result.references());
             return new Accumulated<>(result, sink.spent());
         });
+        /*
+         * <h2>L1.5 가 실패해도 파이프라인을 세우지 않는다 (2026-08-15)</h2>
+         * 이 계층이 만드는 것은 발화에 붙이는 **주석**이고, 뒤 계층은 주석이 없어도 성립한다.
+         * 그런데 예전에는 여기서 return 해 L2~OVERVIEW 가 통째로 안 돌았다 — 회의 28 이
+         * Gemini 429 로 L1.5 에서 죽으면서 요약도 액션도 0 이 된 경로가 이것이다.
+         *
+         * **가장 값이 안 나오는 계층이 가장 앞에서 전체를 막고 있었다.** 실측(2026-08-14)에서
+         * L1.5 는 참조 13건을 풀고도 담당자 정답을 하나도 바꾸지 못했다(0/8 · 2/7 그대로).
+         * 반면 비용은 지연의 26% · 출력 토큰의 37% 다. 그런 계층이 첫 관문이라 여기서 넘어지면
+         * 회의 하나가 통째로 빈손이 된다.
+         *
+         * 그래서 실패는 **기록하고 지나간다.** analysis_layer 에는 FAILED 가 그대로 남는다 —
+         * SKIPPED 로 덮지 않는다. 호출이 실제로 실패한 것이 사실이고, 그걸 생략으로 적으면
+         * "부르지 않았다"와 "부르다 죽었다"가 같은 모양이 된다.
+         *
+         * ⚠ 잠금·밀림은 그대로 물러난다. 그건 이 계층이 못 한 것이 아니라 **다른 실행이 주인**
+         * 이라는 뜻이고, 계속 돌면 두 실행이 같은 회의를 동시에 쓴다.
+         */
         if (!resolved.succeeded()) {
-            return resolved.toAnalysisOutcome(LayerName.L1_5);
+            if (resolved.alreadyRunning() || resolved.stale()) {
+                return resolved.toAnalysisOutcome(LayerName.L1_5);
+            }
+            log.warn("L1.5 지시어 해소 실패 — 주석 없이 계속한다. 담당자 판정에는 영향이 없고"
+                            + " 지시어가 든 발화의 문맥만 얕아진다. meetingId={} 사유={} {}",
+                    meetingId, resolved.errorCode(), resolved.errorMessage());
         }
 
         /*
          * 해소 결과를 발화에 주석으로 붙인 사본을 만든다. **DB 의 발화는 고치지 않는다** —
          * transcript_chunk 는 원본이고, 사람이 나중에 "정말 그렇게 말했나"를 확인하는 근거다.
          * 원문을 치환하면 그 근거가 사라지고, 잘못된 해소를 되돌릴 수도 없다.
+         *
+         * 실패했으면 원문 그대로 간다 — annotate 는 참조가 비면 입력을 그대로 돌려주므로
+         * 여기서 갈라 두는 것은 value() 가 null 일 수 있다는 사실 하나 때문이다.
          */
-        List<Utterance> utterances = annotate(rawUtterances, resolved.value().references(), participants);
+        List<Utterance> utterances = resolved.succeeded()
+                ? annotate(rawUtterances, resolved.value().references(), participants)
+                : rawUtterances;
 
         Map<Long, Utterance> byId = new LinkedHashMap<>();
         utterances.forEach(utterance -> byId.put(utterance.utteranceId(), utterance));
@@ -548,6 +576,38 @@ public class AnalysisOrchestrator {
         });
         if (!summarized.succeeded()) {
             return summarized.toAnalysisOutcome(LayerName.L3);
+        }
+
+        /*
+         * <h2>빈손 완주를 "분석 완료"로 기록하지 않는다 (2026-08-15)</h2>
+         * L3 가 항목을 하나도 못 뽑으면 뒤 계층은 전부 할 일이 없다 — L3.5 는 판정할 후보가
+         * 없어 건너뛰고, L4 는 확정 항목이 없어 건너뛰고, tuple 이 없으니 L5~DIST 도 빈손이다.
+         * 그런데 **그 계층들이 전부 DONE 으로 찍힌다.** 회의 26 이 그랬다 — 발화 21건, 전 계층
+         * DONE, 항목 0 · 액션 0. 화면과 DB 모두 "분석 완료"로 보이는데 사용자가 받은 것은 없다.
+         *
+         * 이 저장소에서 세 번째로 만나는 같은 실패다 — VAD 가 전 구간을 무음으로 보면서
+         * VAD_SILENCE(성공)로 집계되던 것, L1 이 구조적으로 전원 기권하면서 정상 동작으로
+         * 보이던 것. **아무것도 안 한 것이 성공과 같은 모양이면 아무도 찾지 못한다.**
+         *
+         * 발화 0건일 때와 같은 판단이고 이유도 같다(위 skipped 주석 — "빈 결과가 분석 완료로
+         * 기록돼 자막·STT 쪽 사고를 가린다"). 다만 그쪽은 입력이 없는 것이고 여기는 입력은
+         * 있는데 산출이 없는 것이라, 메시지로 그 둘을 구분한다.
+         *
+         * 마지막 OVERVIEW 호출도 아낀다 — 요약할 항목이 없는 회의를 요약시키는 호출이다.
+         * 쿼터가 병목일 때 그 한 번이 다른 회의의 몫이 된다.
+         *
+         * ⚠ **DB 에서 센다.** 재개(ANLZ-02)로 L3 를 되살린 경로에서는 위 decisions 가 비어
+         * 있는데, 그걸 보고 판단하면 정상 회의가 매 재개마다 빈손으로 잡힌다.
+         */
+        int itemCount = savedTopicsBySeq(companyId, meetingId).values().stream()
+                .mapToInt(topic -> topic.items().size())
+                .sum();
+        if (itemCount == 0) {
+            log.warn("분석 중단 — L3 가 항목을 뽑지 못했다. 발화 {}건 · 주제 {}개인데 결정·논의·"
+                            + "블로커가 0건이라 배정도 액션도 나올 수 없다. meetingId={}",
+                    utterances.size(), topics.size(), meetingId);
+            return AnalysisOutcome.skipped(
+                    "회의에서 결정·논의 항목을 찾지 못해 분석을 중단했습니다. 요약과 액션이 만들어지지 않습니다.");
         }
 
         // ── L3.5 · 확정/논의 게이트 (주제마다 한 번) + gate_status 반영 ──────────

@@ -136,11 +136,13 @@ public class AiLayerHttpAdapter implements AiLayerPort {
     }
 
     /*
-     * 회의 개요. Python 쪽 엔드포인트가 **아직 없다.**
+     * 회의 개요. Python 쪽 엔드포인트는 AI-11 로 실재한다(app/routers/internal.py 의
+     * /internal/layers/overview/summarize-meeting).
      *
-     * 붙이기 전까지 404 가 오고 그건 AiLayerException(재시도 불가)이 된다. 오케스트레이터가
-     * 이 계층의 실패를 회의 실패로 올리지 않으므로(LayerName.OVERVIEW 주석) 파이프라인은 끝까지
-     * 돌고 개요 칸에는 주제 요약을 이어 붙인 값이 남는다 — Spring 을 먼저 올려도 안전한 이유다.
+     * 오케스트레이터가 이 계층의 실패를 회의 실패로 올리지 않으므로(LayerName.OVERVIEW 주석)
+     * 파이프라인은 끝까지 돌고 개요 칸에는 L3 가 주제 요약을 이어 붙인 값이 남는다.
+     * ⚠ 그래서 **개요가 비어 보여도 "엔드포인트가 아직 없구나"가 아니다** — 실제 실패
+     * (모델 오류·타임아웃)를 봐야 한다. 계층 상태는 CAP-06 으로 확인한다.
      */
     @Override
     public SummarizeMeetingResult summarizeMeeting(long tenantId, long meetingId,

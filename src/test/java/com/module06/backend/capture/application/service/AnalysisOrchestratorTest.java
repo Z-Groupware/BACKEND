@@ -308,6 +308,59 @@ class AnalysisOrchestratorTest {
     }
 
     @Test
+    @DisplayName("2026-08-15 — L1.5 가 실패해도 파이프라인은 계속 간다, 주석만 없다")
+    void L1_5_실패는_파이프라인을_세우지_않는다() {
+        /*
+         * 회의 28 이 Gemini 429 로 L1.5 에서 죽으면서 요약도 액션도 0 이 된 경로다.
+         * 이 계층이 만드는 것은 발화에 붙이는 주석뿐이고 뒤 계층은 주석 없이도 성립한다 —
+         * 가장 값이 안 나오는 계층(실측: 담당자 정답 변화 0, 지연 26%)이 첫 관문이라
+         * 여기서 넘어지면 회의 하나가 통째로 빈손이 됐다.
+         */
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
+        ai.resolveFailure = new AiLayerException("RATE_LIMITED", "쿼터 소진", true);
+        FakeTupleRepository tuples = new FakeTupleRepository();
+        FakeLayerRepository layers = new FakeLayerRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai, layers).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        // 뒤 계층이 전부 돌았다 — 이게 요점이다.
+        assertThat(ai.segmentCalls).isEqualTo(1);
+        assertThat(ai.extractRequests).isNotEmpty();
+        assertThat(outcome.status()).isNotEqualTo(AnalysisOutcome.Status.FAILED);
+
+        // 실패는 FAILED 로 그대로 남는다 — SKIPPED 로 덮으면 "부르지 않았다"와 구분이 사라진다.
+        assertThat(layers.failed).containsKey(LayerName.L1_5);
+
+        // 주석 없이 원문 그대로 넘어갔다.
+        assertThat(ai.segmentUtterances.get(0).text()).doesNotContain("[지시어");
+    }
+
+    @Test
+    @DisplayName("2026-08-15 — L3 가 항목을 0건 뽑으면 '완료'가 아니라 중단으로 남긴다")
+    void 항목이_없으면_완주로_기록하지_않는다() {
+        /*
+         * 회의 26 이 그랬다 — 발화 21건, 전 계층 DONE, 항목 0 · 액션 0. 뒤 계층은 할 일이
+         * 없어 건너뛰는데 전부 DONE 으로 찍혀, 화면과 DB 모두 "분석 완료"로 보였다.
+         * 이 저장소에서 세 번째로 만나는 같은 실패다(VAD 무음 100% · L1 전원 기권).
+         */
+        FakeSummaryRepository summaries = new FakeSummaryRepository();
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+        FakeTupleRepository tuples = new FakeTupleRepository();
+
+        AnalysisOutcome outcome = orchestrator(summaries, tuples, ai, new FakeLayerRepository()).run(
+                TENANT, COMPANY, MEETING, PARTICIPANTS, false);
+
+        assertThat(outcome.status()).isEqualTo(AnalysisOutcome.Status.SKIPPED);
+        // 요약할 항목이 없는 회의를 요약시키지 않는다 — 쿼터가 병목일 때 그 한 번이 남의 몫이다.
+        assertThat(ai.overviewRequests).isEmpty();
+        assertThat(tuples.replaceCalls).isZero();
+    }
+
+    @Test
     @DisplayName("새 계층이 안 돈 회의는 '완료'로 생략되지 않는다")
     void RUN_LAYERS에_새_계층이_들어가면_재실행_대상이다() {
         FakeSummaryRepository summaries = new FakeSummaryRepository();
@@ -489,7 +542,14 @@ class AnalysisOrchestratorTest {
     @Test
     @DisplayName("force 면 받아쓰기가 안 끝났어도 분석을 시작한다")
     void force면_미완_블록을_무시한다() {
-        RecordingAiLayerPort ai = new RecordingAiLayerPort(List.of(), decisionIds -> List.of());
+        /*
+         * 항목이 나오는 픽스처를 쓴다. 예전엔 빈 항목이었는데, 2026-08-15 부터 항목 0건은
+         * 그 자체로 SKIPPED 라 "관문을 지났는가"를 status 로 볼 수 없게 됐다 — 두 SKIPPED 가
+         * 섞이면 이 테스트가 무엇을 지키는지 흐려진다.
+         */
+        RecordingAiLayerPort ai = new RecordingAiLayerPort(
+                List.of(item(ItemType.DECISION, "로드맵 확정", 1L)),
+                decisionIds -> List.of(new GateVerdict(decisionIds.get(0), GateStatus.CONFIRMED, "합의됨")));
 
         AnalysisOutcome outcome = orchestratorOf(
                 new FakeTranscriptRepository(utterances()), new FakeSttBlockRepository(2),
@@ -1374,6 +1434,8 @@ class AnalysisOrchestratorTest {
 
         private List<ResolvedReference> references = List.of();
         private List<AssignmentTuple> tuples = List.of();
+        /* L1.5 실패를 주입한다 — 그 실패가 파이프라인을 세우지 않는지 보는 자리다. */
+        private AiLayerException resolveFailure;
         private AiLayerException gateFailure;
 
         private int resolveCalls;
@@ -1420,6 +1482,9 @@ class AnalysisOrchestratorTest {
         public ResolveReferenceResult resolveReference(long tenantId, long meetingId, List<Utterance> utterances,
                                                        List<Long> targetUtteranceIds, List<Participant> participants) {
             resolveCalls++;
+            if (resolveFailure != null) {
+                throw resolveFailure;
+            }
             resolveUtterances = List.copyOf(utterances);
             // 계약: null 이 아니라 빈 리스트여야 한다(pydantic 이 list 자리의 None 을 422 로 거절한다).
             assertThat(targetUtteranceIds).isNotNull();
