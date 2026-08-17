@@ -76,17 +76,68 @@ public class SpeakerAttributionResolver {
         boolean everyAttendeeCaptioned = !attendeeMemberIds.isEmpty()
                 && captioningMembers.containsAll(attendeeMemberIds);
 
+        if (!everyAttendeeCaptioned) {
+            /*
+             * 전원이 자막을 보낸 회의에서만 "나머지는 그 구간에 말하지 않았다"가 성립한다.
+             * 그게 아니면 창 안 유일한 후보를 확정할 수 없다 — 자막을 안 켠 참석자가 실제
+             * 화자일 수 있고, 그러면 **남의 발화까지 전부 그 한 명 것이 된다.** 오귀속이 한
+             * 건이 아니라 회의 전체 규모로 발생하는 경로다.
+             *
+             * 그래서 여기서 한 건도 판정하지 않는다. 아래 루프를 돌려도 결과는 같지만
+             * (resolveOne 이 전부 null 을 돌려준다) **돌지 않는다는 사실을 코드가 말해야 한다.**
+             *
+             * ⚠ 이 자리가 조용하면 안 되는 이유 — 로그가 "발화 76건 중 0건 판정"으로만 남으면
+             * **"이번 회의는 일부가 자막을 안 켰다"와 "이 조건에서는 영원히 0건이다"가 같은
+             * 모양**이 된다. 실제로 후자다: 자막은 host 만 보내므로(CaptionController host 전용)
+             * 참석자가 2명 이상인 회의에서 전원 자막은 성립할 수 없고, 그 회의의 화자는 전원
+             * 미정으로 남는다. 그러면 1인칭 배정("제가 하겠습니다")도 담당자를 정하지 못한다.
+             *
+             * VAD 가 전 구간을 무음으로 보면서 VAD_SILENCE(성공)로 집계되던 것과 같은 종류의
+             * 실패다 — 항상 실패하는 계층이 정상 동작으로 보이면 아무도 찾지 못한다.
+             */
+            warnCannotAttribute(utterances.size(), attendeeMemberIds, captioningMembers);
+            return List.of();
+        }
+
         List<Attribution> attributions = new ArrayList<>();
         for (Utterance utterance : utterances) {
-            Attribution attribution = resolveOne(utterance, scoped, everyAttendeeCaptioned);
+            Attribution attribution = resolveOne(utterance, scoped);
             if (attribution != null) {
                 attributions.add(attribution);
             }
         }
 
-        log.info("L1 화자 귀속 — 발화 {}건 중 {}건 판정 (전원자막={})",
-                utterances.size(), attributions.size(), everyAttendeeCaptioned);
+        log.info("L1 화자 귀속 — 발화 {}건 중 {}건 판정 (전원자막=true)",
+                utterances.size(), attributions.size());
         return attributions;
+    }
+
+    /*
+     * 왜 한 건도 판정할 수 없는지를 갈라서 남긴다. 셋은 원인이 다르고 손댈 곳도 다르다.
+     *
+     *   참석자 명단 없음  적재·조회 문제다. 참석자를 모르면 어떤 자막도 "참석자가 말한 것"임을
+     *                     확인할 수 없다
+     *   자막 0건          수동 업로드(CAP-10) 경로이거나 자막 전송이 안 붙은 것이다
+     *   일부만 자막       **host-only 자막 정책에서 다인원 회의의 영구 상태다.** 이번 회의만의
+     *                     문제가 아니라 설계에서 오는 것이므로 회의를 다시 해도 같다
+     */
+    private void warnCannotAttribute(int utteranceCount, Set<Long> attendeeMemberIds,
+                                     Set<Long> captioningMembers) {
+        if (attendeeMemberIds.isEmpty()) {
+            log.warn("L1 화자 귀속 — 참석자 명단이 비어 판정하지 않는다. 발화 {}건 전부 화자 미정",
+                    utteranceCount);
+            return;
+        }
+        if (captioningMembers.isEmpty()) {
+            log.warn("L1 화자 귀속 — 이 회의의 자막이 0건이라 판정하지 않는다. 발화 {}건 전부 화자 미정",
+                    utteranceCount);
+            return;
+        }
+        log.warn("L1 화자 귀속 — 참석자 {}명 중 {}명만 자막을 보내 전원 자막이 성립하지 않는다."
+                        + " 발화 {}건 전부 화자 미정이고, **자막이 더 쌓여도 이 조건에서는 달라지지 않는다**"
+                        + " (자막은 host 만 보낸다 — CaptionController host 전용)."
+                        + " 1인칭 배정은 담당자를 정하지 못한다.",
+                attendeeMemberIds.size(), captioningMembers.size(), utteranceCount);
     }
 
     /*
@@ -118,8 +169,11 @@ public class SpeakerAttributionResolver {
         return scoped;
     }
 
-    private Attribution resolveOne(Utterance utterance, List<CaptionChunk> captions,
-                                   boolean everyAttendeeCaptioned) {
+    /*
+     * ⚠ 전원 자막 검사는 여기 없다 — 호출자(resolve)가 그 전에 걸러 한 건도 넘기지 않는다.
+     * 두 곳에서 같은 조건을 보면 한쪽만 고쳐졌을 때 "왜 판정이 안 나오지"가 두 배로 어려워진다.
+     */
+    private Attribution resolveOne(Utterance utterance, List<CaptionChunk> captions) {
         if (utterance.startOffsetMs() == null) {
             // 위치를 모르는 발화는 시간창을 만들 수 없다. 오프셋이 NULL 인 발화가 있다는 것
             // 자체가 적재 쪽 문제이고, 여기서 추측하면 그 문제가 화자 오귀속으로 위장된다.
@@ -139,17 +193,6 @@ public class SpeakerAttributionResolver {
         }
 
         Map.Entry<Long, BigDecimal> onlyCandidate = loudestByMember.entrySet().iterator().next();
-
-        /*
-         * 후보가 한 명뿐이라도 바로 확정하면 안 된다 — **자막을 안 켠 참석자가 실제 화자일 수
-         * 있다.** 3명 회의에서 host 만 자막을 켜면 모든 구간의 유일한 후보가 host 가 되고, 남의
-         * 발화까지 전부 host 것이 된다. 오귀속이 한 건이 아니라 회의 전체 규모로 발생하는 경로다.
-         *
-         * 전원이 자막을 보낸 회의에서만 "나머지는 그 구간에 말하지 않았다"가 성립한다.
-         */
-        if (!everyAttendeeCaptioned) {
-            return null;
-        }
         return new Attribution(utterance.utteranceId(), onlyCandidate.getKey(), SpeakerSource.SELF_STREAM);
     }
 
