@@ -117,11 +117,57 @@ class TranscriptSegmenterTest {
         assertThat(TranscriptSegmenter.segment(null)).isEmpty();
     }
 
+    @Test
+    @DisplayName("화자가 바뀌면 끊는다 — 부호도 침묵도 없는 자리에서 끊어야 한다")
+    void 화자_전환에서_끊는다() {
+        /*
+         * 말을 자르고 들어오는 자리에는 부호가 안 붙고 침묵도 없다. 안 끊으면 두 사람의 말이
+         * 한 발화가 되고, 그 발화의 화자는 애초에 하나로 정해질 수 없다.
+         */
+        List<Segment> segments = TranscriptSegmenter.segment(List.of(
+                labelled(0, 400, "그건", "3:spk_0"), labelled(400, 800, "제가", "3:spk_0"),
+                labelled(800, 1_200, "아", "3:spk_1"), labelled(1_200, 1_600, "제가할게요", "3:spk_1")));
+
+        assertThat(segments).extracting(Segment::text).containsExactly("그건 제가", "아 제가할게요");
+        assertThat(segments).extracting(Segment::speakerLabel).containsExactly("3:spk_0", "3:spk_1");
+    }
+
+    @Test
+    @DisplayName("부호는 화자 전환으로 보지 않는다 — 앞말이 속한 발화의 것이다")
+    void 부호로는_끊지_않는다() {
+        /*
+         * 제공자가 부호 항목에 뒷사람 라벨을 주는 경우가 있다. 그걸 전환으로 읽으면 마침표
+         * 하나 때문에 빈 발화가 생긴다.
+         */
+        List<Segment> segments = TranscriptSegmenter.segment(List.of(
+                labelled(0, 400, "네", "3:spk_0"),
+                new Word(400, 400, ".", true, "3:spk_1")));
+
+        assertThat(segments).extracting(Segment::text).containsExactly("네.");
+        assertThat(segments.get(0).speakerLabel()).isEqualTo("3:spk_0");
+    }
+
+    @Test
+    @DisplayName("라벨이 없으면 전환도 없다 — 화자 분리를 끈 경로의 경계는 그대로다")
+    void 라벨이_없으면_예전대로_끊는다() {
+        // 한쪽만 라벨이 있는 것은 "화자가 바뀌었다"가 아니라 "그 단어의 화자를 모른다"이다.
+        List<Segment> segments = TranscriptSegmenter.segment(List.of(
+                word(0, 400, "그건"), labelled(400, 800, "제가", "3:spk_1")));
+
+        assertThat(segments).hasSize(1);
+        // 발화의 라벨은 첫 단어의 것이다 — 뒤 단어의 라벨로 소급해 채우지 않는다.
+        assertThat(segments.get(0).speakerLabel()).isNull();
+    }
+
     private static Word word(int startMs, int endMs, String text) {
-        return new Word(startMs, endMs, text, false);
+        return new Word(startMs, endMs, text, false, null);
+    }
+
+    private static Word labelled(int startMs, int endMs, String text, String speakerLabel) {
+        return new Word(startMs, endMs, text, false, speakerLabel);
     }
 
     private static Word punctuation(int atMs, String mark) {
-        return new Word(atMs, atMs, mark, true);
+        return new Word(atMs, atMs, mark, true, null);
     }
 }

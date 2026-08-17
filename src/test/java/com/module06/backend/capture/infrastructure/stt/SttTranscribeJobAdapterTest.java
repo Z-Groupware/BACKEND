@@ -2,6 +2,7 @@ package com.module06.backend.capture.infrastructure.stt;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import software.amazon.awssdk.services.transcribe.model.TranscribeException;
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository;
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository.VocabularyView;
 import com.module06.backend.capture.application.port.out.SttJobPort.SttJob;
+import com.module06.backend.capture.application.service.MeetingAttendeeCountProvider;
 import com.module06.backend.capture.domain.model.VocabularyStatus;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
@@ -31,6 +33,7 @@ import com.module06.backend.global.exception.BusinessException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -38,9 +41,9 @@ import static org.mockito.Mockito.when;
 /**
  * AWS Transcribe 제출 어댑터.
  *
- * <p>검증의 축은 <b>요청에 무엇이 들어가고 무엇이 안 들어가는가</b>다. 특히 화자 분리를 켜지
- * 않는 것은 이 제품의 설계 결정이라(음량 기반 귀속으로 대체) 실수로 켜지면 요금이 오르고
- * 믿지 않기로 한 신호가 응답에 섞인다 — 테스트로 못 박는다.
+ * <p>검증의 축은 <b>요청에 무엇이 들어가고 무엇이 안 들어가는가</b>다. 특히 화자 분리(V5.23)는
+ * 화자 판정의 유일한 입력이라, 조용히 빠지면 전사는 멀쩡한데 그 뒤 화자만 전부 NULL 이 된다.
+ * 그 실패는 어디에도 안 드러나므로 테스트로 못 박는다.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -55,12 +58,15 @@ class SttTranscribeJobAdapterTest {
     @Mock
     private MeetingVocabularyRepository vocabularyRepository;
 
+    @Mock
+    private MeetingAttendeeCountProvider attendeeCountProvider;
+
     @Captor
     private ArgumentCaptor<StartTranscriptionJobRequest> requestCaptor;
 
     private SttTranscribeJobAdapter adapter() {
         return new SttTranscribeJobAdapter(transcribeClient, vocabularyRepository,
-                new SttTranscribeProperties(BUCKET, "stt-out/"));
+                attendeeCountProvider, new SttTranscribeProperties(BUCKET, "stt-out/"));
     }
 
     @Test
@@ -171,18 +177,81 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
-    @DisplayName("⚠ 화자 분리를 켜지 않는다 — 음량 기반 귀속으로 대체한 설계 결정이다")
-    void 화자_분리를_켜지_않는다() {
+    @DisplayName("⚠ 화자 분리를 켜고 상한을 참석자 수로 준다 — 이게 빠지면 화자가 전부 NULL 이 된다")
+    void 화자_분리를_켠다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.of(readyVocabulary()));
+        when(attendeeCountProvider.attendeeCountOf(500L)).thenReturn(OptionalInt.of(4));
+
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().settings().showSpeakerLabels()).isTrue();
+        // 넉넉히 주면 한 사람이 여러 라벨로 쪼개져 닻이 안 붙는다. 명단 그대로가 상한이다.
+        assertThat(requestCaptor.getValue().settings().maxSpeakerLabels()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("어휘가 없어도 화자 분리는 켜진다 — 둘은 아무 관계도 없다")
+    void 어휘가_없어도_화자_분리는_켜진다() {
+        /*
+         * 예전에는 어휘가 READY 일 때만 Settings 를 만들었다. 그 구조를 그대로 두고 화자 분리를
+         * 얹으면 어휘가 없는 회의에서 화자 분리도 함께 조용히 꺼진다.
+         */
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(attendeeCountProvider.attendeeCountOf(500L)).thenReturn(OptionalInt.of(3));
+
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().settings().showSpeakerLabels()).isTrue();
+        assertThat(requestCaptor.getValue().settings().vocabularyName()).isNull();
+    }
+
+    @Test
+    @DisplayName("참석자 수를 모르면 기본 상한으로 켠다 — 끄면 그 회의는 화자가 확정적으로 NULL 이다")
+    void 참석자_수를_모르면_기본_상한을_쓴다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(attendeeCountProvider.attendeeCountOf(500L)).thenReturn(OptionalInt.empty());
 
         adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
 
         verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
         /*
-         * 켜면 요금이 오르고, 믿지 않기로 한 신호가 응답에 섞인다 — 나중에 누가 "있으니까" 쓰면
-         * 화자 판정이 두 갈래가 되고 둘이 다를 때 판단 근거가 없다.
+         * 넉넉한 쪽으로 틀린다. 넘치면 한 사람이 여러 라벨로 쪼개져 그 발화가 NULL 로 남을
+         * 뿐이지만, 모자라면 두 사람이 한 라벨로 합쳐져 오귀속이 확정으로 저장된다.
          */
-        assertThat(requestCaptor.getValue().settings().showSpeakerLabels()).isNull();
+        assertThat(requestCaptor.getValue().settings().maxSpeakerLabels()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("참석자 조회가 터져도 화자 분리를 끄지 않는다")
+    void 참석자_조회_실패가_화자_분리를_끄지_않는다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(attendeeCountProvider.attendeeCountOf(500L)).thenThrow(new IllegalStateException("DB 흔들림"));
+
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+
+        verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().settings().showSpeakerLabels()).isTrue();
+        assertThat(requestCaptor.getValue().settings().maxSpeakerLabels()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("상한 범위 밖은 가둔다 — 제공자가 거절하면 받아쓰기가 통째로 실패한다")
+    void 상한을_범위_안에_가둔다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+
+        // 명단이 1명이어도 끄지 않는다 — 명단이 덜 채워졌을 뿐 여러 사람이 말한 회의일 수 있다.
+        when(attendeeCountProvider.attendeeCountOf(500L)).thenReturn(OptionalInt.of(1));
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+
+        when(attendeeCountProvider.attendeeCountOf(500L)).thenReturn(OptionalInt.of(80));
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r1"));
+
+        verify(transcribeClient, times(2)).startTranscriptionJob(requestCaptor.capture());
+        assertThat(requestCaptor.getAllValues())
+                .extracting(request -> request.settings().maxSpeakerLabels())
+                .containsExactly(2, 30);
     }
 
     @Test
@@ -210,7 +279,8 @@ class SttTranscribeJobAdapterTest {
          * 어휘가 늦었다는 이유로 받아쓰기가 통째로 실패하면 그 계약이 깨진다.
          */
         verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
-        assertThat(requestCaptor.getValue().settings()).isNull();
+        // Settings 자체는 붙는다(화자 분리 때문에). "어휘 없이 돌았다"는 이름이 빈 것으로 읽는다.
+        assertThat(requestCaptor.getValue().settings().vocabularyName()).isNull();
     }
 
     @Test
@@ -221,7 +291,9 @@ class SttTranscribeJobAdapterTest {
         adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
 
         verify(transcribeClient).startTranscriptionJob(requestCaptor.capture());
-        assertThat(requestCaptor.getValue().settings()).isNull();
+        assertThat(requestCaptor.getValue().settings().vocabularyName()).isNull();
+        // 어휘를 못 읽은 것이 화자 분리까지 끄면 안 된다.
+        assertThat(requestCaptor.getValue().settings().showSpeakerLabels()).isTrue();
     }
 
     @Test

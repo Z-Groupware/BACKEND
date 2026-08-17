@@ -368,16 +368,17 @@ public class AnalysisOrchestrator {
 
         // ── L1 · 화자 귀속 (코드 계층 · LLM 아님) ────────────────────────────────
         /*
-         * 파이프라인의 **첫** 계층이다. 자막(caption_chunk)과 정본을 ±1.5초 창에서 맞춰
-         * rms 최대인 참석자를 화자로 정하고, 그 결과를 정본에 이식한다. 모델이 아니라 산수다.
+         * 파이프라인의 **첫** 계층이다. STT 화자 분리 라벨을 사람에 닻 내려 화자를 정하고,
+         * 그 결과를 정본에 이식한다. 모델이 아니라 산수다(V5.23).
          *
          * 여기가 먼저여야 하는 이유 — 뒤 계층 전부가 화자를 본다. L1.5 는 "그분"을 풀 때,
          * L4 는 1인칭 발화("제가 할게요")의 담당자를 정할 때 speakerMemberId 를 쓴다.
          * 나중에 돌리면 이미 담당자가 정해진 뒤에 화자가 밝혀진다.
          *
-         * caption_chunk 가 비어 있으면 전원 판정 포기로 끝난다 — **정상 동작이다.** 참석자가
-         * 브라우저 자막을 보내지 않은 회의(CAP-11 을 안 태운 경로)가 그렇고, 그때 화자는
-         * NULL 로 남는다. 임의로 채우면 회의에 없던 사람 보드로 할 일이 간다.
+         * **판정을 일부만 하는 것이 정상이다.** 닻이 안 붙은 라벨의 발화는 NULL 로 남는다 —
+         * 라벨이 있다는 것은 "말한 사람이 구분됐다"이지 "누구인지 안다"가 아니고, 임의로
+         * 채우면 회의에 없던 사람 보드로 할 일이 간다. 화자 분리를 안 쓴 회의(스텁 · whisper ·
+         * V5.23 이전 블록)는 예전 rms 경로로 가고, 그쪽은 자막이 없으면 전원 기권으로 끝난다.
          */
         // 재개 시 되살릴 것이 없다 — 판정 결과는 transcript_chunk 에 있고, 바로 아래에서 다시 읽는다.
         LayerOutcome<Integer> attributed = runOrReuse(meetingId, runSeq, LayerName.L1, resumeFrom, () -> 0, sink -> {
@@ -394,8 +395,13 @@ public class AnalysisOrchestrator {
             // 명단 밖 탈출구(personId=null)는 제외한다 — 소거법과 "전원 자막" 판단의 분모가
             // 실제 참석자 수여야 한다. 탈출구를 포함하면 참석자가 2명인 회의가 3명으로 보여
             // 소거법이 성립하지 않는다. L6·L7 도 같은 집합을 쓴다.
+            //
+            // 이름표는 호명-응답 앵커가 쓴다(SpeakerLabelAnchorResolver). L4 의 근접 매칭에
+            // 넘기는 것과 **같은 집합**이어야 한다 — 두 계층이 서로 다른 이름표를 보면 한쪽이
+            // 이은 이름을 다른 쪽이 못 찾고, 그 차이가 어디서 왔는지 되짚을 수 없다.
             List<SpeakerAttributionResolver.Attribution> attributions =
-                    speakerAttributionResolver.resolve(fresh, captions, attendeeMemberIdsOf(participants));
+                    speakerAttributionResolver.resolve(fresh, captions,
+                            attendeeMemberIdsOf(participants), nameByMemberIdOf(participants));
 
             int applied = transcriptRepository.applySpeakerAttributions(meetingId, attributions);
             if (applied != attributions.size()) {
@@ -1454,7 +1460,8 @@ public class AnalysisOrchestrator {
                     ? utterance
                     : new Utterance(utterance.utteranceId(), utterance.speakerMemberId(),
                             utterance.startOffsetMs(), utterance.endOffsetMs(),
-                            withAnnotations(utterance, matched, nameByPersonId)));
+                            withAnnotations(utterance, matched, nameByPersonId),
+                            utterance.speakerLabel()));
         }
         return annotated;
     }

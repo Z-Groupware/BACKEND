@@ -274,6 +274,6 @@ class NearNameAssigneeResolverTest {
 
     /* 화자는 전부 미정(NULL)이다 — 자막이 없는 조건이 실측의 조건이고, 근접 매칭은 화자를 안 본다. */
     private static Utterance utterance(long id, String text) {
-        return new Utterance(id, null, (int) id * 1_000, (int) id * 1_000 + 900, text);
+        return new Utterance(id, null, (int) id * 1_000, (int) id * 1_000 + 900, text, null);
     }
 }
