@@ -134,6 +134,21 @@ public class SttBlockPersistenceAdapter implements SttBlockRepository {
         return true;
     }
 
+    /*
+     * 이름만 고친다 — 상태·시도 횟수는 그대로다.
+     *
+     * CAS 가 필요 없다. 호출자는 방금 자기가 만든(또는 CAS 로 이겨서 가져온) 행에 대해, 그 행을
+     * 만든 **같은 트랜잭션 안에서** 부른다 — 경합할 다른 요청이 이 사이에 끼어들 자리가 없다.
+     */
+    @Override
+    @Transactional
+    public void updateProviderJobName(long blockId, String providerJobName) {
+        sttBlockRepository.findById(blockId).ifPresent(entity -> {
+            entity.renameProviderJob(providerJobName);
+            sttBlockRepository.save(entity);
+        });
+    }
+
     @Override
     @Transactional
     public long createQueued(long meetingId, int blockSeq, int startOffsetMs, int endOffsetMs,

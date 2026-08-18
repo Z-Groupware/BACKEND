@@ -47,13 +47,25 @@ public class SttBlockCreationService implements CreateSttBlockPort {
                 command.meetingId(), command.blockSeq(), command.startOffsetMs(), command.endOffsetMs(),
                 command.cutReason(), command.audioS3Key(), PROVIDER, jobName);
 
-        sttJobPort.submit(new SttJob(
+        String submittedJobName = sttJobPort.submit(new SttJob(
                 command.meetingId(), command.blockSeq(), PROVIDER, jobName,
                 command.audioS3Key(), command.startOffsetMs(), command.endOffsetMs()));
+
+        /*
+         * 제공자가 우리가 지은 이름을 못 쓴 경우다 — 그 이름을 이미 **다른 오디오**가 점유하고
+         * 있으면 어댑터가 새 이름으로 접수시키고 그 값을 돌려준다(SttJobPort#submit 계약).
+         * 행을 고치지 않으면 폴링이 없는 이름을 물어보고 결과가 영영 안 실린다.
+         *
+         * 이 회의에서 그 일이 실제로 일어났다(2026-08-18 meeting-2) — 자동 절단 블록과 통파일
+         * 경로가 둘 다 blockSeq 0 을 써서 같은 이름을 만든다.
+         */
+        if (!submittedJobName.equals(jobName)) {
+            sttBlockRepository.updateProviderJobName(blockId, submittedJobName);
+        }
 
         // blockId는 지금 호출자가 안 쓰지만, 다음에 조회 API가 이 흐름을 감사(audit)해야 할 때
         // 로그로 남겨둔다.
         log.info("STT 블록 자동 생성·제출 — meetingId={} blockSeq={} blockId={} job={}",
-                command.meetingId(), command.blockSeq(), blockId, jobName);
+                command.meetingId(), command.blockSeq(), blockId, submittedJobName);
     }
 }
