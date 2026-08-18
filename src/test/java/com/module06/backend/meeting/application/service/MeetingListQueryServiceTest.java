@@ -27,6 +27,7 @@ import com.module06.backend.meeting.application.query.GetMeetingListQuery;
 import com.module06.backend.meeting.application.result.MeetingListResult;
 import com.module06.backend.meeting.domain.model.MeetingListScope;
 import com.module06.backend.meeting.domain.model.MeetingStatus;
+import com.module06.backend.meeting.domain.model.MeetingSummaryStatus;
 import com.module06.backend.meeting.domain.model.MeetingTopicType;
 import com.module06.backend.meeting.domain.repository.MeetingListRepository;
 import com.module06.backend.meeting.domain.repository.MeetingQueryRepository;
@@ -521,11 +522,99 @@ class MeetingListQueryServiceTest {
         };
     }
 
-    /* 빈 페이지 테스트에서 참석자 배치 조회가 호출되면 즉시 실패하는 Port 대역이다. */
+    @Test
+    @DisplayName("3분 미만이라 건너뛴 회의는 목록에도 SKIPPED_TOO_SHORT 로 실린다 — 화면이 「요약 중」과 구분해야 한다")
+    void 건너뛴_회의를_목록에_싣는다() {
+        assertThat(summaryStatusesOf(MeetingSummaryStatus.SKIPPED_TOO_SHORT))
+                .containsExactly(null, MeetingSummaryStatus.SKIPPED_TOO_SHORT);
+    }
+
+    @Test
+    @DisplayName("실패한 회의를 「중단」으로 뭉개지 않는다 — 사용자가 할 일이 다르다")
+    void 실패를_중단으로_뭉개지_않는다() {
+        /*
+         * 예전에는 findStalledSummaries 가 돌려준 회의를 전부 STALLED 로 적어서, 목록이 실패를
+         * 「중단」이라고 말했다. 중단은 다시 누르면 대개 이어지지만 실패는 같은 자리에서 또 멈춘다.
+         */
+        assertThat(summaryStatusesOf(MeetingSummaryStatus.FAILED))
+                .containsExactly(null, MeetingSummaryStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("조치할 것이 없는 상태는 비워 둔다 — 정상 회의마다 배지를 달지 않는다")
+    void 정상_상태는_싣지_않는다() {
+        assertThat(summaryStatusesOf(MeetingSummaryStatus.DONE)).containsExactly(null, null);
+        assertThat(summaryStatusesOf(MeetingSummaryStatus.PROCESSING)).containsExactly(null, null);
+    }
+
+    /* 회의 91번에 주어진 상태가 목록 응답에 어떻게 실리는지만 본다. 92번은 대역이 담지 않아 항상 null 이다. */
+    private List<MeetingSummaryStatus> summaryStatusesOf(MeetingSummaryStatus status) {
+        RecordingMeetingListRepository repository = new RecordingMeetingListRepository(
+                new MeetingListRepository.MeetingPage(
+                        List.of(
+                                meeting(92L, 13L, 4L, "최근 회의", 8, 6, 3L, List.of(3L)),
+                                meeting(91L, 12L, 2L, "이전 회의", 8, 4, 3L, List.of(3L))
+                        ),
+                        2L,
+                        1
+                )
+        );
+        MeetingListQueryService service = new MeetingListQueryService(
+                repository,
+                meetingRoomPort(),
+                projectPort(),
+                new RecordingActionQueryPort(List.of()),
+                summaryStatusPortReturning(status),
+                meetingQueryRepository(),
+                new RecordingMemberQueryPort(List.of(
+                        new MemberQueryPort.MemberSnapshot(3L, "지우", 1L, "기획"))),
+                FIXED_CLOCK
+        );
+
+        return service.getMeetings(new GetMeetingListQuery(
+                        10L, 3L, true, null, null, null, null, null, null, null, null))
+                .meetings()
+                .stream()
+                .map(MeetingListResult.MeetingItem::summaryStatus)
+                .toList();
+    }
+
+    private SummaryStatusQueryPort summaryStatusPortReturning(MeetingSummaryStatus status) {
+        return new SummaryStatusQueryPort() {
+            @Override
+            public List<StalledSummaryMeeting> findStalledSummaries(Long companyId, List<Long> meetingIds) {
+                return List.of();
+            }
+
+            @Override
+            public List<SummaryStatusMeeting> findSummaryStatuses(Long companyId, List<Long> meetingIds) {
+                return meetingIds.contains(91L)
+                        ? List.of(new SummaryStatusMeeting(91L, status))
+                        : List.of();
+            }
+        };
+    }
+
+    /*
+     * 목록은 findSummaryStatuses 로 상태를 읽는다(#575). findStalledSummaries 만 대역으로 두면
+     * 목록이 실제로 부르는 메서드가 기본 구현(빈 목록)으로 떨어져, 모든 회의가 null 로 나온다.
+     */
     private SummaryStatusQueryPort summaryStatusPort() {
-        return (companyId, meetingIds) -> meetingIds.contains(91L)
-                ? List.of(new SummaryStatusQueryPort.StalledSummaryMeeting(91L, true))
-                : List.of();
+        return new SummaryStatusQueryPort() {
+            @Override
+            public List<StalledSummaryMeeting> findStalledSummaries(Long companyId, List<Long> meetingIds) {
+                return meetingIds.contains(91L)
+                        ? List.of(new StalledSummaryMeeting(91L, true))
+                        : List.of();
+            }
+
+            @Override
+            public List<SummaryStatusMeeting> findSummaryStatuses(Long companyId, List<Long> meetingIds) {
+                return meetingIds.contains(91L)
+                        ? List.of(new SummaryStatusMeeting(91L, MeetingSummaryStatus.STALLED))
+                        : List.of();
+            }
+        };
     }
 
     private MeetingQueryRepository meetingQueryRepository() {
