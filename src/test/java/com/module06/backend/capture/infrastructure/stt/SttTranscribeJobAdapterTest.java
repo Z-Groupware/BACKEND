@@ -17,10 +17,15 @@ import org.springframework.http.HttpStatus;
 
 import software.amazon.awssdk.services.transcribe.TranscribeClient;
 import software.amazon.awssdk.services.transcribe.model.ConflictException;
+import software.amazon.awssdk.services.transcribe.model.GetTranscriptionJobRequest;
+import software.amazon.awssdk.services.transcribe.model.GetTranscriptionJobResponse;
 import software.amazon.awssdk.services.transcribe.model.LanguageCode;
+import software.amazon.awssdk.services.transcribe.model.Media;
 import software.amazon.awssdk.services.transcribe.model.MediaFormat;
 import software.amazon.awssdk.services.transcribe.model.StartTranscriptionJobRequest;
 import software.amazon.awssdk.services.transcribe.model.TranscribeException;
+import software.amazon.awssdk.services.transcribe.model.TranscriptionJob;
+import software.amazon.awssdk.services.transcribe.model.TranscriptionJobStatus;
 
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository;
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository.VocabularyView;
@@ -312,11 +317,64 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
-    @DisplayName("잡 이름 충돌은 성공으로 삼키지 않는다 — 우리 상태와 제공자 상태가 어긋난 것이다")
-    void 잡_이름_충돌은_실패로_올린다() {
+    @DisplayName("이름이 충돌해도 이미 있는 잡이 같은 오디오면 채택한다 — 같은 구간을 두 번 전사하지 않는다")
+    void 같은_오디오를_가리키는_기존_잡은_채택한다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
         when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
                 .thenThrow(ConflictException.builder().message("job exists").build());
+        when(transcribeClient.getTranscriptionJob(any(GetTranscriptionJobRequest.class)))
+                .thenReturn(existingJob("s3://" + BUCKET + "/" + AUDIO_KEY,
+                        TranscriptionJobStatus.COMPLETED));
+
+        // 던지지 않는다. 블록은 QUEUED 로 남고 폴링이 이 이름으로 결과를 가져간다 —
+        // 제출이 도달했는데 응답을 못 받아 우리 행만 롤백된 상태(2026-08-18 meeting-2)의 복구다.
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+
+        verify(transcribeClient).getTranscriptionJob(GetTranscriptionJobRequest.builder()
+                .transcriptionJobName("meeting-500-block-3-r0")
+                .build());
+    }
+
+    @Test
+    @DisplayName("기존 잡이 FAILED 여도 채택한다 — 폴링이 블록을 FAILED 로 닫아야 재처리를 누를 수 있다")
+    void 실패한_기존_잡도_채택한다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
+                .thenThrow(ConflictException.builder().message("job exists").build());
+        when(transcribeClient.getTranscriptionJob(any(GetTranscriptionJobRequest.class)))
+                .thenReturn(existingJob("s3://" + BUCKET + "/" + AUDIO_KEY,
+                        TranscriptionJobStatus.FAILED));
+
+        // 여기서 실패로 올리면 그 블록은 아예 만들어지지 않아(트랜잭션 롤백) 재처리 대상도 못 된다.
+        // 채택해야 FAILED 로 닫히고, 그때 -r1 이라는 새 이름으로 다시 돌릴 수 있다.
+        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+    }
+
+    @Test
+    @DisplayName("기존 잡이 다른 오디오를 가리키면 채택하지 않는다 — 남의 전사가 이 회의에 붙는다")
+    void 다른_오디오를_가리키는_기존_잡은_실패로_올린다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
+                .thenThrow(ConflictException.builder().message("job exists").build());
+        // 재시드로 meetingId 가 재사용되면 이름은 같은데 오디오가 다르다 — 이름만으로는 구분되지 않는다.
+        when(transcribeClient.getTranscriptionJob(any(GetTranscriptionJobRequest.class)))
+                .thenReturn(existingJob("s3://" + BUCKET + "/stt-temp/org-9/meeting-500/blocks/3.wav",
+                        TranscriptionJobStatus.COMPLETED));
+
+        assertThatThrownBy(() -> adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CaptureErrorCode.STT_SUBMIT_FAILED);
+    }
+
+    @Test
+    @DisplayName("기존 잡을 조회하지 못하면 채택하지 않는다 — 우리 녹음이라는 근거가 없다")
+    void 기존_잡_조회에_실패하면_실패로_올린다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
+                .thenThrow(ConflictException.builder().message("job exists").build());
+        when(transcribeClient.getTranscriptionJob(any(GetTranscriptionJobRequest.class)))
+                .thenThrow(TranscribeException.builder().message("throttled").build());
 
         assertThatThrownBy(() -> adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0")))
                 .isInstanceOf(BusinessException.class)
@@ -343,6 +401,17 @@ class SttTranscribeJobAdapterTest {
 
     private static SttJob job(String provider, String jobName) {
         return new SttJob(500L, 3, provider, jobName, AUDIO_KEY, 1_794_000, 2_390_000);
+    }
+
+    private static GetTranscriptionJobResponse existingJob(String mediaFileUri,
+                                                           TranscriptionJobStatus status) {
+        return GetTranscriptionJobResponse.builder()
+                .transcriptionJob(TranscriptionJob.builder()
+                        .transcriptionJobName("meeting-500-block-3-r0")
+                        .transcriptionJobStatus(status)
+                        .media(Media.builder().mediaFileUri(mediaFileUri).build())
+                        .build())
+                .build();
     }
 
     private static VocabularyView readyVocabulary() {

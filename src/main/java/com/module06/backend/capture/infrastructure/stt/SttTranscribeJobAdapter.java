@@ -11,12 +11,14 @@ import lombok.extern.slf4j.Slf4j;
 
 import software.amazon.awssdk.services.transcribe.TranscribeClient;
 import software.amazon.awssdk.services.transcribe.model.ConflictException;
+import software.amazon.awssdk.services.transcribe.model.GetTranscriptionJobRequest;
 import software.amazon.awssdk.services.transcribe.model.LanguageCode;
 import software.amazon.awssdk.services.transcribe.model.Media;
 import software.amazon.awssdk.services.transcribe.model.MediaFormat;
 import software.amazon.awssdk.services.transcribe.model.Settings;
 import software.amazon.awssdk.services.transcribe.model.StartTranscriptionJobRequest;
 import software.amazon.awssdk.services.transcribe.model.TranscribeException;
+import software.amazon.awssdk.services.transcribe.model.TranscriptionJob;
 
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository;
 import com.module06.backend.capture.application.port.out.MeetingVocabularyRepository.VocabularyView;
@@ -160,12 +162,14 @@ public class SttTranscribeJobAdapter implements SttJobPort {
         }
 
         String outputKey = outputKeyOf(job.providerJobName());
+        // 이름이 충돌했을 때 "이미 있는 그 잡이 이 녹음인지"를 판정하는 근거가 되므로 변수로 둔다.
+        String mediaFileUri = "s3://" + bucket + "/" + job.audioS3Key();
         Settings settings = settingsFor(job.meetingId());
 
         StartTranscriptionJobRequest.Builder request = StartTranscriptionJobRequest.builder()
                 .transcriptionJobName(job.providerJobName())
                 .languageCode(LANGUAGE)
-                .media(Media.builder().mediaFileUri("s3://" + bucket + "/" + job.audioS3Key()).build())
+                .media(Media.builder().mediaFileUri(mediaFileUri).build())
                 .outputBucketName(bucket)
                 .outputKey(outputKey);
 
@@ -190,16 +194,13 @@ public class SttTranscribeJobAdapter implements SttJobPort {
             /*
              * 같은 잡 이름이 이미 있다. 잡 이름에 retryCount 가 들어 있고 전이가 CAS 로 막혀
              * 있으므로(SttBlockRepository#markQueuedForRetry) 정상 경로에서는 나오지 않는다 —
-             * 나왔다면 **우리 상태와 제공자 상태가 어긋난 것**이다(제출은 됐는데 응답을 못 받아
-             * 우리 쪽이 실패로 처리한 경우가 대표적이다).
+             * 나왔다면 **우리 상태와 제공자 상태가 어긋난 것**이다.
              *
-             * 성공으로 삼키지 않는다. 삼키면 그 블록은 QUEUED 로 남는데 우리가 만든 잡이 아니라
-             * 결과를 되짚을 이름도 확신할 수 없다. 사람이 다시 눌러 새 이름으로 제출하게 한다.
+             * 예전에는 여기서 무조건 실패로 올렸다. "결과를 되짚을 이름을 확신할 수 없다"가
+             * 근거였는데, **물어보면 확신할 수 있다** — 아래에서 그렇게 한다.
              */
-            log.error("STT 잡 이름이 이미 있다 — 우리 상태와 제공자 상태가 어긋났다. "
-                    + "meetingId={} blockSeq={} job={}", job.meetingId(), job.blockSeq(),
-                    job.providerJobName(), e);
-            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
+            adoptExistingJob(job, mediaFileUri, e);
+            return;
         } catch (TranscribeException e) {
             // 제출 실패는 삼키면 안 된다(포트 주석) — 화면은 "재처리를 시작했습니다"라고 말하는데
             // 아무 일도 일어나지 않고, 그 블록은 QUEUED 로 영원히 남아 다시 누를 수도 없다.
@@ -213,6 +214,81 @@ public class SttTranscribeJobAdapter implements SttJobPort {
                 job.startOffsetMs(), job.endOffsetMs(),
                 settings.vocabularyName() == null ? "없음" : settings.vocabularyName(),
                 settings.maxSpeakerLabels(), outputKey);
+    }
+
+    /*
+     * 이름이 충돌했을 때, **이미 있는 그 잡이 이 녹음인지 물어보고 같으면 우리 것으로 채택한다.**
+     *
+     * <h2>왜 필요한가 — 재제출이 확정적으로 실패하는 상태가 있다 (2026-08-18 meeting-2)</h2>
+     * SttBlockCreationService 는 INSERT → submit 순서에 REQUIRES_NEW 다. 그래서 <b>제출이 AWS 에
+     * 도달했는데 응답을 못 받으면</b>(타임아웃·커넥션 끊김) 우리 행은 통째로 롤백되고 잡만 계속
+     * 돌아 혼자 완주한다 — AWS 에는 있고 stt_block 에는 없는 상태다. ConflictException 이 났다는
+     * 것 자체가 그 증거이기도 하다: 그 이름의 행이 우리에게 있었다면 UNIQUE(provider_job_name)에서
+     * INSERT 가 먼저 터져 AWS 까지 가지도 못한다.
+     *
+     * 그 상태를 LostSttTriggerRecoveryService 가 정확히 주워서(stt_triggered=1 인데 stt_block 0건)
+     * <b>같은 결정적 이름으로</b> 다시 제출하는데, 예전 코드에서는 그 재제출이 매 주기 같은
+     * 충돌로 실패했다 — 24시간 상한까지 실패만 반복하고 조용히 포기했다. 복구 배치가 확정 실패
+     * 루프였다. 채택이 그 루프를 끊는다(배치 쪽에 코드를 더 넣지 않아도 된다 — 그 경로가 결국
+     * 이 어댑터를 지난다).
+     *
+     * <h2>왜 새 이름으로 재제출하지 않는가</h2>
+     * 이미 전사가 끝나 있는 경우가 많고(meeting-2 는 충돌 시점에 이미 COMPLETED 였다), 새 이름은
+     * <b>같은 오디오를 한 번 더 전사하고 요금을 두 번 낸다.</b> 리포트가 요청한 "기존 작업을 조회해
+     * 같은 녹음인지 확인"이 이쪽이다.
+     *
+     * <h2>같은 녹음인지의 판정은 미디어 URI 하나로 한다</h2>
+     * 이름이 같다는 것만으로 채택하면 <b>남의 회의 전사가 이 회의에 붙는다</b> — 재시드로
+     * meetingId 가 재사용된 경우가 정확히 그 위험이고(SttJobNameFactory 주석), 그건 이름만으로는
+     * 구분되지 않는다. 그래서 우리가 보내려던 s3:// URI 와 <b>정확히 같을 때만</b> 채택한다.
+     * 어긋나면 채택하지 않고 예전처럼 실패로 올린다 — 두 URI 를 로그에 남기므로 사람이 비교할 수
+     * 있다. 느슨하게 맞추는 쪽(호스트 형식 변환·퍼센트 디코딩)으로 가지 않은 이유는, 여기서
+     * 틀리는 방향이 "복구가 한 번 안 된다"가 아니라 <b>"남의 전사를 확정으로 저장한다"</b>라서다.
+     * Transcribe 는 우리가 보낸 값을 그대로 돌려주므로 정상 경로에서는 정확히 일치한다.
+     *
+     * <h2>잡이 FAILED 여도 채택한다</h2>
+     * 채택하면 블록은 QUEUED 로 남고 폴링이 그 이름으로 결과를 가져간다(SttJobResultPort#fetch).
+     * 잡이 FAILED 면 폴링이 블록을 FAILED 로 닫고, 그때 비로소 사람이 재처리를 눌러 <b>-r1 이라는
+     * 새 이름으로</b> 다시 돌릴 수 있다 — 지금까지 없던 복구 경로가 그렇게 열린다.
+     */
+    private void adoptExistingJob(SttJob job, String expectedMediaFileUri, ConflictException conflict) {
+        TranscriptionJob existing;
+        try {
+            existing = transcribeClient.getTranscriptionJob(GetTranscriptionJobRequest.builder()
+                            .transcriptionJobName(job.providerJobName())
+                            .build())
+                    .transcriptionJob();
+        } catch (RuntimeException e) {
+            /*
+             * 물어보지 못했으면 채택하지 않는다. 확인 없이 채택하면 블록이 QUEUED 로 남는데
+             * 그 이름이 우리 녹음이라는 근거가 하나도 없다 — 조회 실패를 "아마 우리 것"으로
+             * 읽는 순간, 남의 전사가 붙는 경로가 열린다.
+             */
+            log.error("이미 있는 STT 잡을 조회하지 못해 채택할 수 없다 — meetingId={} blockSeq={} job={}",
+                    job.meetingId(), job.blockSeq(), job.providerJobName(), e);
+            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
+        }
+
+        String existingMediaFileUri = existing == null || existing.media() == null
+                ? null
+                : existing.media().mediaFileUri();
+        if (!expectedMediaFileUri.equals(existingMediaFileUri)) {
+            log.error("이미 있는 STT 잡이 다른 오디오를 가리킨다 — 채택하지 않는다. "
+                            + "meetingId={} blockSeq={} job={} 기존오디오={} 우리오디오={}",
+                    job.meetingId(), job.blockSeq(), job.providerJobName(),
+                    existingMediaFileUri, expectedMediaFileUri, conflict);
+            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
+        }
+
+        /*
+         * WARN 으로 남긴다. 채택은 성공이지만 **정상은 아니다** — 제출 응답이 유실됐다는 신호이고,
+         * 조용히 고치면 그 유실이 얼마나 자주 일어나는지 아무도 모른다(LostSttTriggerRecoveryService
+         * 가 복구 성공을 INFO 로 남기는 것과 같은 이유).
+         */
+        log.warn("이미 있는 STT 잡을 채택했다 — 같은 오디오다(제출은 도달했는데 응답을 못 받았던 것이다). "
+                        + "meetingId={} blockSeq={} job={} 제공자상태={} 오디오={}",
+                job.meetingId(), job.blockSeq(), job.providerJobName(),
+                existing.transcriptionJobStatusAsString(), expectedMediaFileUri);
     }
 
     /*
