@@ -157,7 +157,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                 meetingIds,
                 actionQueryPort.countActionsByMeetings(resolved.companyId(), meetingIds)
         );
-        Set<Long> stalledSummaryMeetingIds = indexStalledSummaryMeetingIds(resolved.companyId(), page.meetings());
+        Map<Long, MeetingSummaryStatus> summaryStatuses = indexSummaryStatuses(resolved.companyId(), page.meetings());
         Map<Long, MeetingListResult.AgendaPreview> agendaPreviews = indexAgendaPreviews(
                 meetingQueryRepository.findMeetingTopics(resolved.companyId(), meetingIds)
         );
@@ -182,7 +182,7 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
                         findMeetingRoom(meetingRooms, meeting.meetingRoomId()),
                         projects.get(meeting.projectId()),
                         actionCounts.getOrDefault(meeting.meetingId(), 0L),
-                        resolveSummaryStatus(meeting, stalledSummaryMeetingIds),
+                        resolveSummaryStatus(meeting, summaryStatuses),
                         agendaPreviews.get(meeting.meetingId()),
                         resolved.requesterMemberId(),
                         now,
@@ -341,26 +341,61 @@ public class MeetingListQueryService implements GetMeetingListUseCase {
         return Map.copyOf(indexed);
     }
 
-    private Set<Long> indexStalledSummaryMeetingIds(Long companyId, List<MeetingListSnapshot> meetings) {
+    /*
+     * 끝난 회의의 요약 상태를 페이지 단위로 한 번에 읽는다.
+     *
+     * <h2>findStalledSummaries 에서 findSummaryStatuses 로 바꿨다(#575)</h2>
+     * 예전에는 「깨진 회의만」 묻고 나머지를 null 로 뒀다. 그 계약으로는 **자동 분석이 건너뛴
+     * 회의를 표현할 방법이 없다** — 그 회의는 깨진 것이 아니라 시작하지 않은 것이라
+     * findStalledSummaries 가 담지 않는다(그쪽 계약이 STALLED·FAILED 만 담는다).
+     * 그래서 목록에서는 영원히 null 이었고, 화면은 그것을 「요약 중」으로 그렸다(#572).
+     *
+     * 쿼리 수는 그대로다. 두 계약 모두 회의 id 목록 하나를 받는 배치이고, 여기서 넘기는
+     * 대상도 같다(끝난 회의만).
+     */
+    private Map<Long, MeetingSummaryStatus> indexSummaryStatuses(Long companyId, List<MeetingListSnapshot> meetings) {
         List<Long> doneIds = meetings.stream()
                 .filter(meeting -> meeting.status() == MeetingStatus.DONE)
                 .map(MeetingListSnapshot::meetingId)
                 .toList();
         if (doneIds.isEmpty()) {
-            return Set.of();
+            return Map.of();
         }
 
-        Set<Long> stalledIds = new HashSet<>();
-        summaryStatusQueryPort.findStalledSummaries(companyId, doneIds)
-                .forEach(summary -> stalledIds.add(summary.meetingId()));
-        return Set.copyOf(stalledIds);
+        Map<Long, MeetingSummaryStatus> indexed = new LinkedHashMap<>();
+        summaryStatusQueryPort.findSummaryStatuses(companyId, doneIds)
+                .forEach(summary -> indexed.put(summary.meetingId(), summary.status()));
+        return Map.copyOf(indexed);
     }
 
-    private MeetingSummaryStatus resolveSummaryStatus(MeetingListSnapshot meeting, Set<Long> stalledSummaryMeetingIds) {
+    /*
+     * 목록이 싣는 것은 **사람이 조치해야 하는 상태뿐**이다.
+     *
+     * 정상 완료(DONE)·처리 중(PROCESSING)처럼 아무것도 할 일이 없는 상태는 null 로 둔다 —
+     * 기존 계약이고, 목록 카드는 그 값을 그리지 않는다. 여기에 전부 실어 보내면 화면이 정상
+     * 회의마다 상태 배지를 하나씩 달게 되고, 그건 이 필드가 하려던 일이 아니다.
+     *
+     * <h2>FAILED 를 STALLED 로 뭉개지 않는다</h2>
+     * 예전에는 findStalledSummaries 가 돌려준 회의를 **전부** STALLED 로 적었다. 그 계약은
+     * 실패한 회의도 함께 담으므로, 목록은 실패를 「중단」이라고 말하고 있었다. 둘은 사용자가
+     * 할 일이 다르다 — 중단은 다시 누르면 대개 이어지지만 실패는 같은 자리에서 또 멈춘다
+     * (MeetingSummaryQueryPort.StalledMeetingSummary 주석). 이제 있는 그대로 내려준다.
+     */
+    private MeetingSummaryStatus resolveSummaryStatus(MeetingListSnapshot meeting,
+                                                      Map<Long, MeetingSummaryStatus> summaryStatuses) {
         if (meeting.status() != MeetingStatus.DONE) {
             return MeetingSummaryStatus.NONE;
         }
-        return stalledSummaryMeetingIds.contains(meeting.meetingId()) ? MeetingSummaryStatus.STALLED : null;
+
+        MeetingSummaryStatus status = summaryStatuses.get(meeting.meetingId());
+        if (status == null) {
+            return null;
+        }
+        return switch (status) {
+            case STALLED, FAILED, SKIPPED_TOO_SHORT -> status;
+            /* 조치할 것이 없는 상태다. 기존과 같이 비워 둔다. */
+            case NONE, WAITING_TRANSCRIPT, PROCESSING, DONE -> null;
+        };
     }
 
     private Map<Long, MeetingListResult.AgendaPreview> indexAgendaPreviews(List<MeetingTopicSnapshot> topics) {
