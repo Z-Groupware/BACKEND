@@ -232,6 +232,8 @@ class SttBlockServiceTest {
         private final List<SttBlockView> blocks;
         private boolean queried;
         private String savedJobName;
+        /* 어댑터가 다른 이름으로 접수했을 때 서비스가 고쳐 넣는 값. */
+        private String renamedJobName;
         /* 다른 요청이 먼저 가져간 상황. 실물에서는 잠금 뒤 재확인이 이 판정을 한다. */
         private boolean loseRace;
         private int expectedRetryCount = -1;
@@ -306,6 +308,11 @@ class SttBlockServiceTest {
                                  String cutReason, String audioS3Key, String provider, String providerJobName) {
             throw new UnsupportedOperationException("이 테스트는 STT-03/04만 다룬다 — 자동 생성은 대상 밖.");
         }
+
+        @Override
+        public void updateProviderJobName(long blockId, String providerJobName) {
+            renamedJobName = providerJobName;
+        }
     }
 
     private static final class RecordingJobPort implements SttJobPort {
@@ -313,8 +320,9 @@ class SttBlockServiceTest {
         private final List<SttJob> submitted = new ArrayList<>();
 
         @Override
-        public void submit(SttJob job) {
+        public String submit(SttJob job) {
             submitted.add(job);
+            return job.providerJobName();
         }
     }
 }

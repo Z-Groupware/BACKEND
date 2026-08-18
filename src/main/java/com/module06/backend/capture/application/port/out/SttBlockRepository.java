@@ -117,6 +117,22 @@ public interface SttBlockRepository {
                                String providerJobName);
 
     /*
+     * 제출된 잡 이름을 제공자가 실제로 접수한 값으로 고친다.
+     *
+     * <h2>왜 이런 갱신이 필요한가</h2>
+     * 잡 이름은 제출 <b>전에</b> 정해져 행에 들어간다(createQueued · markQueuedForRetry). 그런데
+     * 그 이름이 제공자 쪽에서 이미 <b>다른 오디오</b>에 쓰이고 있으면 그 이름으로는 영영 제출할
+     * 수 없어서, 어댑터가 새 이름으로 접수시키고 그 값을 돌려준다(SttJobPort#submit).
+     *
+     * 그때 이 행을 안 고치면 <b>우리가 만든 잡을 우리가 못 찾는다</b> — 폴링은 저장된 이름으로
+     * 조회하므로(SttJobResultPort#fetch) 없는 이름을 물어보고 UNKNOWN 만 받는다. 잡은 정상적으로
+     * 돌아 요금까지 나가는데 결과는 영영 안 실린다.
+     *
+     * 상태는 건드리지 않는다. 이름만 바뀐 것이고 그 블록은 여전히 방금 제출된 QUEUED 다.
+     */
+    void updateProviderJobName(long blockId, String providerJobName);
+
+    /*
      * 아직 끝나지 않은 블록(QUEUED·RUNNING)을 폴링 워커에게 준다.
      *
      * 회의를 가리지 않는다 — 워커는 특정 회의의 요청을 처리하는 것이 아니라 제출해 둔 잡 전부를

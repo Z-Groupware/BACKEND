@@ -114,12 +114,23 @@ public class SttBlockService implements GetSttBlocksUseCase, RetrySttBlockUseCas
             throw new BusinessException(CaptureErrorCode.STT_BLOCK_NOT_RETRYABLE);
         }
 
-        sttJobPort.submit(new SttJob(
+        String submittedJobName = sttJobPort.submit(new SttJob(
                 command.meetingId(), block.blockSeq(), provider, jobName,
                 block.audioS3Key(), block.startOffsetMs(), block.endOffsetMs()));
 
+        /*
+         * 그 이름을 다른 오디오가 점유하고 있으면 어댑터가 새 이름으로 접수시킨다(SttJobPort#submit).
+         * 최초 제출과 같은 이유로 행을 고쳐야 한다 — 폴링이 저장된 이름으로만 결과를 찾는다.
+         *
+         * **retryCount 는 그대로 둔다.** 이름을 피한 것이지 사람이 한 번 더 재처리한 것이 아니고,
+         * 그 값은 STT-04 응답으로 나가는 「시도 횟수」다.
+         */
+        if (!submittedJobName.equals(jobName)) {
+            sttBlockRepository.updateProviderJobName(block.id(), submittedJobName);
+        }
+
         log.info("STT 블록 재처리 접수 — meetingId={} blockSeq={} provider={} 시도={} job={}",
-                command.meetingId(), block.blockSeq(), provider, retryCount, jobName);
+                command.meetingId(), block.blockSeq(), provider, retryCount, submittedJobName);
 
         return new RetryAccepted(block.blockSeq(), SttBlockStatus.QUEUED, retryCount);
     }

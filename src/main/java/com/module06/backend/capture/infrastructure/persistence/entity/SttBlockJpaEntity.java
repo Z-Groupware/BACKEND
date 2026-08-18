@@ -122,6 +122,17 @@ public class SttBlockJpaEntity {
     }
 
     /*
+     * 제공자가 실제로 접수한 잡 이름으로 고친다.
+     *
+     * 이름 <b>하나만</b> 바꾼다. 이 호출이 뜻하는 것은 "제출은 됐는데 우리가 예상한 이름이 아니다"
+     * 뿐이고, 상태·시도 횟수·시각은 그 제출이 이미 정해 놓은 값이다 — 여기서 같이 건드리면
+     * 이름을 고쳤을 뿐인데 재처리 이력이 달라진다.
+     */
+    public void renameProviderJob(String providerJobName) {
+        this.providerJobName = providerJobName;
+    }
+
+    /*
      * 재처리를 접수한다(STT-04).
      *
      * 이전 실패의 흔적을 지운다 — errorCode 와 finishedAt 이 남아 있으면 이번 시도가 아직

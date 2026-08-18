@@ -3,6 +3,7 @@ package com.module06.backend.capture.infrastructure.stt;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -130,6 +131,19 @@ public class SttTranscribeJobAdapter implements SttJobPort {
      */
     private static final int DEFAULT_MAX_SPEAKER_LABELS = 10;
 
+    /*
+     * 점유된 이름을 포기하고 새로 지을 때 붙이는 꼬리 — `…-r0-x3f9a1c72`.
+     *
+     * 표식(`-x`)을 두는 이유는 <b>로그와 콘솔에서 이 이름이 정상 규칙이 아님이 바로 보여야</b>
+     * 하기 때문이다. 잡 이름만 놓고 blockSeq·retryCount 를 되짚는 사람이 있고(운영 조회가 그렇게
+     * 한다), 난수만 덧붙이면 그 값이 규칙의 일부인지 아닌지 구분되지 않는다.
+     *
+     * 길이는 8 이다. 이름 전체 상한 200 안에서 네임스페이스(최대 64+1)와 본체(최악 56)를 빼도
+     * 남고, 충돌 회피에 필요한 것은 유일성이지 128비트가 아니다.
+     */
+    private static final String FRESH_NAME_MARKER = "-x";
+    private static final int FRESH_NAME_LENGTH = 8;
+
     private final TranscribeClient transcribeClient;
     private final MeetingVocabularyRepository vocabularyRepository;
     private final MeetingAttendeeCountProvider attendeeCountProvider;
@@ -148,7 +162,7 @@ public class SttTranscribeJobAdapter implements SttJobPort {
     }
 
     @Override
-    public void submit(SttJob job) {
+    public String submit(SttJob job) {
         /*
          * 제공자가 다르면 **여기서 막는다.** STT-04 는 `{"provider":"whisper"}` 를 받을 수 있고
          * (실패한 블록을 다른 제공자로 돌리는 것이 그 API 의 목적 중 하나다), whisper 어댑터는
@@ -161,13 +175,42 @@ public class SttTranscribeJobAdapter implements SttJobPort {
             throw new BusinessException(CaptureErrorCode.STT_PROVIDER_UNSUPPORTED);
         }
 
-        String outputKey = outputKeyOf(job.providerJobName());
         // 이름이 충돌했을 때 "이미 있는 그 잡이 이 녹음인지"를 판정하는 근거가 되므로 변수로 둔다.
         String mediaFileUri = "s3://" + bucket + "/" + job.audioS3Key();
         Settings settings = settingsFor(job.meetingId());
 
+        try {
+            startJob(job, job.providerJobName(), mediaFileUri, settings);
+            return job.providerJobName();
+        } catch (ConflictException e) {
+            /*
+             * 같은 잡 이름이 이미 있다. 잡 이름에 retryCount 가 들어 있고 전이가 CAS 로 막혀
+             * 있으므로(SttBlockRepository#markQueuedForRetry) 정상 경로에서는 나오지 않는다 —
+             * 나왔다면 **우리 상태와 제공자 상태가 어긋난 것**이다.
+             *
+             * 예전에는 여기서 무조건 실패로 올렸다. "결과를 되짚을 이름을 확신할 수 없다"가
+             * 근거였는데, **물어보면 확신할 수 있다** — 같은 오디오면 채택하고, 다른 오디오면
+             * 그 이름을 포기하고 새 이름으로 간다.
+             */
+            if (pointsToSameAudio(job, mediaFileUri, e)) {
+                return job.providerJobName();
+            }
+            return submitUnderFreshName(job, mediaFileUri, settings);
+        } catch (TranscribeException e) {
+            // 제출 실패는 삼키면 안 된다(포트 주석) — 화면은 "재처리를 시작했습니다"라고 말하는데
+            // 아무 일도 일어나지 않고, 그 블록은 QUEUED 로 영원히 남아 다시 누를 수도 없다.
+            log.error("STT 제출 실패 — meetingId={} blockSeq={} job={} s3Key={}",
+                    job.meetingId(), job.blockSeq(), job.providerJobName(), job.audioS3Key(), e);
+            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
+        }
+    }
+
+    /* 잡 하나를 이 이름으로 접수시킨다. 결과 키가 이름에서 나오므로 이름이 바뀌면 여기 전부가 바뀐다. */
+    private void startJob(SttJob job, String jobName, String mediaFileUri, Settings settings) {
+        String outputKey = outputKeyOf(jobName);
+
         StartTranscriptionJobRequest.Builder request = StartTranscriptionJobRequest.builder()
-                .transcriptionJobName(job.providerJobName())
+                .transcriptionJobName(jobName)
                 .languageCode(LANGUAGE)
                 .media(Media.builder().mediaFileUri(mediaFileUri).build())
                 .outputBucketName(bucket)
@@ -188,32 +231,70 @@ public class SttTranscribeJobAdapter implements SttJobPort {
         // 구분은 vocabularyName 이 비었는지로 읽는다.
         request.settings(settings);
 
-        try {
-            transcribeClient.startTranscriptionJob(request.build());
-        } catch (ConflictException e) {
-            /*
-             * 같은 잡 이름이 이미 있다. 잡 이름에 retryCount 가 들어 있고 전이가 CAS 로 막혀
-             * 있으므로(SttBlockRepository#markQueuedForRetry) 정상 경로에서는 나오지 않는다 —
-             * 나왔다면 **우리 상태와 제공자 상태가 어긋난 것**이다.
-             *
-             * 예전에는 여기서 무조건 실패로 올렸다. "결과를 되짚을 이름을 확신할 수 없다"가
-             * 근거였는데, **물어보면 확신할 수 있다** — 아래에서 그렇게 한다.
-             */
-            adoptExistingJob(job, mediaFileUri, e);
-            return;
-        } catch (TranscribeException e) {
-            // 제출 실패는 삼키면 안 된다(포트 주석) — 화면은 "재처리를 시작했습니다"라고 말하는데
-            // 아무 일도 일어나지 않고, 그 블록은 QUEUED 로 영원히 남아 다시 누를 수도 없다.
-            log.error("STT 제출 실패 — meetingId={} blockSeq={} job={} s3Key={}",
-                    job.meetingId(), job.blockSeq(), job.providerJobName(), job.audioS3Key(), e);
-            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
-        }
+        transcribeClient.startTranscriptionJob(request.build());
 
         log.info("STT 제출 — meetingId={} blockSeq={} job={} s3Key={} 구간={}~{}ms 어휘={} 화자상한={} 결과키={}",
-                job.meetingId(), job.blockSeq(), job.providerJobName(), job.audioS3Key(),
+                job.meetingId(), job.blockSeq(), jobName, job.audioS3Key(),
                 job.startOffsetMs(), job.endOffsetMs(),
                 settings.vocabularyName() == null ? "없음" : settings.vocabularyName(),
                 settings.maxSpeakerLabels(), outputKey);
+    }
+
+    /*
+     * 그 이름은 남이 쓰고 있다 — **포기하고 새 이름으로 제출한다.**
+     *
+     * <h2>왜 필요한가 — 이름 하나가 회의를 영구히 막는다 (2026-08-18 meeting-2·3)</h2>
+     * 결정적 이름은 <b>다시 계산해도 같은 값</b>이라, 그 이름이 남에게 점유당하면 재시도가 몇 번
+     * 돌든 같은 벽에 부딪힌다. LostSttTriggerRecoveryService 가 5분마다 다시 걸지만 이름을 못 바꿔
+     * 24시간 상한까지 실패만 반복했다 — 그 회의는 발화 0건이라 분석도 영영 시작되지 않는다.
+     *
+     * 관측된 점유자는 두 종류였고 <b>둘 다 회의 ID 재사용이 아니어도 생긴다.</b>
+     *
+     * <ul>
+     *   <li><b>같은 회의의 다른 제출 경로</b>(meeting-2) — 실시간 캡처의 자동 절단 블록은
+     *       {@code stt-temp/…/blocks/0.wav} 를, 통파일 경로(CAP-10·비대면 녹음 등록)는 업로드 원본
+     *       {@code recordings/…/*.m4a} 를 보내는데 <b>둘 다 blockSeq 0</b> 이라 이름이 같다.
+     *       한 회의에서 두 경로가 모두 도는 순간 뒤에 온 쪽이 영구히 막힌다.</li>
+     *   <li><b>다른 세대·다른 조직의 잡</b>(meeting-3 은 org-17 골드 픽스처와 부딪혔다) — 잡 이름
+     *       네임스페이스는 AWS 계정 단위라 DB 보다 오래 산다(SttJobNameFactory 주석).</li>
+     * </ul>
+     *
+     * <h2>왜 retryCount 를 올리지 않는가</h2>
+     * {@code -r1} 로 올리는 방법이 먼저 떠오르지만 두 가지가 걸린다. 그 값은 <b>사람이 몇 번
+     * 재처리했는지</b>를 세는 값이라(STT-04 응답에 그대로 나간다) 충돌 회피로 소모하면 화면의
+     * 숫자가 거짓이 되고, 애초에 {@code -r1} 도 <b>같은 이유로 이미 점유돼 있을 수 있다</b> —
+     * 결정적인 값을 하나 더 시도하는 것은 같은 벽을 한 칸 옆에서 다시 만나는 것이다.
+     *
+     * <h2>왜 처음부터 UUID 를 안 넣는가</h2>
+     * 이름이 매번 달라지면 충돌이 사라지는 대신 <b>채택(pointsToSameAudio)도 같이 사라진다</b> —
+     * 제출은 도달했는데 응답을 못 받은 경우, 이름을 되짚을 수 없어 이미 끝난 전사를 버리고 같은
+     * 오디오에 요금을 두 번 낸다. 그래서 <b>첫 시도는 결정적으로 두고, 막혔을 때만</b> 유일한
+     * 값을 붙인다. 이 이름은 stt_block 에 저장되므로(호출자가 고친다) 폴링이 되짚을 수 있다.
+     */
+    private String submitUnderFreshName(SttJob job, String mediaFileUri, Settings settings) {
+        String freshName = job.providerJobName() + FRESH_NAME_MARKER
+                + UUID.randomUUID().toString().replace("-", "").substring(0, FRESH_NAME_LENGTH);
+
+        try {
+            startJob(job, freshName, mediaFileUri, settings);
+        } catch (TranscribeException e) {
+            /*
+             * 새 이름까지 거절당했다. 여기서 또 다른 이름을 지어 도는 것은 실패의 원인이 이름이
+             * 아니라는 뜻이므로(권한·버킷·포맷) 무의미하다 — 올린다.
+             */
+            log.error("새 잡 이름으로도 제출하지 못했다 — meetingId={} blockSeq={} 원래이름={} 새이름={}",
+                    job.meetingId(), job.blockSeq(), job.providerJobName(), freshName, e);
+            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
+        }
+
+        /*
+         * WARN 으로 남긴다. 제출은 됐지만 **이름 규칙이 깨진 자리**이고, 이 로그의 빈도가
+         * 근본 원인(두 경로가 같은 blockSeq 0 을 쓴다)을 고칠지 판단하는 유일한 근거다.
+         */
+        log.warn("잡 이름이 다른 오디오에 점유돼 새 이름으로 제출했다 — meetingId={} blockSeq={} "
+                        + "원래이름={} 새이름={} 오디오={}",
+                job.meetingId(), job.blockSeq(), job.providerJobName(), freshName, job.audioS3Key());
+        return freshName;
     }
 
     /*
@@ -250,8 +331,10 @@ public class SttTranscribeJobAdapter implements SttJobPort {
      * 채택하면 블록은 QUEUED 로 남고 폴링이 그 이름으로 결과를 가져간다(SttJobResultPort#fetch).
      * 잡이 FAILED 면 폴링이 블록을 FAILED 로 닫고, 그때 비로소 사람이 재처리를 눌러 <b>-r1 이라는
      * 새 이름으로</b> 다시 돌릴 수 있다 — 지금까지 없던 복구 경로가 그렇게 열린다.
+     *
+     * @return 같은 오디오라 채택했으면 true. 다른 오디오면 false — 호출자가 새 이름으로 간다
      */
-    private void adoptExistingJob(SttJob job, String expectedMediaFileUri, ConflictException conflict) {
+    private boolean pointsToSameAudio(SttJob job, String expectedMediaFileUri, ConflictException conflict) {
         TranscriptionJob existing;
         try {
             existing = transcribeClient.getTranscriptionJob(GetTranscriptionJobRequest.builder()
@@ -260,11 +343,16 @@ public class SttTranscribeJobAdapter implements SttJobPort {
                     .transcriptionJob();
         } catch (RuntimeException e) {
             /*
-             * 물어보지 못했으면 채택하지 않는다. 확인 없이 채택하면 블록이 QUEUED 로 남는데
-             * 그 이름이 우리 녹음이라는 근거가 하나도 없다 — 조회 실패를 "아마 우리 것"으로
-             * 읽는 순간, 남의 전사가 붙는 경로가 열린다.
+             * 물어보지 못했으면 채택도, 새 이름으로 가지도 않는다 — **올린다.**
+             *
+             * 확인 없이 채택하면 남의 전사가 붙는다. 반대로 확인 없이 새 이름으로 가면, 실은
+             * 우리 잡이었을 때 이미 끝난 전사를 버리고 같은 오디오에 요금을 두 번 낸다. 조회
+             * 실패는 대개 스로틀·네트워크라 다음 주기(복구 배치 5분)에 답이 오므로, 그때 판정하는
+             * 편이 두 손실을 모두 피한다. 영구적으로 못 읽는 상태라면 그건 권한 문제이고
+             * (transcribe:GetTranscriptionJob), 이 로그가 그 사실을 가리킨다.
              */
-            log.error("이미 있는 STT 잡을 조회하지 못해 채택할 수 없다 — meetingId={} blockSeq={} job={}",
+            log.error("이미 있는 STT 잡을 조회하지 못했다 — 채택도 재제출도 하지 않는다. "
+                            + "meetingId={} blockSeq={} job={}",
                     job.meetingId(), job.blockSeq(), job.providerJobName(), e);
             throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
         }
@@ -273,11 +361,16 @@ public class SttTranscribeJobAdapter implements SttJobPort {
                 ? null
                 : existing.media().mediaFileUri();
         if (!expectedMediaFileUri.equals(existingMediaFileUri)) {
-            log.error("이미 있는 STT 잡이 다른 오디오를 가리킨다 — 채택하지 않는다. "
+            /*
+             * 남이 쓰는 이름이다. **여기서 끝내지 않는다** — 예전에는 실패로 올렸고, 그래서
+             * 이름이 결정적인 만큼 그 회의가 영구히 막혔다(2026-08-18 meeting-2·3).
+             * 호출자가 새 이름으로 간다(submitUnderFreshName).
+             */
+            log.warn("이미 있는 STT 잡이 다른 오디오를 가리킨다 — 이 이름은 쓸 수 없다. "
                             + "meetingId={} blockSeq={} job={} 기존오디오={} 우리오디오={}",
                     job.meetingId(), job.blockSeq(), job.providerJobName(),
                     existingMediaFileUri, expectedMediaFileUri, conflict);
-            throw new BusinessException(CaptureErrorCode.STT_SUBMIT_FAILED);
+            return false;
         }
 
         /*
@@ -289,6 +382,7 @@ public class SttTranscribeJobAdapter implements SttJobPort {
                         + "meetingId={} blockSeq={} job={} 제공자상태={} 오디오={}",
                 job.meetingId(), job.blockSeq(), job.providerJobName(),
                 existing.transcriptionJobStatusAsString(), expectedMediaFileUri);
+        return true;
     }
 
     /*
