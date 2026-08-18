@@ -1764,6 +1764,11 @@ class AnalysisOrchestratorTest {
                                  String providerJobName) {
             throw new UnsupportedOperationException("블록 생성은 cap 의 트리거가 요청한다");
         }
+
+        @Override
+        public void updateProviderJobName(long blockId, String providerJobName) {
+            throw new UnsupportedOperationException("잡 이름 교정은 제출 경로가 한다");
+        }
     }
 
     private static final class FakeTranscriptRepository implements TranscriptRepository {

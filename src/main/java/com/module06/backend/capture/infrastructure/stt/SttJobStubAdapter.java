@@ -35,10 +35,12 @@ import com.module06.backend.capture.application.port.out.SttJobPort;
 public class SttJobStubAdapter implements SttJobPort {
 
     @Override
-    public void submit(SttJob job) {
+    public String submit(SttJob job) {
         log.info("STT 제출(stub) — meetingId={} blockSeq={} provider={} job={} s3Key={} 구간={}~{}ms. "
                         + "실제 Transcribe 호출·상태 전이(RUNNING·DONE)는 후속 STT 인프라에서 수행.",
                 job.meetingId(), job.blockSeq(), job.provider(), job.providerJobName(),
                 job.audioS3Key(), job.startOffsetMs(), job.endOffsetMs());
+        // 스텁은 이름을 바꿀 일이 없다 — 충돌할 제공자가 아예 없다.
+        return job.providerJobName();
     }
 }
