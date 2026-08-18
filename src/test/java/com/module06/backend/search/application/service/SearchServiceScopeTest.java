@@ -29,7 +29,7 @@ class SearchServiceScopeTest {
     @BeforeEach
     void setUp() throws Exception {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                "jdbc:h2:mem:search_scope;MODE=MySQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=ACTION;DB_CLOSE_DELAY=-1",
+                "jdbc:h2:mem:search_scope;MODE=MySQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=ACTION,POSITION;DB_CLOSE_DELAY=-1",
                 "sa",
                 ""
         );
@@ -158,15 +158,15 @@ class SearchServiceScopeTest {
                         id BIGINT NOT NULL,
                         company_id BIGINT NOT NULL,
                         team_id BIGINT,
-                        job_position_id BIGINT,
+                        position_id BIGINT,
                         name VARCHAR(50) NOT NULL,
-                        role VARCHAR(20) NOT NULL,
+                        authority VARCHAR(20) NOT NULL,
                         deleted_at DATETIME,
                         updated_at DATETIME NOT NULL
                     )
                     """);
             statement.execute("""
-                    CREATE TABLE job_position (
+                    CREATE TABLE `position` (
                         id BIGINT NOT NULL,
                         company_id BIGINT NOT NULL,
                         name VARCHAR(50) NOT NULL
@@ -190,7 +190,7 @@ class SearchServiceScopeTest {
     }
 
     private void seedData() {
-        jdbcTemplate.update("INSERT INTO job_position VALUES (1, 1, 'Alpha Designer')");
+        jdbcTemplate.update("INSERT INTO `position` VALUES (1, 1, 'Alpha Designer')");
         jdbcTemplate.update("INSERT INTO member VALUES (10, 1, 100, NULL, 'Requester', 'MEMBER', NULL, '2026-08-09 09:00:00')");
         jdbcTemplate.update("INSERT INTO member VALUES (11, 1, 100, 1, 'Alpha Meeting Mate', 'MEMBER', NULL, '2026-08-09 09:00:00')");
         jdbcTemplate.update("INSERT INTO member VALUES (12, 1, 200, NULL, 'Alpha Isolated', 'MEMBER', NULL, '2026-08-09 09:00:00')");

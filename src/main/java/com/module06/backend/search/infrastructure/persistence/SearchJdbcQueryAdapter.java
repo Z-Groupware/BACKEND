@@ -215,13 +215,13 @@ public class SearchJdbcQueryAdapter implements SearchQueryRepository {
         String sql = """
                 SELECT COUNT(*)
                   FROM member m
-                  LEFT JOIN job_position jp
-                    ON jp.id = m.job_position_id
+                  LEFT JOIN `position` jp
+                    ON jp.id = m.position_id
                    AND jp.company_id = m.company_id
                  WHERE m.company_id = ?
                    AND m.deleted_at IS NULL
                    AND m.id <> ?
-                   AND (LOWER(m.name) LIKE ? OR LOWER(m.role) LIKE ? OR LOWER(COALESCE(jp.name, '')) LIKE ?)
+                   AND (LOWER(m.name) LIKE ? OR LOWER(m.authority) LIKE ? OR LOWER(COALESCE(jp.name, '')) LIKE ?)
                    AND (
                        EXISTS (
                            SELECT 1
@@ -261,29 +261,29 @@ public class SearchJdbcQueryAdapter implements SearchQueryRepository {
                 SELECT 'PERSON' AS result_type,
                        m.id AS id,
                        m.name AS title,
-                       COALESCE(jp.name, m.role) AS snippet,
+                       COALESCE(jp.name, m.authority) AS snippet,
                        NULL AS project_id,
                        NULL AS project_tag,
                        NULL AS project_name,
                        NULL AS project_color,
                        CAST(m.updated_at AS DATE) AS date_value,
-                       m.role AS role_value,
+                       m.authority AS role_value,
                        CASE
                            WHEN LOWER(m.name) = ? THEN 100
                            WHEN LOWER(m.name) LIKE ? THEN 80
                            WHEN LOWER(COALESCE(jp.name, '')) LIKE ? THEN 40
-                           WHEN LOWER(m.role) LIKE ? THEN 20
+                           WHEN LOWER(m.authority) LIKE ? THEN 20
                            ELSE 0
                        END AS score_value,
                        m.updated_at AS sort_value
                   FROM member m
-                  LEFT JOIN job_position jp
-                    ON jp.id = m.job_position_id
+                  LEFT JOIN `position` jp
+                    ON jp.id = m.position_id
                    AND jp.company_id = m.company_id
                  WHERE m.company_id = ?
                    AND m.deleted_at IS NULL
                    AND m.id <> ?
-                   AND (LOWER(m.name) LIKE ? OR LOWER(m.role) LIKE ? OR LOWER(COALESCE(jp.name, '')) LIKE ?)
+                   AND (LOWER(m.name) LIKE ? OR LOWER(m.authority) LIKE ? OR LOWER(COALESCE(jp.name, '')) LIKE ?)
                    AND (
                        EXISTS (
                            SELECT 1
