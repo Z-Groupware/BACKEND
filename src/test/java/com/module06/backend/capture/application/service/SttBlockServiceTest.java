@@ -59,6 +59,23 @@ class SttBlockServiceTest {
     }
 
     @Test
+    @DisplayName("네임스페이스를 주면 잡 이름 앞에 붙는다 — 재시드한 DB가 옛 잡과 안 부딪히게")
+    void 네임스페이스가_잡_이름에_붙는다() {
+        // 이름은 meetingId로만 만들어지는데 AWS 쪽 잡 이름은 DB보다 오래 산다 — 재시드로
+        // meetingId가 재사용되면 옛 잡과 충돌해서 제출 자체가 거절된다(2026-08-18 P1).
+        FakeBlockRepository blocks = new FakeBlockRepository(failed(3, 2));
+        RecordingJobPort jobs = new RecordingJobPort();
+
+        new SttBlockService(blocks, jobs, new MeetingAccessGuard((companyId, meetingId) -> true),
+                new SttJobNameFactory("stg-seed7"))
+                .retry(new RetrySttBlockCommand(COMPANY, MEETING, 3, null));
+
+        assertThat(jobs.submitted.get(0).providerJobName()).isEqualTo("stg-seed7-meeting-500-block-3-r3");
+        // 저장된 이름도 같아야 한다 — 폴링이 되짚는 것은 제출한 이름이 아니라 저장된 이름이다.
+        assertThat(blocks.savedJobName).isEqualTo("stg-seed7-meeting-500-block-3-r3");
+    }
+
+    @Test
     @DisplayName("실패하지 않은 블록은 409 — 같은 구간에 요금이 두 번 나가고 발화가 덮인다")
     void 실패하지_않은_블록은_거절한다() {
         FakeBlockRepository blocks = new FakeBlockRepository(
@@ -170,7 +187,7 @@ class SttBlockServiceTest {
         FakeBlockRepository blocks = new FakeBlockRepository(failed(3, 2));
 
         assertThatThrownBy(() -> new SttBlockService(blocks, new RecordingJobPort(),
-                new MeetingAccessGuard((companyId, meetingId) -> false))
+                new MeetingAccessGuard((companyId, meetingId) -> false), new SttJobNameFactory(""))
                 .retry(new RetrySttBlockCommand(COMPANY, MEETING, 3, null)))
                 .isInstanceOf(BusinessException.class);
 
@@ -183,7 +200,7 @@ class SttBlockServiceTest {
         FakeBlockRepository blocks = new FakeBlockRepository(failed(3, 2));
 
         assertThatThrownBy(() -> new SttBlockService(blocks, new RecordingJobPort(),
-                new MeetingAccessGuard((companyId, meetingId) -> false))
+                new MeetingAccessGuard((companyId, meetingId) -> false), new SttJobNameFactory(""))
                 .getSttBlocks(COMPANY, MEETING))
                 .isInstanceOf(BusinessException.class);
 
@@ -193,7 +210,8 @@ class SttBlockServiceTest {
     // ── 조립 ────────────────────────────────────────────────────────────────────
 
     private SttBlockService service(FakeBlockRepository blocks, RecordingJobPort jobs) {
-        return new SttBlockService(blocks, jobs, new MeetingAccessGuard((companyId, meetingId) -> true));
+        return new SttBlockService(blocks, jobs, new MeetingAccessGuard((companyId, meetingId) -> true),
+                new SttJobNameFactory(""));
     }
 
     private static SttBlockRepository.SttBlockView failed(int blockSeq, int retryCount) {

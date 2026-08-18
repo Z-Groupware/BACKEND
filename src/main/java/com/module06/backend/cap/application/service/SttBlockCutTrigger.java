@@ -40,8 +40,17 @@ import com.module06.backend.capture.application.port.in.CreateSttBlockPort.Creat
  *
  * <h2>여기서 던지지 않는다(단, TAIL 마무리는 다르다)</h2>
  * triggerIfThresholdReached는 best-effort다. 예약까지 성공한 뒤 실패해도 청크 업로드 자체(CAP-07)는
- * 이미 성공적으로 끝난 뒤라 되돌릴 것이 없다 — block_seq에 빈 번호 하나가 남을 뿐(해롭지 않다),
- * 다음 트리거가 같은 자리를 다시 경합하는 것보다 안전하다.
+ * 이미 성공적으로 끝난 뒤라 되돌릴 것이 없다 — block_seq에 빈 번호 하나가 남을 뿐, 다음 트리거가
+ * 같은 자리를 다시 경합하는 것보다 안전하다.
+ *
+ * <b>다만 "빈 번호가 남을 뿐"으로 끝나지 않는다 — 예약은 반드시 풀어야 한다.</b> 예전 주석은
+ * 그 잔여물이 해롭지 않다고 적고 있었는데, 그게 틀렸다. 예약은 blocksFormed를 전진시키고
+ * 그 블록의 완료(finalizedBlocksCount 전진)는 성공 경로에서만 일어나므로, 실패한 채 넘어가면
+ * hasNoPendingReservation()이 <b>영구히 false</b>가 되어 <b>그 회의는 남은 시간 동안 블록을
+ * 하나도 더 만들지 못한다</b>(예약을 1개로 제한하는 문이 닫힌 채 잠긴다). 회의가 「요약 중」에서
+ * 안 빠져나오던 경로가 이것이다 — 2026-08-18 P1(STT 잡 이름 충돌로 제출 실패)에서 드러났지만,
+ * 원인은 잡 이름이 아니라 <b>제출이 어떤 이유로든 실패하면 그렇게 된다</b>는 것이다.
+ * 그래서 실패 경로에서 SttBlockFormedWriter.releaseFailedReservation으로 문을 다시 연다.
  * 반면 finalizeTailBlockOnMeetingCompletion은 실패 여부를 boolean으로 호출자에게 돌려준다
  * (CodeRabbit 지적) — 조립이 곧 recording_part/S3 청크를 지우므로, TAIL 마무리가 실패한 채 조립이
  * 진행되면 그 자투리 구간은 영영 복구할 수 없다. 예약 경합·조립 실패 모두 "실패"로 취급해 호출자가
@@ -85,6 +94,9 @@ public class SttBlockCutTrigger {
      */
     @Async("sttBlockCutTaskExecutor")
     public void triggerIfThresholdReached(Long companyId, Long meetingId) {
+        // 예약을 잡았지만 아직 못 끝낸 상태인가 — 실패로 빠질 때 예약을 풀어줄지 판단하는 근거다.
+        // 예약 전에 실패했으면 풀 것이 없고, 반대로 풀지 않으면 그 회의가 통째로 멈춘다.
+        boolean reservationPending = false;
         try {
             CaptureUploadState state = captureUploadStateRepository.findByMeetingId(meetingId).orElse(null);
             if (state == null || !hasReachedThreshold(state)) {
@@ -115,6 +127,7 @@ public class SttBlockCutTrigger {
                 return;
             }
             int blockSeq = reserved.get();
+            reservationPending = true;
 
             SttBlockAudioAssemblyPort.ExtractedWindow window =
                     audioAssemblyPort.extractCutWindow(companyId, meetingId, segmentSeq, targetOffsetMs,
@@ -149,9 +162,26 @@ public class SttBlockCutTrigger {
             // (녹음자 이어받기) 새 세그먼트의 리셋된 값을 이 옛 세그먼트 오프셋으로 덮어쓰면
             // 안 되기 때문이다(CodeRabbit 지적).
             sttBlockFormedWriter.finalizeBlockOffset(meetingId, segmentSeq, cut.cutOffsetMs());
+            reservationPending = false;
         } catch (RuntimeException e) {
-            // 클래스 주석대로 던지지 않는다 — 다음 청크가 같은 지점에서 다시 트리거한다.
+            // 클래스 주석대로 바깥으로 던지지 않는다 — 청크 업로드(CAP-07)는 이미 끝났고 되돌릴
+            // 것이 없다. 다만 **예약은 반드시 풀고 나간다**(아래).
             log.error("10분 블록 자동 트리거 실패 — meetingId={}", meetingId, e);
+            if (reservationPending) {
+                releaseReservationBestEffort(meetingId);
+            }
+        }
+    }
+
+    // 예약 해제가 또 실패해도 원래 실패를 덮지 않는다 — 여기서 던지면 @Async 스레드로 올라가
+    // 정작 파이프라인이 왜 실패했는지가 로그에서 밀린다. 다만 해제가 실패했다는 사실 자체는
+    // 남겨야 한다. 이게 남으면 그 회의는 여전히 멈춘 상태라, 사람이 봐야 하는 자리다.
+    private void releaseReservationBestEffort(Long meetingId) {
+        try {
+            sttBlockFormedWriter.releaseFailedReservation(meetingId);
+        } catch (RuntimeException releaseFailure) {
+            log.error("실패한 블록 예약 해제마저 실패했다 — 이 회의는 더 이상 블록을 만들지 못한다. "
+                    + "meetingId={}", meetingId, releaseFailure);
         }
     }
 

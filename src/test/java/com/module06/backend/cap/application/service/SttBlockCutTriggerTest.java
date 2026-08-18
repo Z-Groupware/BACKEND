@@ -232,9 +232,42 @@ class SttBlockCutTriggerTest {
         trigger.triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
 
         assertThat(createPort.received).isEmpty();
-        // 예약은 무거운 작업 전에 이미 성공했으므로 blocksFormed는 전진해 있다(block_seq 하나가
-        // 빈 채로 남을 뿐 — 해롭지 않다는 게 클래스 설계 의도).
+        // 예약은 무거운 작업 전에 이미 성공했으므로 blocksFormed는 전진해 있다 — block_seq 하나가
+        // 빈 채로 남는 것 자체는 설계 의도다.
         assertThat(state.getBlocksFormed()).isEqualTo(1);
+        // 다만 **예약은 풀려 있어야 한다.** 안 그러면 blocksFormed만 오르고 finalizedBlocksCount가
+        // 그대로라, 예약을 1개로 제한하는 문이 닫힌 채 잠긴다.
+        assertThat(state.hasNoPendingReservation()).isTrue();
+    }
+
+    @Test
+    @DisplayName("파이프라인이 실패해도 그 회의는 다음 블록을 계속 만든다 — 예약이 풀리기 때문")
+    void keepsFormingBlocksAfterFailure() {
+        // 회의가 「요약 중」에 갇히던 경로다(2026-08-18 P1). 제출이 한 번 실패한 뒤로 그 회의가
+        // 블록을 하나도 더 못 만들면, 남은 녹음은 영영 STT를 안 타고 분석도 시작되지 않는다.
+        CaptureUploadState state = CaptureUploadState.startWithRecorder(MEETING_ID, 7L);
+        state.recordUpload(7L, 40);
+        FakeStateRepo stateRepo = new FakeStateRepo(state);
+        RecordingCreatePort createPort = new RecordingCreatePort();
+
+        // 첫 블록: 제출이 실패한다(잡 이름 충돌 등 — 어떤 이유든 같다).
+        SttBlockCutTrigger failing = trigger(stateRepo, new RecordingAudioAssemblyPort(),
+                new RecordingCutDetectionPort(), command -> {
+                    throw new RuntimeException("STT 제출 실패 가정");
+                });
+        failing.triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+        assertThat(state.getBlocksFormed()).isEqualTo(1);
+
+        // 40청크가 더 쌓이면 두 번째 블록이 만들어져야 한다.
+        state.recordUpload(7L, 80);
+        trigger(stateRepo, new RecordingAudioAssemblyPort(), new RecordingCutDetectionPort(), createPort)
+                .triggerIfThresholdReached(COMPANY_ID, MEETING_ID);
+
+        assertThat(createPort.received).hasSize(1);
+        assertThat(createPort.received.get(0).blockSeq()).isEqualTo(1);
+        // 실패한 구간의 오디오는 버려지지 않는다 — 끝 지점을 안 건드렸으므로 다음 블록이 같은
+        // 시작점(0)에서 조립해 그 구간을 흡수한다.
+        assertThat(createPort.received.get(0).startOffsetMs()).isZero();
     }
 
     @Test
