@@ -26,6 +26,7 @@ import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCa
 import com.module06.backend.capture.domain.model.ReviewDecision;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.exception.ErrorResponse;
 import com.module06.backend.meeting.application.port.in.MeetingActionConfirmationPort;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,6 +122,37 @@ class ConfirmDistributionServiceTest {
 
         // 하나도 안 나갔다 — 막혔으면 전부 막힌다.
         assertThat(dispatch.dispatched).isEmpty();
+    }
+
+    @Test
+    @DisplayName("2026-08-18 — 409 응답에 막힌 사유별 건수가 실린다(이홍근 요청)")
+    void 막힌_사유가_건수와_함께_실린다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        // 담당자 없는 PENDING 둘 — STILL_PENDING 2건.
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(
+                action(1L, "PENDING", null),
+                action(2L, "PENDING", null));
+
+        assertThatThrownBy(() -> service(actions, dispatch, 3).confirm(command(HOST, false)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getDetails())
+                        .containsExactlyInAnyOrder(
+                                new ErrorResponse.FieldErrorDetail("STILL_PENDING", "2"),
+                                new ErrorResponse.FieldErrorDetail("UNRESOLVED_GAP", "3")));
+    }
+
+    @Test
+    @DisplayName("2026-08-18 — 해당 없는 사유는 details 에 담기지 않는다")
+    void 해당없는_사유는_details에_없다() {
+        RecordingDispatchPort dispatch = new RecordingDispatchPort();
+        // 구멍만 남고 미검토는 없는 경우 — STILL_PENDING 은 details 에서 빠져야 한다.
+        List<ActionReviewQueryPort.ReviewAction> actions = List.of(
+                action(1L, "HUMAN_CONFIRMED", HOST));
+
+        assertThatThrownBy(() -> service(actions, dispatch, 1).confirm(command(HOST, false)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getDetails())
+                        .containsExactly(new ErrorResponse.FieldErrorDetail("UNRESOLVED_GAP", "1")));
     }
 
     @Test

@@ -46,7 +46,7 @@ public class GlobalExceptionHandler {
             AuthzAuditLogger.loginFailed(request, errorCode.getCode());
         }
         return ResponseEntity.status(errorCode.getHttpStatus())
-                .body(ErrorResponse.of(errorCode, request.getRequestURI(), currentTraceId()));
+                .body(ErrorResponse.of(errorCode, request.getRequestURI(), currentTraceId(), ex.getDetails()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
