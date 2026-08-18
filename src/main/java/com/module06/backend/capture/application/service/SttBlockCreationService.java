@@ -33,13 +33,15 @@ public class SttBlockCreationService implements CreateSttBlockPort {
 
     private final SttBlockRepository sttBlockRepository;
     private final SttJobPort sttJobPort;
+    private final SttJobNameFactory sttJobNameFactory;
 
     @Override
     @Transactional
     public void createAndSubmitBlock(CreateSttBlockCommand command) {
-        // 최초 제출이라 재시도 횟수 0을 잡 이름에 그대로 쓴다(SttBlockService.jobNameOf와 같은 형식 —
-        // 재처리 시 -r1, -r2로 이어지므로 최초 제출은 -r0으로 시작해야 계정 내 유일성이 계속 성립한다).
-        String jobName = "meeting-" + command.meetingId() + "-block-" + command.blockSeq() + "-r0";
+        // 최초 제출이라 재시도 횟수 0이다 — 재처리가 -r1, -r2로 이어지므로 여기서 -r0으로 시작해야
+        // 계정 내 유일성이 계속 성립한다. 형식 자체는 SttJobNameFactory가 갖는다(예전엔 이 자리에
+        // 규칙을 손으로 다시 적어서, 재처리 쪽 jobNameOf와 갈릴 수 있었다).
+        String jobName = sttJobNameFactory.create(command.meetingId(), command.blockSeq(), 0);
 
         long blockId = sttBlockRepository.createQueued(
                 command.meetingId(), command.blockSeq(), command.startOffsetMs(), command.endOffsetMs(),

@@ -39,6 +39,7 @@ public class SttBlockService implements GetSttBlocksUseCase, RetrySttBlockUseCas
     private final SttBlockRepository sttBlockRepository;
     private final SttJobPort sttJobPort;
     private final MeetingAccessGuard meetingAccessGuard;
+    private final SttJobNameFactory sttJobNameFactory;
 
     @Override
     @Transactional(readOnly = true)
@@ -84,7 +85,11 @@ public class SttBlockService implements GetSttBlocksUseCase, RetrySttBlockUseCas
                 : block.provider();
 
         int retryCount = block.retryCount() + 1;
-        String jobName = jobNameOf(command.meetingId(), command.blockSeq(), retryCount);
+        // 이름은 **계정 내 유일해야 한다** — 같은 이름을 다시 쓰면 제출이 거절되므로 재시도 횟수를
+        // 이름에 넣는다(V5.4 주석). UNIQUE 제약이 그 실수를 DB 에서 한 번 더 잡는다. 형식·네임스페이스는
+        // SttJobNameFactory 가 갖는다 — 최초 제출(SttBlockCreationService)과 같은 자리를 써야
+        // 두 경로가 갈리지 않는다.
+        String jobName = sttJobNameFactory.create(command.meetingId(), command.blockSeq(), retryCount);
 
         /*
          * 상태를 먼저 올린다. **잡 이름에 이 횟수가 들어가기 때문**이다 — 제출 뒤에 올리면
@@ -117,16 +122,5 @@ public class SttBlockService implements GetSttBlocksUseCase, RetrySttBlockUseCas
                 command.meetingId(), block.blockSeq(), provider, retryCount, jobName);
 
         return new RetryAccepted(block.blockSeq(), SttBlockStatus.QUEUED, retryCount);
-    }
-
-    /*
-     * 잡 이름을 만든다 — `meeting-500-block-3-r3`.
-     *
-     * **계정 내 유일해야 한다.** AWS Transcribe 가 그렇게 요구하고, 같은 이름을 다시 쓰면 제출이
-     * 거절된다. 그래서 재시도 횟수를 이름에 넣는다(V5.4 주석). UNIQUE 제약이 그 실수를 DB 에서
-     * 한 번 더 잡는다.
-     */
-    private String jobNameOf(long meetingId, int blockSeq, int retryCount) {
-        return "meeting-" + meetingId + "-block-" + blockSeq + "-r" + retryCount;
     }
 }

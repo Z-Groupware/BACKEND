@@ -13,7 +13,7 @@ import java.util.List;
 // rms는 여기서 @NotNull을 걸지 않는다 — 없으면 400이 아니라 422(MEETING_422_2)로 응답해야 해서,
 // 서비스/도메인 계층(CaptionChunk 생성자)에서 CAP_RMS_REQUIRED로 판정한다.
 public record SubmitCaptionsRequest(
-        @NotEmpty @Valid List<ChunkRequest> chunks
+        @NotEmpty List<@Valid ChunkRequest> chunks
 ) {
     public record ChunkRequest(
             @NotNull Integer seq,
