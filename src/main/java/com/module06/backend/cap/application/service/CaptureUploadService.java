@@ -13,6 +13,7 @@ import com.module06.backend.cap.domain.repository.CaptureUploadStateRepository;
 import com.module06.backend.cap.domain.repository.MeetingReferenceRepository;
 import com.module06.backend.global.exception.BusinessException;
 import com.module06.backend.metering.application.port.in.StorageQuotaPort;
+import com.module06.backend.metering.domain.exception.MeteringErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -228,7 +229,19 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private boolean isOverStorageQuota(Long companyId) {
         try {
             return storageQuotaPort.getStatus(companyId).overQuota();
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == MeteringErrorCode.MT_STORAGE_PLAN_NOT_FOUND) {
+                // 한도를 아직 설정 안 한 회사(옵트인 미사용)는 예상된 상태다 — 매 presign마다
+                // 스택트레이스까지 찍을 만한 이상 상황이 아니라 debug로 축약한다.
+                log.debug("저장 용량 한도 조회 실패({}) — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}",
+                        e.getErrorCode(), companyId);
+                return false;
+            }
+            // MT_FORBIDDEN_SCOPE(companyId==null) 등 그 외는 예상 밖이라 stack까지 남긴다.
+            log.warn("저장 용량 한도 조회 실패 — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}", companyId, e);
+            return false;
         } catch (RuntimeException e) {
+            // BusinessException이 아닌 것(DB 연결 실패 등)도 진짜 이상 상황이라 stack까지 남긴다.
             log.warn("저장 용량 한도 조회 실패 — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}", companyId, e);
             return false;
         }
