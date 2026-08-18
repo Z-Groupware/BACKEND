@@ -228,7 +228,14 @@ public class CaptureUploadService implements IssuePartUploadUrlsUseCase, Complet
     private boolean isOverStorageQuota(Long companyId) {
         try {
             return storageQuotaPort.getStatus(companyId).overQuota();
+        } catch (BusinessException e) {
+            // 한도를 아직 설정 안 한 회사(옵트인 미사용)는 예상된 상태다 — 매 presign마다
+            // 스택트레이스까지 찍을 만한 이상 상황이 아니라 debug로 축약한다.
+            log.debug("저장 용량 한도 조회 실패({}) — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}",
+                    e.getErrorCode(), companyId);
+            return false;
         } catch (RuntimeException e) {
+            // 그 외(DB 연결 실패 등)는 진짜 이상 상황이라 stack까지 남긴다.
             log.warn("저장 용량 한도 조회 실패 — 한도 없음으로 간주하고 녹음을 허용한다. companyId={}", companyId, e);
             return false;
         }
