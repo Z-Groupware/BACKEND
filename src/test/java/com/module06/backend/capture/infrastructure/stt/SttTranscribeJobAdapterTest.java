@@ -327,9 +327,11 @@ class SttTranscribeJobAdapterTest {
                         TranscriptionJobStatus.COMPLETED));
 
         // 던지지 않는다. 블록은 QUEUED 로 남고 폴링이 이 이름으로 결과를 가져간다 —
-        // 제출이 도달했는데 응답을 못 받아 우리 행만 롤백된 상태(2026-08-18 meeting-2)의 복구다.
-        adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+        // 제출이 도달했는데 응답을 못 받아 우리 행만 롤백된 상태의 복구다.
+        String submitted = adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
 
+        // 이름이 그대로다 — 호출자가 stt_block 을 고칠 것이 없다.
+        assertThat(submitted).isEqualTo("meeting-500-block-3-r0");
         verify(transcribeClient).getTranscriptionJob(GetTranscriptionJobRequest.builder()
                 .transcriptionJobName("meeting-500-block-3-r0")
                 .build());
@@ -351,12 +353,41 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
-    @DisplayName("기존 잡이 다른 오디오를 가리키면 채택하지 않는다 — 남의 전사가 이 회의에 붙는다")
-    void 다른_오디오를_가리키는_기존_잡은_실패로_올린다() {
+    @DisplayName("기존 잡이 다른 오디오면 채택하지 않고 새 이름으로 제출한다 — 그 이름은 영영 못 쓴다")
+    void 다른_오디오가_점유한_이름은_포기하고_새_이름으로_제출한다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
         when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
-                .thenThrow(ConflictException.builder().message("job exists").build());
-        // 재시드로 meetingId 가 재사용되면 이름은 같은데 오디오가 다르다 — 이름만으로는 구분되지 않는다.
+                .thenThrow(ConflictException.builder().message("job exists").build())
+                // 새 이름은 아무도 안 쓰므로 통과한다.
+                .thenReturn(null);
+        // 자동 절단 블록(stt-temp)이 이미 그 이름을 쓰고 있는데 통파일 경로(recordings)가 같은
+        // 이름을 만든 상황이다 — 2026-08-18 meeting-2. 회의 ID 재사용이 없어도 생긴다.
+        when(transcribeClient.getTranscriptionJob(any(GetTranscriptionJobRequest.class)))
+                .thenReturn(existingJob(
+                        "s3://" + BUCKET + "/recordings/org-1/member-3/meeting-500/260814_124512.m4a",
+                        TranscriptionJobStatus.COMPLETED));
+
+        String submitted = adapter().submit(job("aws-transcribe", "meeting-500-block-3-r0"));
+
+        // 호출자가 이 값으로 stt_block 을 고친다 — 안 고치면 폴링이 없는 이름을 물어본다.
+        assertThat(submitted).startsWith("meeting-500-block-3-r0-x").hasSizeGreaterThan(24);
+
+        verify(transcribeClient, times(2)).startTranscriptionJob(requestCaptor.capture());
+        StartTranscriptionJobRequest resubmitted = requestCaptor.getAllValues().get(1);
+        assertThat(resubmitted.transcriptionJobName()).isEqualTo(submitted);
+        // 결과 키도 새 이름을 따라가야 한다 — 안 그러면 두 잡이 같은 결과 키에 쓴다.
+        assertThat(resubmitted.outputKey()).isEqualTo("stt-out/" + submitted + ".json");
+        // 오디오는 그대로다. 우리가 보내려던 그 녹음이 바뀐 것이 아니다.
+        assertThat(resubmitted.media().mediaFileUri()).isEqualTo("s3://" + BUCKET + "/" + AUDIO_KEY);
+    }
+
+    @Test
+    @DisplayName("새 이름으로도 거절당하면 올린다 — 원인이 이름이 아니라는 뜻이다")
+    void 새_이름_제출도_실패하면_예외를_올린다() {
+        when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
+        when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
+                .thenThrow(ConflictException.builder().message("job exists").build())
+                .thenThrow(TranscribeException.builder().message("access denied").build());
         when(transcribeClient.getTranscriptionJob(any(GetTranscriptionJobRequest.class)))
                 .thenReturn(existingJob("s3://" + BUCKET + "/stt-temp/org-9/meeting-500/blocks/3.wav",
                         TranscriptionJobStatus.COMPLETED));
@@ -368,7 +399,7 @@ class SttTranscribeJobAdapterTest {
     }
 
     @Test
-    @DisplayName("기존 잡을 조회하지 못하면 채택하지 않는다 — 우리 녹음이라는 근거가 없다")
+    @DisplayName("기존 잡을 조회하지 못하면 채택도 재제출도 하지 않는다 — 판정 근거가 없다")
     void 기존_잡_조회에_실패하면_실패로_올린다() {
         when(vocabularyRepository.findByMeeting(500L)).thenReturn(Optional.empty());
         when(transcribeClient.startTranscriptionJob(any(StartTranscriptionJobRequest.class)))
