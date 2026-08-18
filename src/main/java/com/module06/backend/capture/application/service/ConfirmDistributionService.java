@@ -25,6 +25,7 @@ import com.module06.backend.capture.application.usecase.ConfirmDistributionUseCa
 import com.module06.backend.capture.domain.model.ReviewDecision;
 import com.module06.backend.capture.exception.CaptureErrorCode;
 import com.module06.backend.global.exception.BusinessException;
+import com.module06.backend.global.exception.ErrorResponse;
 import com.module06.backend.meeting.application.port.in.MeetingActionConfirmationPort;
 
 /*
@@ -290,14 +291,35 @@ public class ConfirmDistributionService implements ConfirmDistributionUseCase {
             return;
         }
 
-        boolean pendingLeft = skipped.stream()
-                .anyMatch(skip -> SKIP_STILL_PENDING.equals(skip.reason()));
+        long pendingCount = skipped.stream()
+                .filter(skip -> SKIP_STILL_PENDING.equals(skip.reason()))
+                .count();
         int unresolvedGaps = sttGapRepository.countUnresolved(command.meetingId());
 
-        if (pendingLeft || unresolvedGaps > 0) {
+        if (pendingCount > 0 || unresolvedGaps > 0) {
             log.info("분배 확정 거절 — meetingId={} 미검토={} 미확인구멍={}",
-                    command.meetingId(), pendingLeft, unresolvedGaps);
-            throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_BLOCKED);
+                    command.meetingId(), pendingCount, unresolvedGaps);
+            throw new BusinessException(CaptureErrorCode.REVIEW_CONFIRM_BLOCKED,
+                    blockReasonDetails(pendingCount, unresolvedGaps));
         }
+    }
+
+    /*
+     * 막힌 사유를 사유별 건수로 응답에 싣는다(2026-08-18, 이홍근 요청 — FE 가 "사유: OO N건"
+     * 문구를 조립하려면 카운트가 필요하다). 해당 없는 사유는 아예 넣지 않는다 — 0건짜리 사유가
+     * 섞이면 화면이 "확인 안 된 구멍이 0건 있다"처럼 있지도 않은 문제를 말하게 된다.
+     *
+     * NO_ASSIGNEE 는 여기 넣지 않는다 — 그 사유는 확정 자체를 막지 않고 해당 액션만 스킵될
+     * 뿐이라, 이 목록(확정을 막은 이유)에 섞으면 실제로 안 막는 사유가 막은 것처럼 보인다.
+     */
+    private List<ErrorResponse.FieldErrorDetail> blockReasonDetails(long pendingCount, int unresolvedGaps) {
+        List<ErrorResponse.FieldErrorDetail> details = new ArrayList<>();
+        if (pendingCount > 0) {
+            details.add(new ErrorResponse.FieldErrorDetail(SKIP_STILL_PENDING, String.valueOf(pendingCount)));
+        }
+        if (unresolvedGaps > 0) {
+            details.add(new ErrorResponse.FieldErrorDetail("UNRESOLVED_GAP", String.valueOf(unresolvedGaps)));
+        }
+        return details;
     }
 }
