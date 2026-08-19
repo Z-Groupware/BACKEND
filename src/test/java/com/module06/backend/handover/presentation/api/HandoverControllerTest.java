@@ -292,10 +292,11 @@ class HandoverControllerTest {
         when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
                 .thenReturn(List.of(finalizedSummary()));
 
-        // 오프보딩 승인일(finalizedAt)이 요약 응답에 실려 화면에 표시될 수 있어야 한다.
+        // 오프보딩 승인일(finalizedAt)·승인자(finalApproverName)가 요약 응답에 실려 화면에 표시될 수 있어야 한다.
         mockMvc.perform(get("/api/handovers"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].finalizedAt").value("2026-08-21T10:30:00"));
+                .andExpect(jsonPath("$.data[0].finalizedAt").value("2026-08-21T10:30:00"))
+                .andExpect(jsonPath("$.data[0].finalApproverName").value("Park"));
 
         GetHandoverListUseCase.HandoverListQuery query = capturedQuery();
         assertThat(query.scope()).isEqualTo(GetHandoverListUseCase.Scope.COMPANY);
@@ -509,12 +510,12 @@ class HandoverControllerTest {
 
     private static GetHandoverListUseCase.HandoverSummary summary() {
         return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
-                HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0, null);
+                HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0, null, null);
     }
 
     private static GetHandoverListUseCase.HandoverSummary finalizedSummary() {
         return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
-                HandoverType.OFFBOARDING, HandoverStatus.FINALIZED, START, END, null, 1, 1, 1, FINALIZED_AT);
+                HandoverType.OFFBOARDING, HandoverStatus.FINALIZED, START, END, null, 1, 1, 1, FINALIZED_AT, "Park");
     }
 
     private static Handover submitted() {

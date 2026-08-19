@@ -21,7 +21,8 @@ public record HandoverSummaryResponse(
         int itemCount,
         int reassignRequiredCount,
         int reassignedCount,
-        LocalDateTime finalizedAt
+        LocalDateTime finalizedAt,
+        String finalApproverName
 ) {
 
     public static HandoverSummaryResponse from(GetHandoverListUseCase.HandoverSummary summary) {
@@ -39,7 +40,8 @@ public record HandoverSummaryResponse(
                 summary.itemCount(),
                 summary.reassignRequiredCount(),
                 summary.reassignedCount(),
-                summary.finalizedAt()
+                summary.finalizedAt(),
+                summary.finalApproverName()
         );
     }
 }
