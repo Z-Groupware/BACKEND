@@ -56,7 +56,9 @@ public interface GetHandoverListUseCase {
             LocalDate lastWorkingDay,
             int itemCount,
             int reassignRequiredCount,
-            int reassignedCount
+            int reassignedCount,
+            LocalDateTime finalizedAt,
+            String finalApproverName
     ) {
     }
 }
