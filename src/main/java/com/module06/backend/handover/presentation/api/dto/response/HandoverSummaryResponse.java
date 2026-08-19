@@ -20,7 +20,8 @@ public record HandoverSummaryResponse(
         LocalDate lastWorkingDay,
         int itemCount,
         int reassignRequiredCount,
-        int reassignedCount
+        int reassignedCount,
+        LocalDateTime finalizedAt
 ) {
 
     public static HandoverSummaryResponse from(GetHandoverListUseCase.HandoverSummary summary) {
@@ -37,7 +38,8 @@ public record HandoverSummaryResponse(
                 summary.lastWorkingDay(),
                 summary.itemCount(),
                 summary.reassignRequiredCount(),
-                summary.reassignedCount()
+                summary.reassignedCount(),
+                summary.finalizedAt()
         );
     }
 }

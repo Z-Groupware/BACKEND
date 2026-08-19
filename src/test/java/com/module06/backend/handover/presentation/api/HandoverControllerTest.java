@@ -63,6 +63,7 @@ class HandoverControllerTest {
     private static final Long COMPANY = 1L;
     private static final LocalDateTime START = LocalDateTime.of(2026, 8, 10, 9, 0);
     private static final LocalDateTime END = LocalDateTime.of(2026, 8, 20, 18, 0);
+    private static final LocalDateTime FINALIZED_AT = LocalDateTime.of(2026, 8, 21, 10, 30);
     private static final LocalDateTime ACTION_CREATED_AT = LocalDateTime.of(2026, 7, 20, 9, 0);
 
     @Autowired
@@ -289,10 +290,12 @@ class HandoverControllerTest {
     void listAsOwnerScopesToCompanyFromToken() throws Exception {
         authenticateAs(APPROVER, COMPANY, "OWNER", false, null);
         when(getHandoverListUseCase.list(any(GetHandoverListUseCase.HandoverListQuery.class)))
-                .thenReturn(List.of(summary()));
+                .thenReturn(List.of(finalizedSummary()));
 
+        // 오프보딩 승인일(finalizedAt)이 요약 응답에 실려 화면에 표시될 수 있어야 한다.
         mockMvc.perform(get("/api/handovers"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].finalizedAt").value("2026-08-21T10:30:00"));
 
         GetHandoverListUseCase.HandoverListQuery query = capturedQuery();
         assertThat(query.scope()).isEqualTo(GetHandoverListUseCase.Scope.COMPANY);
@@ -506,7 +509,12 @@ class HandoverControllerTest {
 
     private static GetHandoverListUseCase.HandoverSummary summary() {
         return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
-                HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0);
+                HandoverType.VACATION, HandoverStatus.SUBMITTED, START, END, null, 1, 1, 0, null);
+    }
+
+    private static GetHandoverListUseCase.HandoverSummary finalizedSummary() {
+        return new GetHandoverListUseCase.HandoverSummary(HANDOVER_ID, WRITER, "Kim", "Manager", TEAM,
+                HandoverType.OFFBOARDING, HandoverStatus.FINALIZED, START, END, null, 1, 1, 1, FINALIZED_AT);
     }
 
     private static Handover submitted() {
