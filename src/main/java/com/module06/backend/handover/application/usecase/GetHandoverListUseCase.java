@@ -57,7 +57,8 @@ public interface GetHandoverListUseCase {
             int itemCount,
             int reassignRequiredCount,
             int reassignedCount,
-            LocalDateTime finalizedAt
+            LocalDateTime finalizedAt,
+            String finalApproverName
     ) {
     }
 }

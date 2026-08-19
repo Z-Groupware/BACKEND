@@ -99,7 +99,8 @@ public class HandoverListService implements GetHandoverListUseCase, GetHandoverU
                 items.size(),
                 reassignRequiredCount,
                 reassignedCount,
-                handover.getFinalizedAt()
+                handover.getFinalizedAt(),
+                handover.getFinalApproverNameSnap()
         );
     }
 }
