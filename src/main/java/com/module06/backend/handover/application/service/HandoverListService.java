@@ -98,7 +98,8 @@ public class HandoverListService implements GetHandoverListUseCase, GetHandoverU
                 handover.getLastWorkingDay(),
                 items.size(),
                 reassignRequiredCount,
-                reassignedCount
+                reassignedCount,
+                handover.getFinalizedAt()
         );
     }
 }
